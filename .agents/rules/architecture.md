@@ -9,9 +9,9 @@ only the presentation.
 ## Layers
 
 ```
-src/            React: UI + UI state only
-src-tauri/      Rust app: connection lifecycle, supervision, IPC bridge
-crates/pi_rpc/  Pure protocol library, version = Pi version
+src/                    React: UI + UI state only
+src-tauri/              Rust app: connection lifecycle, supervision, IPC bridge
+src-tauri/src/pi_rpc/   Protocol module: Pi's wire types, framing, transports
 ```
 
 ## Hard boundaries
@@ -22,8 +22,12 @@ crates/pi_rpc/  Pure protocol library, version = Pi version
 - Rust (`src-tauri`) owns ALL logic: process supervision, connection lifecycle,
   retries and backoff, host-key verification, protocol normalization, error
   mapping.
-- `pi_rpc` MUST stay a pure library: no `tauri` imports, no UI concepts, no
-  connection policy. It knows JSONL, types, and transports.
+- `pi_rpc` MUST stay protocol-only: it knows JSONL, types, and transports — no
+  `tauri` imports, no UI concepts, no connection policy, and no reaching into
+  other app modules. It was a separate crate until that was traded for the
+  simpler single-crate layout, so this boundary is now a convention:
+  `src-tauri/tests/purity.rs` fails the build if it is crossed. Do not weaken
+  that test to make room for app concerns — put them outside the module.
 - Local and SSH connections MUST share one protocol layer — only the transport
   differs (`tokio::process::Child` stdin/stdout vs a `russh` exec channel). No
   PTY anywhere: Pi rpc is stdio.
@@ -38,4 +42,4 @@ crates/pi_rpc/  Pure protocol library, version = Pi version
   `TransportError | AuthError | HostKeyError | ProcessError | RpcError`. Extend
   the enum, never stringify an error.
 - Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the `pi_rpc`
-  crate == the Pi release the protocol mirrors.
+  module == the Pi release the protocol mirrors.

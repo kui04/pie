@@ -32,7 +32,11 @@ check:
 
 # cargo clippy (warnings are errors)
 clippy:
-    cd src-tauri && cargo clippy -- -D warnings
+    cd src-tauri && cargo clippy --all-targets -- -D warnings
+
+# rust tests, including the real-pi one when it is asked for
+rust-test:
+    cd src-tauri && cargo test
 
 # frontend unit/component tests (vitest)
 test:

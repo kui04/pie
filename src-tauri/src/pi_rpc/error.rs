@@ -1,0 +1,90 @@
+//! Everything that can go wrong while talking to `pi --mode rpc`.
+//!
+//! The variants map onto the fixed boundary taxonomy of the app
+//! (`TransportError`, `ProcessError`, `RpcError`, `AuthError`, `HostKeyError`);
+//! `src-tauri` performs that mapping, `pi_rpc` only reports what happened.
+
+use std::time::Duration;
+
+use thiserror::Error;
+
+/// Result alias for the protocol layer.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// A protocol, transport, or process failure.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum Error {
+    /// Starting the peer failed (missing binary, permission denied, ...).
+    #[error("failed to start `{program}`: {source}")]
+    Spawn {
+        /// Program that was being started.
+        program: String,
+        /// Underlying failure.
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// An i/o operation on an established transport failed.
+    #[error("transport i/o failed: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// A record could not be serialized. Always a bug in this crate.
+    #[error("failed to encode a protocol record: {0}")]
+    Encode(#[source] serde_json::Error),
+
+    /// `<program> --version` failed or printed nothing usable.
+    #[error("`{program} --version` failed: {message}")]
+    VersionProbe {
+        /// Program that was probed.
+        program: String,
+        /// What went wrong, or what was printed instead.
+        message: String,
+    },
+
+    /// The `pi` binary does not match the release this crate mirrors.
+    #[error("pi version mismatch: expected {expected}, found {found}")]
+    VersionMismatch {
+        /// Version this crate mirrors.
+        expected: String,
+        /// Version reported by the probed binary.
+        found: String,
+    },
+
+    /// The connection is closed, so the command was not sent.
+    #[error("connection is closed")]
+    Closed,
+
+    /// [`Client::start`](crate::pi_rpc::Client::start) ran outside a Tokio runtime.
+    #[error("no Tokio runtime is active; start the client from an async context")]
+    NoRuntime,
+
+    /// Pi answered a command with `success: false`.
+    #[error("pi rejected `{command}`: {message}")]
+    Rpc {
+        /// Command name as echoed by pi.
+        command: String,
+        /// Message from pi.
+        message: String,
+    },
+
+    /// No response arrived within the timeout the caller applied.
+    #[error("`{command}` (id {id}) produced no response within {timeout:?}")]
+    Timeout {
+        /// Request id that stayed unanswered.
+        id: String,
+        /// Command that was sent.
+        command: String,
+        /// Timeout the caller applied.
+        timeout: Duration,
+    },
+
+    /// A response carried a payload that did not match the mirrored type.
+    #[error("unexpected `{command}` payload: {message}")]
+    Payload {
+        /// Command whose payload failed to decode.
+        command: String,
+        /// Decoding failure.
+        message: String,
+    },
+}

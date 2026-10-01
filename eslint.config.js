@@ -7,7 +7,11 @@ import tseslint from "typescript-eslint";
 import { defineConfig } from "eslint/config";
 
 export default defineConfig(
-    { ignores: ["dist", "src-tauri/gen", ".codegraph"] },
+    // eslint does not read .gitignore, and a bare `target` does not match the files
+    // inside it: Tauri's generated assets under src-tauri/target are not valid
+    // JavaScript, so build output needs an explicit glob, next to the generated
+    // Android project and the pi reference checkout.
+    { ignores: ["dist", "**/target/**", "src-tauri/gen", ".codegraph"] },
     {
         extends: [js.configs.recommended, ...tseslint.configs.recommended],
         files: ["**/*.{ts,tsx}"],
@@ -22,6 +26,16 @@ export default defineConfig(
         rules: {
             ...reactHooks.configs.flat["recommended-latest"].rules,
             "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+        },
+    },
+    {
+        // The test scripts in src-tauri/tests/scripts are Node programs, not
+        // browser code.
+        extends: [js.configs.recommended],
+        files: ["src-tauri/tests/scripts/**/*.mjs"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            globals: globals.node,
         },
     },
     prettierConfig,

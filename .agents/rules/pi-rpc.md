@@ -1,7 +1,7 @@
-# pi_rpc rules — apply to crates/pi_rpc/** and any transport code
+# pi_rpc rules — apply to src-tauri/src/pi_rpc/** and any transport code
 
 `pi_rpc` implements Pi's `--mode rpc` JSONL protocol, mirrored from the pinned
-Pi checkout. Fidelity over elegance: this crate is Pi's protocol wearing Rust
+Pi checkout. Fidelity over elegance: this module is Pi's protocol wearing Rust
 types, nothing more.
 
 ## Sources of truth, in order

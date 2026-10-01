@@ -1,3 +1,11 @@
+//! Pie's Tauri application: connection lifecycle, process supervision, and the
+//! IPC bridge to the React frontend.
+//!
+//! [`pi_rpc`] mirrors Pi's `pi --mode rpc` protocol and stays free of app
+//! concerns; everything policy-shaped lives here.
+
+pub mod pi_rpc;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
