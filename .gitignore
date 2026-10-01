@@ -37,6 +37,3 @@ devenv.local.yaml
 
 # Android
 .android/
-
-# codegraph
-.codegraph/
