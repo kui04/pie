@@ -11,6 +11,7 @@ pub mod pi_rpc;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "pie starting");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
