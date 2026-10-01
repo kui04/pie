@@ -7,11 +7,24 @@ mobile first. Tauri 2: React 19 + TypeScript + Vite 8 frontend in `src/`, Rust
 backend in `src-tauri/`, committed Android Gradle project in
 `src-tauri/gen/android/` (only `gen/schemas` is ignored).
 
+Architecture: React does UI + UI state only; Rust owns all logic; Pi is driven
+as `pi --mode rpc` (JSONL over stdio), local spawn or SSH exec — the machine
+running Pi must have `pi` on PATH.
+
 Pi's source is checked out at `.codegraph/.references/pi` (untracked, indexed by
 CodeGraph via `codegraph.json`) — read it for real Pi APIs instead of guessing.
 Pinned at `ed8b3bcc194c8263ec8bec3f337053ae73866da1` (main); recreate with
 `git clone https://github.com/earendil-works/pi .codegraph/.references/pi` and
 `git -C .codegraph/.references/pi checkout <hash>`.
+
+## Architecture rules
+
+Read and strictly follow the matching rule file BEFORE writing code — they are
+contracts, not suggestions. Deviations require explicit user approval.
+
+- Anything: `.agents/rules/architecture.md`
+- `crates/pi_rpc/**` or any transport code: `.agents/rules/pi-rpc.md`
+- `src/**` (React): `.agents/rules/frontend.md` and `.agents/rules/state.md`
 
 ## Setup
 
@@ -34,7 +47,9 @@ Recipes via [just](https://github.com/casey/just) (`just --list`):
 - JS: `just lint` (eslint 10, `eslint.config.js`), `just format` (prettier with
   Tailwind class sorting), `pnpm build` (tsc + vite)
 
-No test framework yet — don't invent test commands.
+Frontend tests: `just test` (vitest + happy-dom + Testing Library). Statecharts
+are also path-enumerated with `@xstate/graph` — the pattern lives in
+`src/machines/__tests__/statechart-pattern.test.ts`.
 
 ## Git hooks
 
