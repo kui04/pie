@@ -1,0 +1,6 @@
+# pnpm 11 settings live here. esbuild's install script is deliberately blocked:
+# its platform binary ships as an optional dependency, and `just build`,
+# `just test` and `pnpm build-storybook` all pass with the script never run.
+# Set to true only if a future dependency genuinely needs it.
+allowBuilds:
+  esbuild: false

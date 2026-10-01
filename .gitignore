@@ -37,3 +37,6 @@ devenv.local.yaml
 
 # Android
 .android/
+
+*storybook.log
+storybook-static

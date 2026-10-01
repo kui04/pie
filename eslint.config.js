@@ -11,7 +11,7 @@ export default defineConfig(
     // inside it: Tauri's generated assets under src-tauri/target are not valid
     // JavaScript, so build output needs an explicit glob, next to the generated
     // Android project and the pi reference checkout.
-    { ignores: ["dist", "**/target/**", "src-tauri/gen", ".codegraph"] },
+    { ignores: ["dist", "storybook-static", "**/target/**", "src-tauri/gen", ".codegraph"] },
     {
         extends: [js.configs.recommended, ...tseslint.configs.recommended],
         files: ["**/*.{ts,tsx}"],
@@ -26,6 +26,14 @@ export default defineConfig(
         rules: {
             ...reactHooks.configs.flat["recommended-latest"].rules,
             "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+        },
+    },
+    {
+        // Generated shadcn primitives export variant maps next to their
+        // components; that is the upstream pattern, not a fast-refresh bug.
+        files: ["src/components/ui/**/*.{ts,tsx}"],
+        rules: {
+            "react-refresh/only-export-components": "off",
         },
     },
     {

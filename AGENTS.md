@@ -40,22 +40,24 @@ Android SDK/NDK + JDK, Tauri Linux deps, `just`, and `just-lsp`.
 
 ## Build and test
 
-Recipes via [just](https://github.com/casey/just) (`just --list`):
+Recipes via [just](https://github.com/casey/just) (`just --list`) — the recipes
+are the source of truth for the commands themselves.
 
-- Desktop: `just dev` (dev), `just build` (release); frontend only: `just web`
+- Desktop: `just dev` (dev), `just build` (release); frontend only: `just web` /
+  `just web-build`; component preview: `just storybook` /
+  `just storybook-build`.
 - Android: `just android-dev`, `just android-build` — needs a connected device,
   no AVD is provided.
-- Rust: `just check` (cargo check), `just clippy` (warnings are errors, all
-  targets), `just rust-test` — all run inside `src-tauri`, where the app and the
-  `pi_rpc` module live. Some `pi_rpc` tests are `#[ignore]`d because they start
-  a real `pi` or need it on `PATH`: run those with
+- Rust: `just check`, `just clippy` (warnings are errors, all targets),
+  `just rust-test` — all inside `src-tauri`, where the app and the `pi_rpc`
+  module live. Ignored tests start a real `pi`: run them with
   `cd src-tauri && cargo test -- --ignored` after bumping the pin.
-- JS: `just lint` (eslint 10, `eslint.config.js`), `just format` (prettier with
-  Tailwind class sorting), `pnpm build` (tsc + vite)
+- JS: `just lint`, `just format`, `just test`.
 
-Frontend tests: `just test` (vitest + happy-dom + Testing Library). Statecharts
-are also path-enumerated with `@xstate/graph` — the pattern lives in
-`src/machines/__tests__/statechart-pattern.test.ts`.
+Stories sit next to their component (`src/**/*.stories.tsx`) and replay the
+recorded protocol corpus through `src/preview/fixtures.ts`. Statecharts are also
+path-enumerated with `@xstate/graph`
+(`src/machines/__tests__/statechart-pattern.test.ts`).
 
 ## Git hooks
 
@@ -73,6 +75,8 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 
 ## Conventions
 
+- UI primitives come from shadcn (`pnpm dlx shadcn@latest add <name>`) into
+  `src/components/ui/` — generated, never hand-edited.
 - Version tracks the latest
   [Pi release](https://github.com/earendil-works/pi/releases) (currently
   0.99.2). When bumping: edit `package.json`, `src-tauri/tauri.conf.json` and
@@ -88,9 +92,14 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 
 ## Gotchas
 
+- React never interprets the wire: `src/lib/protocol.ts` is types-only; parsing,
+  framing and degradation stay in Rust.
 - `src-tauri/src/pi_rpc` mirrors Pi's wire protocol, not Tauri's needs: it holds
   no connection policy, and an unmapped record must degrade to
   `ServerMessage::Unknown` instead of failing the connection.
+- pnpm 11 keeps build-script approvals in `pnpm-workspace.yaml`; esbuild is
+  deliberately `false`, and a `set this to true or false` stub fails every
+  `pnpm <script>`.
 - Logs go through `tracing` + `tracing-subscriber` (`src-tauri/src/logging.rs`):
   stderr on desktop, logcat on Android, because a device shows neither stdout
   nor stderr. `RUST_LOG` _replaces_ the default `info` level rather than adding

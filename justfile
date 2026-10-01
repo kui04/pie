@@ -6,6 +6,18 @@ dev:
 web:
     pnpm dev
 
+# frontend production build (tsc + vite)
+web-build:
+    pnpm build
+
+# component preview (http://localhost:6006)
+storybook:
+    pnpm storybook
+
+# static component preview build (storybook-static/)
+storybook-build:
+    pnpm build-storybook
+
 # release build
 build:
     pnpm tauri build
