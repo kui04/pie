@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  rust-overlay:
+    url: github:oxalica/rust-overlay
+  git-hooks:
+    url: github:cachix/git-hooks.nix
+
+nixpkgs:
+  # The Android SDK is unfree and its licenses are pre-accepted.
+  allow_unfree: true
+  android_sdk:
+    accept_license: true
