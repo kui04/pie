@@ -91,6 +91,11 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 - `src-tauri/src/pi_rpc` mirrors Pi's wire protocol, not Tauri's needs: it holds
   no connection policy, and an unmapped record must degrade to
   `ServerMessage::Unknown` instead of failing the connection.
+- Logs go through `tracing` + `tracing-subscriber` (`src-tauri/src/logging.rs`):
+  stderr on desktop, logcat on Android, because a device shows neither stdout
+  nor stderr. `RUST_LOG` _replaces_ the default `info` level rather than adding
+  to it — use `RUST_LOG=info,pi_rpc=debug` to keep app logs while raising one
+  target.
 - `RUSTFLAGS` contains mold flags (desktop x86_64). For Android cargo builds
   linking through the NDK toolchain, unset `RUSTFLAGS` if linking fails.
 - Pinned nixpkgs quirks: no `javascriptcoregtk_*` (merged into `webkitgtk_4_1`);

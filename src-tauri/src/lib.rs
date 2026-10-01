@@ -2,12 +2,16 @@
 //! IPC bridge to the React frontend.
 //!
 //! [`pi_rpc`] mirrors Pi's `pi --mode rpc` protocol and stays free of app
-//! concerns; everything policy-shaped lives here.
+//! concerns; everything policy-shaped lives here, including where logs go
+//! ([`logging`]).
 
+pub mod logging;
 pub mod pi_rpc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    logging::init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())
