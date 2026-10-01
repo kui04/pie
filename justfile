@@ -34,6 +34,10 @@ check:
 clippy:
     cd src-tauri && cargo clippy -- -D warnings
 
+# frontend unit/component tests (vitest)
+test:
+    pnpm test
+
 # run all git hooks on all files
 hooks:
     prek run --all-files

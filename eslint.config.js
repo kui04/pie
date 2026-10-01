@@ -7,7 +7,7 @@ import tseslint from "typescript-eslint";
 import { defineConfig } from "eslint/config";
 
 export default defineConfig(
-    { ignores: ["dist", "src-tauri/gen"] },
+    { ignores: ["dist", "src-tauri/gen", ".codegraph"] },
     {
         extends: [js.configs.recommended, ...tseslint.configs.recommended],
         files: ["**/*.{ts,tsx}"],
