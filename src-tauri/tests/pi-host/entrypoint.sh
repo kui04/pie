@@ -6,7 +6,9 @@
 # different keys - which is what the trust-on-first-use path is for.
 set -eu
 
-user=${PI_HOST_USER:-pie}
+# Baked in by the image from the build argument: the account exists under this
+# name, so a missing value is a broken image rather than something to guess at.
+user=${PI_HOST_USER:?set PI_HOST_USER to the account this host runs as}
 home=$(getent passwd "$user" | cut -d: -f6)
 authorized_keys=${PI_HOST_AUTHORIZED_KEYS:-/run/pi-host/authorized_keys}
 

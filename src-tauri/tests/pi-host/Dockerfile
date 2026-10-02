@@ -64,6 +64,13 @@ RUN set -eux; \
 # tests expect fails as a password error, which is a slow thing to diagnose.
 ARG PI_HOST_USER
 ARG PI_HOST_PASSWORD
+# The entrypoint needs the account's name at run time, where a build argument is
+# no longer visible - it would fall back to a guess and then fail on an account
+# nobody asked for.
+ENV PI_HOST_USER=${PI_HOST_USER}
+# The password is deliberately not promoted the same way: an ENV lands in the
+# image's own config, and a password does not belong there. Creating the account
+# is the only thing it is needed for.
 RUN set -eux; \
     test -n "$PI_HOST_USER"; \
     test -n "$PI_HOST_PASSWORD"; \

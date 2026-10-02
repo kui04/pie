@@ -12,8 +12,8 @@
 # `start` rebuilds the image (docker's cache makes that cheap when nothing
 # changed) and is otherwise idempotent. Sizing and credentials come from
 # PIE_SSH_* variables; every one of them has a default that works locally, and
-# they are the only place the host's account is decided - the image takes them
-# as build arguments.
+# they are the only place the host's account is decided - the image is built
+# with the account and keeps its name for its own entrypoint.
 set -euo pipefail
 
 container=${PIE_SSH_CONTAINER:-pie-ssh-fixture}
