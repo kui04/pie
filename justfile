@@ -46,6 +46,9 @@ check:
 clippy:
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
+# rustdoc, with a link to a private item treated as an error (nothing else runs it)
+doc:
+    cd src-tauri && RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
 # rust tests, including the real-pi one when it is asked for
 rust-test:
