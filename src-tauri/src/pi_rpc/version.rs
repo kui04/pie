@@ -6,13 +6,31 @@
 
 use std::ffi::OsStr;
 use std::process::Stdio;
+use std::time::Duration;
 
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::pi_rpc::error::{Error, Result};
 
 /// The Pi release this crate mirrors.
 pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// How long `<program> --version` may take.
+///
+/// A probe that prints a version and exits takes milliseconds; a program that
+/// never does - a wrapper waiting on input, a hung package manager - would hold
+/// whoever asked it, so the probe is bounded the same way the SSH transport
+/// bounds its steps: nothing here has a handle to cancel the wait with, so the
+/// wait has to end by itself.
+const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How many times a probe may be started again while the program is still busy.
+const SPAWN_ATTEMPTS: usize = 5;
+
+/// Pause between those attempts; long enough for the kernel to release a
+/// program that is being written or executed elsewhere.
+const SPAWN_RETRY_DELAY: Duration = Duration::from_millis(20);
 
 /// Runs `<program> --version` and returns the trimmed version it printed.
 ///
@@ -21,38 +39,125 @@ pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// # Errors
 ///
-/// [`Error::Spawn`] when the program cannot be run at all, and
-/// [`Error::VersionProbe`] when it exits non-zero or prints nothing usable.
+/// [`Error::Spawn`] when the program cannot be run at all,
+/// [`Error::VersionProbe`] when it exits non-zero, prints nothing usable, or
+/// does not answer within `VERSION_PROBE_TIMEOUT`.
 pub async fn probe_version(program: impl AsRef<OsStr>) -> Result<String> {
-    let program = program.as_ref();
-    let output = Command::new(program)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .output()
-        .await
-        .map_err(|source| Error::Spawn {
-            program: program.to_string_lossy().into_owned(),
-            source,
-        })?;
+    probe_version_within(program, VERSION_PROBE_TIMEOUT).await
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if !output.status.success() {
+/// [`probe_version`], with the bound the caller needs.
+async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> Result<String> {
+    let program = program.as_ref();
+    let name = program.to_string_lossy().into_owned();
+    let mut child = None;
+    let mut spawn_error = None;
+    // `ETXTBSY` means the program is being written or executed right now; the
+    // kernel clears it a moment after the writer goes, so a brief retry settles
+    // it. Reporting it instead would make "the file was just written" a failure
+    // of the probe.
+    for attempt in 0..SPAWN_ATTEMPTS {
+        match Command::new(program)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(spawned) => {
+                child = Some(spawned);
+                break;
+            }
+            Err(source) if source.kind() == std::io::ErrorKind::ExecutableFileBusy && attempt + 1 < SPAWN_ATTEMPTS => {
+                tokio::time::sleep(SPAWN_RETRY_DELAY).await;
+            }
+            Err(source) => {
+                spawn_error = Some(source);
+                break;
+            }
+        }
+    }
+    let mut child = match child {
+        Some(child) => child,
+        None => {
+            return Err(Error::Spawn {
+                program: name,
+                source: spawn_error.expect("a failed spawn has an error"),
+            });
+        }
+    };
+
+    // Read while waiting, the way `wait_with_output` does it. A program that
+    // prints more than a pipe holds blocks in `write`, so waiting first would
+    // time out on a child that was answering the whole time - and taking the
+    // handles here changes nothing about that: the buffer is the kernel's.
+    let mut out = child.stdout.take().expect("stdout is piped above");
+    let mut err = child.stderr.take().expect("stderr is piped above");
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+
+    let joined = tokio::time::timeout(timeout, async {
+        tokio::join!(child.wait(), out.read_to_end(&mut stdout), err.read_to_end(&mut stderr),)
+    })
+    .await;
+
+    // Nothing is read once the bound has expired: a grandchild that inherited
+    // the pipe's write end would keep the read open indefinitely, and the point
+    // of a bound is that this call returns whatever the program does.
+    let (status, ..) = match joined {
+        Ok(joined) => joined,
+        Err(_elapsed) => {
+            let _ = child.kill().await;
+            return Err(Error::VersionProbe {
+                program: name,
+                message: format!("printed no version within {timeout:?}"),
+            });
+        }
+    };
+    let status = status.map_err(|source| Error::Spawn {
+        program: name.clone(),
+        source,
+    })?;
+
+    let stdout = String::from_utf8_lossy(&stdout);
+    let stdout = stdout.trim();
+    // What the program said about itself, when it said anything: a wrapper
+    // explaining why it cannot answer is the reason worth passing on.
+    let stderr = String::from_utf8_lossy(&stderr);
+    let said = stderr
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default()
+        .trim();
+    let said = said.chars().take(200).collect::<String>();
+
+    if !status.success() {
+        let printed = if stdout.is_empty() {
+            String::new()
+        } else {
+            format!(", printed `{stdout}`")
+        };
+        let said = if said.is_empty() {
+            String::new()
+        } else {
+            format!(", said `{said}`")
+        };
         return Err(Error::VersionProbe {
-            program: program.to_string_lossy().into_owned(),
-            message: if stdout.is_empty() {
-                format!("exited with {}", output.status)
-            } else {
-                format!("exited with {}, printed `{stdout}`", output.status)
-            },
+            program: name.clone(),
+            message: format!("exited with {status}{printed}{said}"),
         });
     }
     if stdout.is_empty() {
         return Err(Error::VersionProbe {
-            program: program.to_string_lossy().into_owned(),
-            message: "printed nothing on stdout".to_string(),
+            program: name,
+            message: if said.is_empty() {
+                "printed nothing on stdout".to_string()
+            } else {
+                format!("printed nothing on stdout, said `{said}`")
+            },
         });
     }
-    Ok(stdout)
+    Ok(stdout.to_string())
 }
 
 /// Compares a reported version with [`PI_VERSION`].
@@ -119,21 +224,21 @@ mod tests {
     }
 
     /// A command that exits zero without printing a version is a real possibility
-    /// (a wrapper script shadowing `pi`), so the branch is covered through an
-    /// executable that ignores its arguments.
+    /// (a wrapper script shadowing `pi`), so the branch is covered through a
+    /// script that ignores its arguments.
     #[cfg(unix)]
     #[tokio::test]
     async fn probe_version_reports_a_silent_command() {
         use std::os::unix::fs::PermissionsExt;
 
-        let script = std::env::temp_dir().join(format!("pi-rpc-silent-{}", std::process::id()));
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let script = directory.path().join("pi-silent");
         std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let error = probe_version(&script)
             .await
             .expect_err("a silent command cannot report a version");
-        std::fs::remove_file(&script).unwrap();
 
         match error {
             Error::VersionProbe { message, .. } => {
@@ -141,5 +246,89 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    /// A program that answers `--version` by never answering at all would hold
+    /// whoever asked it. The bound ends the wait, and the child does not outlive
+    /// the question.
+    ///
+    /// A script rather than a sleeping binary: `sleep --version` is a version
+    /// *answer* on a GNU system, which is the opposite of what is wanted here.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_probe_that_never_answers_is_given_up_on() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let script = directory.path().join("pi-never-answers");
+        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let error = probe_version_within(&script, Duration::from_millis(100))
+            .await
+            .expect_err("a program that never prints a version cannot report one");
+
+        match error {
+            Error::VersionProbe { message, .. } => {
+                assert!(message.contains("printed no version within"), "got `{message}`");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    /// A program that is being written cannot be executed at all (`ETXTBSY`), which
+    /// is a real condition for a `pi` someone is reinstalling underneath pie. The
+    /// kernel clears it once the writer goes, so the probe waits rather than
+    /// reporting "the program could not be run".
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_probe_waits_out_a_program_that_is_being_written() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let script = directory.path().join("pi-being-written");
+        std::fs::write(&script, "#!/bin/sh\necho 0.99.2\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Held open for writing while the probe runs: every exec is refused
+        // until it is dropped.
+        let writer = std::fs::OpenOptions::new().write(true).open(&script).expect("a writer");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            drop(writer);
+        });
+
+        let found = probe_version_within(&script, Duration::from_secs(10))
+            .await
+            .expect("a program that stops being written can be run");
+        release.join().expect("the writer is gone");
+
+        assert_eq!(found, "0.99.2");
+    }
+
+    /// A probe that prints more than a pipe can hold must still be read. Waiting
+    /// for the process without draining its pipes deadlocks the *other* way: the
+    /// child blocks in `write`, the parent waits for an exit that cannot come,
+    /// and the bound then reports the wrong reason.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_probe_that_prints_past_the_pipe_is_still_read() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let script = directory.path().join("pi-chatty");
+        // Well over the 64 KiB a pipe holds, then the version on its own line.
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\0' 'x'\necho 0.99.2\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let found = probe_version_within(&script, Duration::from_secs(10))
+            .await
+            .expect("a chatty program still answers");
+
+        assert!(found.contains("0.99.2"), "got {found:.40}...");
     }
 }

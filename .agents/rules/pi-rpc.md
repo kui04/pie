@@ -31,11 +31,11 @@ Pi's fields, or "improve" wire shapes.
 - One read loop per connection; fan out through a channel. NEVER block the read
   loop on UI or command handling — Pi relies on stdout backpressure.
 - Correlate `id`s in a map; one in-flight request per id; `success: false`
-  responses become `RpcError`, never a panic.
+  responses become an error the app reports as `PieError::Rpc`, never a panic.
 - Lifecycle: closing stdin is the graceful shutdown path; handle SIGTERM and
   channel EOF; the SSH case follows the same rules over the russh channel.
-- Check `pi --version` against the pin; a mismatch is a surfaced `ProcessError`,
-  not a silent continue.
+- Check `pi --version` against the pin; a mismatch is surfaced as
+  `PieError::Process`, not a silent continue.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is ours to implement (TOFU + known_hosts); private keys
   are referenced by path only — pie never copies secret material into its own

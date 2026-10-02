@@ -1,8 +1,9 @@
 //! Everything that can go wrong while talking to `pi --mode rpc`.
 //!
-//! The variants map onto the fixed boundary taxonomy of the app
-//! (`TransportError`, `ProcessError`, `RpcError`, `AuthError`, `HostKeyError`);
-//! `src-tauri` performs that mapping, `pi_rpc` only reports what happened.
+//! The variants report what happened; sorting them into the categories the
+//! frontend branches on is `src-tauri`'s job (`PieError`, see
+//! `.agents/rules/architecture.md`), which is also where a failure is named
+//! once rather than in every place that reports one.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -162,7 +163,9 @@ pub enum Error {
     /// The host's key was not accepted, so the handshake was abandoned.
     #[error("the host key of {endpoint} was not accepted: {reason}")]
     HostKeyRejected {
-        /// Host whose key was refused, `user@host:port`.
+        /// Host whose key was refused, as `host:port`. What is checked is the
+        /// host, not who is logging in, so the app's policy does not know the
+        /// login name here (unlike [`Error::Connect`], which does).
         endpoint: String,
         /// Why it was refused, phrased for a person.
         reason: String,
