@@ -272,9 +272,12 @@ impl SshTransport {
                 endpoint: endpoint.clone(),
                 source,
             })?;
-        // Nagle's algorithm is on in russh's default config, and `connect_stream`
-        // - the entry point that applies `Config.nodelay` - is not on this path.
-        // An interactive record should not wait for an acknowledgement.
+        // Nagle's algorithm is on in russh's default config, and the one place
+        // russh applies `Config.nodelay` is `client::connect`, which opens its
+        // own socket. This socket is opened here instead (for the timeout
+        // above), and `connect_stream` takes a generic stream it cannot set
+        // options on, so turning Nagle off is this code's job: without it an
+        // interactive record waits for an acknowledgement.
         if let Err(error) = socket.set_nodelay(true) {
             tracing::debug!(%error, "could not disable Nagle's algorithm");
         }
