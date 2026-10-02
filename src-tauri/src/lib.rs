@@ -3,8 +3,12 @@
 //!
 //! [`pi_rpc`] mirrors Pi's `pi --mode rpc` protocol and stays free of app
 //! concerns; everything policy-shaped lives here, including where logs go
-//! ([`logging`]).
+//! ([`logging`]), what a connected host is ([`connection`]), and what the
+//! frontend may ask for ([`commands`]).
 
+pub mod commands;
+pub mod connection;
+pub mod error;
 pub mod logging;
 pub mod pi_rpc;
 
@@ -15,6 +19,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(commands::AppState::default())
+        .invoke_handler(tauri::generate_handler![
+            commands::connect,
+            commands::disconnect,
+            commands::trust_host_key
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

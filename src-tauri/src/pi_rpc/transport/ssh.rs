@@ -199,7 +199,9 @@ pub trait HostKey: Send + Sync + 'static {
     /// [`Error::HostKeyRejected`] for a key it will not trust, or an I/O error
     /// from reading its key store. `host` and `port` are the endpoint as the
     /// app named it, so a verifier can key its store without parsing the
-    /// address back out.
+    /// address back out. The login name is not part of it - what is being
+    /// checked is the host, not who is logging in - so an app's failures for
+    /// this step name a host and a port alone.
     ///
     /// The future is boxed because the transport holds the verifier as a trait
     /// object; it runs once per connection, where the allocation is nothing.

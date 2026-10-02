@@ -46,6 +46,7 @@ check:
 clippy:
     cd src-tauri && cargo clippy --all-targets -- -D warnings
 
+
 # rust tests, including the real-pi one when it is asked for
 rust-test:
     cd src-tauri && cargo test
@@ -54,13 +55,14 @@ rust-test:
 ssh-fixture:
     bash src-tauri/tests/scripts/ssh-fixture.sh start
 
-# SSH transport tests against that sshd and a real pi (starts the fixture).
+# SSH tests against that sshd and a real pi (starts the fixture): the transport
+# layer, and the app's connection layer over it.
 # Repeats the line above on purpose: just does not hand a dependency's output to
 # the recipe that depends on it, and the coordinates reach the tests as
 # environment variables. One test at a time: they share one host, and one of them
 # counts what that host is left holding.
 ssh-test:
-    eval "$(bash src-tauri/tests/scripts/ssh-fixture.sh start)" && cd src-tauri && cargo test --test ssh -- --ignored --test-threads=1
+    eval "$(bash src-tauri/tests/scripts/ssh-fixture.sh start)" && cd src-tauri && cargo test --test ssh --test connection -- --ignored --test-threads=1
 
 # frontend unit/component tests (vitest)
 test:

@@ -28,15 +28,17 @@ is data and cannot answer a request a test sends now. It is the only coverage of
 ```sh
 # the tests need what it prints, exported:
 eval "$(src-tauri/tests/scripts/ssh-fixture.sh start)"
-cargo test --test ssh -- --ignored
+cargo test --test ssh --test connection -- --ignored --test-threads=1
 src-tauri/tests/scripts/ssh-fixture.sh stop
 ```
 
 Builds and runs `../pi-host/Dockerfile`: a Debian userland with a real `sshd`
 and a real `pi`, the environment `tests/ssh.rs` needs to exercise `SshTransport`
-against an actual server instead of a fake one. `start` builds the image
-(docker's cache makes that cheap), replaces any container of the same name, and
-prints the coordinates the tests read from `PIE_SSH_TEST_*`.
+against an actual server instead of a fake one, and the one
+`tests/connection.rs` needs to put a host key through the app's policy
+(`just ssh-test` runs both). `start` builds the image (docker's cache makes that
+cheap), replaces any container of the same name, and prints the coordinates the
+tests read from `PIE_SSH_TEST_*`.
 
 It is a container rather than the machine's own sshd so that nothing touches
 `~/.ssh`: the fixture generates a key of its own under `/tmp/pie-ssh-fixture`,

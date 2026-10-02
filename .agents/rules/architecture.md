@@ -36,10 +36,15 @@ src-tauri/src/pi_rpc/   Protocol module: Pi's wire types, framing, transports
 
 - Commands live in `src-tauri/src/commands/`, snake_case, and return
   `Result<T, PieError>` — never a bare string error.
-- Events are namespaced `pi://<area>/<id>`, e.g. `pi://session/{id}/event`,
-  `pi://connection/{id}/state`; payloads are tagged (`type` field), snake_case.
+- Events are namespaced `pi://<area>/{id}`, e.g. `pi://session/{id}/event`,
+  `pi://connection/{id}/state`; payloads are tagged on a `type` field. Tag
+  values are snake_case (`host_key`); field names are camelCase, matching the
+  fields the frontend already reads off Pi's own records.
 - The error taxonomy crossing the boundary is fixed:
-  `TransportError | AuthError | HostKeyError | ProcessError | RpcError`. Extend
-  the enum, never stringify an error.
+  `PieError::{Transport, Auth, HostKey, Process, Rpc}` (in
+  `src-tauri/src/error.rs`). Extend the enum, never stringify an error. The app
+  adds the cases that are about neither host nor protocol: `AlreadyConnected`
+  for a second `connect`, and `Internal` for pie's own mistakes, its own setup
+  included.
 - Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the `pi_rpc`
   module == the Pi release the protocol mirrors.

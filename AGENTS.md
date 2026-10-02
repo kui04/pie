@@ -49,11 +49,13 @@ are the source of truth for the commands themselves.
 - Android: `just android-dev`, `just android-build` — needs a connected device,
   no AVD is provided.
 - Rust: `just check`, `just clippy` (warnings are errors, all targets),
-  `just rust-test` — all inside `src-tauri`, where the app and the `pi_rpc`
-  module live. Ignored tests start a real `pi`: run them with
-  `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
-  `just ssh-test` for the SSH transport, which brings up its own sshd in a
-  container (`just ssh-fixture` to keep one running).
+  `just rust-test`, `just doc` (rustdoc with warnings as errors, so a link to a
+  private item fails instead of going unnoticed) — all inside `src-tauri`, where
+  the app and the `pi_rpc` module live. Ignored tests start a real `pi`: run
+  them with `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
+  `just ssh-test` for the SSH paths (transport and the app's connection layer),
+  which brings up its own sshd in a container (`just ssh-fixture` to keep one
+  running).
 - JS: `just lint`, `just format`, `just test`.
 
 Stories sit next to their component (`src/**/*.stories.tsx`) and replay the
@@ -79,6 +81,18 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 
 - UI primitives come from shadcn (`pnpm dlx shadcn@latest add <name>`) into
   `src/components/ui/` — generated, never hand-edited.
+- The app layer keeps its own shape: `src-tauri/src/error.rs` is the boundary
+  taxonomy (`PieError`, mapped from `pi_rpc::Error` in one `From`),
+  `src-tauri/src/connection/` holds the one host pie talks to (and stays free of
+  Tauri, so it can be tested against a real host), and `src-tauri/src/commands/`
+  is the IPC surface — commands return `Result<T, PieError>`, events are
+  `pi://<area>/{id}`.
+- Code comments cite the research log as `docs/TODO.md, G<number>` (a numbered
+  gap in that file). `docs/` is a migration-period directory: it is not
+  committed, so those citations only resolve inside this working tree. They are
+  provenance, not a specification — every such comment also states the reason
+  inline, and the durable version of that reason cites OpenSSH's or russh's own
+  source, which anyone can look up.
 - Version tracks the latest
   [Pi release](https://github.com/earendil-works/pi/releases) (currently
   0.99.2). When bumping: edit `package.json`, `src-tauri/tauri.conf.json` and
