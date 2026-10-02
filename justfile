@@ -50,6 +50,17 @@ clippy:
 rust-test:
     cd src-tauri && cargo test
 
+# the sshd the SSH transport tests talk to (builds tests/pi-host, prints exports)
+ssh-fixture:
+    bash src-tauri/tests/scripts/ssh-fixture.sh start
+
+# SSH transport tests against that sshd and a real pi (starts the fixture).
+# Repeats the line above on purpose: just does not hand a dependency's output to
+# the recipe that depends on it, and the coordinates reach the tests as
+# environment variables.
+ssh-test:
+    eval "$(bash src-tauri/tests/scripts/ssh-fixture.sh start)" && cd src-tauri && cargo test --test ssh -- --ignored
+
 # frontend unit/component tests (vitest)
 test:
     pnpm test

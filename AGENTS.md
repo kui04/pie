@@ -51,7 +51,9 @@ are the source of truth for the commands themselves.
 - Rust: `just check`, `just clippy` (warnings are errors, all targets),
   `just rust-test` — all inside `src-tauri`, where the app and the `pi_rpc`
   module live. Ignored tests start a real `pi`: run them with
-  `cd src-tauri && cargo test -- --ignored` after bumping the pin.
+  `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
+  `just ssh-test` for the SSH transport, which brings up its own sshd in a
+  container (`just ssh-fixture` to keep one running).
 - JS: `just lint`, `just format`, `just test`.
 
 Stories sit next to their component (`src/**/*.stories.tsx`) and replay the
@@ -83,7 +85,11 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   `src-tauri/Cargo.toml`; run `just check` (refreshes `Cargo.lock`); move the
   `.codegraph/.references/pi` checkout to the release commit, re-run
   `codegraph index`, and re-record `src-tauri/tests/fixtures` against the new
-  binary (`src-tauri/tests/scripts/README.md`).
+  binary (`src-tauri/tests/scripts/README.md`). The SSH test host follows the
+  pin too: `PI_VERSION` and `PI_SHA256` in `src-tauri/tests/pi-host/Dockerfile`,
+  where the hash is the one from the release's `SHA256SUMS`; a test compares
+  that argument against the crate version, so a stale one fails
+  `just rust-test`.
 - `devenv.nix` is formatted by nixfmt — keep its multi-line style.
 - prettier/eslint hooks deliberately use `node_modules/.bin` binaries (version
   parity with local dev) — don't point them at nixpkgs versions.

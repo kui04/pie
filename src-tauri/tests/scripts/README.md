@@ -2,7 +2,7 @@
 
 Tooling that supports the protocol tests. None of it is part of a test run:
 `cargo` ignores a `tests/` subdirectory without a `main.rs`, so these are only
-ever started by hand or by `tests/local_pi.rs`.
+ever started by hand, by `tests/local_pi.rs`, or by `tests/ssh.rs`.
 
 ## `fake-pi.sh` - the scripted peer
 
@@ -22,6 +22,41 @@ is data and cannot answer a request a test sends now. It is the only coverage of
 `LocalTransport` in the default run - the real-`pi` test next to it is
 `#[ignore]`d - and it is what caught `AsyncWrite::shutdown` being a no-op for
 `tokio::process::ChildStdin`.
+
+## `ssh-fixture.sh` - an sshd to talk to
+
+```sh
+# the tests need what it prints, exported:
+eval "$(src-tauri/tests/scripts/ssh-fixture.sh start)"
+cargo test --test ssh -- --ignored
+src-tauri/tests/scripts/ssh-fixture.sh stop
+```
+
+Builds and runs `../pi-host/Dockerfile`: a Debian userland with a real `sshd`
+and a real `pi`, the environment `tests/ssh.rs` needs to exercise `SshTransport`
+against an actual server instead of a fake one. `start` builds the image
+(docker's cache makes that cheap), replaces any container of the same name, and
+prints the coordinates the tests read from `PIE_SSH_TEST_*`.
+
+It is a container rather than the machine's own sshd so that nothing touches
+`~/.ssh`: the fixture generates a key of its own under `/tmp/pie-ssh-fixture`,
+and its `sshd` publishes a port of its own (2222 by default). Three details are
+worth knowing before changing it:
+
+- **`pi` is pi's own release artifact**, downloaded in the Dockerfile and
+  checked against the `SHA256SUMS` upstream publishes, at the version
+  `src-tauri/src/pi_rpc` mirrors. Building it from the container would mean
+  installing pi's own extension packages first, over the network, on every fresh
+  image - minutes for extensions no test here touches.
+- **A release `pi` reports `0.0.0` for its version** - the string is compiled
+  into the binary, so only whoever builds pi sets it (`VERSION = pkg.version` in
+  pi's `config.ts`). The image therefore also sets `PI_SKIP_VERSION_CHECK=1`,
+  which is what every packaged pi does. `src-tauri/src/pi_rpc/version.rs` checks
+  the pin against a _packaged_ pi on the developer's own machine, not here.
+- **Credentials are a read-only mount of the host's `~/.pi/agent/auth.json`,**
+  at the path the container user reads them from. pi refuses to build a session
+  without a model, and a copy of a secret is worse than a mount that ends with
+  the container.
 
 ## `record.mjs` - record a session
 
