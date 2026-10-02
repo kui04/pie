@@ -129,16 +129,24 @@ fn open_connections_to_the_fixture() -> usize {
 
 /// A refused connection must not leave the host holding anything.
 ///
-/// Dropping the session handle closes the channel but not the session, so
-/// without an explicit disconnect every wrong password - or any command the
-/// host will not run - would leave a socket and a task behind, with a pi that
-/// may still be writing into it.
+/// `open` gives up by dropping its handle, and that is what ends the SSH
+/// session: russh's loop stops once every sender is gone. It is a property of a
+/// dependency rather than of this crate, which is why it is worth a test - and
+/// it is also why the error paths need no explicit disconnect.
+///
+/// The count is host-wide, so this test needs the host to itself: run the suite
+/// with `--test-threads=1`.
 #[tokio::test]
 #[cfg_attr(not(target_os = "linux"), ignore = "counts sockets through /proc")]
 #[ignore = "requires the ssh fixture"]
 async fn a_failed_connection_does_not_leave_the_session_running() {
     let fixture = Fixture::from_env();
     let before = open_connections_to_the_fixture();
+    assert!(
+        before == 0,
+        "the host already holds {before} connection(s): run this suite with --test-threads=1, \
+         or an earlier test left one behind"
+    );
 
     for _ in 0..3 {
         let error = SshTransport::open(

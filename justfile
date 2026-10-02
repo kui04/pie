@@ -57,9 +57,10 @@ ssh-fixture:
 # SSH transport tests against that sshd and a real pi (starts the fixture).
 # Repeats the line above on purpose: just does not hand a dependency's output to
 # the recipe that depends on it, and the coordinates reach the tests as
-# environment variables.
+# environment variables. One test at a time: they share one host, and one of them
+# counts what that host is left holding.
 ssh-test:
-    eval "$(bash src-tauri/tests/scripts/ssh-fixture.sh start)" && cd src-tauri && cargo test --test ssh -- --ignored
+    eval "$(bash src-tauri/tests/scripts/ssh-fixture.sh start)" && cd src-tauri && cargo test --test ssh -- --ignored --test-threads=1
 
 # frontend unit/component tests (vitest)
 test:
