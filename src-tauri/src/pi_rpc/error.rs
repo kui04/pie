@@ -4,6 +4,7 @@
 //! (`TransportError`, `ProcessError`, `RpcError`, `AuthError`, `HostKeyError`);
 //! `src-tauri` performs that mapping, `pi_rpc` only reports what happened.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -86,5 +87,84 @@ pub enum Error {
         command: String,
         /// Decoding failure.
         message: String,
+    },
+
+    /// The host did not accept the TCP connection in time.
+    #[error("connecting to {endpoint} timed out after {timeout:?}")]
+    ConnectTimeout {
+        /// Host that was being reached, `user@host:port`.
+        endpoint: String,
+        /// Limit that expired.
+        timeout: Duration,
+    },
+
+    /// The TCP connection to the host failed.
+    #[error("connecting to {endpoint} failed: {source}")]
+    Connect {
+        /// Host that was being reached, `user@host:port`.
+        endpoint: String,
+        /// Underlying failure.
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// The SSH layer failed: handshake, channel, or session.
+    #[error("ssh: {0}")]
+    Ssh(#[from] russh::Error),
+
+    /// A private key file could not be read or decrypted.
+    #[error("reading the private key at {}: {source}", path.display())]
+    SshKey {
+        /// Key file that failed to load.
+        path: PathBuf,
+        /// Why it failed.
+        #[source]
+        source: russh::keys::Error,
+    },
+
+    /// The host refused the credentials.
+    #[error("the host refused the credentials for {endpoint}")]
+    Auth {
+        /// Host that refused them, `user@host:port`.
+        endpoint: String,
+    },
+
+    /// The host neither accepted nor refused the credentials.
+    #[error("{endpoint} did not answer within {timeout:?}")]
+    AuthTimeout {
+        /// Host that stayed silent, `user@host:port`.
+        endpoint: String,
+        /// Limit that expired.
+        timeout: Duration,
+    },
+
+    /// The host refused to run the command: a missing `pi`, usually.
+    #[error("{endpoint} refused to run `{command}`")]
+    Exec {
+        /// Host that refused, `user@host:port`.
+        endpoint: String,
+        /// Command as it was sent.
+        command: String,
+    },
+
+    /// The host accepted the connection but never answered the request to run
+    /// the command.
+    #[error("{endpoint} did not answer within {timeout:?} whether it can run `{command}`")]
+    ExecTimeout {
+        /// Host that stayed silent, `user@host:port`.
+        endpoint: String,
+        /// Command as it was sent.
+        command: String,
+        /// Limit that expired.
+        timeout: Duration,
+    },
+
+    /// The host's key was not accepted, so the handshake was abandoned.
+    #[error("the host key of {endpoint} was not accepted: {reason}")]
+    HostKeyRejected {
+        /// Host whose key was refused, `user@host:port`.
+        endpoint: String,
+        /// Why it was refused, phrased for a person.
+        reason: String,
     },
 }

@@ -406,6 +406,11 @@ where
                 Some(Outbound::CloseInput) => close_stdin(&mut writer).await,
                 Some(Outbound::Terminate) => {
                     let _ = control.terminate().await;
+                    // Nobody reads what is left, and a transport that copies the
+                    // peer's output into a pipe only learns the peer is gone
+                    // when writing to it. Releasing the reader is what lets that
+                    // copy finish, so that `wait` has something to report.
+                    drop(reader);
                     break control.wait().await.unwrap_or(Termination::Unknown);
                 }
                 None => close_stdin(&mut writer).await,
@@ -425,17 +430,18 @@ async fn write_record<W: AsyncWrite + Unpin>(writer: &mut W, line: &str) -> std:
     writer.flush().await
 }
 
-/// Closes pi's stdin by dropping the writer half.
+/// Closes pi's stdin by shutting the writer down and dropping it.
 ///
-/// `AsyncWrite::shutdown` cannot be used: it is a no-op for
+/// Both steps are needed. `AsyncWrite::shutdown` is a no-op for
 /// `tokio::process::ChildStdin` (`ChildStdio::poll_shutdown` returns
-/// `Ready(Ok(()))` without touching the pipe) and only flushes for
-/// `tokio::io::DuplexStream`. Dropping the write half is what gives pi EOF, and
-/// it is the same operation for every transport.
+/// `Ready(Ok(()))` without touching the pipe) and dropping the write half is
+/// what gives it EOF; an SSH channel is the other way around - dropping its
+/// writer sends nothing, while `shutdown` sends the channel EOF that reaches
+/// the remote pi as stdin EOF.
 async fn close_stdin<W: AsyncWrite + Unpin>(writer: &mut Option<W>) {
     if let Some(mut writer) = writer.take() {
-        if let Err(error) = writer.flush().await {
-            tracing::debug!(%error, "flushing pi's stdin before closing it failed");
+        if let Err(error) = writer.shutdown().await {
+            tracing::debug!(%error, "shutting pi's stdin down before closing it failed");
         }
         drop(writer);
     }

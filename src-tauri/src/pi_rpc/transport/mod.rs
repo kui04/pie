@@ -1,12 +1,15 @@
 //! Transports: where the protocol bytes come from and go to.
 //!
-//! One protocol layer, two ways to reach pi: a local child process here, and -
-//! later - an SSH exec channel. A transport only produces a byte stream pair and
-//! a lifecycle handle; it never looks at the protocol.
+//! One protocol layer, two ways to reach pi: a local child process and an SSH
+//! exec channel. A transport only produces a byte stream pair and a lifecycle
+//! handle; it never looks at the protocol.
 
 mod local;
 
+mod ssh;
+
 pub use local::{LocalControl, LocalProcess, LocalTransport};
+pub use ssh::{HostKey, PublicKey, SshAuth, SshControl, SshTarget, SshTransport};
 
 use std::future::Future;
 
@@ -22,6 +25,13 @@ pub trait Transport: Send + 'static {
     /// Reads pi's stdout.
     type Reader: AsyncRead + Unpin + Send + 'static;
     /// Writes pi's stdin.
+    ///
+    /// Contract: the peer must see EOF on its stdin once this is shut down -
+    /// that is pi's graceful exit signal. Dropping the writer alone does not
+    /// have to deliver it: a local pipe happens to, an SSH channel does not
+    /// (dropping its writer sends nothing, which is why the client shuts down
+    /// before dropping). An implementation that only delivers EOF on drop
+    /// therefore hangs pi's exit, so shutdown is the one to rely on.
     type Writer: AsyncWrite + Unpin + Send + 'static;
     /// Owns the process or session behind the streams.
     type Control: Control;
