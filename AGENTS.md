@@ -79,8 +79,11 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 
 ## Conventions
 
-- UI primitives come from shadcn (`pnpm dlx shadcn@latest add <name>`) into
-  `src/components/ui/` — generated, never hand-edited.
+- UI primitives come from shadcn with Radix
+  (`pnpm dlx shadcn@latest add <name>`) into `src/components/ui/`. Generated
+  code is ours: adapt it deliberately (mobile tuning goes in the CVA variants),
+  never hand-write a primitive shadcn already provides, and merge upstream
+  updates with `shadcn add <name> --diff`.
 - The app layer keeps its own shape: `src-tauri/src/error.rs` is the boundary
   taxonomy (`PieError`, mapped from `pi_rpc::Error` in one `From`),
   `src-tauri/src/connection/` holds the one host pie talks to (and stays free of
