@@ -5,12 +5,17 @@
 }:
 
 {
+  # Anything in this shell opens the pinned Chromium, not the system default
+  # browser — xdg-open prefers $BROWSER, and storybook opens through xdg-open.
+  env.BROWSER = "chromium";
+
   # Tauri 2 Linux desktop system dependencies
   # https://tauri.app/start/prerequisites/#linux
   packages = [
     pkgs.at-spi2-atk
     pkgs.atk
     pkgs.cairo
+    pkgs.chromium
     pkgs.gdk-pixbuf
     pkgs.glib
     pkgs.gtk3
