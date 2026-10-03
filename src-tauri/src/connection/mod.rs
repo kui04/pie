@@ -5,26 +5,31 @@
 //! that speaks the protocol, and ends it - and it stays free of Tauri, so the
 //! whole path can be tested against a real host with no UI in the way.
 //!
-//! One host at a time is what the product needs (docs/TODO.md, G12), so the app
-//! keeps one [`Connection`]. Sessions on that host are the processes pi runs:
+//! One host at a time is what the product needs, so the app keeps one
+//! [`Connection`]. Sessions on that host are the processes pi runs:
 //! connecting starts the first one, and everything else follows from there.
 //!
 //! Deciding whether to trust a host is policy and lives with [`KnownHosts`];
 //! the app builds that policy per connection and answers its questions.
 
+mod files;
 mod host_key;
 
+pub use files::{DirEntryInfo, SessionSummary};
 pub use host_key::{AskHostKey, KnownHosts, PresentedKey};
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 
 use crate::error::PieError;
 use crate::pi_rpc::Client;
-use crate::pi_rpc::transport::{HostKey, LocalTransport, SshAuth, SshTarget, SshTransport};
+use crate::pi_rpc::transport::{
+    ExecOutput, HostKey, LocalTransport, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
+};
 
 /// How long pi gets to shut down before it is killed.
 ///
@@ -113,7 +118,62 @@ pub struct Connection {
     id: String,
     /// `local`, or `user@host:port`.
     endpoint: String,
+    media: Media,
     sessions: Vec<Session>,
+}
+
+/// How pie reads the host's files.
+///
+/// The two reaches the protocol knows, for the host's own files rather than
+/// for pi: the filesystem here, sftp over the very session pi runs on.
+enum Media {
+    /// This machine: pi's sessions are ordinary files here.
+    Local {
+        /// Where pi keeps them; nothing when no home says.
+        sessions_root: Option<PathBuf>,
+        /// The home this connection was told about, what a directory listing
+        /// with no path asks for. Not the same source as `sessions_root`: pi
+        /// resolves its own from the environment it is started with, while
+        /// this is the home the frontend named for the session's directory -
+        /// normally the same directory, and kept apart so neither is guessed
+        /// at from the other's rule.
+        home: Option<PathBuf>,
+    },
+    /// A host reached over SSH.
+    Ssh {
+        /// The one connection every channel on this host rides on.
+        session: SshSession,
+        /// The sftp channel, opened on first use and reopened when it has died
+        /// (see [`files::sftp`], [`files::forget_sftp`]).
+        sftp: Mutex<Option<Arc<SftpSession>>>,
+    },
+}
+
+impl std::fmt::Debug for Media {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local { sessions_root, home } => formatter
+                .debug_struct("Local")
+                .field("sessions_root", sessions_root)
+                .field("home", home)
+                .finish(),
+            Self::Ssh { session, sftp } => formatter
+                .debug_struct("Ssh")
+                .field("session", session)
+                .field("sftp", &sftp.lock().map(|_| "<channel>"))
+                .finish(),
+        }
+    }
+}
+
+impl Media {
+    /// Closes the reach itself - the SSH session and, with it, every channel
+    /// on it. The local filesystem needs nothing.
+    async fn close(&self) {
+        if let Media::Ssh { session, .. } = self {
+            session.close().await;
+        }
+    }
 }
 
 /// One `pi --mode rpc` process and the client that speaks to it.
@@ -174,14 +234,14 @@ impl Connection {
     /// Whatever the transport reports, as [`PieError`]: nothing on this machine
     /// to run ([`PieError::Process`], which also covers a `pi` that is not the
     /// release pie speaks), or the SSH failures of
-    /// [`SshTransport::open`](crate::pi_rpc::transport::SshTransport::open).
+    /// [`SshSession::open`](crate::pi_rpc::transport::SshSession::open).
     pub async fn connect(
         id: impl Into<String>,
         spec: &ConnectSpec,
         options: &ConnectOptions,
     ) -> Result<Self, PieError> {
         let id = id.into();
-        let (endpoint, cwd, client) = match spec {
+        let (endpoint, cwd, client, media) = match spec {
             ConnectSpec::Local => {
                 // A pi that is not the release this build mirrors speaks a
                 // protocol pie does not know, and the mismatch would look like
@@ -195,6 +255,10 @@ impl Connection {
                     LOCAL_ENDPOINT.to_string(),
                     options.home.clone(),
                     Client::start(transport.spawn()?)?,
+                    Media::Local {
+                        sessions_root: files::local_sessions_root(),
+                        home: options.home.clone().or_else(dirs::home_dir),
+                    },
                 )
             }
             ConnectSpec::Ssh { host, port, user, auth } => {
@@ -203,11 +267,25 @@ impl Connection {
                     target = target.port(*port);
                 }
                 let endpoint = target.endpoint();
-                let transport = SshTransport::open(target, auth.clone().into(), Arc::clone(&options.host_key)).await?;
-                // The remote `pi --version` is not probed: that would cost a
-                // second channel, which pie's SSH transport does not hand out
-                // yet (docs/TODO.md, G16).
-                (endpoint, None, Client::start(transport)?)
+                let session = SshSession::open(target, auth.clone().into(), Arc::clone(&options.host_key)).await?;
+                // The same check the local path makes: one session serves
+                // every channel on the host, so the probe no longer costs a
+                // connection of its own.
+                let probe = session.output("pi --version").await?;
+                checked_remote_version(&endpoint, probe)?;
+                // The first session starts where the login shell does: on SSH
+                // the remote home is where work happens until the user picks a
+                // directory.
+                let transport = session.exec(RemoteCommand::new("pi --mode rpc")).await?;
+                (
+                    endpoint,
+                    None,
+                    Client::start(transport)?,
+                    Media::Ssh {
+                        session,
+                        sftp: Mutex::new(None),
+                    },
+                )
             }
         };
 
@@ -220,6 +298,7 @@ impl Connection {
             }],
             id,
             endpoint,
+            media,
         })
     }
 
@@ -256,12 +335,78 @@ impl Connection {
         }
     }
 
+    /// Every session pi has written on this host, across project directories.
+    ///
+    /// # Errors
+    ///
+    /// [`PieError::Transport`] when the host's sessions directory cannot be
+    /// read - a path at fault names itself in the message.
+    pub async fn list_sessions(&self) -> Result<Vec<SessionSummary>, PieError> {
+        match &self.media {
+            Media::Local { sessions_root, .. } => match sessions_root {
+                Some(root) => files::list_local(root).await,
+                None => Ok(Vec::new()),
+            },
+            Media::Ssh { session, sftp } => {
+                let channel = files::sftp(session, sftp).await?;
+                // A failed listing over a channel that had died must not leave
+                // the dead one cached (files::forget_sftp).
+                match files::list_remote(session, &channel).await {
+                    Ok(summaries) => Ok(summaries),
+                    Err(error) => {
+                        files::forget_sftp(sftp, &channel);
+                        Err(error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One directory level on the host, for the directory picker.
+    ///
+    /// `None` asks for the home directory - this machine's here, the login
+    /// home over sftp. Anything else must be an absolute path on the host: pie
+    /// resolves nothing against its own directory, which on a phone is not
+    /// anyone's home, and the rows carry their whole paths so the picker never
+    /// builds one of its own.
+    ///
+    /// # Errors
+    ///
+    /// [`PieError::Internal`] for a relative path (the frontend's mistake),
+    /// [`PieError::Transport`] when the path cannot be read.
+    pub async fn list_dirs(&self, path: Option<&str>) -> Result<Vec<DirEntryInfo>, PieError> {
+        match &self.media {
+            Media::Local { home, .. } => files::list_dirs_local(home.as_deref(), path).await,
+            Media::Ssh { session, sftp } => {
+                // A relative path is the frontend's mistake, and saying so is
+                // not worth an sftp handshake first.
+                if let Some(path) = path
+                    && !files::is_absolute_on_the_host(path)
+                {
+                    return Err(files::not_absolute(path));
+                }
+                let channel = files::sftp(session, sftp).await?;
+                match files::list_dirs_remote(&channel, path).await {
+                    Ok(rows) => Ok(rows),
+                    Err(error) => {
+                        files::forget_sftp(sftp, &channel);
+                        Err(error)
+                    }
+                }
+            }
+        }
+    }
+
     /// Ends every session on this host and closes the channel.
     ///
     /// Sessions stop; their files stay where pi wrote them, which is what makes
-    /// disconnecting different from deleting a session.
-    pub async fn disconnect(self) {
-        for session in self.sessions {
+    /// disconnecting different from deleting a session. Takes `&self` on
+    /// purpose: the slot hands out shared hands to this connection (the file
+    /// listings run on them), and ending it must not need to own the last one.
+    /// The reach itself closes here regardless, so a listing still in flight
+    /// meets a host that is already gone rather than keeping it alive.
+    pub async fn disconnect(&self) {
+        for session in &self.sessions {
             if tokio::time::timeout(SHUTDOWN_GRACE, session.client.shutdown())
                 .await
                 .is_err()
@@ -270,8 +415,47 @@ impl Connection {
                 session.client.terminate().await;
             }
         }
+        self.media.close().await;
         tracing::info!(connection = %self.id, "disconnected");
     }
+}
+
+/// Reads the version the host's `pi --version` printed.
+///
+/// The same check [`probe_version`](crate::pi_rpc::probe_version) and
+/// [`check_version`](crate::pi_rpc::check_version) do on this machine; this run
+/// happened on the host, so its failures name the endpoint, and what a wrapped
+/// pi printed about itself is the reason worth passing on.
+fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieError> {
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let printed = printed.trim();
+    if let Termination::Exited { success: true, .. } = output.termination
+        && !printed.is_empty()
+    {
+        return crate::pi_rpc::check_version(printed).map_err(PieError::from);
+    }
+
+    let said = String::from_utf8_lossy(&output.stderr);
+    let said = said
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default()
+        .trim();
+    let said = said.chars().take(200).collect::<String>();
+    let said = if said.is_empty() {
+        String::new()
+    } else {
+        format!(", said `{said}`")
+    };
+    let ended = match output.termination {
+        Termination::Exited { code, success: true } => format!("printed nothing on stdout (exit {code})"),
+        Termination::Exited { code, .. } => format!("exited with {code}"),
+        Termination::Signalled { signal } => format!("was killed by signal {signal}"),
+        Termination::Unknown => "ended without a status".to_string(),
+    };
+    Err(PieError::Process {
+        message: format!("`pi --version` on {endpoint} {ended}{said}"),
+    })
 }
 
 /// Endpoint of a host that is this machine.
@@ -335,6 +519,43 @@ mod tests {
                 assert!(matches!(auth, SshAuthSpec::Key { passphrase: None, .. }));
             }
             other => panic!("unexpected spec: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_host_probe_with_the_pin_passes_and_a_foreign_one_does_not() {
+        let printed = |stdout: &[u8]| ExecOutput {
+            stdout: stdout.to_vec(),
+            stderr: Vec::new(),
+            termination: Termination::Exited { code: 0, success: true },
+        };
+
+        checked_remote_version("pi@host:22", printed(crate::pi_rpc::PI_VERSION.as_bytes())).expect("the pin matches");
+
+        match checked_remote_version("pi@host:22", printed(b"0.84.2")).unwrap_err() {
+            PieError::Process { message } => assert!(message.contains("0.84.2"), "got `{message}`"),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_host_probe_that_cannot_answer_names_the_endpoint_and_why() {
+        let output = ExecOutput {
+            stdout: Vec::new(),
+            stderr: b"pi: command not found\n".to_vec(),
+            termination: Termination::Exited {
+                code: 127,
+                success: false,
+            },
+        };
+
+        match checked_remote_version("pi@host:22", output).unwrap_err() {
+            PieError::Process { message } => {
+                assert!(message.contains("pi@host:22"), "got `{message}`");
+                assert!(message.contains("exited with 127"), "got `{message}`");
+                assert!(message.contains("command not found"), "got `{message}`");
+            }
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 }

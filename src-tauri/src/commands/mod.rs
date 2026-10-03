@@ -18,7 +18,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
 use crate::connection::{
-    AskHostKey, ConnectOptions, ConnectSpec, Connection, ConnectionInfo, ConnectionState, KnownHosts, PresentedKey,
+    AskHostKey, ConnectOptions, ConnectSpec, Connection, ConnectionInfo, ConnectionState, DirEntryInfo, KnownHosts,
+    PresentedKey, SessionSummary,
 };
 use crate::error::PieError;
 
@@ -29,16 +30,19 @@ fn state_event(connection: &str) -> String {
 
 /// What the commands share.
 ///
-/// One host at a time (docs/TODO.md, G12), so the connection is a single slot,
-/// and the slot's lock is what keeps two `connect`s from racing for it. The
-/// question a person is being asked lives in a lock of its own, *not* inside
-/// that slot: `connect` holds the slot from the moment it starts until it is
-/// connected, and on first contact it spends that time waiting for the answer to
-/// exactly this question - so one lock for both would deadlock, and a separate
-/// one is what lets an answer arrive while the connection is being made.
+/// One host at a time is what the product needs, so the connection is a single
+/// slot, and the slot's lock is what keeps two `connect`s from racing for it.
+/// The question a person is being asked lives in a lock of its own, *not*
+/// inside that slot: `connect` holds the slot from the moment it starts until
+/// it is connected, and on first contact it spends that time waiting for the
+/// answer to exactly this question - so one lock for both would deadlock, and a
+/// separate one is what lets an answer arrive while the connection is being
+/// made.
 #[derive(Debug, Default)]
 pub struct AppState {
-    connection: AsyncMutex<Option<Connection>>,
+    /// Shared hands on the one connection: the file listings run on theirs
+    /// while `connect`/`disconnect` keep the slot itself moving.
+    connection: AsyncMutex<Option<Arc<Connection>>>,
     question: Arc<HostKeyQuestion>,
 }
 
@@ -227,7 +231,7 @@ pub async fn connect(
 
     let connection = Connection::connect(id, &spec, &options).await?;
     let info = connection.info();
-    *slot = Some(connection);
+    *slot = Some(Arc::new(connection));
     Ok(info)
 }
 
@@ -242,10 +246,9 @@ pub async fn connect(
 /// that wait sooner by answering the question it is showing.
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
-    // The slot is released before the sessions are stopped, not after: an
-    // `if let` on a temporary guard keeps it alive through the body, so
-    // disconnecting inside the branch would hold the lock for the whole
-    // shutdown. Whether a new `connect` may start while this one is still
+    // The slot is released before the sessions are stopped, not after: the
+    // guard is dropped at the end of this block, so the shutdown below does not
+    // hold it. Whether a new `connect` may start while this one is still
     // stopping is the frontend's sequencing, not a lock's.
     let connection = {
         let mut slot = state.connection.lock().await;
@@ -274,6 +277,44 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
 #[tauri::command]
 pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: bool) -> Result<bool, PieError> {
     Ok(state.question.answer(&connection, trusted))
+}
+
+/// Every session pi has written on the connected host.
+///
+/// # Errors
+///
+/// [`PieError::NotConnected`] when there is no host to list, and whatever the
+/// host reports when its sessions directory cannot be read.
+#[tauri::command]
+pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, PieError> {
+    // A shared hand, not the slot: a listing of a large remote directory runs
+    // for seconds, and holding the slot that long would put `disconnect` in a
+    // queue it deliberately avoids.
+    let connection = state.connection.lock().await.clone();
+    let connection = connection.ok_or_else(|| PieError::NotConnected {
+        message: "connect to a host before listing its sessions".to_string(),
+    })?;
+    connection.list_sessions().await
+}
+
+/// One directory level on the connected host, for the directory picker.
+///
+/// `path` is the home directory when absent, and otherwise an absolute path
+/// on the host: pie resolves no relative path against its own directory, and
+/// the rows carry their whole paths so the picker never builds one.
+///
+/// # Errors
+///
+/// [`PieError::NotConnected`] when there is no host to read,
+/// [`PieError::Internal`] for a relative path (the frontend's mistake), and
+/// [`PieError::Transport`] when the path cannot be read.
+#[tauri::command]
+pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Result<Vec<DirEntryInfo>, PieError> {
+    let connection = state.connection.lock().await.clone();
+    let connection = connection.ok_or_else(|| PieError::NotConnected {
+        message: "connect to a host before browsing its directories".to_string(),
+    })?;
+    connection.list_dirs(path.as_deref()).await
 }
 
 #[cfg(test)]

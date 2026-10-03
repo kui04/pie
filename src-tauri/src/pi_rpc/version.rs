@@ -162,13 +162,21 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
 
 /// Compares a reported version with [`PI_VERSION`].
 ///
+/// A build of pi from upstream's release tarballs carries no version to bake
+/// in and reports `0.0.0`: that is a probe that cannot say, not a version pie
+/// can call wrong. The tradeoff is on the table: a packaged build that really
+/// is the wrong release reports the same `0.0.0` and passes, so the version
+/// check cannot catch that case at all - nothing on the wire tells a wrong
+/// packaged build from a right one. What *can* be wrong is still caught,
+/// loudly: a real number that is not the pin.
+///
 /// # Errors
 ///
-/// [`Error::VersionMismatch`] when the probe reports anything but the pin;
-/// whether that is fatal is the caller's decision.
+/// [`Error::VersionMismatch`] when the probe reports a version other than the
+/// pin; whether that is fatal is the caller's decision.
 pub fn check_version(found: impl AsRef<str>) -> Result<()> {
     let found = found.as_ref().trim();
-    if found == PI_VERSION {
+    if found == PI_VERSION || found == UNKNOWN_VERSION {
         return Ok(());
     }
     Err(Error::VersionMismatch {
@@ -176,6 +184,10 @@ pub fn check_version(found: impl AsRef<str>) -> Result<()> {
         found: found.to_string(),
     })
 }
+
+/// What a packaged pi reports when its build had no version to bake in: not
+/// "the wrong version", but "cannot tell".
+const UNKNOWN_VERSION: &str = "0.0.0";
 
 #[cfg(test)]
 mod tests {
@@ -196,6 +208,14 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_packaged_pi_that_cannot_say_its_version_is_not_a_mismatch() {
+        // Upstream's release tarballs build pi with no version to bake in, so
+        // 0.0.0 is "cannot tell" - refusing it would send the user hunting for
+        // a pi that is already there.
+        check_version(UNKNOWN_VERSION).expect("0.0.0 is a probe that cannot say");
     }
 
     #[tokio::test]

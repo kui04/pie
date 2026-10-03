@@ -160,6 +160,28 @@ pub enum Error {
         timeout: Duration,
     },
 
+    /// The host refused to start a subsystem on a channel: an sshd without
+    /// `sftp` on its `Subsystem` line, usually.
+    #[error("{endpoint} refused to start the `{name}` subsystem")]
+    Subsystem {
+        /// Host that refused, `user@host:port`.
+        endpoint: String,
+        /// Subsystem name as it was asked for, like `sftp`.
+        name: String,
+    },
+
+    /// The host accepted the connection but never answered the request to
+    /// start a subsystem.
+    #[error("{endpoint} did not answer within {timeout:?} whether it will start the `{name}` subsystem")]
+    SubsystemTimeout {
+        /// Host that stayed silent, `user@host:port`.
+        endpoint: String,
+        /// Subsystem name as it was asked for, like `sftp`.
+        name: String,
+        /// Limit that expired.
+        timeout: Duration,
+    },
+
     /// The host's key was not accepted, so the handshake was abandoned.
     #[error("the host key of {endpoint} was not accepted: {reason}")]
     HostKeyRejected {

@@ -1,16 +1,21 @@
-//! pi over an SSH exec channel.
+//! pi over SSH: one session, many channels.
 //!
 //! pi keeps running on the host that has it: pie reaches it with `pi --mode rpc`
-//! inside one exec channel of an SSH session. This module is that transport and
-//! nothing more - it reaches a host, authenticates, starts a command, and hands
-//! back byte streams. Which command to run, which sessions exist on the host,
-//! and the SFTP channel that scans them are app concerns and live outside
-//! `pi_rpc`, whose boundary `tests/purity.rs` enforces.
+//! inside an exec channel of an SSH session. This module is that reach and
+//! nothing more - it connects, authenticates, starts commands and subsystems,
+//! and hands back byte streams. Which command to run, which sessions exist on
+//! the host, and the sftp channel that scans them are app concerns and live
+//! outside `pi_rpc`, whose boundary `tests/purity.rs` enforces.
+//!
+//! One [`SshSession`] is one SSH connection, and it serves every channel pie
+//! needs on that host: an exec channel per pi process, a subsystem channel for
+//! the app's file scans. Pie therefore needs one connection per host, not one
+//! per channel.
 //!
 //! ```no_run
 //! use std::sync::Arc;
 //!
-//! use pie_lib::pi_rpc::transport::{HostKey, SshAuth, SshTarget, SshTransport};
+//! use pie_lib::pi_rpc::transport::{HostKey, PublicKey, RemoteCommand, SshAuth, SshSession, SshTarget};
 //!
 //! # async fn example() -> pie_lib::pi_rpc::Result<()> {
 //! struct Trust; // an app's TOFU policy, told what the host presented
@@ -20,7 +25,7 @@
 //!         &self,
 //!         _host: &str,
 //!         _port: u16,
-//!         key: &pie_lib::pi_rpc::transport::PublicKey,
+//!         key: &PublicKey,
 //!     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = pie_lib::pi_rpc::Result<()>> + Send + '_>> {
 //!         let certified = key.certificate().is_some();
 //!         Box::pin(async move {
@@ -30,18 +35,22 @@
 //!     }
 //! }
 //!
-//! let transport = SshTransport::open(
+//! let session = SshSession::open(
 //!     SshTarget::new("example.com", "pi"),
 //!     SshAuth::Password("hunter2".to_string()),
 //!     Arc::new(Trust),
 //! )
 //! .await?;
-//! # let _ = transport;
+//! // pi runs in an exec channel; the very same session also answers for files.
+//! let transport = session.exec(RemoteCommand::new("pi --mode rpc")).await?;
+//! let sftp = session.subsystem("sftp").await?;
+//! # let _ = (transport, sftp);
 //! # Ok(())
 //! # }
 //! ```
 
 use std::future::Future;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -50,10 +59,10 @@ use std::time::Duration;
 
 use russh::client::{self, Config, Handle, Msg};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
-use russh::{Channel, ChannelMsg, Disconnect, Sig};
-use tokio::io::{AsyncWrite, AsyncWriteExt, DuplexStream};
+use russh::{Channel, ChannelMsg, ChannelWriteHalf, Disconnect, Sig};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::net::TcpStream;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 use super::{Control, Termination, Transport, TransportParts};
 use crate::pi_rpc::error::{Error, Result};
@@ -78,8 +87,9 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 /// Keepalives that may stay unanswered before the session is declared dead.
 const KEEPALIVE_MAX: usize = 3;
 
-/// How long the server has to answer the request to run the command.
-const EXEC_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long the server has to answer a channel request - run a command, start
+/// a subsystem - before the channel is given up on.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long the server has to accept or refuse the credentials.
 ///
@@ -88,6 +98,24 @@ const EXEC_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// that finishes the key exchange and then says nothing would otherwise hang
 /// `open` with no way out: there is no lifecycle handle yet to terminate.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long [`SshSession::output`] gives a one-shot command to finish.
+///
+/// The commands pie captures whole are small checks - a version probe, a
+/// directory listing - where half a minute is generous. The bound is the
+/// promise that the call returns whatever the command does.
+const OUTPUT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How much of one stream [`SshSession::output`] captures at most.
+///
+/// An API that reads to the end needs an end it can name. The calls pie makes
+/// are small checks - a version probe, a whole directory's session summaries -
+/// and a command that prints without stopping is ended at the cap the way `head`
+/// ends a reader: that stream's prefix is kept, with the command's real status.
+/// The other stream is dropped unread at that point: it cannot end while the
+/// capped one has the copy stuck, and the capture pie already has is the one
+/// the caller asked for.
+const OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
 /// SSH's extended-data code for a command's stderr.
 const STDERR: u32 = 1;
@@ -121,25 +149,21 @@ impl std::fmt::Debug for SshAuth {
     }
 }
 
-/// The host to reach and the command to run there.
+/// The host to reach.
 #[derive(Debug, Clone)]
 pub struct SshTarget {
     host: String,
     port: u16,
     user: String,
-    command: String,
-    dir: Option<String>,
 }
 
 impl SshTarget {
-    /// Targets `host` as `user`: port 22, running `pi --mode rpc`.
+    /// Targets `host` as `user` on port 22.
     pub fn new(host: impl Into<String>, user: impl Into<String>) -> Self {
         Self {
             host: host.into(),
             port: 22,
             user: user.into(),
-            command: "pi --mode rpc".to_string(),
-            dir: None,
         }
     }
 
@@ -149,10 +173,26 @@ impl SshTarget {
         self
     }
 
-    /// Runs `command` instead of `pi --mode rpc`.
-    pub fn command(mut self, command: impl Into<String>) -> Self {
-        self.command = command.into();
-        self
+    /// `user@host:port`, for diagnostics and error messages.
+    pub fn endpoint(&self) -> String {
+        format!("{}@{}:{}", self.user, self.host, self.port)
+    }
+}
+
+/// A command to run in an exec channel, and where to start it.
+#[derive(Debug, Clone)]
+pub struct RemoteCommand {
+    command: String,
+    dir: Option<String>,
+}
+
+impl RemoteCommand {
+    /// Runs `command` in the login shell's own directory.
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            dir: None,
+        }
     }
 
     /// Starts the command in `dir`, for the shell that runs it remotely.
@@ -164,23 +204,29 @@ impl SshTarget {
         self
     }
 
-    /// The command as it will be run remotely, `cd` prefix included.
+    /// The command as the remote shell will run it, `cd` prefix included.
     ///
-    /// Composed here rather than in [`SshTarget::cwd`] so that the working
-    /// directory and the command are independent: whichever order they are set
-    /// in, the result is the same. The remote working directory is how a
-    /// session picks its project (see G2 in docs/TODO.md), so losing it to a
-    /// later call would be a silent mistake.
+    /// Composed here, at the point of use, rather than built up piece by piece:
+    /// the remote working directory is how a session picks its project, and a
+    /// composition that could be overwritten after the fact would make losing
+    /// it a silent mistake.
     pub fn command_line(&self) -> String {
         match &self.dir {
             Some(dir) => format!("cd -- {} && {}", quote(dir), self.command),
             None => self.command.clone(),
         }
     }
+}
 
-    /// `user@host:port`, for diagnostics and error messages.
-    pub fn endpoint(&self) -> String {
-        format!("{}@{}:{}", self.user, self.host, self.port)
+impl From<&str> for RemoteCommand {
+    fn from(command: &str) -> Self {
+        Self::new(command)
+    }
+}
+
+impl From<String> for RemoteCommand {
+    fn from(command: String) -> Self {
+        Self::new(command)
     }
 }
 
@@ -194,7 +240,7 @@ pub trait HostKey: Send + Sync + 'static {
     ///
     /// # Errors
     ///
-    /// Any error ends the handshake and surfaces from [`SshTransport::open`]
+    /// Any error ends the handshake and surfaces from [`SshSession::open`]
     /// unchanged - whatever the app's own reason is, such as
     /// [`Error::HostKeyRejected`] for a key it will not trust, or an I/O error
     /// from reading its key store. `host` and `port` are the endpoint as the
@@ -208,32 +254,33 @@ pub trait HostKey: Send + Sync + 'static {
     fn verify(&self, host: &str, port: u16, key: &PublicKey) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 }
 
-/// An authenticated SSH session with its exec channel started.
+/// An authenticated SSH session: one connection, many channels.
 ///
-/// The command is already running when this value exists; [`Transport::split`]
-/// hands out its streams.
-pub struct SshTransport {
+/// Pi runs in an exec channel ([`SshSession::exec`], one per session); the
+/// app's file scans use a subsystem channel ([`SshSession::subsystem`]); and
+/// the small checks beside them capture whole ([`SshSession::output`]). Dropping
+/// the session closes the connection, and every channel on it with it.
+pub struct SshSession {
     handle: Handle<Handler>,
-    channel: Channel<Msg>,
     endpoint: String,
-    command: String,
-    /// Data that arrived with (or before) the server's reply to the exec
-    /// request, kept so no byte of the command's output can be lost.
-    early: (Vec<u8>, Vec<u8>),
 }
 
-impl std::fmt::Debug for SshTransport {
+impl std::fmt::Debug for SshSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("SshTransport")
+            .debug_struct("SshSession")
             .field("endpoint", &self.endpoint)
-            .field("command", &self.command)
             .finish_non_exhaustive()
     }
 }
 
-impl SshTransport {
-    /// Reaches `target`, authenticates as `auth`, and starts the command.
+impl SshSession {
+    /// `user@host:port` of this session, for diagnostics and error messages.
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    /// Reaches `target`, authenticates as `auth`, and keeps the connection open.
     ///
     /// The host key is submitted to `verifier` during the handshake, which is
     /// why that step has no timeout: a first connection may wait for a person
@@ -245,9 +292,7 @@ impl SshTransport {
     /// time, whatever [`HostKey`] reports, [`Error::Ssh`] for anything the SSH
     /// layer fails on, [`Error::SshKey`] when a private key cannot be read or
     /// decrypted, [`Error::Auth`] when the host refuses the credentials and
-    /// [`Error::AuthTimeout`] when it says nothing at all,
-    /// [`Error::Exec`] when it refuses to run the command, and
-    /// [`Error::ExecTimeout`] when it does not say whether it can.
+    /// [`Error::AuthTimeout`] when it says nothing at all.
     pub async fn open(target: SshTarget, auth: SshAuth, verifier: Arc<dyn HostKey>) -> Result<Self> {
         let endpoint = target.endpoint();
         let config = Arc::new(Config {
@@ -292,19 +337,258 @@ impl SshTransport {
                 timeout: AUTH_TIMEOUT,
             })??;
 
-        let command = target.command_line();
-        let mut channel = handle.channel_open_session().await?;
-        channel.exec(true, command.clone()).await?;
-        let early = await_exec_reply(&mut channel, &endpoint, &command).await?;
+        tracing::debug!(endpoint = %endpoint, "ssh session established");
+        Ok(Self { handle, endpoint })
+    }
 
-        tracing::debug!(endpoint = %endpoint, command = %command, "ssh exec channel started");
-        Ok(Self {
-            handle,
+    /// Starts `command` in an exec channel of this session.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Exec`] when the host refuses to run the command, and
+    /// [`Error::ExecTimeout`] when it does not say whether it can.
+    pub async fn exec(&self, command: impl Into<RemoteCommand>) -> Result<SshTransport> {
+        let command = command.into();
+        let command_line = command.command_line();
+        let mut channel = self.handle.channel_open_session().await?;
+        channel.exec(true, command_line.clone()).await?;
+        let early = await_exec_reply(&mut channel, &self.endpoint, &command_line).await?;
+
+        tracing::debug!(endpoint = %self.endpoint, command = %command_line, "ssh exec channel started");
+        Ok(SshTransport {
             channel,
-            endpoint,
-            command: target.command,
+            endpoint: self.endpoint.clone(),
+            command: command_line,
             early,
         })
+    }
+
+    /// Runs `command` to completion and captures what it printed.
+    ///
+    /// The one-shot companion to [`SshSession::exec`] for the small checks an
+    /// app runs beside pi - a version probe, a directory listing - where
+    /// streams and a lifecycle handle would be plumbing. Bounded by
+    /// `OUTPUT_TIMEOUT`: whatever the command does, this returns.
+    ///
+    /// # Errors
+    ///
+    /// [`SshSession::exec`]'s errors, and [`Error::ExecTimeout`] when the
+    /// command does not finish in time. On expiry the command is sent the
+    /// signal request [`Control::terminate`] sends - SIGKILL - and reading
+    /// stops, so on any host that answers it the command does not outlive the
+    /// call. A host that takes no signal request leaves the command running;
+    /// nothing else pie can do about that without closing the channel, which
+    /// is the one move here that never kills anything (see `terminate`).
+    pub async fn output(&self, command: impl Into<RemoteCommand>) -> Result<ExecOutput> {
+        let command = command.into();
+        let command_line = command.command_line();
+        let transport = self.exec(command).await?;
+        let TransportParts {
+            mut reader,
+            mut writer,
+            mut control,
+            mut diagnostics,
+        } = transport.split()?;
+
+        // The command is not reading anything pie has to say; its stdin ends
+        // now, so a command that waits for input fails fast instead of holding
+        // the bound below.
+        let _ = writer.shutdown().await;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let started = std::time::Instant::now();
+        // A read that stops at exactly the cap cannot tell "all of it" from
+        // "the rest of it", so each stream is read one byte past the cap.
+        let captured = tokio::time::timeout(OUTPUT_TIMEOUT, async {
+            let out = (&mut reader).take(OUTPUT_BYTES + 1).read_to_end(&mut stdout).await;
+            let mut over_cap = stdout.len() as u64 > OUTPUT_BYTES;
+            if over_cap {
+                // The command is still writing into a capture that has stopped
+                // reading: the transport's copy of this stream is stuck on a
+                // pipe that will never move again, so waiting for the other
+                // stream below would wait on that stuck copy until the whole
+                // bound is gone - taking the bytes already read down with it.
+                // Dropping both readers is what `head` does: the copies fail,
+                // the pump exits, and this stream's prefix is what pie has.
+                // The other stream goes unread, for the reason above.
+                stdout.truncate(OUTPUT_BYTES as usize);
+                drop(reader);
+                diagnostics = None;
+                tracing::debug!(target: "pi_rpc::ssh", "the command printed past the capture cap; its output was cut there");
+            }
+            let err = async {
+                if let Some(diagnostics) = diagnostics.as_mut() {
+                    diagnostics.take(OUTPUT_BYTES + 1).read_to_end(&mut stderr).await?;
+                }
+                std::io::Result::Ok(0)
+            }
+            .await;
+            over_cap |= stderr.len() as u64 > OUTPUT_BYTES;
+            if over_cap {
+                stderr.truncate(OUTPUT_BYTES as usize);
+            }
+            (out, err, over_cap)
+        })
+        .await;
+
+        let (out, err, over_cap) = match captured {
+            Ok(captured) => captured,
+            Err(_elapsed) => {
+                let _ = control.terminate().await;
+                return Err(Error::ExecTimeout {
+                    endpoint: self.endpoint.clone(),
+                    command: command_line,
+                    timeout: OUTPUT_TIMEOUT,
+                });
+            }
+        };
+        // The capture is what it got, not what it was promised: a stream that
+        // broke mid-command is the caller's reason to distrust the bytes, so it
+        // is reported rather than swallowed.
+        for (what, result) in [("stdout", out), ("stderr", err)] {
+            if let Err(error) = result {
+                tracing::warn!(target: "pi_rpc::ssh", %error, what, "could not read the command's output to its end");
+            }
+        }
+        // A capped command is still running: end it the way `head` ends a
+        // reader, so `wait` has a status to report about what pie did to it.
+        if over_cap {
+            let _ = control.terminate().await;
+        }
+
+        let left = OUTPUT_TIMEOUT.saturating_sub(started.elapsed());
+        let termination =
+            tokio::time::timeout(left, control.wait())
+                .await
+                .map_err(|_elapsed| Error::ExecTimeout {
+                    endpoint: self.endpoint.clone(),
+                    command: command_line,
+                    timeout: OUTPUT_TIMEOUT,
+                })??;
+        Ok(ExecOutput {
+            stdout,
+            stderr,
+            termination,
+        })
+    }
+
+    /// Opens `name` as a subsystem channel of this session, like `sftp`.
+    ///
+    /// The returned stream is what a subsystem client reads and writes; pie's
+    /// own file scans hand it to an sftp client outside `pi_rpc`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Subsystem`] when the host refuses the subsystem - an sshd
+    /// without `sftp` on its `Subsystem` line says so here - and
+    /// [`Error::SubsystemTimeout`] when it does not answer at all.
+    pub async fn subsystem(&self, name: &str) -> Result<SubsystemStream> {
+        let mut channel = self.handle.channel_open_session().await?;
+        channel.request_subsystem(true, name).await?;
+        let early = await_subsystem_reply(&mut channel, &self.endpoint, name).await?;
+
+        tracing::debug!(endpoint = %self.endpoint, subsystem = %name, "ssh subsystem channel started");
+        Ok(SubsystemStream {
+            early: Cursor::new(early),
+            inner: channel.into_stream(),
+        })
+    }
+
+    /// Ends the session, and every channel on it with it.
+    ///
+    /// Dropping the session does the same; this is for callers holding a
+    /// shared hand to it - the app's slot hands out shared ones - who need the
+    /// host gone now rather than when the last reader through it finishes.
+    /// A session that is already gone is not a failure of closing it.
+    pub async fn close(&self) {
+        if let Err(error) = self
+            .handle
+            .disconnect(Disconnect::ByApplication, "pie closed the connection", "")
+            .await
+        {
+            tracing::debug!(endpoint = %self.endpoint, %error, "the session was already gone");
+        }
+    }
+}
+
+/// What a command printed and how it ended ([`SshSession::output`]).
+#[derive(Debug, Clone)]
+pub struct ExecOutput {
+    /// The command's standard output, truncated at `OUTPUT_BYTES`.
+    pub stdout: Vec<u8>,
+    /// The command's standard error, truncated at `OUTPUT_BYTES`.
+    pub stderr: Vec<u8>,
+    /// How the command ended.
+    pub termination: Termination,
+}
+
+/// A subsystem channel's byte streams ([`SshSession::subsystem`]).
+///
+/// A newtype rather than the SSH library's own stream: what a caller does with
+/// it - hand it to an sftp client - is not this module's business, and keeping
+/// the concrete type out of the signature keeps that library out of everyone
+/// else's API.
+pub struct SubsystemStream {
+    /// Bytes that arrived with the reply to the subsystem request. They belong
+    /// to the stream even though they precede it, same as an exec channel's
+    /// early output.
+    early: Cursor<Vec<u8>>,
+    inner: russh::ChannelStream<Msg>,
+}
+
+impl std::fmt::Debug for SubsystemStream {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SubsystemStream(<stream>)")
+    }
+}
+
+impl AsyncRead for SubsystemStream {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        let position = this.early.position() as usize;
+        let held = this.early.get_ref();
+        if position < held.len() {
+            let take = (held.len() - position).min(buf.remaining());
+            buf.put_slice(&held[position..position + take]);
+            this.early.set_position((position + take) as u64);
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for SubsystemStream {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+/// An SSH exec channel with its command running in it.
+pub struct SshTransport {
+    channel: Channel<Msg>,
+    endpoint: String,
+    command: String,
+    /// Data that arrived with (or before) the server's reply to the exec
+    /// request, kept so no byte of the command's output can be lost.
+    early: (Vec<u8>, Vec<u8>),
+}
+
+impl std::fmt::Debug for SshTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SshTransport")
+            .field("endpoint", &self.endpoint)
+            .field("command", &self.command)
+            .finish_non_exhaustive()
     }
 }
 
@@ -316,7 +600,6 @@ impl Transport for SshTransport {
 
     fn split(self) -> Result<TransportParts<Self::Reader, Self::Writer, Self::Control>> {
         let Self {
-            handle,
             channel,
             endpoint,
             command: _,
@@ -327,7 +610,8 @@ impl Transport for SshTransport {
         let (stdout_tx, stdout_rx) = tokio::io::duplex(PIPE_CAPACITY);
         let (stderr_tx, stderr_rx) = tokio::io::duplex(PIPE_CAPACITY);
         let (exit_tx, exit_rx) = watch::channel(None);
-        tokio::spawn(pump(read_half, stdout_tx, stderr_tx, early, exit_tx));
+        let stop = Arc::new(Notify::new());
+        tokio::spawn(pump(read_half, stdout_tx, stderr_tx, early, exit_tx, Arc::clone(&stop)));
 
         Ok(TransportParts {
             reader: stdout_rx,
@@ -336,8 +620,10 @@ impl Transport for SshTransport {
             writer: Box::new(write_half.make_writer()),
             control: SshControl {
                 endpoint,
-                handle,
+                write_half,
                 exit: exit_rx,
+                stop,
+                killed: false,
             },
             diagnostics: Some(Box::new(stderr_rx)),
         })
@@ -347,8 +633,14 @@ impl Transport for SshTransport {
 /// Lifecycle of the command behind an [`SshTransport`].
 pub struct SshControl {
     endpoint: String,
-    handle: Handle<Handler>,
+    write_half: ChannelWriteHalf<Msg>,
     exit: watch::Receiver<Option<Termination>>,
+    /// Tells the pump to stop copying: after a terminate there is nobody left
+    /// to copy for, and a quiet command never gives the copy a reason to end.
+    stop: Arc<Notify>,
+    /// Whether this control asked the command to die, which decides what
+    /// `wait` reports when the host's own status never arrives.
+    killed: bool,
 }
 
 impl std::fmt::Debug for SshControl {
@@ -362,24 +654,60 @@ impl std::fmt::Debug for SshControl {
 
 impl Control for SshControl {
     async fn terminate(&mut self) -> Result<()> {
-        // Closing the session ends every channel on it, which is what stops the
-        // remote command: an exec channel has no signal to send.
-        tracing::debug!(endpoint = %self.endpoint, "disconnecting the ssh session");
-        self.handle
-            .disconnect(Disconnect::ByApplication, "pie closed the connection", "")
-            .await?;
+        // The kill is sshd's `signal` channel request (session_input_channel_req
+        // routes it to session_signal_req, which does the killpg): neither
+        // closing the channel nor EOF ends a command that ignores its streams
+        // - OpenSSH's session_close_by_channel releases the pty and returns
+        // while the child lives - so a plain `sleep` would run to completion
+        // without it. EOF is sent alongside for pi, which stops at its stdin
+        // EOF (pinned `rpc-mode.ts`, `onInputEnd`), and for any host that
+        // answers no signal request.
+        //
+        // No CHANNEL_CLOSE is sent, on purpose. russh 0.63.3 drops a channel
+        // from its own bookkeeping when the client closes it (`session.rs`
+        // `close`) and then discards the server's close and exit-status over
+        // the missing entry (`client/encrypted.rs`, the established-channel
+        // check), so the stream this pump reads would never end and `wait`
+        // would hang on a command that prints nothing. EOF keeps the entry;
+        // stopping the pump does the rest. The rest of the session - other
+        // sessions' pi and the app's sftp scans - rides on untouched.
+        tracing::debug!(endpoint = %self.endpoint, "killing the remote command");
+        if let Err(error) = self.write_half.signal(Sig::KILL).await {
+            tracing::debug!(endpoint = %self.endpoint, %error, "the host took no signal request");
+        }
+        let _ = self.write_half.eof().await;
+        self.killed = true;
+        self.stop.notify_one();
         Ok(())
     }
 
     async fn wait(&mut self) -> Result<Termination> {
         loop {
-            if let Some(termination) = *self.exit.borrow_and_update() {
-                return Ok(termination);
+            let reported = *self.exit.borrow_and_update();
+            if let Some(termination) = reported {
+                return Ok(self.reported(termination));
             }
             if self.exit.changed().await.is_err() {
                 // The pump is gone without an exit status: the session died.
-                return Ok(Termination::Unknown);
+                return Ok(self.reported(Termination::Unknown));
             }
+        }
+    }
+}
+
+impl SshControl {
+    /// What the peer ending reports after this control asked it to die.
+    ///
+    /// The pump stops the moment terminate says so, so the host's own status
+    /// rarely arrives - and "unknown" is the one answer a caller cannot act
+    /// on, while what happened to the process is known: SIGKILL (the signal
+    /// request sshd turns into `killpg`). The local transport answers the same
+    /// operation with `Signalled { signal: 9 }` from `child.kill()`, and two
+    /// transports must not tell the app different stories about one kill.
+    fn reported(&self, termination: Termination) -> Termination {
+        match termination {
+            Termination::Unknown if self.killed => Termination::Signalled { signal: 9 },
+            known => known,
         }
     }
 }
@@ -439,13 +767,13 @@ async fn await_exec_reply(channel: &mut Channel<Msg>, endpoint: &str, command: &
     let mut stderr = Vec::new();
 
     loop {
-        let message = match tokio::time::timeout(EXEC_REPLY_TIMEOUT, channel.wait()).await {
+        let message = match tokio::time::timeout(REPLY_TIMEOUT, channel.wait()).await {
             Ok(message) => message,
             Err(_elapsed) => {
                 return Err(Error::ExecTimeout {
                     endpoint: endpoint.to_string(),
                     command: command.to_string(),
-                    timeout: EXEC_REPLY_TIMEOUT,
+                    timeout: REPLY_TIMEOUT,
                 });
             }
         };
@@ -466,6 +794,41 @@ async fn await_exec_reply(channel: &mut Channel<Msg>, endpoint: &str, command: &
     }
 }
 
+/// Waits for the server's reply to a subsystem request, like
+/// [`await_exec_reply`] does for an exec request.
+///
+/// A refused subsystem is a fact about the host - an sshd without `sftp` on
+/// its `Subsystem` line - so it is reported as [`Error::Subsystem`] rather than
+/// folded into the exec errors. Early data is collected for the same reason as
+/// there: a subsystem that answers before being asked is already speaking.
+async fn await_subsystem_reply(channel: &mut Channel<Msg>, endpoint: &str, name: &str) -> Result<Vec<u8>> {
+    let mut early = Vec::new();
+
+    loop {
+        let message = match tokio::time::timeout(REPLY_TIMEOUT, channel.wait()).await {
+            Ok(message) => message,
+            Err(_elapsed) => {
+                return Err(Error::SubsystemTimeout {
+                    endpoint: endpoint.to_string(),
+                    name: name.to_string(),
+                    timeout: REPLY_TIMEOUT,
+                });
+            }
+        };
+        match message {
+            Some(ChannelMsg::Success) => return Ok(early),
+            Some(ChannelMsg::Data { data }) => early.extend_from_slice(&data),
+            Some(ChannelMsg::Failure | ChannelMsg::Close) | None => {
+                return Err(Error::Subsystem {
+                    endpoint: endpoint.to_string(),
+                    name: name.to_string(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+}
+
 /// Moves the channel's messages into the byte streams the client reads.
 ///
 /// stdout and stderr are separate SSH messages on one channel while the client
@@ -478,6 +841,7 @@ async fn pump(
     mut stderr: DuplexStream,
     early: (Vec<u8>, Vec<u8>),
     exit: watch::Sender<Option<Termination>>,
+    stop: Arc<Notify>,
 ) {
     let (early_stdout, early_stderr) = early;
     if stdout.write_all(&early_stdout).await.is_err() {
@@ -490,7 +854,13 @@ async fn pump(
     // Same policy as below, for bytes that arrived with the exec reply.
     dropped_stderr += early_stderr.len() - write_now(&mut stderr, &early_stderr);
 
-    while let Some(message) = channel.wait().await {
+    // The stop notice is terminate's: after it there is nobody to copy for,
+    // and a command that prints nothing never gives this loop a reason of its
+    // own to end.
+    while let Some(message) = tokio::select! {
+        message = channel.wait() => message,
+        _ = stop.notified() => None,
+    } {
         match message {
             ChannelMsg::Data { data } => {
                 if stdout.write_all(&data).await.is_err() {
@@ -569,6 +939,11 @@ fn termination_of(signal: Sig) -> Termination {
 }
 
 /// Quotes `text` for a POSIX shell, so it reaches the remote command unmangled.
+///
+/// The same quoting lives in the app's connection module, which cannot share it
+/// across the boundary; the two encode different things - a remote command
+/// here, a directory the user picked there - so a change to one is a change to
+/// both.
 fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
@@ -587,9 +962,9 @@ mod tests {
     }
 
     #[test]
-    fn cwd_prefixes_a_quoted_directory() {
+    fn a_working_directory_prefixes_a_quoted_command() {
         assert_eq!(
-            SshTarget::new("host", "user").cwd("/srv/work").command_line(),
+            RemoteCommand::new("pi --mode rpc").cwd("/srv/work").command_line(),
             "cd -- '/srv/work' && pi --mode rpc"
         );
     }
@@ -600,44 +975,22 @@ mod tests {
         assert_eq!(quote("with space"), "'with space'");
         assert_eq!(quote("it's"), r"'it'\''s'");
         assert_eq!(
-            SshTarget::new("host", "user").cwd("/home/o'brien/pie").command_line(),
+            RemoteCommand::new("pi --mode rpc")
+                .cwd("/home/o'brien/pie")
+                .command_line(),
             r"cd -- '/home/o'\''brien/pie' && pi --mode rpc"
         );
     }
 
     #[test]
-    fn custom_commands_replace_the_default_one() {
-        assert_eq!(
-            SshTarget::new("host", "user").command("sh -c 'echo hi'").command_line(),
-            "sh -c 'echo hi'"
-        );
+    fn a_command_without_a_working_directory_runs_as_given() {
+        assert_eq!(RemoteCommand::new("sh -c 'echo hi'").command_line(), "sh -c 'echo hi'");
     }
 
     #[test]
-    fn the_working_directory_survives_the_command_being_set_after_it() {
-        // Both orders, because the working directory is how a session picks its
-        // project: whichever order the caller builds the target in, the command
-        // runs there.
-        let wanted = "cd -- '/srv/work' && pi --mode rpc";
+    fn a_working_directory_applies_to_whatever_the_command_is() {
         assert_eq!(
-            SshTarget::new("host", "user")
-                .cwd("/srv/work")
-                .command("pi --mode rpc")
-                .command_line(),
-            wanted
-        );
-        assert_eq!(
-            SshTarget::new("host", "user")
-                .command("pi --mode rpc")
-                .cwd("/srv/work")
-                .command_line(),
-            wanted
-        );
-        assert_eq!(
-            SshTarget::new("host", "user")
-                .cwd("/srv/work")
-                .command("sh -c 'ls'")
-                .command_line(),
+            RemoteCommand::new("sh -c 'ls'").cwd("/srv/work").command_line(),
             "cd -- '/srv/work' && sh -c 'ls'"
         );
     }

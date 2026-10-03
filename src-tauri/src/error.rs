@@ -30,6 +30,8 @@ pub enum PieError {
     Rpc { message: String },
     /// A live connection is already there.
     AlreadyConnected { message: String },
+    /// The command needs a live connection and there is none.
+    NotConnected { message: String },
     /// Pie's own side got something wrong: a path it needs, a record it wrote,
     /// or an argument from its own frontend. Nothing the user did and nothing
     /// the host did.
@@ -45,6 +47,7 @@ impl std::fmt::Display for PieError {
             | Self::Process { message }
             | Self::Rpc { message }
             | Self::AlreadyConnected { message }
+            | Self::NotConnected { message }
             | Self::Internal { message } => message,
         };
         formatter.write_str(message)
@@ -79,10 +82,15 @@ impl From<crate::pi_rpc::Error> for PieError {
             Error::SshKey { .. } | Error::Auth { .. } | Error::AuthTimeout { .. } => Self::Auth { message },
             Error::HostKeyRejected { .. } => Self::HostKey { message },
             // Reaching the host at all, and staying reached: socket, handshake,
-            // channel, stream.
-            Error::Io(_) | Error::Connect { .. } | Error::ConnectTimeout { .. } | Error::Ssh(_) => {
-                Self::Transport { message }
-            }
+            // channel, stream. A refused or silent subsystem belongs here too:
+            // the host serves no such channel, which is about the reach, not
+            // about pi being installed.
+            Error::Io(_)
+            | Error::Connect { .. }
+            | Error::ConnectTimeout { .. }
+            | Error::Ssh(_)
+            | Error::Subsystem { .. }
+            | Error::SubsystemTimeout { .. } => Self::Transport { message },
             // The channel to pi was gone when a command went out: pie was
             // shutting down, or pi had exited. That is a connection that ended,
             // not a machine with no pi on it - sending this one to `Process`
@@ -139,6 +147,16 @@ mod tests {
             // that is gone, and the frontend should offer a retry rather than go
             // looking for a binary.
             (Error::Closed, "transport"),
+            // The host serves no such channel. About the reach, not about pi:
+            // `sftp` missing from the sshd's `Subsystem` line sends someone to
+            // the host's sshd configuration, never to a `pi` installer.
+            (
+                Error::Subsystem {
+                    endpoint: "pi@host:22".into(),
+                    name: "sftp".into(),
+                },
+                "transport",
+            ),
             (
                 Error::Rpc {
                     command: "compact".into(),
@@ -162,6 +180,28 @@ mod tests {
                 tagged["message"].as_str().is_some_and(|message| !message.is_empty()),
                 "every failure carries something to show: {tagged}"
             );
+        }
+    }
+
+    #[test]
+    fn the_app_says_when_the_connection_slot_is_empty() {
+        // No protocol failure maps onto these: they are about pie's own state.
+        for (error, expected) in [
+            (
+                PieError::AlreadyConnected {
+                    message: "a connection is live".to_string(),
+                },
+                "already_connected",
+            ),
+            (
+                PieError::NotConnected {
+                    message: "connect first".to_string(),
+                },
+                "not_connected",
+            ),
+        ] {
+            let tagged = serde_json::to_value(&error).expect("serializes");
+            assert_eq!(tagged["type"], expected, "got {tagged}");
         }
     }
 

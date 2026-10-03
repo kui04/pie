@@ -87,12 +87,12 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   Tauri, so it can be tested against a real host), and `src-tauri/src/commands/`
   is the IPC surface — commands return `Result<T, PieError>`, events are
   `pi://<area>/{id}`.
-- Code comments cite the research log as `docs/TODO.md, G<number>` (a numbered
-  gap in that file). `docs/` is a migration-period directory: it is not
-  committed, so those citations only resolve inside this working tree. They are
-  provenance, not a specification — every such comment also states the reason
-  inline, and the durable version of that reason cites OpenSSH's or russh's own
-  source, which anyone can look up.
+- A code comment states the reason inline and cites only what a reader outside
+  this working tree can look up: the code, or a source that ships with a project
+  (OpenSSH's or russh's own source, pi at the pinned version). `docs/` is a
+  migration-period directory that is never committed, so no committed file may
+  point into it — a comment that needs backing names the source and the fact it
+  establishes, never a path that resolves only here.
 - Version tracks the latest
   [Pi release](https://github.com/earendil-works/pi/releases) (currently
   0.99.2). When bumping: edit `package.json`, `src-tauri/tauri.conf.json` and

@@ -16,11 +16,15 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tempfile::TempDir;
 
-use pie_lib::connection::{AskHostKey, ConnectOptions, ConnectSpec, Connection, KnownHosts, PresentedKey, SshAuthSpec};
+use pie_lib::connection::{
+    AskHostKey, ConnectOptions, ConnectSpec, Connection, KnownHosts, PresentedKey, SessionSummary, SshAuthSpec,
+};
 use pie_lib::error::PieError;
+use pie_lib::pi_rpc::protocol::{Command, CommandKind, SessionState};
 
 /// An asker for tests: answers with a fixed verdict, and panics if it is asked
 /// when a store should have answered instead.
@@ -131,6 +135,21 @@ impl Fixture {
     }
 }
 
+/// Waits for pi to write the session file and for the listing to see it.
+///
+/// pi creates the file as the turn starts rather than when the prompt is
+/// taken (its own `#10000` rule), so the row lands a beat after the response.
+async fn wait_for_the_listing(connection: &Connection, id: &str) -> SessionSummary {
+    for _ in 0..50 {
+        let listed = connection.list_sessions().await.expect("the listing");
+        if let Some(summary) = listed.into_iter().find(|summary| summary.id == id) {
+            return summary;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("pi never wrote a session file for {id}");
+}
+
 #[ignore = "requires pi on PATH"]
 #[tokio::test]
 async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends() {
@@ -156,6 +175,33 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
     assert_eq!(session.id(), "local-test:1");
     assert_eq!(session.cwd(), Some(home.path()), "the session starts where pie said");
     let client = session.client().clone();
+
+    // pi keeps its sessions under `HOME` whatever directory it starts in (its
+    // own config root rule), and the listing reads the same files back. pi
+    // creates a session file only once a conversation message exists - its own
+    // `#10000` rule, so that opening pi and closing it leaves no file behind -
+    // so this session says something before the listing.
+    let state: SessionState = client
+        .request(Command::new(CommandKind::GetState))
+        .await
+        .expect("pi answers")
+        .decode()
+        .expect("a state");
+    client
+        .request(Command::new(CommandKind::Prompt {
+            message: "first words".to_string(),
+            images: None,
+            streaming_behavior: None,
+        }))
+        .await
+        .expect("pi takes the prompt");
+    let mine = wait_for_the_listing(&connection, &state.session_id).await;
+    assert_eq!(
+        Path::new(&mine.cwd),
+        home.path(),
+        "the file's header names where the session started"
+    );
+    assert_eq!(mine.first_message.as_deref(), Some("first words"));
 
     connection.disconnect().await;
     assert!(client.is_closed(), "disconnecting stops pi");
@@ -280,4 +326,86 @@ async fn the_users_own_known_hosts_is_enough_to_connect() {
     second.disconnect().await;
 
     assert!(!own.exists(), "reading another store does not write pie's own");
+}
+
+/// The sftp channel lists the sessions the host's pi writes: the same listing
+/// the local path gives, read off the host over the very session pi runs on.
+#[ignore = "requires the ssh fixture"]
+#[tokio::test]
+async fn the_host_session_listing_comes_back_over_sftp() {
+    let fixture = Fixture::from_env();
+    let store = TempDir::new().expect("a temp directory");
+    let own = store.path().join("known_hosts");
+    let connection = fixture
+        .connect(&own, None, Answering::trusting(true))
+        .await
+        .expect("the host is reached");
+
+    // pi writes its session file as the turn starts (its `#10000` rule), so
+    // the session says something and the listing waits for the row.
+    let session = &connection.sessions()[0];
+    let state: SessionState = session
+        .client()
+        .request(Command::new(CommandKind::GetState))
+        .await
+        .expect("pi answers")
+        .decode()
+        .expect("a state");
+    session
+        .client()
+        .request(Command::new(CommandKind::Prompt {
+            message: "first words".to_string(),
+            images: None,
+            streaming_behavior: None,
+        }))
+        .await
+        .expect("pi takes the prompt");
+
+    let mine = wait_for_the_listing(&connection, &state.session_id).await;
+    assert!(mine.path.contains(".pi/agent/sessions"), "got `{}`", mine.path);
+    assert!(
+        mine.cwd.ends_with(&fixture.user),
+        "the file's header names the login home, got `{}`",
+        mine.cwd
+    );
+    assert_eq!(mine.first_message.as_deref(), Some("first words"));
+}
+
+/// The directory picker walks the host over the same sftp channel.
+#[ignore = "requires the ssh fixture"]
+#[tokio::test]
+async fn the_directory_picker_walks_the_host_over_sftp() {
+    let fixture = Fixture::from_env();
+    let store = TempDir::new().expect("a temp directory");
+    let own = store.path().join("known_hosts");
+    let connection = fixture
+        .connect(&own, None, Answering::trusting(true))
+        .await
+        .expect("the host is reached");
+
+    let home = connection.list_dirs(None).await.expect("the home directory lists");
+    let pi_root = home
+        .iter()
+        .find(|row| row.name == ".pi" && row.is_dir)
+        .expect("pi's own root is in the home directory");
+    assert!(
+        pi_root.path.starts_with('/'),
+        "rows carry whole paths: {}",
+        pi_root.path
+    );
+
+    // Walking on is done with the rows' own paths, never a path the picker
+    // builds: the home of an sftp session is not pie's own directory.
+    let sessions = format!("{}/agent/sessions", pi_root.path);
+    let projects = connection
+        .list_dirs(Some(&sessions))
+        .await
+        .expect("the sessions directory lists");
+    assert!(!projects.is_empty(), "pi has written project directories: {projects:?}");
+
+    let error = connection
+        .list_dirs(Some(".pi/agent/sessions"))
+        .await
+        .expect_err("a relative path is not a path pie resolves");
+    assert!(matches!(error, PieError::Internal { .. }), "got {error:?}");
 }

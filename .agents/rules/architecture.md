@@ -44,7 +44,7 @@ src-tauri/src/pi_rpc/   Protocol module: Pi's wire types, framing, transports
   `PieError::{Transport, Auth, HostKey, Process, Rpc}` (in
   `src-tauri/src/error.rs`). Extend the enum, never stringify an error. The app
   adds the cases that are about neither host nor protocol: `AlreadyConnected`
-  for a second `connect`, and `Internal` for pie's own mistakes, its own setup
-  included.
+  for a second `connect`, `NotConnected` for a command that needs one, and
+  `Internal` for pie's own mistakes, its own setup included.
 - Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the `pi_rpc`
   module == the Pi release the protocol mirrors.

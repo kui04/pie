@@ -26,16 +26,15 @@
 //! Two stores are read, one is written. Pie's own file is where an answer is
 //! recorded; the user's OpenSSH `known_hosts` is read too, because whoever ran
 //! `ssh` against a host has already made this decision. That file is never
-//! written to: it belongs to their `ssh`, and M1 does not offer to replace a
-//! key that changed in either store (docs/TODO.md, G15).
+//! written to: it belongs to their `ssh`, and pie does not offer to replace a
+//! key that changed in either store.
 //!
 //! One consequence of leaning on OpenSSH's format through `russh`: hashed host
 //! entries (`|1|...`) are understood, but marker lines (`@cert-authority`,
 //! `@revoked`) are skipped - a line's first field is read as the host pattern,
 //! and OpenSSH's markers sit before the host names, so a marker names no host
 //! pie verifies. A host its owner revocated there is therefore treated as a
-//! first contact rather than refused, which is weaker than `ssh`
-//! (docs/TODO.md, G17).
+//! first contact rather than refused, which is weaker than `ssh`.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -588,7 +587,7 @@ mod tests {
         // host names), and `russh` reads a line's first field as the host - so a
         // marker line names no host pie verifies and is skipped. The host is a
         // first contact, which is *weaker* than `ssh`, where a revoked key is
-        // refused outright (docs/TODO.md, G17).
+        // refused outright.
         let store = Store::new();
         store.write(&format!("@revoked host.example.com ssh-ed25519 {KEY_A}\n"));
         let asker = Answering::new(true);

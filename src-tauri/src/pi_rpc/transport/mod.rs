@@ -9,7 +9,10 @@ mod local;
 mod ssh;
 
 pub use local::{LocalControl, LocalProcess, LocalTransport};
-pub use ssh::{HostKey, PublicKey, SshAuth, SshControl, SshTarget, SshTransport};
+pub use ssh::{
+    ExecOutput, HostKey, PublicKey, RemoteCommand, SshAuth, SshControl, SshSession, SshTarget, SshTransport,
+    SubsystemStream,
+};
 
 use std::future::Future;
 

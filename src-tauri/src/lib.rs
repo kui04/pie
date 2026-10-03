@@ -23,6 +23,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::connect,
             commands::disconnect,
+            commands::list_dirs,
+            commands::list_sessions,
             commands::trust_host_key
         ])
         .run(tauri::generate_context!())
