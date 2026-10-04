@@ -15,5 +15,6 @@
 export * from "./connect";
 export * from "./error";
 export * from "./invoke";
+export * from "./pick";
 export * from "./platform";
 export * from "./window";

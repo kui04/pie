@@ -67,10 +67,10 @@ pub enum SshAuthSpec {
         /// The password itself.
         password: String,
     },
-    /// A private key, which pie reads where it lies.
+    /// A private key, as the text a key file holds.
     Key {
-        /// Path of the private key file.
-        path: PathBuf,
+        /// The key itself: pie never copies secret material into its own storage.
+        key: String,
         /// Passphrase, when the key is encrypted.
         #[serde(default)]
         passphrase: Option<String>,
@@ -82,9 +82,9 @@ impl std::fmt::Debug for SshAuthSpec {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Password { .. } => formatter.write_str("Password(<redacted>)"),
-            Self::Key { path, passphrase } => formatter
+            Self::Key { key, passphrase } => formatter
                 .debug_struct("Key")
-                .field("path", path)
+                .field("bytes", &key.len())
                 .field("passphrase", &passphrase.as_ref().map(|_| "<redacted>"))
                 .finish(),
         }
@@ -95,7 +95,7 @@ impl From<SshAuthSpec> for SshAuth {
     fn from(spec: SshAuthSpec) -> Self {
         match spec {
             SshAuthSpec::Password { password } => Self::Password(password),
-            SshAuthSpec::Key { path, passphrase } => Self::Key { path, passphrase },
+            SshAuthSpec::Key { key, passphrase } => Self::Key { key, passphrase },
         }
     }
 }
@@ -496,13 +496,14 @@ mod tests {
             password: "hunter2".to_string(),
         };
         let key = SshAuthSpec::Key {
-            path: PathBuf::from("/home/pi/.ssh/id_ed25519"),
+            key: "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----".to_string(),
             passphrase: Some("letmein".to_string()),
         };
 
         for (spec, secret) in [(password, "hunter2"), (key, "letmein")] {
             let rendered = format!("{spec:?}");
             assert!(!rendered.contains(secret), "got `{rendered}`");
+            assert!(!rendered.contains("AAAA"), "the key itself reached a log: `{rendered}`");
             assert!(rendered.contains("<redacted>"), "got `{rendered}`");
         }
     }
@@ -510,7 +511,7 @@ mod tests {
     #[test]
     fn a_spec_without_a_key_passphrase_is_still_a_key() {
         let spec: ConnectSpec = serde_json::from_str(
-            r#"{"transport":"ssh","host":"example.com","user":"pi","auth":{"type":"key","path":"/k"}}"#,
+            r#"{"transport":"ssh","host":"example.com","user":"pi","auth":{"type":"key","key":"-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"}}"#,
         )
         .expect("the connect screen may leave the passphrase out");
         match spec {

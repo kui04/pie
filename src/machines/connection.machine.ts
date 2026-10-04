@@ -127,8 +127,15 @@ export const connectionMachine = setup({
                 // a question is already on screen: Rust keeps one question open
                 // at a time, and the one it replaces arrives as a new event.
                 HOST_KEY: { target: ".asking", actions: assign({ hostKey: ({ event }) => event.key }) },
-                CONNECTED: { target: "connected", actions: assign({ info: ({ event }) => event.info }) },
-                FAILED: { target: "error", actions: assign({ error: ({ event }) => event.error }) },
+                CONNECTED: { target: "connected", actions: assign({ info: ({ event }) => event.info, hostKey: null }) },
+                // `hostKey` is cleared here as it is on every other way out of
+                // `connecting`: the prompt is open exactly while a question is,
+                // and a question cannot outlive the handshake that raised it. Left
+                // set, the prompt stays open over the error, and since
+                // `ANSWER_HOST_KEY` is only handled in `asking` there is nothing
+                // left that can close it — cancel, trust, Escape and dragging the
+                // sheet down all send an event the machine drops.
+                FAILED: { target: "error", actions: assign({ error: ({ event }) => event.error, hostKey: null }) },
             },
             states: {
                 waiting: {},
@@ -167,7 +174,7 @@ export const connectionMachine = setup({
                     target: "connecting",
                     actions: assign({ spec: ({ event }) => event.spec, error: null }),
                 },
-                DISMISS: { target: "idle", actions: assign({ error: null }) },
+                DISMISS: { target: "idle", actions: assign({ error: null, hostKey: null }) },
             },
         },
         connected: {},

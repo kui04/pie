@@ -11,8 +11,15 @@ import { call, type Unsubscribe } from "./invoke";
  */
 export const CONNECTION_ID = "main";
 
-/** How to authenticate to an SSH host. */
-export type SshAuthSpec = { type: "password"; password: string } | { type: "key"; path: string; passphrase?: string };
+/**
+ * How to authenticate to an SSH host.
+ *
+ * A key crosses as its own text, never as a path to a file: pie copies no secret
+ * material into its own storage, and on Android a picked file is a `content://`
+ * URI rather than a path at all. Turning a file into text is the frontend's job,
+ * which is what the picker in `pick.ts` does.
+ */
+export type SshAuthSpec = { type: "password"; password: string } | { type: "key"; key: string; passphrase?: string };
 
 /** What to connect to. */
 export type ConnectSpec =

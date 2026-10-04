@@ -103,7 +103,7 @@ impl Fixture {
             port: Some(self.port),
             user: self.user.clone(),
             auth: SshAuthSpec::Key {
-                path: self.key.clone(),
+                key: std::fs::read_to_string(&self.key).expect("the fixture key is readable"),
                 passphrase: None,
             },
         }

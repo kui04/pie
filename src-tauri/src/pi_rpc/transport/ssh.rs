@@ -51,14 +51,13 @@
 
 use std::future::Future;
 use std::io::Cursor;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use russh::client::{self, Config, Handle, Msg};
-use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
+use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key};
 use russh::{Channel, ChannelMsg, ChannelWriteHalf, Disconnect, Sig};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::net::TcpStream;
@@ -125,11 +124,15 @@ const STDERR: u32 = 1;
 pub enum SshAuth {
     /// Password authentication.
     Password(String),
-    /// Public-key authentication with the private key at this path.
+    /// Public-key authentication with the private key itself.
+    ///
+    /// The key, not a path to it. `load_secret_key` was a file read followed by
+    /// the same decode this does, and on Android a picked file is a `content://`
+    /// URI rather than a path at all — so the text is what crosses the boundary,
+    /// and the frontend is what turns a file into text.
     Key {
-        /// Path of the private key. Pie reads it where it lies and never copies
-        /// secret material into its own storage.
-        path: PathBuf,
+        /// The private key, in the OpenSSH or PEM form a key file holds.
+        key: String,
         /// Passphrase, when the key is encrypted.
         passphrase: Option<String>,
     },
@@ -140,9 +143,9 @@ impl std::fmt::Debug for SshAuth {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Password(_) => formatter.write_str("Password(<redacted>)"),
-            Self::Key { path, passphrase } => formatter
+            Self::Key { key, passphrase } => formatter
                 .debug_struct("Key")
-                .field("path", path)
+                .field("bytes", &key.len())
                 .field("passphrase", &passphrase.as_ref().map(|_| "<redacted>"))
                 .finish(),
         }
@@ -732,11 +735,8 @@ impl client::Handler for Handler {
 async fn authenticate(handle: &mut Handle<Handler>, target: &SshTarget, auth: SshAuth, endpoint: &str) -> Result<()> {
     let outcome = match auth {
         SshAuth::Password(password) => handle.authenticate_password(target.user.clone(), password).await?,
-        SshAuth::Key { path, passphrase } => {
-            let key = load_secret_key(&path, passphrase.as_deref()).map_err(|source| Error::SshKey {
-                path: path.clone(),
-                source,
-            })?;
+        SshAuth::Key { key, passphrase } => {
+            let key = decode_secret_key(&key, passphrase.as_deref()).map_err(|source| Error::SshKey { source })?;
             // RSA stands between `ssh-rsa` and the SHA-2 variants; the server
             // advertises which it accepts, and anything else ignores this.
             let hash = handle.best_supported_rsa_hash().await?.flatten();
@@ -1003,11 +1003,15 @@ mod tests {
         let key = format!(
             "{:?}",
             SshAuth::Key {
-                path: PathBuf::from("/home/me/.ssh/id_ed25519"),
+                key: "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----".to_string(),
                 passphrase: Some("hunter2".to_string()),
             }
         );
-        assert!(key.contains("/home/me/.ssh/id_ed25519"), "got `{key}`");
+        // The key has no path to name any more, so what must not appear is the
+        // key itself: only its size.
+        assert!(!key.contains("BEGIN OPENSSH PRIVATE KEY"), "got `{key}`");
+        assert!(!key.contains("AAAA"), "got `{key}`");
         assert!(!key.contains("hunter2"), "got `{key}`");
+        assert!(key.contains("<redacted>"), "got `{key}`");
     }
 }

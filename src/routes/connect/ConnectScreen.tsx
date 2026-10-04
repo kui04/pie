@@ -22,7 +22,8 @@ const EMPTY_FORM: ConnectionForm = {
     auth: "password",
     address: "",
     password: "",
-    privateKeyPath: "",
+    privateKeyMaterial: "",
+    passphrase: "",
 };
 
 /** The boundary of every port there is. */
@@ -112,19 +113,35 @@ function connectSpec(form: ConnectionForm): bridge.ConnectSpec | undefined {
             ? undefined
             : { transport: "ssh", ...target, auth: { type: "password", password: form.password } };
     }
-    const path = form.privateKeyPath.trim();
-    return path === "" ? undefined : { transport: "ssh", ...target, auth: { type: "key", path } };
+    const credential: { type: "key"; key: string } = {
+        type: "key",
+        key: form.privateKeyMaterial.trim(),
+    };
+    if (credential.key === "") return undefined;
+    return { transport: "ssh", ...target, auth: keyAuth(credential, form.passphrase) };
+}
+
+/**
+ * The key credential, with its passphrase when there is one.
+ *
+ * A passphrase only rides along when it was typed: an absent field and an empty
+ * string mean the same thing to the host, and sending `""` where nothing is
+ * expected is a different request.
+ */
+function keyAuth(credential: { type: "key"; key: string }, passphrase: string): bridge.SshAuthSpec {
+    return passphrase === "" ? credential : { ...credential, passphrase };
 }
 
 /**
  * What the screen talks to when nothing has said otherwise: the real bridge,
  * under the one connection name pie uses.
  */
-const REAL_DEPS: ConnectionDeps = {
+const REAL_DEPS: ConnectScreenDeps = {
     connection: bridge.CONNECTION_ID,
     connect: bridge.connect,
     trustHostKey: bridge.trustHostKey,
     onConnectionState: bridge.onConnectionState,
+    pickPrivateKey: bridge.pickPrivateKey,
 };
 
 /**
@@ -137,6 +154,7 @@ const REAL_DEPS: ConnectionDeps = {
  */
 const FAILURE_REASON: Record<bridge.PieErrorTag, string> = {
     transport: "The host could not be reached.",
+    file: "That file could not be read. Another one may work.",
     auth: "The host would not accept who pie said it was.",
     host_key: "This host is not the machine you meant to reach.",
     process: "pi is not there, or is not the release pie speaks.",
@@ -146,12 +164,23 @@ const FAILURE_REASON: Record<bridge.PieErrorTag, string> = {
     internal: "Something on pie's own side went wrong.",
 };
 
+/**
+ * What the screen needs: everything the machine needs, plus the one call only
+ * the screen makes. The picker is not machine business, so it is not in
+ * {@link ConnectionDeps} — putting it there would make every test of the machine
+ * stub a call the machine never makes.
+ */
+export type ConnectScreenDeps = ConnectionDeps & {
+    pickPrivateKey: typeof bridge.pickPrivateKey;
+};
+
 export interface ConnectScreenProps {
     /** Overridable so stories and tests walk the real screen against a stub. */
-    deps?: ConnectionDeps;
+    deps?: ConnectScreenDeps;
 }
 
 export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
+    const { pickPrivateKey } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
     const [form, setForm] = useState(EMPTY_FORM);
@@ -178,6 +207,20 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
         [],
     );
 
+    /**
+     * Puts the key the picker brought back into the one field the card has for
+     * it, which is the whole of what choosing a file amounts to.
+     */
+    const pickKey = useCallback(async () => {
+        try {
+            const key = await pickPrivateKey();
+            if (key !== null) setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
+        } catch (thrown) {
+            const failure = bridge.asPieError(thrown);
+            toast.error(failure.message, { description: FAILURE_REASON[failure.type] });
+        }
+    }, [pickPrivateKey]);
+
     return (
         <main
             id="connect-root"
@@ -194,7 +237,12 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                 solo={isMobile}
                 // Keeps the card off the window edge on a phone, which has no
                 // chrome to separate it.
-                className="items-center justify-center overflow-auto p-4"
+                //
+                // The panel does not scroll, and the card caps itself to it and
+                // scrolls its own contents instead. A panel that scrolled would
+                // take the card's top edge and border out of view with it, and
+                // would have to start-align the card to keep the top reachable.
+                className="items-center justify-center p-4"
             >
                 <ConnectionCard
                     form={form}
@@ -202,6 +250,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                     canConnect={spec !== undefined}
                     onChange={patch}
                     onConnect={() => spec && send({ type: "CONNECT", spec })}
+                    onPickKey={() => void pickKey()}
                 />
             </Panel>
 

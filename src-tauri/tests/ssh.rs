@@ -58,9 +58,11 @@ impl Fixture {
         SshTarget::new(self.host.clone(), self.user.clone()).port(self.port)
     }
 
+    /// The fixture key, read into text rather than named by path: what the
+    /// connect screen sends once the frontend has turned a file into text.
     fn key_auth(&self) -> SshAuth {
         SshAuth::Key {
-            path: self.key.clone(),
+            key: std::fs::read_to_string(&self.key).expect("the fixture key is readable"),
             passphrase: None,
         }
     }
@@ -521,28 +523,26 @@ async fn a_refused_host_key_aborts_the_handshake() {
     }
 }
 
+/// A key that cannot be decoded fails as a key, before anything is sent.
+///
+/// Nothing here can name a path any more — the frontend is what turns a file
+/// into text — so the error carries the decoder's complaint and nothing else.
 #[tokio::test]
 #[ignore = "requires the ssh fixture"]
-async fn reports_a_missing_private_key() {
+async fn reports_an_undecodable_private_key() {
     let fixture = Fixture::from_env();
-    // Any path that is not a key file will do; a directory the test itself owns
-    // keeps it out of the way of a real one.
-    let path = std::env::temp_dir().join("pie-ssh-tests").join("no-such-key");
     let error = SshSession::open(
         fixture.target(),
         SshAuth::Key {
-            path: path.clone(),
+            key: "this is not a private key".to_string(),
             passphrase: None,
         },
         Arc::new(Verdict(None)),
     )
     .await
-    .expect_err("a key that is not there cannot authenticate");
+    .expect_err("text that is not a key cannot authenticate");
 
-    match error {
-        Error::SshKey { path: reported, .. } => assert_eq!(reported, path),
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(matches!(error, Error::SshKey { .. }), "got {error:?}");
 }
 
 /// OpenSSH runs the command through the user's shell, so a command that does not

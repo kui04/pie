@@ -38,5 +38,6 @@ Pi's fields, or "improve" wire shapes.
   `PieError::Process`, not a silent continue.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is ours to implement (TOFU + known_hosts); private keys
-  are referenced by path only — pie never copies secret material into its own
-  storage.
+  cross the boundary as text, never as a path to a file — pie copies no secret
+  material into its own storage. The frontend turns a file into text, because a
+  picked file is a `content://` URI on Android rather than a path at all.

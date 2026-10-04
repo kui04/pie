@@ -1,6 +1,6 @@
 /** How a failure is classified on the way across the boundary. */
 export type PieErrorTag =
-    "transport" | "auth" | "host_key" | "process" | "rpc" | "already_connected" | "not_connected" | "internal";
+    "transport" | "file" | "auth" | "host_key" | "process" | "rpc" | "already_connected" | "not_connected" | "internal";
 
 /** A failure, kept as a category plus the message Rust wrote for a person. */
 export interface PieError {
@@ -10,6 +10,7 @@ export interface PieError {
 
 const TAGS: readonly PieErrorTag[] = [
     "transport",
+    "file",
     "auth",
     "host_key",
     "process",

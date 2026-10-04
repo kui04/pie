@@ -9,8 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
-import { ConnectScreen } from "@/routes/connect/ConnectScreen";
-import type { ConnectionDeps } from "@/machines/connection.machine";
+import { ConnectScreen, type ConnectScreenDeps } from "@/routes/connect/ConnectScreen";
 import type { ConnectionInfo, PieError, PresentedKey } from "@/lib/bridge";
 
 const KEY: PresentedKey = {
@@ -29,26 +28,37 @@ const never = () => new Promise<ConnectionInfo>(() => undefined);
  * A bridge that records what it was asked and holds the dial open. Nothing here
  * reaches Tauri, which is the point: the screen is under test, not the IPC.
  */
-function stubBridge(overrides: Partial<ConnectionDeps> = {}) {
+function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
     let publish: ((state: { type: "host_key"; key: PresentedKey }) => void) | undefined;
-    const deps: ConnectionDeps = {
+    let abandonDial: ((reason: unknown) => void) | undefined;
+    const deps: ConnectScreenDeps = {
         connection: "main",
-        connect: vi.fn(never),
+        // Settles only when a test says so, which is what leaves room for a dial
+        // that is abandoned mid-question — the way a host key times out.
+        connect: vi.fn(
+            () =>
+                new Promise<ConnectionInfo>((_resolve, reject) => {
+                    abandonDial = reject;
+                }),
+        ),
         trustHostKey: vi.fn(async () => true),
         onConnectionState: vi.fn(async (_id, onState) => {
             publish = onState as typeof publish;
             return () => undefined;
         }),
+        pickPrivateKey: vi.fn(async () => null),
         ...overrides,
     };
     return {
         deps,
         /** Puts the question on the wire, as Rust does mid-handshake. */
         askHostKey: () => publish?.({ type: "host_key", key: KEY }),
+        /** Gives up on the dial the way a host key that is never answered does. */
+        failDial: (reason: unknown = new Error("the host never answered")) => abandonDial?.(reason),
     };
 }
 
-function renderGate(deps: ConnectionDeps) {
+function renderGate(deps: ConnectScreenDeps) {
     return render(
         <MemoryRouter initialEntries={["/"]}>
             {/* The toast stack is the app's, so the gate's announcements only
@@ -74,6 +84,15 @@ async function paste(user: ReturnType<typeof userEvent.setup>, label: string, te
     const field = screen.getByLabelText(label);
     await user.click(field);
     await user.paste(text);
+}
+
+const KEY_TEXT = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----";
+
+/** The two clicks every private-key case starts from. */
+async function openKeyAuth(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("radio", { name: /SSH/ }));
+    await paste(user, "Address", "pi@example.com");
+    await user.click(screen.getByRole("radio", { name: "Private key" }));
 }
 
 describe("ConnectScreen", () => {
@@ -236,8 +255,75 @@ describe("ConnectScreen", () => {
         await user.click(screen.getByRole("radio", { name: /SSH/ }));
         await user.click(screen.getByRole("radio", { name: "Private key" }));
 
-        expect(screen.getByLabelText("Private key path")).toBeInTheDocument();
+        expect(screen.getByLabelText("Private key")).toBeInTheDocument();
         expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    });
+
+    it("sends the key itself, and no passphrase when none was typed", async () => {
+        const user = userEvent.setup();
+        const { deps } = stubBridge();
+        renderGate(deps);
+        await openKeyAuth(user);
+
+        await paste(user, "Private key", KEY_TEXT);
+        await user.click(CONNECT());
+
+        expect(deps.connect).toHaveBeenCalledWith(
+            "main",
+            expect.objectContaining({ auth: { type: "key", key: KEY_TEXT } }),
+        );
+    });
+
+    it("rides along a passphrase that was typed", async () => {
+        const user = userEvent.setup();
+        const { deps } = stubBridge();
+        renderGate(deps);
+        await openKeyAuth(user);
+
+        await paste(user, "Private key", KEY_TEXT);
+        await paste(user, "Passphrase", "letmein");
+        await user.click(CONNECT());
+
+        expect(deps.connect).toHaveBeenCalledWith(
+            "main",
+            expect.objectContaining({ auth: { type: "key", key: KEY_TEXT, passphrase: "letmein" } }),
+        );
+    });
+
+    it("keeps Connect off while the key field is empty", async () => {
+        const user = userEvent.setup();
+        const { deps } = stubBridge();
+        renderGate(deps);
+        await openKeyAuth(user);
+
+        expect(CONNECT()).toBeDisabled();
+        await paste(user, "Passphrase", "letmein");
+        expect(CONNECT()).toBeDisabled();
+    });
+
+    it("drops a picked key into the one field the card has", async () => {
+        const user = userEvent.setup();
+        const { deps } = stubBridge({ pickPrivateKey: vi.fn(async () => KEY_TEXT) });
+        renderGate(deps);
+        await openKeyAuth(user);
+
+        expect(CONNECT()).toBeDisabled();
+        await user.click(screen.getByRole("button", { name: /Choose a key file/ }));
+
+        expect(screen.getByLabelText("Private key")).toHaveValue(KEY_TEXT);
+        expect(CONNECT()).toBeEnabled();
+    });
+
+    it("leaves the field alone when the picker was closed", async () => {
+        const user = userEvent.setup();
+        const { deps } = stubBridge({ pickPrivateKey: vi.fn(async () => null) });
+        renderGate(deps);
+        await openKeyAuth(user);
+
+        await user.click(screen.getByRole("button", { name: /Choose a key file/ }));
+
+        expect(screen.getByLabelText("Private key")).toHaveValue("");
+        expect(CONNECT()).toBeDisabled();
     });
 
     it("locks the whole form while the dial is in flight", async () => {
@@ -325,6 +411,30 @@ describe("ConnectScreen", () => {
         await user.click(screen.getByRole("button", { name: "Cancel" }));
 
         await waitFor(() => expect(stub.deps.trustHostKey).toHaveBeenCalledWith("main", false));
+    });
+
+    it("takes the prompt away when the handshake is abandoned with it on screen", async () => {
+        // A host key nobody answers times out, and the failure arrives while the
+        // question is still up. The prompt has to go with it: it is open exactly
+        // while `hostKey` is set, and once the machine has left `connecting` there
+        // is no handler left for an answer, so anything the person does with it —
+        // cancel, trust, Escape, dragging it down — would do nothing at all.
+        const user = userEvent.setup();
+        const stub = stubBridge();
+        renderGate(stub.deps);
+
+        await user.click(CONNECT());
+        stub.askHostKey();
+        await screen.findByRole("dialog");
+
+        stub.failDial(new Error("the host never answered"));
+
+        await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+        expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Trust" })).not.toBeInTheDocument();
+        // The form is usable again, which is the other half of "the prompt got
+        // out of the way".
+        expect(CONNECT()).toBeEnabled();
     });
 
     it("asks for no host key at all until one is actually presented", () => {

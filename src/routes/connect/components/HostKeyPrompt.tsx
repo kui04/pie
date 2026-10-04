@@ -14,7 +14,7 @@ export interface HostKeyPromptProps {
 }
 
 /** Flat, like every other surface here: the hairline carries the edge. */
-const FRAME = "border-border bg-card max-w-104 gap-4 border text-foreground";
+const FRAME = "border-border bg-card gap-4 border text-foreground";
 
 /** A prompt's title is body type, not a heading. */
 const TITLE = "text-body-md font-normal";
@@ -70,7 +70,7 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                     <Drawer.Content
                         className={cn(
                             FRAME,
-                            "fixed inset-x-4 bottom-0 z-50 mx-auto flex flex-col rounded-t-xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none",
+                            "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-xl p-6 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1rem))] outline-none",
                         )}
                         aria-describedby="host-key-sheet-message"
                     >
@@ -89,7 +89,7 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
         <Dialog open={open} onOpenChange={refuseOnClose}>
             <DialogContent
                 showCloseButton={false}
-                className={cn(FRAME, "rounded-xl p-6 ring-0")}
+                className={cn(FRAME, "max-w-104 rounded-xl p-6 ring-0")}
                 aria-describedby="host-key-dialog-message"
             >
                 <DialogTitle className={TITLE}>Trust this host?</DialogTitle>

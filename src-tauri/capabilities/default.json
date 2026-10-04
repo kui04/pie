@@ -9,6 +9,11 @@
         "core:window:allow-start-dragging",
         "core:window:allow-minimize",
         "core:window:allow-toggle-maximize",
-        "core:window:allow-close"
+        "core:window:allow-close",
+        "dialog:allow-open",
+        {
+            "identifier": "fs:allow-read-text-file",
+            "comment": "Unscoped on purpose. The picker can return a file from anywhere — a cloud provider, an SD card, another app — and a path list would refuse exactly the file the person just chose. Reading is not the risk here: what pie does with the text is to hand it to the SSH layer, and nothing writes it out."
+        }
     ]
 }

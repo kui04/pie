@@ -20,6 +20,11 @@ pub enum PieError {
     /// frontend should offer to retry rather than send someone looking for a
     /// missing binary.
     Transport { message: String },
+    /// A file the person named could not be read: wrong permissions, a
+    /// directory, a URI the platform will not hand over. The person did this by
+    /// choosing it, and another file may read fine, so it is neither pie's bug
+    /// nor the host refusing.
+    File { message: String },
     /// The host would not accept who pie said it was.
     Auth { message: String },
     /// The host is not the machine the user meant to reach.
@@ -42,6 +47,7 @@ impl std::fmt::Display for PieError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
             Self::Transport { message }
+            | Self::File { message }
             | Self::Auth { message }
             | Self::HostKey { message }
             | Self::Process { message }

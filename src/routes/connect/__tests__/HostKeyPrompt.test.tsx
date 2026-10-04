@@ -90,11 +90,14 @@ describe("the host-key prompt's host", () => {
         expect(document.querySelector("[data-vaul-drawer]")).toBeNull();
     });
 
-    it("keeps the two hosts off the window's edges and inside the 26rem cap", () => {
+    it("runs the full width of the window, the way a bottom sheet does", () => {
         render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile />);
         const sheet = document.querySelector("[data-vaul-drawer]");
-        expect(sheet?.className).toContain("inset-x-4");
-        expect(sheet?.className).toContain("max-w-104");
+        // A bottom sheet is the window's own bottom edge, not a card floating
+        // above it, so it is not inset and not capped.
+        expect(sheet?.className).toContain("inset-x-0");
+        expect(sheet?.className).not.toContain("mx-auto");
+        expect(sheet?.className).not.toContain("max-w-");
     });
 
     it("rounds only the sheet's top corners, because its bottom is the window's", () => {

@@ -12,7 +12,8 @@ const LOCAL: ConnectionForm = {
     auth: "password",
     address: "",
     password: "",
-    privateKeyPath: "",
+    privateKeyMaterial: "",
+    passphrase: "",
 };
 
 const SSH_PASSWORD: ConnectionForm = {
@@ -26,7 +27,13 @@ const SSH_KEY: ConnectionForm = {
     transport: "ssh",
     auth: "key",
     address: "pi@192.168.1.10:22",
-    privateKeyPath: "/home/pi/.ssh/id_ed25519",
+};
+
+const SSH_KEY_PASTED: ConnectionForm = {
+    ...SSH_KEY,
+    privateKeyMaterial:
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACB\n-----END OPENSSH PRIVATE KEY-----",
+    passphrase: "correct horse",
 };
 
 /** What every frame starts with; a story overrides what its situation changes.
@@ -39,6 +46,7 @@ const BASE: ConnectionCardProps = {
     canConnect: true,
     onChange: () => undefined,
     onConnect: () => undefined,
+    onPickKey: () => undefined,
 };
 
 const meta = {
@@ -75,4 +83,10 @@ export const Connecting: Story = {
 /** Nothing typed that names a host yet: Connect stays off. */
 export const SshWithoutAddress: Story = {
     args: { form: { ...LOCAL, transport: "ssh" }, canConnect: false },
+};
+
+/** A key pasted in rather than named: the source toggle has moved, and the
+ *  field is tall because a key is many lines. */
+export const SshKeyPasted: Story = {
+    args: { form: SSH_KEY_PASTED },
 };

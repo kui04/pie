@@ -5,7 +5,6 @@
 //! `.agents/rules/architecture.md`), which is also where a failure is named
 //! once rather than in every place that reports one.
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -113,11 +112,9 @@ pub enum Error {
     #[error("ssh: {0}")]
     Ssh(#[from] russh::Error),
 
-    /// A private key file could not be read or decrypted.
-    #[error("reading the private key at {}: {source}", path.display())]
+    /// A private key could not be decoded or decrypted.
+    #[error("reading the private key: {source}")]
     SshKey {
-        /// Key file that failed to load.
-        path: PathBuf,
         /// Why it failed.
         #[source]
         source: russh::keys::Error,
