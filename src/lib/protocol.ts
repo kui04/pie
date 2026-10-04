@@ -12,8 +12,8 @@
  * omitted (never `null`), nullable fields written as `null`. Extension bags
  * (`details`, `data`, `compat`) stay `unknown`.
  *
- * Fixture replay for Storybook and tests lives in `src/preview/fixtures.ts` —
- * preview infrastructure, deliberately outside the app's runtime path.
+ * The recorded corpus in `src-tauri/tests/fixtures/` is decoded and asserted
+ * by `src-tauri/tests/conformance.rs`; nothing here parses a wire record.
  */
 
 // ---------------------------------------------------------------------------

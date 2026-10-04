@@ -2,14 +2,6 @@
 dev:
     pnpm tauri dev
 
-# frontend dev server only (http://localhost:1420)
-web:
-    pnpm dev
-
-# frontend production build (tsc + vite)
-web-build:
-    pnpm build
-
 # component preview (http://localhost:6006)
 storybook:
     pnpm storybook

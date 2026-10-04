@@ -11,8 +11,7 @@ forked layout.
   handles `env(safe-area-inset-*)` and the on-screen keyboard (visualViewport).
 - react-router in library mode — no framework-mode loaders/actions; routes in
   `src/routes/`; the Android back gesture must route through the router.
-- Respect `prefers-color-scheme` and `prefers-reduced-motion`: shadcn themes for
-  light/dark, no unconditional animation.
+- Respect `prefers-color-scheme`: shadcn themes for light/dark.
 
 ## Markup and CSS
 

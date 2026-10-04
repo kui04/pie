@@ -1,0 +1,103 @@
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/use-platform";
+import { Drawer } from "vaul";
+import type { PresentedKey } from "@/lib/bridge";
+
+export interface HostKeyPromptProps {
+    /** The key to ask about. Null is how the machine says there is no question. */
+    presentedKey: PresentedKey | null;
+    onAnswer: (trusted: boolean) => void;
+    /** Pins which host to draw, for previews and tests. */
+    isMobile?: boolean;
+}
+
+/** Flat, like every other surface here: the hairline carries the edge. */
+const FRAME = "border-border bg-card max-w-104 gap-4 border text-foreground";
+
+/** A prompt's title is body type, not a heading. */
+const TITLE = "text-body-md font-normal";
+const MESSAGE = "max-h-48 overflow-y-auto text-body-md text-muted-foreground";
+
+/** The fingerprint as a person checks it against the host. */
+function hostKeyMessage(key: PresentedKey): string {
+    return `${key.fingerprint} (${key.algorithm}). This host has never been seen.`;
+}
+
+/** One outcome each, so one word each. */
+function Answers({ id, onAnswer }: { id: string; onAnswer: (trusted: boolean) => void }) {
+    return (
+        <div className="mt-2 flex justify-end gap-2">
+            <Button
+                id={`${id}-cancel`}
+                onClick={() => onAnswer(false)}
+                className="bg-muted hover:bg-muted/80 rounded-lg p-2 px-3"
+            >
+                <span className="text-label-lg font-medium">Cancel</span>
+            </Button>
+            <Button
+                id={`${id}-trust`}
+                onClick={() => onAnswer(true)}
+                className="bg-primary hover:bg-primary/90 rounded-lg p-2 px-3"
+            >
+                <span className="text-label-lg font-medium">Trust</span>
+            </Button>
+        </div>
+    );
+}
+
+export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromptProps) {
+    // Called whatever `isMobile` says, so pinning it and then stopping is not a
+    // change in how many hooks there are.
+    const mobile = useIsMobile();
+    const open = presentedKey !== null;
+    const message = presentedKey === null ? "" : hostKeyMessage(presentedKey);
+
+    // A dismissal is a refusal: Rust would otherwise keep waiting on a question
+    // nobody is left to answer.
+    const refuseOnClose = (next: boolean) => {
+        if (!next && open) onAnswer(false);
+    };
+
+    if (isMobile ?? mobile) {
+        return (
+            <Drawer.Root open={open} onOpenChange={refuseOnClose} shouldScaleBackground={false}>
+                <Drawer.Portal>
+                    <Drawer.Overlay className="bg-surface-container-highest/70 fixed inset-0 z-40" />
+                    {/* No `w-full` beside both insets: the width would win and the
+                        right inset would be dropped, hanging the sheet off-screen. */}
+                    <Drawer.Content
+                        className={cn(
+                            FRAME,
+                            "fixed inset-x-4 bottom-0 z-50 mx-auto flex flex-col rounded-t-xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none",
+                        )}
+                        aria-describedby="host-key-sheet-message"
+                    >
+                        <Drawer.Title className={TITLE}>Trust this host?</Drawer.Title>
+                        <Drawer.Description id="host-key-sheet-message" className={MESSAGE}>
+                            {message}
+                        </Drawer.Description>
+                        <Answers id="host-key-sheet" onAnswer={onAnswer} />
+                    </Drawer.Content>
+                </Drawer.Portal>
+            </Drawer.Root>
+        );
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={refuseOnClose}>
+            <DialogContent
+                showCloseButton={false}
+                className={cn(FRAME, "rounded-xl p-6 ring-0")}
+                aria-describedby="host-key-dialog-message"
+            >
+                <DialogTitle className={TITLE}>Trust this host?</DialogTitle>
+                <DialogDescription id="host-key-dialog-message" className={MESSAGE}>
+                    {message}
+                </DialogDescription>
+                <Answers id="host-key-dialog" onAnswer={onAnswer} />
+            </DialogContent>
+        </Dialog>
+    );
+}

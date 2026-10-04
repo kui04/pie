@@ -1,15 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import rawFailures from "../../../src-tauri/tests/fixtures/failures-0.99.2.jsonl?raw";
-import { lastAssistantText, parseFixture, streamedText } from "@/preview/fixtures";
-import { Markdown } from "./Markdown";
-
-/**
- * The smoke story of the preview pipeline: text comes from the recorded
- * `failures` fixture (real `pi --mode rpc` stdout) instead of invented copy.
- */
-const recorded = parseFixture(rawFailures);
-const finalText = lastAssistantText(recorded) ?? "";
-const streamed = streamedText(recorded);
+import { Markdown } from "@/components/Markdown";
 
 const meta = {
     title: "Transcript/Markdown",
@@ -22,21 +12,24 @@ const meta = {
             </div>
         ),
     ],
-    args: { children: finalText },
+    args: {
+        children: `The transcript runs on \`pi --mode rpc\`, and pie only ever sees the payloads
+that come back over it.
+
+A turn that needs a tool call will show the call and its result before the answer
+lands, so a long pause is usually a tool running rather than a stalled session.
+
+See [the protocol notes](https://example.com/protocol) for the full shape.`,
+    },
 } satisfies Meta<typeof Markdown>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The assistant turn as it settled, taken from `message_end`. */
+/** An ordinary assistant turn: prose with inline code and a link. */
 export const AssistantText: Story = {};
 
-/** The same turn rebuilt from `text_delta` streaming updates. */
-export const StreamedDeltas: Story = {
-    args: { children: streamed },
-};
-
-/** The full element mapping, for visual review of the typography scale. */
+/** Every element the renderer maps, for review of the type scale. */
 export const RichMarkdown: Story = {
     args: {
         children: `## Headings

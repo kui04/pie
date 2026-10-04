@@ -4,7 +4,7 @@ import "../src/index.css";
 const preview: Preview = {
     decorators: [
         (Story) => (
-            <div className="bg-background text-foreground min-h-svh">
+            <div className="flex min-h-svh min-w-svw items-center justify-center p-6">
                 <Story />
             </div>
         ),

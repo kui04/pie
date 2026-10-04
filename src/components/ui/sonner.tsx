@@ -18,10 +18,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
             }}
             style={
                 {
-                    "--normal-bg": "var(--popover)",
-                    "--normal-text": "var(--popover-foreground)",
+                    // Two steps above the thread cards, so a toast reads off both
+                    // the workspace and the cards in it.
+                    "--normal-bg": "var(--surface-container-highest)",
+                    "--normal-text": "var(--foreground)",
                     "--normal-border": "var(--border)",
-                    "--border-radius": "var(--radius)",
+                    "--border-radius": "0.375rem",
                 } as React.CSSProperties
             }
             toastOptions={{

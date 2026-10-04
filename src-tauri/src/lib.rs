@@ -25,6 +25,7 @@ pub fn run() {
             commands::disconnect,
             commands::list_dirs,
             commands::list_sessions,
+            commands::platform,
             commands::trust_host_key
         ])
         .run(tauri::generate_context!())

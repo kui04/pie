@@ -19,7 +19,7 @@ Android SDK/NDK, and all Tauri Linux system dependencies.
 
 ```sh
 just dev          # desktop app (window + hot reload)
-just web          # frontend dev server only
+just storybook    # component preview (http://localhost:6006)
 just android-dev   # Android on a connected device
 just build         # desktop release build
 just android-build # android release build

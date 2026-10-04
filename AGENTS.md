@@ -43,9 +43,10 @@ Android SDK/NDK + JDK, Tauri Linux deps, `just`, and `just-lsp`.
 Recipes via [just](https://github.com/casey/just) (`just --list`) — the recipes
 are the source of truth for the commands themselves.
 
-- Desktop: `just dev` (dev), `just build` (release); frontend only: `just web` /
-  `just web-build`; component preview: `just storybook` /
-  `just storybook-build`.
+- Desktop: `just dev` (dev), `just build` (release); component preview:
+  `just storybook` / `just storybook-build`. There is no frontend-only server:
+  the app asks Rust which platform it is on before it draws anything, so a plain
+  browser has nothing to show.
 - Android: `just android-dev`, `just android-build` — needs a connected device,
   no AVD is provided.
 - Rust: `just check`, `just clippy` (warnings are errors, all targets),
@@ -58,9 +59,10 @@ are the source of truth for the commands themselves.
   running).
 - JS: `just lint`, `just format`, `just test`.
 
-Stories sit next to their component (`src/**/*.stories.tsx`) and replay the
-recorded protocol corpus through `src/preview/fixtures.ts`. Statecharts are also
-path-enumerated with `@xstate/graph`
+Stories sit in their component's `__stories__/` folder
+(`src/**/__stories__/*.stories.tsx`) and render from static args; the recorded
+protocol corpus is decoded and asserted in `src-tauri/tests/conformance.rs`.
+Statecharts are also path-enumerated with `@xstate/graph`
 (`src/machines/__tests__/statechart-pattern.test.ts`).
 
 ## Git hooks
