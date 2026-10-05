@@ -8,8 +8,8 @@
 //!
 //! This enum holds the host only. A failure of the protocol or of the transport
 //! below it is a named variant of [`pi_rpc::Error`] and reaches the boundary
-//! without a change. Therefore nothing in this enum wraps it. Every variant is a
-//! failure of the reach of pie to a machine.
+//! without a change. Therefore nothing in this enum wraps it. Every variant is
+//! about the one connection: the reach to a machine, or which state it is in.
 
 use russh_sftp::client::error::Error as SftpError;
 use serde::Serialize;
@@ -32,6 +32,17 @@ pub enum Error {
     NotConnected {
         /// What the person tried to do. The sentence above uses it.
         doing: String,
+    },
+
+    /// The frontend named a session that this connection does not have.
+    ///
+    /// The ids come from the connect, which answered with the sessions of the
+    /// host. An id that is gone means the frontend holds one from a connection
+    /// that ended, or from a connect before the one in place.
+    #[error("this connection has no session `{id}`")]
+    UnknownSession {
+        /// The id from the frontend, as it arrived.
+        id: String,
     },
 
     /// `pi --version` on the host did not print a release that pie speaks.
@@ -113,6 +124,13 @@ mod tests {
             }
             .to_string(),
             "connect to a host before listing its sessions"
+        );
+        assert_eq!(
+            Error::UnknownSession {
+                id: "main:9".to_string()
+            }
+            .to_string(),
+            "this connection has no session `main:9`"
         );
     }
 

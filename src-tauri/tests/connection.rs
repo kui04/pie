@@ -21,11 +21,12 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use pie_lib::connection::{
-    AskHostKey, ConnectOptions, ConnectSpec, Connection, Error, KnownHosts, PresentedKey, SessionSummary, SshAuthSpec,
+    AskHostKey, ConnectOptions, ConnectSpec, Connection, Error, KnownHosts, PresentedKey, Session, SessionSummary,
+    SshAuthSpec,
 };
 use pie_lib::error::PieError;
 use pie_lib::pi_rpc::Error as ProtocolError;
-use pie_lib::pi_rpc::protocol::{Command, CommandKind, SessionState};
+use pie_lib::pi_rpc::protocol::{Command, CommandKind, EntriesData, SessionEntry, SessionState};
 
 /// An asker for tests. It answers with a fixed verdict. It panics if pie asks
 /// it when a store must answer.
@@ -426,4 +427,108 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
         ),
         "got {error:?}"
     );
+}
+
+/// The id of an entry, read from its wire shape.
+///
+/// Every variant of `SessionEntry` carries an `id`, which the leaf path of a
+/// transcript walks. The shape keeps the one test below short: no arm for each
+/// of the eleven kinds.
+fn entry_id(entry: &SessionEntry) -> String {
+    let sent = serde_json::to_value(entry).expect("an entry serializes");
+    sent["id"].as_str().expect("every entry carries an id").to_string()
+}
+
+/// The entries of a session after pi appended the message of a prompt.
+///
+/// Pi appends it while the response of the prompt is already on the way (the
+/// response reports the preflight, not the turn). Therefore this waits.
+async fn entries_after_the_prompt(session: &Session, before: usize) -> EntriesData {
+    for _ in 0..50 {
+        let entries = session.entries().await.expect("the entries");
+        if entries.entries.len() > before {
+            return entries;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("pi never appended the message of the prompt");
+}
+
+/// The three reads of the read-only workspace, against a real pi.
+///
+/// The reads are the ones the frontend asks for: `get_state`, `get_entries` and
+/// `get_session_stats`. What this holds is their relation: one session answers
+/// all three, the name of the connect finds it, and the entry set of the
+/// transcript is the raw one that only grows.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn the_reads_answer_about_the_session_that_was_named() {
+    let home = TempDir::new().expect("a temp directory");
+    let options = ConnectOptions {
+        home: Some(home.path().to_path_buf()),
+        host_key: Arc::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+    };
+    let connection = Connection::connect("read-test", &ConnectSpec::Local, &options)
+        .await
+        .expect("pi is on PATH");
+
+    assert_eq!(
+        connection.session("read-test:1").map(Session::id),
+        Some("read-test:1"),
+        "the label that the connect answered with finds its session"
+    );
+    assert!(
+        connection.session("read-test:9").is_none(),
+        "a label from no connect of this connection finds nothing"
+    );
+
+    let session = &connection.sessions()[0];
+    let fresh = session.state().await.expect("the state of a fresh session");
+    let before = session.entries().await.expect("the entries of a fresh session");
+    let start = session.stats().await.expect("the usage of a fresh session");
+
+    assert_eq!(fresh.session_id, start.session_id, "one session answers both reads");
+    assert_eq!(fresh.session_name, None, "a session that nobody named has no name");
+    assert!(!fresh.is_streaming, "nothing runs yet");
+    assert_eq!(fresh.message_count, 0, "no message of the conversation yet");
+    assert_eq!(start.total_messages, 0, "and pi counts none");
+
+    // A session without a message is not an empty entry set: pi appends what it
+    // resolved at the start. Therefore the count is not what this holds. The
+    // leaf is: the walk of the transcript starts at an entry that is there.
+    let leaf = before.leaf_id.clone().expect("a fresh session points at a leaf");
+    assert!(
+        before.entries.iter().any(|entry| entry_id(entry) == leaf),
+        "the leaf `{leaf}` is one of the entries"
+    );
+
+    session
+        .client()
+        .request(Command::new(CommandKind::Prompt {
+            message: "first words".to_string(),
+            images: None,
+            streaming_behavior: None,
+        }))
+        .await
+        .expect("pi takes the prompt");
+
+    let after = entries_after_the_prompt(session, before.entries.len()).await;
+    let stats = session.stats().await.expect("the usage after a prompt");
+
+    assert_eq!(stats.user_messages, 1, "pi counts the message that was sent");
+    assert_eq!(stats.session_id, fresh.session_id, "still the same session");
+    // The read is the raw set. A fold - the latest compaction in place of the
+    // entries it summarized - would drop entries here. That fold belongs to the
+    // frontend, which is why this holds.
+    for entry in &before.entries {
+        let id = entry_id(entry);
+        assert!(
+            after.entries.iter().any(|later| entry_id(later) == id),
+            "`{id}` survived the prompt: the entry set only grows"
+        );
+    }
 }

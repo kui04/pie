@@ -177,9 +177,11 @@ const FAILURE_REASON: Record<bridge.PieErrorKind, string> = {
     closed: "The connection to pi ended.",
     no_runtime: "Pie could not reach its own runtime.",
     io: "The connection to pi failed.",
-    // `connection::Error`: the connect of pie to the machine.
+    // `connection::Error`: the connect of pie to the machine, and the state of
+    // that connection.
     already_connected: "pie is already connected to a host.",
     not_connected: "There is no connection.",
+    unknown_session: "That session is gone from this connection. Connect again.",
     remote_version: "pi on the host would not say which release it is.",
     unreadable_local: "That file could not be read. Another one may work.",
     unreadable_remote: "That file could not be read on the host. Another one may work.",

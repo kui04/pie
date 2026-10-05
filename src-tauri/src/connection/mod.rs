@@ -26,10 +26,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use russh_sftp::client::SftpSession;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::PieError;
 use crate::pi_rpc::Client;
+use crate::pi_rpc::protocol::{Command, CommandKind, EntriesData, SessionState, SessionStats};
 use crate::pi_rpc::transport::{
     ExecOutput, HostKey, LocalTransport, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
 };
@@ -207,7 +209,7 @@ pub struct ConnectionInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
-    /// The name of this session, for the `pi://session/{id}/...` events.
+    /// The id of this session, for the `pi://session/{id}/...` events.
     pub id: String,
     /// The start of pi, if pie selected it.
     pub cwd: Option<PathBuf>,
@@ -321,6 +323,15 @@ impl Connection {
     /// The sessions that operate on this host.
     pub fn sessions(&self) -> &[Session] {
         &self.sessions
+    }
+
+    /// The session with this id, if this connection has one.
+    ///
+    /// The id is the one that [`SessionInfo`] carries, which is pie's own id for
+    /// the session. It is not the session id of pi, which is the id of the
+    /// session file. The frontend reads this id from the answer of `connect`.
+    pub fn session(&self, id: &str) -> Option<&Session> {
+        self.sessions.iter().find(|session| session.id() == id)
     }
 
     /// Whether pi still operates behind a session.
@@ -478,7 +489,7 @@ fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieE
 const LOCAL_ENDPOINT: &str = "local";
 
 impl Session {
-    /// The name of this session, for the `pi://session/{id}/...` events.
+    /// The id of this session, for the `pi://session/{id}/...` events.
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -491,6 +502,51 @@ impl Session {
     /// The client that speaks to the pi of this session.
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// Sends one read command and decodes the payload into its mirrored type.
+    ///
+    /// A read is a command whose answer is data, not an effect. Pi answers the
+    /// three of them from its own memory. Therefore none of them fails on the
+    /// side of pi, and a failure here is the failure of the protocol.
+    async fn ask<T: DeserializeOwned>(&self, command: Command) -> Result<T, PieError> {
+        Ok(self.client.request(command).await?.into_result()?.decode::<T>()?)
+    }
+
+    /// The state of this session: its model, its run, its name, its counts.
+    ///
+    /// Pi builds this answer from memory. It does not wait for the run in
+    /// progress. Therefore this read is safe while a turn streams.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol: pi refuses the command, the payload has a
+    /// shape this mirror does not know, or the pi of this session is gone.
+    pub async fn state(&self) -> Result<SessionState, PieError> {
+        self.ask(Command::new(CommandKind::GetState)).await
+    }
+
+    /// Every entry of this session, and the leaf the session points at.
+    ///
+    /// The answer is the raw set. It holds the entries of the other branches of
+    /// a fork, and it keeps the entries that a compaction summarized. The view
+    /// of the transcript - the path from the root to the leaf, with the
+    /// compactions folded - is the task of the frontend.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Session::state`].
+    pub async fn entries(&self) -> Result<EntriesData, PieError> {
+        self.ask(Command::new(CommandKind::GetEntries { since: None })).await
+    }
+
+    /// The usage of this session: its counts, its tokens, its cost.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Session::state`].
+    pub async fn stats(&self) -> Result<SessionStats, PieError> {
+        self.ask(Command::new(CommandKind::GetSessionStats)).await
     }
 
     /// What the frontend is told about this session.

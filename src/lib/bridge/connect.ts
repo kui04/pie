@@ -25,7 +25,7 @@ export type ConnectSpec =
 
 /** One pi process on the host. */
 export interface SessionInfo {
-    /** The name its events are announced under. */
+    /** The id its events are announced under. */
     id: string;
     /** Where pi started, when pie chose that. */
     cwd: string | null;

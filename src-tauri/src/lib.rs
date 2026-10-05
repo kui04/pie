@@ -28,7 +28,10 @@ pub fn run() {
             commands::files::list_dirs,
             commands::files::list_sessions,
             commands::keys::pick_private_key,
-            commands::platform::platform
+            commands::platform::platform,
+            commands::session::get_entries,
+            commands::session::get_session_stats,
+            commands::session::get_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
