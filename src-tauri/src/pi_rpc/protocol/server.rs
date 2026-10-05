@@ -73,42 +73,6 @@ impl ServerMessage {
         }
     }
 
-    /// Value of the `type` field, when the record has one.
-    pub fn message_type(&self) -> Option<&str> {
-        match self {
-            Self::Response(_) => Some("response"),
-            Self::Event(_) => Some("event"),
-            Self::ExtensionUiRequest(_) => Some("extension_ui_request"),
-            Self::ExtensionError(_) => Some("extension_error"),
-            Self::Unknown { raw } => raw.get("type").and_then(Value::as_str),
-            Self::Unparseable { .. } => None,
-        }
-    }
-
-    /// The event, when this is one.
-    pub fn as_event(&self) -> Option<&Event> {
-        match self {
-            Self::Event(event) => Some(event),
-            _ => None,
-        }
-    }
-
-    /// The response, when this is one.
-    pub fn as_response(&self) -> Option<&Response> {
-        match self {
-            Self::Response(response) => Some(response),
-            _ => None,
-        }
-    }
-
-    /// The extension UI request, when this is one.
-    pub fn as_extension_ui_request(&self) -> Option<&ExtensionUiRequest> {
-        match self {
-            Self::ExtensionUiRequest(request) => Some(request),
-            _ => None,
-        }
-    }
-
     /// Consumes the message, returning the event if it is one.
     pub fn into_event(self) -> Option<Event> {
         match self {

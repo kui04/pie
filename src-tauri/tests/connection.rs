@@ -21,9 +21,10 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use pie_lib::connection::{
-    AskHostKey, ConnectOptions, ConnectSpec, Connection, KnownHosts, PresentedKey, SessionSummary, SshAuthSpec,
+    AskHostKey, ConnectOptions, ConnectSpec, Connection, Error, KnownHosts, PresentedKey, SessionSummary, SshAuthSpec,
 };
 use pie_lib::error::PieError;
+use pie_lib::pi_rpc::Error as ProtocolError;
 use pie_lib::pi_rpc::protocol::{Command, CommandKind, SessionState};
 
 /// An asker for tests: answers with a fixed verdict, and panics if it is asked
@@ -219,7 +220,14 @@ async fn a_host_key_nobody_trusted_ends_the_connection() {
         .await
         .expect_err("a key nobody trusted is not a connection");
 
-    assert!(matches!(error, PieError::HostKey { .. }), "got {error:?}");
+    assert!(
+        matches!(
+            &error,
+            PieError::Rpc { error, .. }
+                if matches!(&**error, ProtocolError::HostKeyRejected { .. })
+        ),
+        "got {error:?}"
+    );
     assert_eq!(asker.questions(), 1, "the key was put to the frontend");
     assert!(
         !home.path().join("known_hosts").exists(),
@@ -283,17 +291,20 @@ async fn a_host_key_that_changed_is_refused_and_says_which_store_to_fix() {
         .await
         .expect_err("a key that changed is not this host");
 
-    match error {
-        PieError::HostKey { message } => {
-            // The message has to be one a person can act on: which file, which
-            // line of it, and that connecting again is what follows.
-            assert!(
-                message.contains(&store.display().to_string()),
-                "the message names the store: {message}"
-            );
-            assert!(message.contains("line 1"), "and the line: {message}");
-            assert!(message.contains("connect again"), "and what to do: {message}");
-        }
+    match &error {
+        PieError::Rpc { error, .. } => match &**error {
+            ProtocolError::HostKeyRejected { reason, .. } => {
+                // The message has to be one a person can act on: which file,
+                // which line of it, and that connecting again is what follows.
+                assert!(
+                    reason.contains(&store.display().to_string()),
+                    "the message names the store: {reason}"
+                );
+                assert!(reason.contains("line 1"), "and the line: {reason}");
+                assert!(reason.contains("connect again"), "and what to do: {reason}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        },
         other => panic!("unexpected error: {other:?}"),
     }
 }
@@ -407,5 +418,11 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
         .list_dirs(Some(".pi/agent/sessions"))
         .await
         .expect_err("a relative path is not a path pie resolves");
-    assert!(matches!(error, PieError::Internal { .. }), "got {error:?}");
+    assert!(
+        matches!(
+            &error,
+            PieError::Connection { error, .. } if matches!(&**error, Error::NotAbsolute { .. })
+        ),
+        "got {error:?}"
+    );
 }

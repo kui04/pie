@@ -1,8 +1,9 @@
 /**
- * The startup gate: get pie onto a host, then get out of the way.
+ * The startup gate. This screen connects pie to a host. Then the screen is
+ * removed.
  *
- * Connecting away is not a state of this screen — it leaves it — so all that
- * happens on success is a route change.
+ * A successful connection is not a state of this screen. The screen goes away.
+ * Therefore a successful connection causes a route change only.
  */
 
 import { useMachine } from "@xstate/react";
@@ -16,7 +17,7 @@ import { useIsMobile } from "@/hooks/use-platform";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 
-/** What the card starts as: this machine, nothing typed. */
+/** The first contents of the card: this machine, no data typed. */
 const EMPTY_FORM: ConnectionForm = {
     transport: "local",
     auth: "password",
@@ -26,16 +27,15 @@ const EMPTY_FORM: ConnectionForm = {
     passphrase: "",
 };
 
-/** The boundary of every port there is. */
+/** The largest port number. */
 const LAST_PORT = 65535;
 
 /**
- * The port an address names, or `undefined` when what follows the colon is not
- * one.
+ * The port of an address. Returns `undefined` if the text after the colon is
+ * not a port.
  *
- * Digits only, checked before the number is read: `Number` would take `"+22"`
- * and `"1e3"` and `"0x16"` for ports 22, 1000 and 22, and a field where the
- * person typed a port should not go looking for one ssh would also refuse.
+ * The function checks for digits first. `Number` accepts `"+22"`, `"1e3"`, and
+ * `"0x16"` as the ports 22, 1000, and 22. Ssh refuses these values too.
  */
 function portOrUndefined(text: string): number | undefined {
     if (!/^\d+$/.test(text)) return undefined;
@@ -43,12 +43,11 @@ function portOrUndefined(text: string): number | undefined {
     return port >= 1 && port <= LAST_PORT ? port : undefined;
 }
 
-/** The host and port an address names, or `undefined` when it names none. */
+/** The host and port of an address. Returns `undefined` if the address has none. */
 function splitHost(text: string): { host: string; port?: number } | undefined {
-    // A bracketed literal is read as one whole host, which is the only way a
-    // colon can belong to the host rather than to the port's separator.
-    // Without the brackets `[::1]:22` and `host:notaport` are ambiguous, and the
-    // field is a plain text box, so the brackets are the person saying which.
+    // Read a bracketed literal as one host. Then the colons belong to the
+    // host, not to the port separator. Without the brackets, `[::1]:22` and
+    // `host:notaport` are not clear. The field is a plain text box.
     if (text.startsWith("[")) {
         const close = text.indexOf("]");
         if (close === -1) return undefined;
@@ -65,8 +64,8 @@ function splitHost(text: string): { host: string; port?: number } | undefined {
     if (colon === -1) return text === "" ? undefined : { host: text };
     const host = text.slice(0, colon);
     if (host === "") return undefined;
-    // No port is the common case and Rust defaults it; a colon followed by
-    // something that is not a port is a typo, not a host with no port.
+    // No port is the usual case. Rust supplies the default. A colon and a
+    // value that is not a port is a typing error.
     const port = text.slice(colon + 1);
     if (port === "") return { host };
     const parsed = portOrUndefined(port);
@@ -74,12 +73,11 @@ function splitHost(text: string): { host: string; port?: number } | undefined {
 }
 
 /**
- * The target an address names, or `undefined` when it names none.
+ * The target of an address. Returns `undefined` if the address has none.
  *
- * This is the form people already know from ssh and scp: `user@host`,
- * `user@host:port`, or a bracketed IPv6 literal with either. Rust takes the
- * three parts separately, and a connection to a host pie cannot name is not a
- * connection worth attempting.
+ * The forms are the known forms of ssh and scp: `user@host`, `user@host:port`,
+ * or a bracketed IPv6 literal with either. Rust takes the three parts
+ * separately. Pie must not attempt a connection to a host that pie cannot name.
  */
 function parseSshAddress(address: string): { user: string; host: string; port?: number } | undefined {
     const trimmed = address.trim();
@@ -87,8 +85,8 @@ function parseSshAddress(address: string): { user: string; host: string; port?: 
     if (at <= 0) return undefined;
 
     const user = trimmed.slice(0, at);
-    // The field is a login address, not an scp target: `pi:pass@host` is a
-    // mistake, and Rust would read the whole thing as a login name.
+    // The field is a login address, not an scp target. `pi:pass@host` is a
+    // mistake. Rust reads the whole value as a login name.
     if (user.includes(":")) return undefined;
 
     const host = splitHost(trimmed.slice(at + 1));
@@ -96,12 +94,13 @@ function parseSshAddress(address: string): { user: string; host: string; port?: 
 }
 
 /**
- * What the card's contents mean to Rust, or `undefined` while they name no
- * host. The card reads `canConnect` off this, so an address that cannot name a
- * target keeps Connect off instead of failing one round trip later.
+ * The request for Rust from the contents of the card. Returns `undefined` while
+ * the contents name no host. The card reads `canConnect` from this value.
+ * Therefore an address that cannot name a target keeps Connect off. There is no
+ * failed round trip.
  *
- * A port the person did not type stays absent rather than being filled in here:
- * Rust already defaults it, and that default is Rust's to own.
+ * A port that the person did not type stays absent. Rust supplies the default.
+ * Rust owns that default.
  */
 function connectSpec(form: ConnectionForm): bridge.ConnectSpec | undefined {
     if (form.transport === "local") return { transport: "local" };
@@ -122,19 +121,19 @@ function connectSpec(form: ConnectionForm): bridge.ConnectSpec | undefined {
 }
 
 /**
- * The key credential, with its passphrase when there is one.
+ * The key credential, with the passphrase if one is present.
  *
- * A passphrase only rides along when it was typed: an absent field and an empty
- * string mean the same thing to the host, and sending `""` where nothing is
- * expected is a different request.
+ * The passphrase goes with the credential only if the person typed it. An
+ * absent field and an empty string are the same to the host. A `""` where
+ * nothing is expected is a different request.
  */
 function keyAuth(credential: { type: "key"; key: string }, passphrase: string): bridge.SshAuthSpec {
     return passphrase === "" ? credential : { ...credential, passphrase };
 }
 
 /**
- * What the screen talks to when nothing has said otherwise: the real bridge,
- * under the one connection name pie uses.
+ * The bridge that the screen uses by default: the real bridge, with the one
+ * connection name of pie.
  */
 const REAL_DEPS: ConnectScreenDeps = {
     connection: bridge.CONNECTION_ID,
@@ -145,37 +144,85 @@ const REAL_DEPS: ConnectScreenDeps = {
 };
 
 /**
- * What each failure category means for the person reading it.
+ * The meaning of each named failure for the person.
  *
- * Rust's message says what went wrong; this says what to do about it, which is
- * the half a message like "authentication failed" cannot carry on its own. The
- * categories are the boundary's own (`PieError`), so the wording for all of
- * them lives here in one table.
+ * The message from Rust tells what went wrong. This table tells what to do. A
+ * message such as "authentication failed" does not tell what to do.
+ *
+ * The keys are the variant names of the error enums of Rust. These names are
+ * the values of `PieError.error.kind`. If pie has no text for a failure, the
+ * text of the module is used.
  */
-const FAILURE_REASON: Record<bridge.PieErrorTag, string> = {
-    transport: "The host could not be reached.",
-    file: "That file could not be read. Another one may work.",
+const FAILURE_REASON: Record<bridge.PieErrorKind, string> = {
+    // `pi_rpc::Error`: the connect to the host, and the run of pi on the host.
+    connect: "The host could not be reached.",
+    connect_timeout: "The host did not answer in time.",
+    ssh: "The SSH handshake with the host failed.",
     auth: "The host would not accept who pie said it was.",
-    host_key: "This host is not the machine you meant to reach.",
-    process: "pi is not there, or is not the release pie speaks.",
+    auth_timeout: "The host never answered about who pie said it was.",
+    ssh_key: "That private key could not be read.",
+    host_key_rejected: "This host is not the machine you meant to reach.",
+    spawn: "pi is not there, or could not be started.",
+    exec: "The host would not run pi.",
+    exec_timeout: "The host never answered about running pi.",
+    subsystem: "The host would not open a channel to read files through.",
+    subsystem_timeout: "The host never answered about a file channel.",
+    version_probe: "pi would not say which release it is.",
+    version_mismatch: "pi is not the release pie speaks.",
+    // `pi_rpc::Error`: the protocol itself.
     rpc: "pi refused the command.",
+    timeout: "pi did not answer in time.",
+    payload: "pi answered in a way pie does not know.",
+    encode: "Pie could not write a request pi understands.",
+    closed: "The connection to pi ended.",
+    no_runtime: "Pie could not reach its own runtime.",
+    io: "The connection to pi failed.",
+    // `connection::Error`: the connect of pie to the machine.
     already_connected: "pie is already connected to a host.",
     not_connected: "There is no connection.",
-    internal: "Something on pie's own side went wrong.",
+    remote_version: "pi on the host would not say which release it is.",
+    unreadable_local: "That file could not be read. Another one may work.",
+    unreadable_remote: "That file could not be read on the host. Another one may work.",
+    sftp_unanswered: "The host would not open a channel to read files through.",
+    not_absolute: "That path is not a path on the host.",
+    no_home_directory: "This machine has no home directory to browse.",
+    // `commands::Error`: what the IPC layer itself cannot do.
+    unusable_name: "That name cannot be used for a connection.",
+    no_host_key_store: "Pie cannot find where to keep host keys.",
+};
+
+/** The text for a failure with a name in the table above. */
+const MODULE_REASON: Record<bridge.PieErrorModule, string> = {
+    connection: "Something went wrong reaching the host.",
+    commands: "Something on pie's own side went wrong.",
+    rpc: "Something went wrong talking to pi.",
+    io: "That file could not be read. Another one may work.",
 };
 
 /**
- * What the screen needs: everything the machine needs, plus the one call only
- * the screen makes. The picker is not machine business, so it is not in
- * {@link ConnectionDeps} — putting it there would make every test of the machine
- * stub a call the machine never makes.
+ * The action for a failure, in the words of the named variant.
+ *
+ * The two tables are a lookup. They do not decide the meaning of a failure. A
+ * new variant of Rust without text uses the text of its module. The toast is
+ * never empty.
+ */
+function reasonFor(failure: bridge.PieError): string {
+    const named = failure.error ? FAILURE_REASON[failure.error.kind] : undefined;
+    return named ?? MODULE_REASON[failure.type];
+}
+
+/**
+ * The needs of the screen: the needs of the machine, and the one call that only
+ * the screen makes. The picker is not the business of the machine. Therefore it
+ * is not in {@link ConnectionDeps}. In that type, each test of the machine would
+ * replace a call that the machine never makes.
  */
 export type ConnectScreenDeps = ConnectionDeps & {
     pickPrivateKey: typeof bridge.pickPrivateKey;
 };
 
 export interface ConnectScreenProps {
-    /** Overridable so stories and tests walk the real screen against a stub. */
+    /** A test or a story can give a stub here and walk the real screen. */
     deps?: ConnectScreenDeps;
 }
 
@@ -186,19 +233,19 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const [form, setForm] = useState(EMPTY_FORM);
     const [state, send] = useMachine(connectionMachine, { input: deps });
 
-    // The one place a connection being up has to mean something else happens.
+    // This is the one place where a ready connection causes another action.
     const reached = state.matches("connected");
     useEffect(() => {
         if (reached) navigate("/chat", { replace: true });
     }, [navigate, reached]);
 
-    // A failed dial is announced rather than shown on the form. Nothing about
-    // the form changed, so an inline line would be the only thing on the card
-    // about the attempt instead of about the connection; the toast also
-    // carries the category, which is the part Rust's message leaves out.
+    // A failed connect is announced, not shown on the form. The form did not
+    // change. An inline line would be the only text about the attempt, not about
+    // the connection. The toast also carries the name of the failure, which the
+    // message from Rust does not carry.
     const failure = state.context.error;
     useEffect(() => {
-        if (failure) toast.error(failure.message, { description: FAILURE_REASON[failure.type] });
+        if (failure) toast.error(failure.message, { description: reasonFor(failure) });
     }, [failure]);
 
     const spec = useMemo(() => connectSpec(form), [form]);
@@ -208,8 +255,8 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     );
 
     /**
-     * Puts the key the picker brought back into the one field the card has for
-     * it, which is the whole of what choosing a file amounts to.
+     * Puts the key from the picker into the one field of the card for the key.
+     * That step is the full result of the selection of a file.
      */
     const pickKey = useCallback(async () => {
         try {
@@ -217,31 +264,31 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
             if (key !== null) setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
         } catch (thrown) {
             const failure = bridge.asPieError(thrown);
-            toast.error(failure.message, { description: FAILURE_REASON[failure.type] });
+            toast.error(failure.message, { description: reasonFor(failure) });
         }
     }, [pickPrivateKey]);
 
     return (
         <main
             id="connect-root"
-            // `flex-1 min-h-0` rather than a viewport height: the app shell owns
-            // the height, and on a desktop it has already spent a row on the
-            // title bar — a screen-sized panel below it would overflow the window.
+            // `flex-1 min-h-0` and not a viewport height. The app shell owns the
+            // height. On a desktop, the app shell already uses one row for the
+            // title bar. A panel with the height of the screen would overflow the
+            // window.
             className="bg-background text-foreground flex min-h-0 w-full flex-1 flex-col overflow-hidden font-sans"
         >
             <Panel
                 id="connect-stage"
-                // A phone's OS owns no title bar, so this is the whole window. A
-                // desktop window's title bar is itself a panel, which is what
-                // earns this one its chrome.
+                // The OS of a phone has no title bar. Therefore this panel is the
+                // whole window. The title bar of a desktop window is a panel
+                // itself.
                 solo={isMobile}
-                // Keeps the card off the window edge on a phone, which has no
-                // chrome to separate it.
+                // Keeps the card away from the edge of the window on a phone. A
+                // phone has no chrome to separate them.
                 //
-                // The panel does not scroll, and the card caps itself to it and
-                // scrolls its own contents instead. A panel that scrolled would
-                // take the card's top edge and border out of view with it, and
-                // would have to start-align the card to keep the top reachable.
+                // The panel does not scroll. The card has the height of the panel
+                // and scrolls its own contents. A panel that scrolled would move
+                // the top edge and the border of the card out of view.
                 className="items-center justify-center p-4"
             >
                 <ConnectionCard
@@ -255,9 +302,9 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
             </Panel>
 
             <HostKeyPrompt
-                // Rust keeps one question open at a time and replaces it rather
-                // than queueing, so a new fingerprint has to remount the prompt
-                // instead of leaving the old one's keys on screen.
+                // Rust keeps one question open at a time. A new question replaces
+                // the old question. Therefore a new fingerprint must start a new
+                // prompt. If not, the keys of the old question stay on screen.
                 key={state.context.hostKey?.fingerprint}
                 presentedKey={state.context.hostKey}
                 onAnswer={(trusted) => send({ type: "ANSWER_HOST_KEY", trusted })}

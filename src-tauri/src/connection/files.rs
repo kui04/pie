@@ -34,6 +34,7 @@ use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
 
+use crate::connection::Error;
 use crate::error::PieError;
 use crate::pi_rpc::protocol::{AgentMessage, SessionEntry, UserContent, UserContentPart};
 use crate::pi_rpc::transport::{SshSession, SubsystemStream, Termination};
@@ -704,7 +705,7 @@ where
 /// A file or a project directory pie cannot read is skipped rather than
 /// failing the listing: one damaged part must not hide the rest (pi's own scan
 /// drops unreadable entries the same way).
-pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, PieError> {
+pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, Error> {
     let mut summaries = Vec::new();
     let mut projects = match tokio::fs::read_dir(root).await {
         Ok(projects) => projects,
@@ -766,7 +767,7 @@ pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, PieEr
 /// The summary lines are extracted on the host, one command per project
 /// directory, so a listing moves those lines and nothing else. A host whose
 /// shell pie cannot use falls back to fragments over sftp.
-pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Result<Vec<SessionSummary>, PieError> {
+pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Result<Vec<SessionSummary>, Error> {
     let mut summaries = Vec::new();
     let root = host_sessions_root(session)
         .await
@@ -776,9 +777,12 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
         // A host pi has not run on yet has no such directory; that is a host
         // with no sessions, not a listing that failed.
         Err(error) if is_no_such_file(&error) => return Ok(summaries),
-        Err(error) => return Err(unreadable(&root, error)),
+        Err(error) => return Err(unreadable_there(&root, error)),
     };
-    let projects = sftp.read_dir(&root).await.map_err(|error| unreadable(&root, error))?;
+    let projects = sftp
+        .read_dir(&root)
+        .await
+        .map_err(|error| unreadable_there(&root, error))?;
     for project in projects {
         if !sftp_is_dir(sftp, &project).await {
             continue;
@@ -861,11 +865,9 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
 /// its own directory, which on a phone is not anyone's home. `path` is `None`
 /// for the home directory the connection was told about - the app's own home,
 /// which is not looked up again here.
-pub(crate) async fn list_dirs_local(home: Option<&Path>, path: Option<&str>) -> Result<Vec<DirEntryInfo>, PieError> {
+pub(crate) async fn list_dirs_local(home: Option<&Path>, path: Option<&str>) -> Result<Vec<DirEntryInfo>, Error> {
     let path = match path {
-        None => home.map(Path::to_path_buf).ok_or_else(|| PieError::Transport {
-            message: "there is no home directory to browse".to_string(),
-        })?,
+        None => home.map(Path::to_path_buf).ok_or(Error::NoHomeDirectory)?,
         Some(path) => {
             if !Path::new(path).is_absolute() {
                 return Err(not_absolute(path));
@@ -906,12 +908,12 @@ pub(crate) async fn list_dirs_local(home: Option<&Path>, path: Option<&str>) -> 
 
 /// The same directory level over an sftp channel. `None` asks for the login
 /// home, which is where an sftp session starts.
-pub(crate) async fn list_dirs_remote(sftp: &SftpSession, path: Option<&str>) -> Result<Vec<DirEntryInfo>, PieError> {
+pub(crate) async fn list_dirs_remote(sftp: &SftpSession, path: Option<&str>) -> Result<Vec<DirEntryInfo>, Error> {
     let base = match path {
         None => sftp
             .canonicalize(".")
             .await
-            .map_err(|error| unreadable("the login home", error))?,
+            .map_err(|error| unreadable_there("the login home", error))?,
         Some(path) => {
             if !is_absolute_on_the_host(path) {
                 // The host's paths, not this machine's: over sftp they are
@@ -922,7 +924,10 @@ pub(crate) async fn list_dirs_remote(sftp: &SftpSession, path: Option<&str>) -> 
             path.to_string()
         }
     };
-    let entries = sftp.read_dir(&base).await.map_err(|error| unreadable(&base, error))?;
+    let entries = sftp
+        .read_dir(&base)
+        .await
+        .map_err(|error| unreadable_there(&base, error))?;
     let mut rows = Vec::new();
     for entry in entries {
         let name = entry.file_name();
@@ -979,8 +984,9 @@ pub(crate) async fn sftp(
         return Ok(sftp);
     }
     let stream: SubsystemStream = session.subsystem("sftp").await?;
-    let opened = SftpSession::new(stream).await.map_err(|error| PieError::Transport {
-        message: format!("the sftp subsystem on {} did not answer: {error}", session.endpoint()),
+    let opened = SftpSession::new(stream).await.map_err(|source| Error::SftpUnanswered {
+        endpoint: session.endpoint().to_string(),
+        source,
     })?;
     let opened = Arc::new(opened);
     // A failed open leaves the slot empty, so the next listing tries again -
@@ -1018,11 +1024,21 @@ fn newest_first(summaries: &mut [SessionSummary]) {
     summaries.sort_by(|a, b| b.modified.cmp(&a.modified));
 }
 
-/// A path pie cannot read surfaces like any other reach failure: the frontend
-/// offers the same retry, and the message names the path that is at fault.
-fn unreadable(path: &str, error: impl std::fmt::Display) -> PieError {
-    PieError::Transport {
-        message: format!("cannot read {path}: {error}"),
+/// A path on this machine pie cannot read surfaces like any other reach
+/// failure: the frontend offers the same retry, and the message names the path
+/// that is at fault.
+fn unreadable(path: &str, source: std::io::Error) -> Error {
+    Error::UnreadableLocal {
+        path: path.to_string(),
+        source,
+    }
+}
+
+/// The same for a path on the host, over sftp.
+fn unreadable_there(path: &str, source: SftpError) -> Error {
+    Error::UnreadableRemote {
+        path: path.to_string(),
+        source,
     }
 }
 
@@ -1030,10 +1046,8 @@ fn unreadable(path: &str, error: impl std::fmt::Display) -> PieError {
 ///
 /// Asked for by name so a caller holding a connection can reject such a path
 /// before it spends a channel handshake on it.
-pub(crate) fn not_absolute(path: &str) -> PieError {
-    PieError::Internal {
-        message: format!("`{path}` is not absolute; pie resolves no path against its own directory"),
-    }
+pub(crate) fn not_absolute(path: &str) -> Error {
+    Error::NotAbsolute { path: path.to_string() }
 }
 
 /// Whether `path` is absolute on the host it names: POSIX or Windows style.
@@ -1058,7 +1072,7 @@ fn is_no_such_file(error: &SftpError) -> bool {
 
 /// Reads the next directory entry, naming the directory being listed when one
 /// of its entries cannot be read.
-async fn next_entry(entries: &mut tokio::fs::ReadDir, shown: &str) -> Result<Option<tokio::fs::DirEntry>, PieError> {
+async fn next_entry(entries: &mut tokio::fs::ReadDir, shown: &str) -> Result<Option<tokio::fs::DirEntry>, Error> {
     entries.next_entry().await.map_err(|error| unreadable(shown, error))
 }
 
@@ -1670,7 +1684,7 @@ mod tests {
             let error = list_dirs_local(None, Some(path))
                 .await
                 .expect_err("`{path}` is relative");
-            assert!(matches!(error, PieError::Internal { .. }), "got {error:?}");
+            assert!(matches!(error, Error::NotAbsolute { .. }), "got {error:?}");
         }
     }
 

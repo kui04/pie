@@ -1,19 +1,28 @@
 //! Everything that can go wrong while talking to `pi --mode rpc`.
 //!
-//! The variants report what happened; sorting them into the categories the
-//! frontend branches on is `src-tauri`'s job (`PieError`, see
-//! `.agents/rules/architecture.md`), which is also where a failure is named
-//! once rather than in every place that reports one.
+//! The variants report what happened. `PieError` carries this enum whole, and
+//! serde sends the name of the variant that failed as `kind`, which is what the
+//! frontend branches on; the sentence a person reads is
+//! [`Display`](std::fmt::Display)'s job. So a failure is named once here rather
+//! than in every place that reports one.
 
 use std::time::Duration;
 
+use serde::Serialize;
 use thiserror::Error;
 
 /// Result alias for the protocol layer.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A protocol, transport, or process failure.
-#[derive(Debug, Error)]
+///
+/// Serialized under a `kind` tag, because the app's boundary hands this enum to
+/// the frontend nested inside its own failure: the name of the variant that
+/// failed is the whole of what the UI can branch on. Payloads that are not
+/// plain data - an `io::Error`, a `russh::Error` - stay typed on this side and
+/// do not travel; their `Display` is already in the sentence beside them.
+#[derive(Debug, Error, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Error {
     /// Starting the peer failed (missing binary, permission denied, ...).
@@ -22,17 +31,26 @@ pub enum Error {
         /// Program that was being started.
         program: String,
         /// Underlying failure.
+        #[serde(skip)]
         #[source]
         source: std::io::Error,
     },
 
     /// An i/o operation on an established transport failed.
     #[error("transport i/o failed: {0}")]
-    Io(#[from] std::io::Error),
+    Io(
+        #[serde(skip)]
+        #[from]
+        std::io::Error,
+    ),
 
     /// A record could not be serialized. Always a bug in this crate.
     #[error("failed to encode a protocol record: {0}")]
-    Encode(#[source] serde_json::Error),
+    Encode(
+        #[serde(skip)]
+        #[source]
+        serde_json::Error,
+    ),
 
     /// `<program> --version` failed or printed nothing usable.
     #[error("`{program} --version` failed: {message}")]
@@ -104,18 +122,24 @@ pub enum Error {
         /// Host that was being reached, `user@host:port`.
         endpoint: String,
         /// Underlying failure.
+        #[serde(skip)]
         #[source]
         source: std::io::Error,
     },
 
     /// The SSH layer failed: handshake, channel, or session.
     #[error("ssh: {0}")]
-    Ssh(#[from] russh::Error),
+    Ssh(
+        #[serde(skip)]
+        #[from]
+        russh::Error,
+    ),
 
     /// A private key could not be decoded or decrypted.
     #[error("reading the private key: {source}")]
     SshKey {
         /// Why it failed.
+        #[serde(skip)]
         #[source]
         source: russh::keys::Error,
     },

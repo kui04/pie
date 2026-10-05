@@ -12,9 +12,11 @@
 //! Deciding whether to trust a host is policy and lives with [`KnownHosts`];
 //! the app builds that policy per connection and answers its questions.
 
+mod error;
 mod files;
 mod host_key;
 
+pub use error::Error;
 pub use files::{DirEntryInfo, SessionSummary};
 pub use host_key::{AskHostKey, KnownHosts, PresentedKey};
 
@@ -231,10 +233,10 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// Whatever the transport reports, as [`PieError`]: nothing on this machine
-    /// to run ([`PieError::Process`], which also covers a `pi` that is not the
-    /// release pie speaks), or the SSH failures of
-    /// [`SshSession::open`](crate::pi_rpc::transport::SshSession::open).
+    /// Whatever reaching the host reports, as [`PieError`]: this side's own reach
+    /// for a machine is [`Error`], and everything the protocol or the transport
+    /// under it reports keeps its own name as [`PieError::Rpc`] - no pi to run,
+    /// a version pie does not speak, a refused host key, a failed handshake.
     pub async fn connect(
         id: impl Into<String>,
         spec: &ConnectSpec,
@@ -339,12 +341,13 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// [`PieError::Transport`] when the host's sessions directory cannot be
-    /// read - a path at fault names itself in the message.
+    /// [`Error::UnreadableLocal`] when this machine's sessions directory cannot
+    /// be read, and whatever reaching or reading the host reports when the
+    /// listing is remote - a path at fault names itself in the message.
     pub async fn list_sessions(&self) -> Result<Vec<SessionSummary>, PieError> {
         match &self.media {
             Media::Local { sessions_root, .. } => match sessions_root {
-                Some(root) => files::list_local(root).await,
+                Some(root) => Ok(files::list_local(root).await?),
                 None => Ok(Vec::new()),
             },
             Media::Ssh { session, sftp } => {
@@ -355,7 +358,7 @@ impl Connection {
                     Ok(summaries) => Ok(summaries),
                     Err(error) => {
                         files::forget_sftp(sftp, &channel);
-                        Err(error)
+                        Err(error.into())
                     }
                 }
             }
@@ -372,25 +375,26 @@ impl Connection {
     ///
     /// # Errors
     ///
-    /// [`PieError::Internal`] for a relative path (the frontend's mistake),
-    /// [`PieError::Transport`] when the path cannot be read.
+    /// [`Error::NotAbsolute`] for a relative path (the frontend's mistake), and
+    /// [`Error::UnreadableLocal`] or [`Error::UnreadableRemote`] when the path
+    /// cannot be read.
     pub async fn list_dirs(&self, path: Option<&str>) -> Result<Vec<DirEntryInfo>, PieError> {
         match &self.media {
-            Media::Local { home, .. } => files::list_dirs_local(home.as_deref(), path).await,
+            Media::Local { home, .. } => Ok(files::list_dirs_local(home.as_deref(), path).await?),
             Media::Ssh { session, sftp } => {
                 // A relative path is the frontend's mistake, and saying so is
                 // not worth an sftp handshake first.
                 if let Some(path) = path
                     && !files::is_absolute_on_the_host(path)
                 {
-                    return Err(files::not_absolute(path));
+                    return Err(PieError::from(files::not_absolute(path)));
                 }
                 let channel = files::sftp(session, sftp).await?;
                 match files::list_dirs_remote(&channel, path).await {
                     Ok(rows) => Ok(rows),
                     Err(error) => {
                         files::forget_sftp(sftp, &channel);
-                        Err(error)
+                        Err(error.into())
                     }
                 }
             }
@@ -426,13 +430,18 @@ impl Connection {
 /// [`check_version`](crate::pi_rpc::check_version) do on this machine; this run
 /// happened on the host, so its failures name the endpoint, and what a wrapped
 /// pi printed about itself is the reason worth passing on.
+///
+/// Either module's failure, because either can happen here: a `pi` that printed
+/// a version pie does not speak is the protocol layer's, and a probe that never
+/// answered at all is this side's reach for the machine.
 fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieError> {
     let printed = String::from_utf8_lossy(&output.stdout);
     let printed = printed.trim();
     if let Termination::Exited { success: true, .. } = output.termination
         && !printed.is_empty()
     {
-        return crate::pi_rpc::check_version(printed).map_err(PieError::from);
+        crate::pi_rpc::check_version(printed)?;
+        return Ok(());
     }
 
     let said = String::from_utf8_lossy(&output.stderr);
@@ -453,9 +462,10 @@ fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieE
         Termination::Signalled { signal } => format!("was killed by signal {signal}"),
         Termination::Unknown => "ended without a status".to_string(),
     };
-    Err(PieError::Process {
-        message: format!("`pi --version` on {endpoint} {ended}{said}"),
-    })
+    Err(PieError::from(Error::RemoteVersion {
+        endpoint: endpoint.to_string(),
+        reported: format!("{ended}{said}"),
+    }))
 }
 
 /// Endpoint of a host that is this machine.
@@ -534,7 +544,10 @@ mod tests {
         checked_remote_version("pi@host:22", printed(crate::pi_rpc::PI_VERSION.as_bytes())).expect("the pin matches");
 
         match checked_remote_version("pi@host:22", printed(b"0.84.2")).unwrap_err() {
-            PieError::Process { message } => assert!(message.contains("0.84.2"), "got `{message}`"),
+            PieError::Rpc { error: box_error, .. } => match *box_error {
+                crate::pi_rpc::Error::VersionMismatch { found, .. } => assert_eq!(found, "0.84.2"),
+                ref other => panic!("unexpected error: {other:?}"),
+            },
             other => panic!("unexpected error: {other:?}"),
         }
     }
@@ -551,11 +564,14 @@ mod tests {
         };
 
         match checked_remote_version("pi@host:22", output).unwrap_err() {
-            PieError::Process { message } => {
-                assert!(message.contains("pi@host:22"), "got `{message}`");
-                assert!(message.contains("exited with 127"), "got `{message}`");
-                assert!(message.contains("command not found"), "got `{message}`");
-            }
+            PieError::Connection { error, .. } => match *error {
+                Error::RemoteVersion { endpoint, reported } => {
+                    assert_eq!(endpoint, "pi@host:22");
+                    assert!(reported.contains("exited with 127"), "got `{reported}`");
+                    assert!(reported.contains("command not found"), "got `{reported}`");
+                }
+                ref other => panic!("unexpected error: {other:?}"),
+            },
             other => panic!("unexpected error: {other:?}"),
         }
     }

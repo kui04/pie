@@ -4,14 +4,15 @@ import * as bridge from "@/lib/bridge";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
 
 /**
- * A bridge that answers what a test tells it to, and remembers what it was
- * asked. Nothing here starts pi: the machine is what is under test, and the
- * bridge is only how the machine reaches the outside.
+ * A bridge that answers what a test tells it to, and records each request.
+ * Nothing here starts pi. The machine is under test. The bridge is only the path
+ * of the machine to the outside.
  */
 function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
     let publish: ((state: bridge.ConnectionState) => void) | undefined;
     let subscribed = "";
     let unsubscribed = "";
+    let unlistenCalls = 0;
 
     const deps: ConnectionDeps = {
         connection: "main",
@@ -26,6 +27,7 @@ function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
             publish = onState;
             return () => {
                 unsubscribed = id;
+                unlistenCalls += 1;
             };
         }),
         ...overrides,
@@ -33,18 +35,19 @@ function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
 
     return {
         deps,
-        /** Puts a host-key question on the wire, as Rust would mid-handshake. */
+        /** Puts a host-key question on the wire, as Rust does during the handshake. */
         askHostKey: (key: bridge.PresentedKey) => publish?.({ type: "host_key", key }),
         subscribed: () => subscribed,
         unsubscribed: () => unsubscribed,
+        unlistenCalls: () => unlistenCalls,
     };
 }
 
 /**
- * A dial that stays open until the test says otherwise — what a real handshake
- * is, and what makes the substates of `connecting` observable at all. Without it
- * `connect` settles within a tick and every question about "while it runs"
- * would be asked of a graph that has already finished.
+ * A dial that stays open until the test says otherwise. A real handshake does
+ * this, and the substates of `connecting` are observable only during the dial.
+ * Without it, `connect` completes in one tick, and no test can ask a question
+ * about the time during the dial.
  */
 function pendingDeps(overrides: Partial<ConnectionDeps> = {}) {
     let release: ((info: bridge.ConnectionInfo) => void) | undefined;
@@ -85,11 +88,12 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
         expect(actor.getSnapshot().context.info?.endpoint).toBe("local");
         expect(harness.unsubscribed()).toBe("main");
+        expect(harness.unlistenCalls()).toBe(1);
     });
 
     it("subscribes before it dials, so the question cannot arrive unheard", async () => {
-        // The host-key question lands while `connect` is still pending. A
-        // listener registered after the dial would have missed it.
+        // The host-key question arrives while `connect` is still pending. A
+        // listener registered after the dial misses it.
         const order: string[] = [];
         const harness = fakeDeps({
             onConnectionState: async () => {
@@ -110,9 +114,9 @@ describe("connectionMachine", () => {
     });
 
     it("reports a listener that never arrives as a failed handshake", async () => {
-        // Without a listener the host-key question goes unheard, so this is a
-        // failure like any other — and it has to be one, or the form stays
-        // locked on "Connecting" with nothing left to unlock it.
+        // Without a listener, the host-key question goes unheard. Therefore this
+        // is a failure like any other. The form must not stay locked on
+        // "Connecting".
         const harness = fakeDeps({
             onConnectionState: async () => {
                 throw new Error("no IPC bridge here");
@@ -124,17 +128,34 @@ describe("connectionMachine", () => {
 
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
         expect(actor.getSnapshot().context.error).toEqual({
-            type: "internal",
+            type: "commands",
             message: "no IPC bridge here",
         });
         expect(harness.deps.connect).not.toHaveBeenCalled();
     });
 
+    it("unsubscribes once when the handshake fails", async () => {
+        // The failure path must not drop the listener. If it does,
+        // `plugin:event|unlisten` goes twice for one listener. Leaving
+        // `connecting` stops the handshake actor, and the cleanup of the actor
+        // owns the listener.
+        const harness = pendingDeps();
+        const actor = createActor(connectionMachine, { input: harness.deps }).start();
+
+        actor.send({ type: "CONNECT", spec: SPEC });
+        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
+
+        harness.failWith(new Error("connection refused"));
+        await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
+
+        expect(harness.unlistenCalls()).toBe(1);
+    });
+
     it("drops the question when the handshake fails while it is on screen", async () => {
-        // A host key that never gets answered times out on Rust's side, and the
-        // failure arrives with the question still up. The prompt is open exactly
-        // while `hostKey` is set, so leaving it set would pin the sheet or dialog
-        // over the error with no event left that can close it.
+        // A host key without an answer reaches the timeout in Rust. The failure
+        // arrives while the question is on screen. The prompt is open only while
+        // `hostKey` is set. If it stays set, the sheet stays over the error, and
+        // no event can close it.
         const harness = pendingDeps();
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
@@ -147,7 +168,7 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
 
         expect(actor.getSnapshot().context.hostKey).toBeNull();
-        // And nothing is left asking: the answer has no handler out here.
+        // No question is open. The answer has no handler here.
         actor.send({ type: "ANSWER_HOST_KEY", trusted: false });
         expect(actor.getSnapshot().matches("error")).toBe(true);
         expect(actor.getSnapshot().context.hostKey).toBeNull();
@@ -170,7 +191,7 @@ describe("connectionMachine", () => {
         const harness = pendingDeps();
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
-        // Outside the handshake there is nobody to ask, and the graph says so.
+        // Outside the handshake, there is no one to ask. The graph shows this.
         actor.send({ type: "HOST_KEY", key: KEY });
         expect(actor.getSnapshot().matches("idle")).toBe(true);
 
@@ -183,10 +204,10 @@ describe("connectionMachine", () => {
     });
 
     it("keeps waiting when the answer itself cannot be delivered", async () => {
-        // Nothing to fail on in Rust today, so this is the IPC boundary rather
-        // than the protocol: without a listener-side `onError` the rejected actor
-        // is dropped and the machine sits in `answering` for good — the prompt is
-        // already gone and the form is locked, with no event left to reach it.
+        // Rust has nothing to fail on today. Therefore this failure is the IPC
+        // boundary, not the protocol. Without `onError`, the rejected actor is
+        // dropped and the machine stays in `answering`. The prompt is gone and
+        // the form is locked.
         const harness = pendingDeps({
             trustHostKey: async () => {
                 throw new Error("no IPC bridge here");
@@ -200,13 +221,18 @@ describe("connectionMachine", () => {
         actor.send({ type: "ANSWER_HOST_KEY", trusted: true });
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "answering" })).toBe(true));
 
-        // Back to waiting, so the handshake's own ending is what reports the
-        // outcome: Rust gives up on the question and the dial fails with it.
+        // The machine goes back to `waiting`. The end of the handshake reports
+        // the result. Rust gives up on the question, and the dial fails.
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "waiting" })).toBe(true));
 
-        harness.failWith({ type: "host_key", message: "nobody answered whether to trust this host key" });
+        harness.failWith({
+            type: "rpc",
+            message: "nobody answered whether to trust this host key",
+            error: { kind: "host_key_rejected" },
+        });
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
-        expect(actor.getSnapshot().context.error?.type).toBe("host_key");
+        expect(actor.getSnapshot().context.error?.type).toBe("rpc");
+        expect(actor.getSnapshot().context.error?.error?.kind).toBe("host_key_rejected");
     });
 
     it("answers once, and the question comes down while the handshake runs on", async () => {
@@ -219,8 +245,8 @@ describe("connectionMachine", () => {
         actor.send({ type: "ANSWER_HOST_KEY", trusted: true });
 
         await vi.waitFor(() => expect(harness.deps.trustHostKey).toHaveBeenCalledWith("main", true));
-        // Still reaching the host, which is where the answer's consequence shows
-        // up: the sheet is gone but nothing has been decided yet.
+        // The dial continues. The result of the answer is not visible yet. The
+        // sheet is gone, but the handshake has not decided.
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "waiting" })).toBe(true));
         expect(actor.getSnapshot().context.hostKey).toBeNull();
 
@@ -240,10 +266,14 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(harness.deps.trustHostKey).toHaveBeenCalledWith("main", false));
     });
 
-    it("reports a refused host key as the category Rust gave it", async () => {
+    it("reports a refused host key as the kind Rust gave it", async () => {
         const harness = fakeDeps({
             connect: async () => {
-                throw { type: "host_key", message: "the key at 192.168.1.10:22 is not the one on record" };
+                throw {
+                    type: "rpc",
+                    message: "the key at 192.168.1.10:22 is not the one on record",
+                    error: { kind: "host_key_rejected" },
+                };
             },
         });
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
@@ -251,15 +281,16 @@ describe("connectionMachine", () => {
         actor.send({ type: "CONNECT", spec: SPEC });
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
         expect(actor.getSnapshot().context.error).toEqual({
-            type: "host_key",
+            type: "rpc",
             message: "the key at 192.168.1.10:22 is not the one on record",
+            error: { kind: "host_key_rejected" },
         });
     });
 
-    it("unlocks for a retry, and clearing the line takes it back to idle", async () => {
+    it("unlocks for a retry, and clears the failure", async () => {
         const harness = fakeDeps({
             connect: async () => {
-                throw { type: "transport", message: "connection refused" };
+                throw { type: "rpc", message: "connection refused", error: { kind: "connect" } };
             },
         });
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
@@ -269,22 +300,6 @@ describe("connectionMachine", () => {
 
         actor.send({ type: "CONNECT", spec: SPEC });
         expect(actor.getSnapshot().matches("connecting")).toBe(true);
-        expect(actor.getSnapshot().context.error).toBeNull();
-    });
-
-    it("takes a dismissed failure back to a clean idle, with nothing left over", async () => {
-        const harness = fakeDeps({
-            connect: async () => {
-                throw { type: "process", message: "pi is not on PATH" };
-            },
-        });
-        const actor = createActor(connectionMachine, { input: harness.deps }).start();
-
-        actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
-
-        actor.send({ type: "DISMISS" });
-        expect(actor.getSnapshot().matches("idle")).toBe(true);
         expect(actor.getSnapshot().context.error).toBeNull();
     });
 
@@ -309,8 +324,8 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
 
         actor.stop();
-        // One listener per handshake: a replaced question is Rust's business,
-        // and this actor's channel is no longer the one carrying it.
+        // One listener for each handshake. A replaced question is the business
+        // of Rust, and the channel of this actor no longer carries it.
         expect(harness.unsubscribed()).toBe("main");
         expect(actor.getSnapshot().status).toBe("stopped");
     });

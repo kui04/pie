@@ -1,110 +1,122 @@
 //! What the frontend is told when something fails.
 //!
-//! The category is the point: React branches on [`PieError`]'s tag (a wrong
-//! password is a different screen than a host that moved), so the five
-//! categories the architecture fixes stay separate and a failure is never
-//! flattened into a string. Each variant still carries the message a person
-//! reads, built once where the failure is known.
+//! An aggregation, not a taxonomy. Each layer already names its own failures,
+//! and this enum holds those errors whole rather than deciding what they mean:
+//! one variant per module, and no table anywhere that says which category a
+//! failure belongs to. A new way to fail is a new variant in the layer that
+//! owns it, and nothing here changes.
 //!
-//! `pi_rpc` reports what happened in its own terms; this module is where those
-//! terms become the boundary taxonomy, so the mapping lives in one place.
+//! Across the wire it is at most three fields. `type` is the module, `message` is what
+//! a person reads, and `error` is the named variant underneath - `kind`, plus
+//! whatever plain data that variant carries. The UI branches on `kind`, so
+//! telling a refused host key from a dead socket needs nothing but the name its
+//! own layer gave it.
 
 use serde::Serialize;
+use thiserror::Error;
+
+use crate::{commands, connection, pi_rpc};
 
 /// A failure the frontend has to handle.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+///
+/// Each variant carries the layer's own error boxed rather than inline: every
+/// command returns this, and a boundary type that is 128 bytes to say
+/// `permission denied` is paid for on every call rather than only on the
+/// failures. Boxing the concrete type costs one allocation, once, when
+/// something has already gone wrong.
+#[derive(Debug, Error, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum PieError {
-    /// The connection itself failed: a socket, a channel, an unreadable
-    /// stream - or the channel to pi ended under a command, which is what a
-    /// frontend should offer to retry rather than send someone looking for a
-    /// missing binary.
-    Transport { message: String },
-    /// A file the person named could not be read: wrong permissions, a
-    /// directory, a URI the platform will not hand over. The person did this by
-    /// choosing it, and another file may read fine, so it is neither pie's bug
-    /// nor the host refusing.
-    File { message: String },
-    /// The host would not accept who pie said it was.
-    Auth { message: String },
-    /// The host is not the machine the user meant to reach.
-    HostKey { message: String },
-    /// `pi` is not there, not runnable, or not the release pie speaks.
-    Process { message: String },
-    /// Pi answered a command with a refusal.
-    Rpc { message: String },
-    /// A live connection is already there.
-    AlreadyConnected { message: String },
-    /// The command needs a live connection and there is none.
-    NotConnected { message: String },
-    /// Pie's own side got something wrong: a path it needs, a record it wrote,
-    /// or an argument from its own frontend. Nothing the user did and nothing
-    /// the host did.
-    Internal { message: String },
+    /// Reaching a host, reading what is on it, or the state of the one
+    /// connection pie keeps.
+    #[error("{message}")]
+    Connection {
+        /// What a person reads.
+        message: String,
+        /// The failure underneath, named.
+        #[source]
+        error: Box<connection::Error>,
+    },
+
+    /// The IPC layer could not do what it was asked.
+    #[error("{message}")]
+    Commands {
+        /// What a person reads.
+        message: String,
+        /// The failure underneath, named.
+        #[source]
+        error: Box<commands::Error>,
+    },
+
+    /// Talking to pi, or to the transport under it, failed.
+    #[error("{message}")]
+    Rpc {
+        /// What a person reads.
+        message: String,
+        /// The failure underneath, named.
+        #[source]
+        error: Box<pi_rpc::Error>,
+    },
+
+    /// A file could not be read: wrong permissions, a directory, a URI the
+    /// platform will not hand over. The person did this by choosing it, and
+    /// another file may read fine, so it is neither pie's bug nor the host
+    /// refusing.
+    #[error("{message}")]
+    Io {
+        /// What a person reads.
+        message: String,
+        /// The read itself, kept typed. `std::io::Error` names no variants of
+        /// its own, so there is no `kind` to send and the words are the whole
+        /// of what the frontend learns.
+        #[serde(skip)]
+        #[source]
+        source: std::io::Error,
+    },
 }
 
-impl std::fmt::Display for PieError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let message = match self {
-            Self::Transport { message }
-            | Self::File { message }
-            | Self::Auth { message }
-            | Self::HostKey { message }
-            | Self::Process { message }
-            | Self::Rpc { message }
-            | Self::AlreadyConnected { message }
-            | Self::NotConnected { message }
-            | Self::Internal { message } => message,
-        };
-        formatter.write_str(message)
+impl PieError {
+    /// A file that could not be read.
+    ///
+    /// `std::io::Error` carries no variant to name, which is why `Io` is a
+    /// variant of its own rather than one more named failure inside a module:
+    /// the type is the whole of the category, and the words are what the
+    /// platform said about it.
+    ///
+    /// Built here rather than derived from the error because the two are the
+    /// same failure: the sentence a person reads is the platform's own.
+    pub fn file(source: std::io::Error) -> Self {
+        Self::Io {
+            message: source.to_string(),
+            source,
+        }
     }
 }
 
-impl std::error::Error for PieError {}
+impl From<connection::Error> for PieError {
+    fn from(error: connection::Error) -> Self {
+        Self::Connection {
+            message: error.to_string(),
+            error: Box::new(error),
+        }
+    }
+}
 
-impl From<crate::pi_rpc::Error> for PieError {
-    /// Sorts one protocol-layer failure into the boundary taxonomy.
-    ///
-    /// Every variant is listed rather than caught by a catch-all: `pi_rpc` and
-    /// this module are one crate, so `#[non_exhaustive]` buys nothing here and a
-    /// new way to fail should stop this from compiling until it is sorted.
-    fn from(error: crate::pi_rpc::Error) -> Self {
-        use crate::pi_rpc::Error;
+impl From<commands::Error> for PieError {
+    fn from(error: commands::Error) -> Self {
+        Self::Commands {
+            message: error.to_string(),
+            error: Box::new(error),
+        }
+    }
+}
 
-        let message = error.to_string();
-        match error {
-            // No pi to run, or the one there is speaking a protocol pie does
-            // not know; `Exec` is the host refusing to run the command at all,
-            // whose commonest cause is a `pi` that is not on its PATH.
-            Error::Spawn { .. }
-            | Error::VersionProbe { .. }
-            | Error::VersionMismatch { .. }
-            | Error::Exec { .. }
-            | Error::ExecTimeout { .. } => Self::Process { message },
-            // Pi answered a command with a refusal, did not answer it, or
-            // answered it in a shape pie does not know.
-            Error::Rpc { .. } | Error::Timeout { .. } | Error::Payload { .. } => Self::Rpc { message },
-            // A private key that cannot be read is part of authenticating.
-            Error::SshKey { .. } | Error::Auth { .. } | Error::AuthTimeout { .. } => Self::Auth { message },
-            Error::HostKeyRejected { .. } => Self::HostKey { message },
-            // Reaching the host at all, and staying reached: socket, handshake,
-            // channel, stream. A refused or silent subsystem belongs here too:
-            // the host serves no such channel, which is about the reach, not
-            // about pi being installed.
-            Error::Io(_)
-            | Error::Connect { .. }
-            | Error::ConnectTimeout { .. }
-            | Error::Ssh(_)
-            | Error::Subsystem { .. }
-            | Error::SubsystemTimeout { .. } => Self::Transport { message },
-            // The channel to pi was gone when a command went out: pie was
-            // shutting down, or pi had exited. That is a connection that ended,
-            // not a machine with no pi on it - sending this one to `Process`
-            // would tell the user to go and install something that is already
-            // there.
-            Error::Closed => Self::Transport { message },
-            // Bugs, or a setup pie depends on: never the host's doing.
-            Error::Encode(_) | Error::NoRuntime => Self::Internal { message },
+impl From<pi_rpc::Error> for PieError {
+    fn from(error: pi_rpc::Error) -> Self {
+        Self::Rpc {
+            message: error.to_string(),
+            error: Box::new(error),
         }
     }
 }
@@ -112,112 +124,117 @@ impl From<crate::pi_rpc::Error> for PieError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pi_rpc::Error;
+
+    /// The three fields that cross the wire, as the frontend receives them.
+    fn crossing(error: PieError) -> serde_json::Value {
+        serde_json::to_value(error).expect("serializes")
+    }
 
     #[test]
-    fn the_categories_stay_apart() {
-        let cases = [
-            (
-                Error::Auth {
-                    endpoint: "pi@host:22".into(),
-                },
-                "auth",
-            ),
-            (
-                Error::HostKeyRejected {
-                    endpoint: "host:22".into(),
-                    reason: "changed".into(),
-                },
-                "host_key",
-            ),
-            (Error::NoRuntime, "internal"),
-            (
-                Error::VersionMismatch {
-                    expected: "0.99.2".into(),
-                    found: "0.84.2".into(),
-                },
-                "process",
-            ),
-            // A host that will not run the command has no pi to run, which is
-            // about the process it was asked for, not the transport it arrived
-            // on.
-            (
-                Error::Exec {
-                    endpoint: "pi@host:22".into(),
-                    command: "pi --mode rpc".into(),
-                },
-                "process",
-            ),
-            // The channel ended under a command. Told apart from the cases above
-            // on purpose: `pi` is installed and current, it is the connection
-            // that is gone, and the frontend should offer a retry rather than go
-            // looking for a binary.
-            (Error::Closed, "transport"),
-            // The host serves no such channel. About the reach, not about pi:
-            // `sftp` missing from the sshd's `Subsystem` line sends someone to
-            // the host's sshd configuration, never to a `pi` installer.
-            (
-                Error::Subsystem {
-                    endpoint: "pi@host:22".into(),
-                    name: "sftp".into(),
-                },
-                "transport",
-            ),
-            (
-                Error::Rpc {
-                    command: "compact".into(),
-                    message: "no".into(),
-                },
-                "rpc",
-            ),
-            (
-                Error::Connect {
-                    endpoint: "pi@host:22".into(),
-                    source: std::io::Error::other("refused"),
-                },
-                "transport",
-            ),
-        ];
+    fn a_failure_carries_its_module_and_the_name_underneath() {
+        let crossing = crossing(PieError::from(connection::Error::NotConnected {
+            doing: "listing its sessions".to_string(),
+        }));
 
-        for (error, expected) in cases {
-            let tagged = serde_json::to_value(PieError::from(error)).expect("serializes");
-            assert_eq!(tagged["type"], expected, "got {tagged}");
+        assert_eq!(crossing["type"], "connection");
+        assert_eq!(crossing["error"]["kind"], "not_connected");
+        assert_eq!(crossing["message"], "connect to a host before listing its sessions");
+    }
+
+    #[test]
+    fn a_protocol_failure_keeps_the_name_that_reports_it() {
+        let crossing = crossing(PieError::from(pi_rpc::Error::Auth {
+            endpoint: "pi@host:22".to_string(),
+        }));
+
+        assert_eq!(crossing["type"], "rpc");
+        assert_eq!(crossing["error"]["kind"], "auth");
+        assert_eq!(crossing["message"], "the host refused the credentials for pi@host:22");
+    }
+
+    #[test]
+    fn an_argument_the_ipc_layer_cannot_use_is_named_as_its_own() {
+        let crossing = crossing(PieError::from(commands::Error::UnusableName { id: "a/b".to_string() }));
+
+        assert_eq!(crossing["type"], "commands");
+        assert_eq!(crossing["error"]["kind"], "unusable_name");
+        assert_eq!(crossing["error"]["id"], "a/b");
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_the_io_category_and_says_nothing_else() {
+        let crossing = crossing(PieError::file(std::io::Error::other("permission denied")));
+
+        assert_eq!(crossing["type"], "io");
+        assert_eq!(crossing["message"], "permission denied");
+        assert!(
+            crossing.get("error").is_none(),
+            "an io failure has no variant name to report: {crossing}"
+        );
+    }
+
+    #[test]
+    fn every_failure_carries_a_message_a_person_can_read() {
+        for error in [
+            PieError::from(connection::Error::AlreadyConnected {
+                endpoint: "local".to_string(),
+            }),
+            PieError::from(connection::Error::NoHomeDirectory),
+            PieError::from(pi_rpc::Error::Closed),
+            PieError::from(commands::Error::UnusableName { id: "".to_string() }),
+            PieError::file(std::io::Error::other("denied")),
+        ] {
+            let crossing = crossing(error);
             assert!(
-                tagged["message"].as_str().is_some_and(|message| !message.is_empty()),
-                "every failure carries something to show: {tagged}"
+                crossing["message"].as_str().is_some_and(|message| !message.is_empty()),
+                "got {crossing}"
+            );
+            assert!(
+                crossing["type"].as_str().is_some_and(|module| !module.is_empty()),
+                "got {crossing}"
             );
         }
     }
 
     #[test]
-    fn the_app_says_when_the_connection_slot_is_empty() {
-        // No protocol failure maps onto these: they are about pie's own state.
-        for (error, expected) in [
-            (
-                PieError::AlreadyConnected {
-                    message: "a connection is live".to_string(),
-                },
-                "already_connected",
-            ),
-            (
-                PieError::NotConnected {
-                    message: "connect first".to_string(),
-                },
-                "not_connected",
-            ),
-        ] {
-            let tagged = serde_json::to_value(&error).expect("serializes");
-            assert_eq!(tagged["type"], expected, "got {tagged}");
-        }
+    fn a_failure_keeps_the_error_underneath_it_for_a_log_line() {
+        let error = PieError::from(pi_rpc::Error::Connect {
+            endpoint: "pi@host:22".to_string(),
+            source: std::io::Error::other("connection refused"),
+        });
+
+        let source = std::error::Error::source(&error).expect("the protocol failure is kept");
+        assert_eq!(
+            source.to_string(),
+            "connecting to pi@host:22 failed: connection refused"
+        );
     }
 
     #[test]
-    fn a_mismatch_still_reads_well_to_a_person() {
-        let error = PieError::from(Error::VersionMismatch {
-            expected: "0.99.2".into(),
-            found: "0.84.2".into(),
-        });
-
-        assert_eq!(error.to_string(), "pi version mismatch: expected 0.99.2, found 0.84.2");
+    fn no_failure_reports_its_name_twice() {
+        // A module error that only wraps another one would make serde write its
+        // own `kind` and then the one inside it, and the frontend would read
+        // whichever came last. Counting in the text is the only way to see it:
+        // parsing into a map quietly keeps one.
+        for error in [
+            PieError::from(pi_rpc::Error::Auth {
+                endpoint: "pi@host:22".to_string(),
+            }),
+            PieError::from(pi_rpc::Error::Io(std::io::Error::other("refused"))),
+            PieError::from(connection::Error::AlreadyConnected {
+                endpoint: "local".to_string(),
+            }),
+            PieError::from(connection::Error::UnreadableLocal {
+                path: "/home/pie".to_string(),
+                source: std::io::Error::other("denied"),
+            }),
+            PieError::file(std::io::Error::other("denied")),
+        ] {
+            let text = serde_json::to_string(&error).expect("serializes");
+            assert!(
+                text.matches("\"kind\":").count() <= 1,
+                "the name underneath is written twice: {text}"
+            );
+        }
     }
 }

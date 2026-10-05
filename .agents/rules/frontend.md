@@ -41,6 +41,8 @@ forked layout.
 - Transcript rendering: react-markdown + remark-gfm, virtualized (virtua), no
   heavy highlighters (shiki) in the initial bundle; diffs get a dedicated
   renderer.
-- The only way out of React is the Tauri `invoke` bridge in `src/lib/bridge.ts`
-  — no fetch, no WebSocket, no Tauri event listeners outside the bridge.
+- The only way out of React is the Tauri `invoke` bridge in `src/lib/bridge/` —
+  no fetch, no WebSocket, no Tauri event listeners outside the bridge, and no
+  `@tauri-apps/plugin-*` import: anything the frontend needs from a plugin, Rust
+  exports as a command.
 - UI strings are English, inline — no i18n layer yet.

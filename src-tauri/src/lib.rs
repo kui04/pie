@@ -18,17 +18,17 @@ pub fn run() {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "pie starting");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
-            commands::connect,
-            commands::disconnect,
-            commands::list_dirs,
-            commands::list_sessions,
-            commands::platform,
-            commands::trust_host_key
+            commands::connect::connect,
+            commands::connect::disconnect,
+            commands::connect::trust_host_key,
+            commands::files::list_dirs,
+            commands::files::list_sessions,
+            commands::keys::pick_private_key,
+            commands::platform::platform
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,7 @@
 /**
- * The gate, walked the way a person walks it: pick a transport, fill the
- * credential, connect. Every dial goes through a stub bridge, so nothing here
- * starts pi — the machine's own tests are where the graph is under test.
+ * The gate, in the steps of a person: select a transport, complete the
+ * credential, connect. Each dial goes through a stub bridge. Therefore no test
+ * here starts pi. The graph is under test in the tests of the machine.
  */
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -21,20 +21,20 @@ const KEY: PresentedKey = {
 
 afterEach(cleanup);
 
-/** A dial that stays open, so the locked form can be looked at. */
+/** A dial that stays open. A test can then look at the locked form. */
 const never = () => new Promise<ConnectionInfo>(() => undefined);
 
 /**
- * A bridge that records what it was asked and holds the dial open. Nothing here
- * reaches Tauri, which is the point: the screen is under test, not the IPC.
+ * A bridge that records each request and keeps the dial open. Nothing here
+ * reaches Tauri. The screen is under test, not the IPC.
  */
 function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
     let publish: ((state: { type: "host_key"; key: PresentedKey }) => void) | undefined;
     let abandonDial: ((reason: unknown) => void) | undefined;
     const deps: ConnectScreenDeps = {
         connection: "main",
-        // Settles only when a test says so, which is what leaves room for a dial
-        // that is abandoned mid-question — the way a host key times out.
+        // It completes only when a test says so. Therefore a test can abandon a
+        // dial during a question, as a host key does at the timeout.
         connect: vi.fn(
             () =>
                 new Promise<ConnectionInfo>((_resolve, reject) => {
@@ -51,9 +51,9 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
     };
     return {
         deps,
-        /** Puts the question on the wire, as Rust does mid-handshake. */
+        /** Puts the question on the wire, as Rust does during the handshake. */
         askHostKey: () => publish?.({ type: "host_key", key: KEY }),
-        /** Gives up on the dial the way a host key that is never answered does. */
+        /** Ends the dial, as a host key without an answer does at the timeout. */
         failDial: (reason: unknown = new Error("the host never answered")) => abandonDial?.(reason),
     };
 }
@@ -61,8 +61,8 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
 function renderGate(deps: ConnectScreenDeps) {
     return render(
         <MemoryRouter initialEntries={["/"]}>
-            {/* The toast stack is the app's, so the gate's announcements only
-                exist where the app puts them. */}
+            {/* The toast stack belongs to the app. The announcements of the
+                gate exist only where the app puts them. */}
             <Toaster position="top-center" />
             <Routes>
                 <Route path="/" element={<ConnectScreen deps={deps} />} />
@@ -75,10 +75,10 @@ function renderGate(deps: ConnectScreenDeps) {
 const CONNECT = () => screen.getByRole("button", { name: "Connect" });
 
 /**
- * Fills a field by pasting rather than typing.
+ * Fills a field with a paste, not with a type.
  *
- * `user.type` reads its argument as a keyboard script, so `[` opens a key
- * descriptor — and an IPv6 literal is full of them.
+ * `user.type` reads its argument as a keyboard script. Therefore `[` starts a
+ * key descriptor. An IPv6 literal contains many of them.
  */
 async function paste(user: ReturnType<typeof userEvent.setup>, label: string, text: string) {
     const field = screen.getByLabelText(label);
@@ -88,7 +88,7 @@ async function paste(user: ReturnType<typeof userEvent.setup>, label: string, te
 
 const KEY_TEXT = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----";
 
-/** The two clicks every private-key case starts from. */
+/** The two clicks at the start of each private-key test. */
 async function openKeyAuth(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole("radio", { name: /SSH/ }));
     await paste(user, "Address", "pi@example.com");
@@ -125,8 +125,8 @@ describe("ConnectScreen", () => {
 
         expect(screen.getByLabelText("Address")).toBeInTheDocument();
         expect(screen.getByLabelText("Password")).toBeInTheDocument();
-        // An address that names no host keeps Connect off rather than finding
-        // that out one round trip later.
+        // An address without a host keeps Connect off. There is no round trip
+        // that finds the error.
         expect(CONNECT()).toBeDisabled();
 
         await user.type(screen.getByLabelText("Address"), "pi@192.168.1.10:22");
@@ -167,8 +167,8 @@ describe("ConnectScreen", () => {
         await user.type(screen.getByLabelText("Password"), "hunter2");
         await user.click(CONNECT());
 
-        // Rust's `port` is `Option<u16>` with `#[serde(default)]`, so omitting it
-        // is a real answer and the default stays Rust's to change.
+        // `port` in Rust is `Option<u16>` with `#[serde(default)]`. Therefore the
+        // omission of the field is a real answer. Rust can change the default.
         await waitFor(() =>
             expect(connect).toHaveBeenCalledWith("main", {
                 transport: "ssh",
@@ -230,7 +230,7 @@ describe("ConnectScreen", () => {
         ["an unclosed literal", "pi@[::1"],
         ["text after the literal", "pi@[::1]x"],
         ["an scp target rather than a login", "pi:hunter2@box.example"],
-        // `Number` would take each of these for a port; ssh would not.
+        // `Number` accepts each of these as a port. Ssh does not.
         ["a signed port", "pi@box.example:+22"],
         ["a port in exponent form", "pi@box.example:1e3"],
         ["a port in hex", "pi@box.example:0x16"],
@@ -332,9 +332,9 @@ describe("ConnectScreen", () => {
 
         await user.click(CONNECT());
 
-        // Everything the person filled in goes inert together, so a credential
-        // cannot be half-rewritten under a handshake that already read the old
-        // one.
+        // All fields of the person become inactive together. Therefore the
+        // credential cannot change during a handshake that already read the old
+        // credential.
         await waitFor(() => expect(screen.getByRole("radio", { name: /Local process/ })).toBeDisabled());
         expect(screen.getByRole("button", { name: /Connecting/ })).toBeDisabled();
         expect(screen.getByText("Connecting")).toBeInTheDocument();
@@ -344,19 +344,23 @@ describe("ConnectScreen", () => {
         const user = userEvent.setup();
         const connect = vi
             .fn()
-            .mockRejectedValueOnce({ type: "process", message: "pi is not on PATH" } satisfies PieError)
+            .mockRejectedValueOnce({
+                type: "rpc",
+                message: "pi is not on PATH",
+                error: { kind: "spawn" },
+            } satisfies PieError)
             .mockImplementation(never);
         renderGate(stubBridge({ connect }).deps);
 
         await user.click(CONNECT());
 
-        // The toast carries the message Rust wrote *and* what the category
-        // means, because neither alone tells a person what to do next.
+        // The toast carries the message from Rust and the meaning of the named
+        // variant. Each one alone does not tell the person the next step.
         const announced = await screen.findByText("pi is not on PATH");
         expect(announced).toBeInTheDocument();
-        expect(screen.getByText("pi is not there, or is not the release pie speaks.")).toBeInTheDocument();
+        expect(screen.getByText("pi is not there, or could not be started.")).toBeInTheDocument();
 
-        // Nothing about the form changed, so it is ready to try again.
+        // The form did not change. Therefore it is ready for another attempt.
         expect(CONNECT()).toBeEnabled();
         await user.click(CONNECT());
         await waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
@@ -364,17 +368,22 @@ describe("ConnectScreen", () => {
 
     it("says nothing on a second failure once the first toast has gone", async () => {
         const user = userEvent.setup();
-        const connect = vi
-            .fn()
-            .mockRejectedValue({ type: "transport", message: "connection refused" } satisfies PieError);
+        const connect = vi.fn().mockRejectedValue({
+            type: "rpc",
+            message: "connection refused",
+            error: { kind: "connect" },
+        } satisfies PieError);
         const { unmount } = renderGate(stubBridge({ connect }).deps);
 
         await user.click(CONNECT());
         await screen.findByText("connection refused");
+        // A connect failure reads as a connect failure. The named kind has its
+        // own text, not the wider text of the module.
+        expect(screen.getByText("The host could not be reached.")).toBeInTheDocument();
         unmount();
 
-        // A fresh mount starts with no failure, so nothing is announced: the
-        // toast follows the machine's error rather than the form's history.
+        // A new mount starts with no failure. Therefore there is no announcement.
+        // The toast follows the error of the machine, not the record of the form.
         renderGate(stubBridge({ connect: vi.fn(never) }).deps);
         expect(screen.queryByText("connection refused")).not.toBeInTheDocument();
     });
@@ -387,7 +396,8 @@ describe("ConnectScreen", () => {
         await user.click(CONNECT());
         stub.askHostKey();
 
-        // The sheet says what a person has to check and what checking it means.
+        // The sheet tells the person what to check and what the result of the
+        // check is.
         const sheet = await screen.findByRole("dialog");
         expect(sheet).toHaveTextContent("Trust this host?");
         expect(sheet).toHaveTextContent(KEY.fingerprint);
@@ -414,11 +424,11 @@ describe("ConnectScreen", () => {
     });
 
     it("takes the prompt away when the handshake is abandoned with it on screen", async () => {
-        // A host key nobody answers times out, and the failure arrives while the
-        // question is still up. The prompt has to go with it: it is open exactly
-        // while `hostKey` is set, and once the machine has left `connecting` there
-        // is no handler left for an answer, so anything the person does with it —
-        // cancel, trust, Escape, dragging it down — would do nothing at all.
+        // A host key without an answer reaches the timeout. The failure arrives
+        // while the question is on screen. The prompt must go also. The prompt is
+        // open only while `hostKey` is set. After the machine leaves `connecting`,
+        // no handler accepts an answer. Therefore Cancel, Trust, Escape, and a
+        // drag have no effect.
         const user = userEvent.setup();
         const stub = stubBridge();
         renderGate(stub.deps);
@@ -432,8 +442,8 @@ describe("ConnectScreen", () => {
         await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
         expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Trust" })).not.toBeInTheDocument();
-        // The form is usable again, which is the other half of "the prompt got
-        // out of the way".
+        // The form operates again. This is the second result of the closed
+        // prompt.
         expect(CONNECT()).toBeEnabled();
     });
 

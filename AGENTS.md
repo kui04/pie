@@ -87,11 +87,25 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   never hand-write a primitive shadcn already provides, and merge upstream
   updates with `shadcn add <name> --diff`.
 - The app layer keeps its own shape: `src-tauri/src/error.rs` is the boundary
-  taxonomy (`PieError`, mapped from `pi_rpc::Error` in one `From`),
+  aggregation (`PieError`, holding the `pi_rpc::Error`, `connection::Error` and
+  `commands::Error` of the layer that failed, one `From` each),
   `src-tauri/src/connection/` holds the one host pie talks to (and stays free of
   Tauri, so it can be tested against a real host), and `src-tauri/src/commands/`
   is the IPC surface — commands return `Result<T, PieError>`, events are
-  `pi://<area>/{id}`.
+  `pi://<area>/{id}`, and each area has its own file.
+- Errors: every layer names its own failures as a `thiserror` enum whose
+  variants are what a caller matches on (`pi_rpc::Error`, `connection::Error`,
+  `commands::Error`), and no layer wraps another's. `PieError` is the
+  aggregation of them — `PieError::{Connection, Commands, Rpc, Io}`, one variant
+  per module — carrying the module, the message the frontend reads, and the
+  named variant underneath, so a new way to fail belongs in the layer that owns
+  it and nothing is flattened on the way through.
+- The frontend reaches no `@tauri-apps/plugin-*` npm package: Rust registers the
+  plugin and exports a command, and the capability permission goes with the npm
+  package. `no-restricted-imports` in `eslint.config.js` enforces it;
+  `@tauri-apps/api` is the bridge itself and stays.
+- `src-tauri/Cargo.toml` lists dependencies in alphabetical order, which
+  `src-tauri/tests/manifest.rs` checks.
 - A code comment states the reason inline and cites only what a reader outside
   this working tree can look up: the code, or a source that ships with a project
   (OpenSSH's or russh's own source, pi at the pinned version). `docs/` is a

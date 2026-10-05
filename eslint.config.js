@@ -7,10 +7,9 @@ import tseslint from "typescript-eslint";
 import { defineConfig } from "eslint/config";
 
 export default defineConfig(
-    // eslint does not read .gitignore, and a bare `target` does not match the files
-    // inside it: Tauri's generated assets under src-tauri/target are not valid
-    // JavaScript, so build output needs an explicit glob, next to the generated
-    // Android project and the pi reference checkout.
+    // eslint does not read .gitignore. A bare `target` does not match the files
+    // in it. Therefore the build output needs an explicit glob. The glob also
+    // covers the generated Android project and the pi reference checkout.
     { ignores: ["dist", "storybook-static", "**/target/**", "src-tauri/gen", ".codegraph"] },
     {
         extends: [js.configs.recommended, ...tseslint.configs.recommended],
@@ -26,6 +25,21 @@ export default defineConfig(
         rules: {
             ...reactHooks.configs.flat["recommended-latest"].rules,
             "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+            // A plugin reaches the machine through the permissions in the
+            // capability file. Rust makes the decisions of pie. Therefore the
+            // frontend gets what it needs from a command of pie. See
+            // `.agents/rules/architecture.md`.
+            "no-restricted-imports": [
+                "error",
+                {
+                    patterns: [
+                        {
+                            group: ["@tauri-apps/plugin-*"],
+                            message: "a Tauri plugin is Rust's to call; export a command instead (architecture.md).",
+                        },
+                    ],
+                },
+            ],
         },
     },
     {
