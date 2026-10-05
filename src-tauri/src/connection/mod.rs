@@ -1,16 +1,17 @@
-//! The one host pie talks to.
+//! The one host that pie talks to.
 //!
-//! Pi runs on the machine that has it: this one, or one reached over SSH. This
-//! module holds that relationship - it reaches the host, starts the process
-//! that speaks the protocol, and ends it - and it stays free of Tauri, so the
-//! whole path can be tested against a real host with no UI in the way.
+//! Pi runs on the machine that has it: this machine, or a machine that pie
+//! reaches over SSH. This module holds that relation. It reaches the host, it
+//! starts the process that speaks the protocol, and it ends the process. It
+//! stays free of Tauri. Therefore a test can use the full path against a real
+//! host, with no UI in the way.
 //!
-//! One host at a time is what the product needs, so the app keeps one
-//! [`Connection`]. Sessions on that host are the processes pi runs:
-//! connecting starts the first one, and everything else follows from there.
+//! The product keeps one host at a time. Therefore the app keeps one
+//! [`Connection`]. The sessions on that host are the processes that pi runs: the
+//! connect starts the first one, and everything else follows.
 //!
-//! Deciding whether to trust a host is policy and lives with [`KnownHosts`];
-//! the app builds that policy per connection and answers its questions.
+//! The decision to trust a host is policy, and it lives with [`KnownHosts`]. The
+//! app builds that policy for each connection and answers its questions.
 
 mod error;
 mod files;
@@ -33,24 +34,24 @@ use crate::pi_rpc::transport::{
     ExecOutput, HostKey, LocalTransport, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
 };
 
-/// How long pi gets to shut down before it is killed.
+/// The time for pi to stop before pie kills it.
 ///
-/// Pi disposes its session when its stdin closes, which is worth waiting for -
-/// killing it leaves whatever it was writing half-written. Five seconds is
-/// longer than that takes and short enough not to look like a hang.
+/// Pi disposes its session when its stdin closes. Pie waits for that. A kill
+/// leaves a half-written session file. Five seconds is longer than this step
+/// needs, and short enough to look like an operation, not a hang.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// What the frontend asks pie to connect to.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum ConnectSpec {
-    /// Pi on this machine, taken from `PATH`.
+    /// Pi on this machine, from `PATH`.
     Local,
-    /// Pi on a host reached over SSH.
+    /// Pi on a host that pie reaches over SSH.
     Ssh {
         /// Hostname or address.
         host: String,
-        /// SSH port; 22 when the connect screen leaves it out.
+        /// The SSH port; 22 if the connect screen omits it.
         #[serde(default)]
         port: Option<u16>,
         /// Login name.
@@ -60,7 +61,7 @@ pub enum ConnectSpec {
     },
 }
 
-/// Credentials as the connect screen collected them.
+/// The credentials as the connect screen collected them.
 #[derive(Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SshAuthSpec {
@@ -71,16 +72,17 @@ pub enum SshAuthSpec {
     },
     /// A private key, as the text a key file holds.
     Key {
-        /// The key itself: pie never copies secret material into its own storage.
+        /// The key itself. Pie never copies secret material into its own storage.
         key: String,
-        /// Passphrase, when the key is encrypted.
+        /// The passphrase, if the key is encrypted.
         #[serde(default)]
         passphrase: Option<String>,
     },
 }
 
 impl std::fmt::Debug for SshAuthSpec {
-    /// Redacts secrets: this type arrives from the frontend and reaches logs.
+    /// This function removes the secrets. This type arrives from the frontend
+    /// and reaches the logs.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Password { .. } => formatter.write_str("Password(<redacted>)"),
@@ -102,19 +104,19 @@ impl From<SshAuthSpec> for SshAuth {
     }
 }
 
-/// What a connection needs from the app it serves.
+/// What a connection needs from its app.
 pub struct ConnectOptions {
-    /// This machine's home directory: where a local session starts when the
-    /// frontend does not say. `None` leaves pi in whatever directory the app
-    /// was started in, which is what happens on platforms without one.
+    /// The home directory of this machine: the start of a local session if the
+    /// frontend does not say. `None` leaves pi in the directory of the app. That
+    /// is the result on a platform without a home directory.
     pub home: Option<PathBuf>,
-    /// The host-key policy the SSH handshake asks. Built per connection by the
-    /// app, because a question about a host key names the connection it belongs
-    /// to.
+    /// The host-key policy for the SSH handshake. The app builds one for each
+    /// connection, because a host-key question names the connection of the
+    /// question.
     pub host_key: Arc<dyn HostKey>,
 }
 
-/// A host pie is connected to.
+/// A host that pie is connected to.
 #[derive(Debug)]
 pub struct Connection {
     id: String,
@@ -124,29 +126,30 @@ pub struct Connection {
     sessions: Vec<Session>,
 }
 
-/// How pie reads the host's files.
+/// How pie reads the files of the host.
 ///
-/// The two reaches the protocol knows, for the host's own files rather than
-/// for pi: the filesystem here, sftp over the very session pi runs on.
+/// These are the two paths that the protocol knows, for the files of the host
+/// and not for pi: the filesystem here, and sftp over the session of pi.
 enum Media {
-    /// This machine: pi's sessions are ordinary files here.
+    /// This machine. The sessions of pi are ordinary files here.
     Local {
-        /// Where pi keeps them; nothing when no home says.
+        /// The place where pi keeps the sessions. `None` if no home directory
+        /// says.
         sessions_root: Option<PathBuf>,
-        /// The home this connection was told about, what a directory listing
-        /// with no path asks for. Not the same source as `sessions_root`: pi
-        /// resolves its own from the environment it is started with, while
-        /// this is the home the frontend named for the session's directory -
-        /// normally the same directory, and kept apart so neither is guessed
-        /// at from the other's rule.
+        /// The home directory of this connection, and the answer to a directory
+        /// listing without a path. The source is not the source of
+        /// `sessions_root`: pi resolves its own root from its environment, and
+        /// this is the home that the frontend gave for the directory of the
+        /// session. The two are usually the same directory. They stay apart, so
+        /// no rule of one guesses the other.
         home: Option<PathBuf>,
     },
-    /// A host reached over SSH.
+    /// A host that pie reaches over SSH.
     Ssh {
-        /// The one connection every channel on this host rides on.
+        /// The one connection for all channels on this host.
         session: SshSession,
-        /// The sftp channel, opened on first use and reopened when it has died
-        /// (see [`files::sftp`], [`files::forget_sftp`]).
+        /// The sftp channel. Pie opens it at the first use and opens it again
+        /// after a failure (see [`files::sftp`], [`files::forget_sftp`]).
         sftp: Mutex<Option<Arc<SftpSession>>>,
     },
 }
@@ -169,8 +172,8 @@ impl std::fmt::Debug for Media {
 }
 
 impl Media {
-    /// Closes the reach itself - the SSH session and, with it, every channel
-    /// on it. The local filesystem needs nothing.
+    /// Closes the path itself: the SSH session and all channels on it. The local
+    /// filesystem needs nothing.
     async fn close(&self) {
         if let Media::Ssh { session, .. } = self {
             session.close().await;
@@ -182,13 +185,13 @@ impl Media {
 #[derive(Debug)]
 pub struct Session {
     id: String,
-    /// Where pi started, when pie chose that. `None` means the login shell's own
-    /// directory decided it.
+    /// The start of pi, if pie selected it. `None` means the directory of the
+    /// login shell decided.
     cwd: Option<PathBuf>,
     client: Client,
 }
 
-/// What the frontend gets back once a connection is up.
+/// What the frontend receives after a connection is ready.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionInfo {
@@ -196,47 +199,48 @@ pub struct ConnectionInfo {
     pub id: String,
     /// `local`, or `user@host:port`.
     pub endpoint: String,
-    /// The sessions running on the host.
+    /// The sessions that operate on the host.
     pub sessions: Vec<SessionInfo>,
 }
 
-/// What the frontend gets back about one session.
+/// What the frontend receives about one session.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
-    /// Name of this session, for the `pi://session/{id}/...` events.
+    /// The name of this session, for the `pi://session/{id}/...` events.
     pub id: String,
-    /// Where pi started, when pie chose that.
+    /// The start of pi, if pie selected it.
     pub cwd: Option<PathBuf>,
 }
 
-/// What the frontend hears about a connection while it is being made.
+/// What the frontend hears about a connection during the handshake.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ConnectionState {
-    /// A host presented a key that is in no store, so the connection is waiting
-    /// for a person. What `connect` does with an answer that never comes is the
-    /// frontend's business: it decides how long to wait, and no answer is a
-    /// refusal.
+    /// A host presented a key that is in no store. Therefore the connection
+    /// waits for a person. The result of an answer that never arrives is the
+    /// business of the frontend: the frontend decides the length of the wait,
+    /// and no answer is a refusal.
     HostKey {
-        /// The key in the terms a person checks it in.
+        /// The key in the values that a person compares.
         key: PresentedKey,
     },
 }
 
 impl Connection {
-    /// Reaches the host and starts its first session.
+    /// Reaches the host. Starts the first session of the host.
     ///
-    /// An SSH connection may wait here for a person: a host key that is in no
-    /// store is put to the frontend, and the answer arrives through a command
-    /// while this call is pending.
+    /// An SSH connection can wait here for a person. Pie puts a host key that is
+    /// in no store to the frontend. The answer arrives through a command while
+    /// this call is pending.
     ///
     /// # Errors
     ///
-    /// Whatever reaching the host reports, as [`PieError`]: this side's own reach
-    /// for a machine is [`Error`], and everything the protocol or the transport
-    /// under it reports keeps its own name as [`PieError::Rpc`] - no pi to run,
-    /// a version pie does not speak, a refused host key, a failed handshake.
+    /// The failure of the reach to the host, as [`PieError`]. The reach of this
+    /// side to a machine is [`Error`]. Every report of the protocol or of the
+    /// transport below it keeps its own name as [`PieError::Rpc`]: no pi to run,
+    /// a version that pie does not speak, a refused host key, or a failed
+    /// handshake.
     pub async fn connect(
         id: impl Into<String>,
         spec: &ConnectSpec,
@@ -245,9 +249,9 @@ impl Connection {
         let id = id.into();
         let (endpoint, cwd, client, media) = match spec {
             ConnectSpec::Local => {
-                // A pi that is not the release this build mirrors speaks a
-                // protocol pie does not know, and the mismatch would look like
-                // pi misbehaving rather than like the wrong pi.
+                // A pi that is not the release of this build speaks a protocol
+                // that pie does not know. Without the check, the mismatch looks
+                // like a fault of pi, not like the wrong pi.
                 crate::pi_rpc::check_version(crate::pi_rpc::probe_version("pi").await?)?;
                 let mut transport = LocalTransport::pi();
                 if let Some(home) = &options.home {
@@ -270,14 +274,14 @@ impl Connection {
                 }
                 let endpoint = target.endpoint();
                 let session = SshSession::open(target, auth.clone().into(), Arc::clone(&options.host_key)).await?;
-                // The same check the local path makes: one session serves
-                // every channel on the host, so the probe no longer costs a
+                // This is the same check as on the local path. One session
+                // serves all channels on the host. Therefore the probe needs no
                 // connection of its own.
                 let probe = session.output("pi --version").await?;
                 checked_remote_version(&endpoint, probe)?;
-                // The first session starts where the login shell does: on SSH
-                // the remote home is where work happens until the user picks a
-                // directory.
+                // The first session starts in the directory of the login shell.
+                // On SSH, work happens in the remote home until the user selects
+                // a directory.
                 let transport = session.exec(RemoteCommand::new("pi --mode rpc")).await?;
                 (
                     endpoint,
@@ -314,16 +318,16 @@ impl Connection {
         &self.endpoint
     }
 
-    /// The sessions running on this host.
+    /// The sessions that operate on this host.
     pub fn sessions(&self) -> &[Session] {
         &self.sessions
     }
 
-    /// Whether pi is still running behind any of the sessions.
+    /// Whether pi still operates behind a session.
     ///
-    /// A connection is not ended when its process dies - nobody is watching for
-    /// that yet - so this is how the app tells a live connection from one whose
-    /// host is gone.
+    /// A connection does not end when its process dies. Nobody watches for that
+    /// event yet. Therefore the app tells a live connection from a connection
+    /// with a dead host here.
     pub fn is_alive(&self) -> bool {
         self.sessions.iter().any(|session| !session.client.is_closed())
     }
@@ -337,13 +341,14 @@ impl Connection {
         }
     }
 
-    /// Every session pi has written on this host, across project directories.
+    /// Every session that pi wrote on this host, in all project directories.
     ///
     /// # Errors
     ///
-    /// [`Error::UnreadableLocal`] when this machine's sessions directory cannot
-    /// be read, and whatever reaching or reading the host reports when the
-    /// listing is remote - a path at fault names itself in the message.
+    /// [`Error::UnreadableLocal`] if pie cannot read the sessions directory of
+    /// this machine, and the failure of the reach to the host or of the read of
+    /// the host for a remote listing. A path at fault names itself in the
+    /// message.
     pub async fn list_sessions(&self) -> Result<Vec<SessionSummary>, PieError> {
         match &self.media {
             Media::Local { sessions_root, .. } => match sessions_root {
@@ -352,8 +357,8 @@ impl Connection {
             },
             Media::Ssh { session, sftp } => {
                 let channel = files::sftp(session, sftp).await?;
-                // A failed listing over a channel that had died must not leave
-                // the dead one cached (files::forget_sftp).
+                // A failed listing must not keep a dead channel in the cache
+                // (files::forget_sftp).
                 match files::list_remote(session, &channel).await {
                     Ok(summaries) => Ok(summaries),
                     Err(error) => {
@@ -367,23 +372,23 @@ impl Connection {
 
     /// One directory level on the host, for the directory picker.
     ///
-    /// `None` asks for the home directory - this machine's here, the login
-    /// home over sftp. Anything else must be an absolute path on the host: pie
-    /// resolves nothing against its own directory, which on a phone is not
-    /// anyone's home, and the rows carry their whole paths so the picker never
-    /// builds one of its own.
+    /// `None` asks for the home directory: the directory of this machine here,
+    /// or the login home over sftp. Any other value must be an absolute path on
+    /// the host. Pie resolves nothing against its own directory, which on a
+    /// phone is not the home of a person. The rows carry their full paths, so
+    /// the picker never builds a path.
     ///
     /// # Errors
     ///
-    /// [`Error::NotAbsolute`] for a relative path (the frontend's mistake), and
-    /// [`Error::UnreadableLocal`] or [`Error::UnreadableRemote`] when the path
-    /// cannot be read.
+    /// [`Error::NotAbsolute`] for a relative path (a mistake of the frontend),
+    /// and [`Error::UnreadableLocal`] or [`Error::UnreadableRemote`] if pie
+    /// cannot read the path.
     pub async fn list_dirs(&self, path: Option<&str>) -> Result<Vec<DirEntryInfo>, PieError> {
         match &self.media {
             Media::Local { home, .. } => Ok(files::list_dirs_local(home.as_deref(), path).await?),
             Media::Ssh { session, sftp } => {
-                // A relative path is the frontend's mistake, and saying so is
-                // not worth an sftp handshake first.
+                // A relative path is a mistake of the frontend. The report of
+                // that mistake does not need an sftp handshake.
                 if let Some(path) = path
                     && !files::is_absolute_on_the_host(path)
                 {
@@ -401,14 +406,14 @@ impl Connection {
         }
     }
 
-    /// Ends every session on this host and closes the channel.
+    /// Ends every session on this host. Closes the channel.
     ///
-    /// Sessions stop; their files stay where pi wrote them, which is what makes
-    /// disconnecting different from deleting a session. Takes `&self` on
-    /// purpose: the slot hands out shared hands to this connection (the file
-    /// listings run on them), and ending it must not need to own the last one.
-    /// The reach itself closes here regardless, so a listing still in flight
-    /// meets a host that is already gone rather than keeping it alive.
+    /// The sessions stop. Their files stay where pi wrote them. Therefore a
+    /// disconnect is different from a delete of a session. The method takes
+    /// `&self` on purpose: the slot gives shared hands to this connection, and
+    /// the file listings operate on them. The end of the connection must not
+    /// need to own the last hand. The path closes here in all cases. Therefore a
+    /// listing in progress meets a host that is already gone.
     pub async fn disconnect(&self) {
         for session in &self.sessions {
             if tokio::time::timeout(SHUTDOWN_GRACE, session.client.shutdown())
@@ -424,16 +429,17 @@ impl Connection {
     }
 }
 
-/// Reads the version the host's `pi --version` printed.
+/// Reads the version that `pi --version` printed on the host.
 ///
-/// The same check [`probe_version`](crate::pi_rpc::probe_version) and
-/// [`check_version`](crate::pi_rpc::check_version) do on this machine; this run
-/// happened on the host, so its failures name the endpoint, and what a wrapped
-/// pi printed about itself is the reason worth passing on.
+/// This is the same check as [`probe_version`](crate::pi_rpc::probe_version) and
+/// [`check_version`](crate::pi_rpc::check_version) on this machine. This run
+/// happened on the host. Therefore its failures name the endpoint, and the
+/// output of a wrapped pi is the reason to pass on.
 ///
-/// Either module's failure, because either can happen here: a `pi` that printed
-/// a version pie does not speak is the protocol layer's, and a probe that never
-/// answered at all is this side's reach for the machine.
+/// The failure of either module, because either event can occur here. A `pi`
+/// that printed a version that pie does not speak is the failure of the protocol
+/// layer. A probe with no answer is the failure of the reach of this side to the
+/// machine.
 fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieError> {
     let printed = String::from_utf8_lossy(&output.stdout);
     let printed = printed.trim();
@@ -468,21 +474,21 @@ fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieE
     }))
 }
 
-/// Endpoint of a host that is this machine.
+/// The endpoint of a host that is this machine.
 const LOCAL_ENDPOINT: &str = "local";
 
 impl Session {
-    /// Name of this session, for the `pi://session/{id}/...` events.
+    /// The name of this session, for the `pi://session/{id}/...` events.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// Where pi started, when pie chose that.
+    /// The start of pi, if pie selected it.
     pub fn cwd(&self) -> Option<&std::path::Path> {
         self.cwd.as_deref()
     }
 
-    /// The client that speaks to this session's pi.
+    /// The client that speaks to the pi of this session.
     pub fn client(&self) -> &Client {
         &self.client
     }

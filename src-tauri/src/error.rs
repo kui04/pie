@@ -1,35 +1,34 @@
 //! What the frontend is told when something fails.
 //!
-//! An aggregation, not a taxonomy. Each layer already names its own failures,
-//! and this enum holds those errors whole rather than deciding what they mean:
-//! one variant per module, and no table anywhere that says which category a
-//! failure belongs to. A new way to fail is a new variant in the layer that
-//! owns it, and nothing here changes.
+//! This enum is an aggregation, not a taxonomy. Each layer names its own
+//! failures. This enum holds those errors whole and does not decide their
+//! meaning: one variant for each module, and no table that says which category a
+//! failure belongs to. A new way to fail is a new variant in the layer that owns
+//! it. Nothing here changes.
 //!
-//! Across the wire it is at most three fields. `type` is the module, `message` is what
-//! a person reads, and `error` is the named variant underneath - `kind`, plus
-//! whatever plain data that variant carries. The UI branches on `kind`, so
-//! telling a refused host key from a dead socket needs nothing but the name its
-//! own layer gave it.
+//! Across the wire there are at most three fields. `type` is the module.
+//! `message` is the text for a person. `error` is the named variant below:
+//! `kind`, plus the plain data that the variant carries. The UI branches on
+//! `kind`. Therefore a refused host key and a dead socket need nothing more than
+//! the name that the owning layer gave.
 
 use serde::Serialize;
 use thiserror::Error;
 
 use crate::{commands, connection, pi_rpc};
 
-/// A failure the frontend has to handle.
+/// A failure that the frontend must handle.
 ///
-/// Each variant carries the layer's own error boxed rather than inline: every
-/// command returns this, and a boundary type that is 128 bytes to say
-/// `permission denied` is paid for on every call rather than only on the
-/// failures. Boxing the concrete type costs one allocation, once, when
-/// something has already gone wrong.
+/// Each variant carries the error of its layer boxed, not inline. Every command
+/// returns this type. A boundary type of 128 bytes for `permission denied` would
+/// cost on every call, not only on the failures. The boxing of the concrete type
+/// costs one allocation, one time, after something already failed.
 #[derive(Debug, Error, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PieError {
-    /// Reaching a host, reading what is on it, or the state of the one
-    /// connection pie keeps.
+    /// The connect to a host, the read of what is on it, or the state of the one
+    /// connection that pie keeps.
     #[error("{message}")]
     Connection {
         /// What a person reads.
@@ -49,7 +48,7 @@ pub enum PieError {
         error: Box<commands::Error>,
     },
 
-    /// Talking to pi, or to the transport under it, failed.
+    /// The talk to pi, or to the transport below it, failed.
     #[error("{message}")]
     Rpc {
         /// What a person reads.
@@ -59,17 +58,17 @@ pub enum PieError {
         error: Box<pi_rpc::Error>,
     },
 
-    /// A file could not be read: wrong permissions, a directory, a URI the
-    /// platform will not hand over. The person did this by choosing it, and
-    /// another file may read fine, so it is neither pie's bug nor the host
-    /// refusing.
+    /// Pie cannot read a file: wrong permissions, a directory, or a URI that the
+    /// platform will not hand over. The person selected it. Another file can
+    /// read correctly. Therefore this failure is not a bug of pie and not a
+    /// refusal of the host.
     #[error("{message}")]
     Io {
         /// What a person reads.
         message: String,
-        /// The read itself, kept typed. `std::io::Error` names no variants of
-        /// its own, so there is no `kind` to send and the words are the whole
-        /// of what the frontend learns.
+        /// The read itself, kept typed. `std::io::Error` has no variants.
+        /// Therefore there is no `kind` to send, and the words are the full
+        /// report to the frontend.
         #[serde(skip)]
         #[source]
         source: std::io::Error,
@@ -77,15 +76,15 @@ pub enum PieError {
 }
 
 impl PieError {
-    /// A file that could not be read.
+    /// A file that pie cannot read.
     ///
-    /// `std::io::Error` carries no variant to name, which is why `Io` is a
-    /// variant of its own rather than one more named failure inside a module:
-    /// the type is the whole of the category, and the words are what the
-    /// platform said about it.
+    /// `std::io::Error` carries no variant with a name. Therefore `Io` is a
+    /// variant of its own and not one more named failure inside a module. The
+    /// type is the full category, and the words are the words of the platform.
     ///
-    /// Built here rather than derived from the error because the two are the
-    /// same failure: the sentence a person reads is the platform's own.
+    /// Pie builds this here and does not derive it from the error, because the
+    /// two are the same failure: the sentence for a person is the sentence of
+    /// the platform.
     pub fn file(source: std::io::Error) -> Self {
         Self::Io {
             message: source.to_string(),
@@ -212,10 +211,10 @@ mod tests {
 
     #[test]
     fn no_failure_reports_its_name_twice() {
-        // A module error that only wraps another one would make serde write its
-        // own `kind` and then the one inside it, and the frontend would read
-        // whichever came last. Counting in the text is the only way to see it:
-        // parsing into a map quietly keeps one.
+        // A module error that wraps another error would make serde write its own
+        // `kind` and then the inner one. The frontend reads the last one. A
+        // count in the text shows this. Parsing into a map keeps one `kind`
+        // without a warning.
         for error in [
             PieError::from(pi_rpc::Error::Auth {
                 endpoint: "pi@host:22".to_string(),

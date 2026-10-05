@@ -1,11 +1,11 @@
-//! What the IPC layer cannot do, whatever host is or is not connected.
+//! What the IPC layer cannot do, with or without a connection.
 //!
-//! The failures that are not about a host at all: an argument pie cannot use,
-//! and a directory the platform will not name. Everything about reaching or
-//! reading a host belongs to [`connection::Error`](crate::connection::Error),
-//! including whether a connection is there at all - this module adds no
-//! wrapper of its own, so a command's own failure is the one that crosses the
-//! boundary unchanged.
+//! These failures are not about a host: an argument that pie cannot use, and a
+//! directory that the platform will not name. A failure of the reach to a host
+//! or of the read of a host belongs to
+//! [`connection::Error`](crate::connection::Error), including the presence or
+//! the absence of a connection. This module adds no wrapper. Therefore the
+//! failure of a command crosses the boundary without a change.
 
 use serde::Serialize;
 use thiserror::Error;
@@ -15,18 +15,18 @@ use thiserror::Error;
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Error {
-    /// The name the frontend gave a connection cannot appear in an event.
+    /// The frontend gave a name that cannot go in an event.
     #[error("`{id}` cannot name a connection: use up to 64 letters, digits, `-` and `_`")]
     UnusableName {
-        /// The name as the frontend sent it.
+        /// The name from the frontend.
         id: String,
     },
 
-    /// Pie's own directory for host keys cannot be resolved.
+    /// Pie cannot find its own directory for host keys.
     #[error("pie cannot resolve where to keep host keys: {source}")]
     NoHostKeyStore {
-        /// What the platform reported. Not serializable, so only the sentence
-        /// beside it travels.
+        /// What the platform reported. This value is not serializable.
+        /// Therefore only the sentence beside it travels.
         #[serde(skip)]
         #[source]
         source: tauri::Error,

@@ -1,11 +1,11 @@
 //! Opening and closing the one host.
 //!
-//! `connect` is the only command that waits for a person, because the only
-//! question pie cannot answer itself is whether an unfamiliar host key is the
-//! host's own. That question arrives as an event while this command is still
-//! running, and the answer comes back through a separate command - which is why
-//! the connection's name is an argument here and not a constant: the event is
-//! published under it, and the answer has to say which question it answers.
+//! `connect` is the only command that waits for a person. Pie cannot answer one
+//! question itself: whether an unknown host key belongs to the host. The
+//! question arrives as an event while this command is in progress. The answer
+//! comes back through a separate command. Therefore the name of the connection
+//! is an argument here and not a constant: the event uses that name, and the
+//! answer must say which question it answers.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -24,15 +24,15 @@ use crate::error::PieError;
 use super::Error;
 use super::state::{AppState, HOST_KEY_PATIENCE, HostKeyQuestion};
 
-/// The connection event a state belongs to.
+/// The event of the connection for a state.
 fn state_event(connection: &str) -> String {
     format!("pi://connection/{connection}/state")
 }
 
 /// Puts host-key questions to the frontend.
 ///
-/// Built per connection so that the question carries that connection's name;
-/// the answer comes back through [`trust_host_key`].
+/// Pie builds one for each connection. Therefore the question carries the name
+/// of that connection. The answer comes back through [`trust_host_key`].
 struct AskFrontend {
     app: AppHandle,
     question: Arc<HostKeyQuestion>,
@@ -41,8 +41,8 @@ struct AskFrontend {
 
 impl AskHostKey for AskFrontend {
     fn ask(&self, presented: PresentedKey) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        // Taken out of `self` before the future is boxed, which borrows `self`
-        // rather than them.
+        // These values leave `self` before the future is boxed. The future
+        // borrows `self`, not the values.
         let app = self.app.clone();
         let question = Arc::clone(&self.question);
         let connection = self.connection.clone();
@@ -61,11 +61,11 @@ impl AskHostKey for AskFrontend {
     }
 }
 
-/// The answer to a host-key question, or the refusal that no answer amounts to.
+/// The answer to a host-key question. An absent answer is a refusal.
 ///
-/// Nobody answering is the case this exists for: the sender sits in the slot
-/// until the question is answered or replaced, so the wait has to end by itself.
-/// A frontend that went away is the same answer - no trust.
+/// The sender stays in the slot until an answer arrives or a new question
+/// replaces it. Therefore the wait must end by itself. A frontend that went away
+/// gives the same answer: no trust.
 async fn wait_for_answer(decision: oneshot::Receiver<bool>, patience: Duration) -> bool {
     match tokio::time::timeout(patience, decision).await {
         Ok(Ok(trusted)) => trusted,
@@ -77,12 +77,13 @@ async fn wait_for_answer(decision: oneshot::Receiver<bool>, patience: Duration) 
     }
 }
 
-/// Checks the name the frontend gave a connection.
+/// Checks the name that the frontend gave to a connection.
 ///
-/// The name is part of an event - `pi://connection/{id}/state` - so it has to be
-/// usable in one: a name with a slash or a space would produce an event nobody
-/// could subscribe to, and the frontend would never hear the question it asked
-/// for. Checking here means it hears about the mistake instead.
+/// The name is part of an event: `pi://connection/{id}/state`. Therefore the
+/// name must be usable in an event. A name with a slash or a space gives an
+/// event that no listener can subscribe to. Then the frontend never hears the
+/// question that it asked for. The check here gives the frontend the error
+/// instead.
 fn checked_id(id: &str) -> Result<(), Error> {
     let usable = !id.is_empty()
         && id.len() <= 64
@@ -95,17 +96,17 @@ fn checked_id(id: &str) -> Result<(), Error> {
     Err(Error::UnusableName { id: id.to_string() })
 }
 
-/// Connects to a host and starts its first session.
+/// Connects to a host. Starts the first session of the host.
 ///
-/// The `id` is the frontend's name for this connection: it is what the events
-/// of this connection are announced under, including the host-key question that
-/// arrives before this command returns.
+/// The `id` is the name of this connection from the frontend. The events of this
+/// connection use that name. The host-key question arrives before this command
+/// returns.
 ///
 /// # Errors
 ///
-/// [`connection::Error::AlreadyConnected`] when a live connection is already
-/// there, [`Error::UnusableName`] when the name cannot appear in an event, and
-/// whatever reaching the host reports.
+/// [`connection::Error::AlreadyConnected`] if a live connection is present,
+/// [`Error::UnusableName`] if the name cannot go in an event, and the failure of
+/// the reach to the host.
 #[tauri::command]
 pub async fn connect(
     app: AppHandle,
@@ -122,8 +123,8 @@ pub async fn connect(
             }
             .into());
         }
-        // Its pi is gone: the connection it held ended without anyone watching
-        // for it, and the slot should not keep it.
+        // The pi of the connection is gone. The connection ended with no
+        // observer. The slot must not keep it.
         tracing::info!(connection = %existing.id(), "dropping a connection whose pi has exited");
         slot.take();
     }
@@ -153,26 +154,26 @@ pub async fn connect(
     Ok(info)
 }
 
-/// Ends the connection: every session stops, their files stay.
+/// Ends the connection. Every session stops. The files of the sessions stay.
 ///
-/// Disconnecting when nothing is connected does nothing, so a click that raced
-/// the connection ending is not an error.
+/// A disconnect with no connection does nothing. Therefore a click that races
+/// the end of the connection is not an error.
 ///
-/// A `connect` in flight holds the connection slot, so this waits behind it -
-/// through the version probe and the whole reach-the-host dance, and while a
-/// host-key question is open, up to `HOST_KEY_PATIENCE`. The frontend can end
-/// that wait sooner by answering the question it is showing.
+/// A `connect` in progress holds the connection slot. Therefore this command
+/// waits behind it: the version probe, the full connect to the host, and a
+/// host-key question, up to `HOST_KEY_PATIENCE`. The frontend can make the wait
+/// shorter. It answers the question on screen.
 ///
 /// # Errors
 ///
-/// The result is the boundary's shape (`architecture.md`), not a claim about
-/// today's code: ending a connection has nothing to fail on yet.
+/// The result is the shape of the boundary (`architecture.md`). It is not a
+/// claim about today's code. The end of a connection has nothing to fail on yet.
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
-    // The slot is released before the sessions are stopped, not after: the
-    // guard is dropped at the end of this block, so the shutdown below does not
-    // hold it. Whether a new `connect` may start while this one is still
-    // stopping is the frontend's sequencing, not a lock's.
+    // The guard is dropped at the end of this block. Therefore the slot is free
+    // before the sessions stop, and the shutdown below does not hold it. The
+    // order of a new `connect` against this stop is the task of the frontend,
+    // not of a lock.
     let connection = {
         let mut slot = state.connection.lock().await;
         slot.take()
@@ -183,20 +184,21 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
     Ok(())
 }
 
-/// Answers the host-key question the frontend is showing.
+/// Answers the host-key question that the frontend shows.
 ///
-/// `connection` is the one being answered, not just a label: a dialog left open
-/// by a question nobody answered must not be able to answer the question that
-/// replaced it, because the keys it showed are not the keys being asked about.
+/// `connection` receives the answer. Do not use it as a label only. A dialog
+/// that stays open after a question without an answer must not answer the
+/// question that replaced it. The person did not see the keys of the new
+/// question.
 ///
-/// Returns whether a question was waiting for this answer: a late one, one for
-/// another connection, or a second one, has nothing to answer and says so
-/// instead of failing.
+/// Returns whether a question waited for this answer. A late answer, an answer
+/// for another connection, or a second answer finds no question. The function
+/// says so. It does not fail.
 ///
 /// # Errors
 ///
-/// The result is the boundary's shape (`architecture.md`), not a claim about
-/// today's code: answering has nothing to fail on yet.
+/// The result is the shape of the boundary (`architecture.md`). It is not a
+/// claim about today's code. An answer has nothing to fail on yet.
 #[tauri::command]
 pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: bool) -> Result<bool, PieError> {
     Ok(state.question.answer(&connection, trusted))

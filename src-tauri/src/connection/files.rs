@@ -1,27 +1,28 @@
-//! The host's files, as pie reads them.
+//! The files of the host, as pie reads them.
 //!
-//! pi keeps its sessions as JSONL files under `~/.pi/agent/sessions/` and has
-//! no command to list them, so pie reads them itself. What a summary needs is
-//! three things - the header line, the first thing the user said, and the
-//! latest name - and each is extracted where the file already is, so a listing
+//! Pi keeps its sessions as JSONL files under `~/.pi/agent/sessions/` and has
+//! no command to list them. Therefore pie reads them itself. A summary needs
+//! three values: the header line, the first words of the user, and the latest
+//! name. Pie reads each value at the place of the file. Therefore a listing
 //! moves those lines and nothing else:
 //!
-//! - **here**, the filesystem is read whole, the way pi's own scan reads it
-//!   (pinned `core/session-manager.ts`, `buildSessionInfo`): exact, and local
-//!   reads cost nothing;
-//! - **over SSH**, one command per project directory asks the host itself -
-//!   `head`, `awk`, `grep` and `tail` where those live, PowerShell on Windows,
-//!   the tools the host already has - and comes back with just those lines.
-//!   The file never travels;
-//! - when that host answers in no shell pie can use, the fallback reads
+//! - **Here**, pie reads the full filesystem, as the scan of pi reads it
+//!   (pinned `core/session-manager.ts`, `buildSessionInfo`). This is exact, and
+//!   local reads cost nothing.
+//! - **Over SSH**, one command for each project directory asks the host itself:
+//!   `head`, `awk`, `grep`, and `tail` at their locations, or PowerShell on
+//!   Windows, or the tools that the host already has. The reply contains those
+//!   lines only. The file never travels.
+//! - If that host answers in no shell that pie can use, the fallback reads
 //!   fragments over sftp: the head up to the first user turn, and the name
-//!   backwards from the end (pi appends renames, so the last one meets the
-//!   scan first). Then and only then is the name approximate - a name in the
-//!   middle of a large file is missed, never replaced by an older one.
+//!   backwards from the end. Pi appends a rename. Therefore the last rename meets
+//!   the scan first. Only then is the name approximate: pie misses a name in the
+//!   middle of a large file, and never replaces it with an older name.
 //!
-//! `modified` is when the file last grew. pi computes the greatest message
-//! time over the whole file; the file's last write is that time or later (pi
-//! appends), it comes free with the listing, and it never mis-sorts.
+//! `modified` is the time of the last growth of the file. Pi computes the
+//! greatest message time in the full file. The last write of the file is that
+//! time or later (pi appends). The listing carries the value at no cost, and it
+//! never puts the order wrong.
 
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
@@ -39,63 +40,64 @@ use crate::error::PieError;
 use crate::pi_rpc::protocol::{AgentMessage, SessionEntry, UserContent, UserContentPart};
 use crate::pi_rpc::transport::{SshSession, SubsystemStream, Termination};
 
-/// How much of a session file's head the fallback reads at most. The read
-/// stops earlier when the first user turn is in hand: pi writes its system
-/// entry, every tool definition it has loaded, before that turn, and one line
-/// of that size outruns any small window.
+/// The largest part of the head of a session file that the fallback reads. The
+/// read stops earlier if the first user turn is present. Pi writes its system
+/// entry, with all tool definitions that it loaded, before that turn. One line
+/// of that size is larger than a small window.
 const HEAD_BYTES: usize = 1024 * 1024;
 
-/// How far back from a file's end the fallback's name scan goes before giving
-/// up. pi appends renames, so the last one usually sits near the end; one that
-/// misses the budget comes back as no name at all.
+/// The distance from the end of a file that the name scan of the fallback
+/// covers before it stops. Pi appends renames. Therefore the last rename is
+/// usually near the end. A scan that exceeds this limit returns no name.
 const NAME_SCAN_BYTES: u64 = 1024 * 1024;
 
-/// One block of a backward name scan.
+/// One block of a name scan that moves backwards.
 const NAME_BLOCK: usize = 16 * 1024;
 
 /// One read of the head scan.
 const READ_CHUNK: usize = 8 * 1024;
 
-/// How much of one line the host-side extraction will print.
+/// The maximum part of one line that the extraction on the host prints.
 ///
-/// A first message is usually a sentence; one that is pasted code can be
-/// enormous, and a summary line that big is not worth its bytes. A truncated
-/// line parses as nothing, so such a session lists without a first message.
+/// A first message is usually one sentence. A first message of pasted code can
+/// be very large. A summary line of that size is too large for the value that it
+/// gives. A truncated line parses as nothing. Therefore such a session has no
+/// first message in the listing.
 const SCRIPT_TEXT_CAP: usize = 64 * 1024;
 
-/// How many `"role":"user"` lines the host-side extraction prints as
+/// The number of `"role":"user"` lines that the extraction on the host prints as
 /// candidates for the first message.
 ///
-/// The script picks lines, not the answer: whether a candidate says anything
-/// is the reader's call, as it is for the local read. That matters twice over
-/// (a first turn can be an image with no words in it, and a line can look like
-/// a user turn without being one), and a script that stopped at the first
-/// candidate it liked would lose the real first message to either. Four
-/// covers the turns that say nothing in front of one that does; past that the
-/// first message is left out rather than guessed at.
+/// The script selects lines, not the answer. The reader decides whether a
+/// candidate says something, as for the local read. Two cases make this
+/// important: a first turn can be an image without words, and a line can look
+/// like a user turn but is not one. A script that stopped at the first
+/// candidate of its choice would lose the true first message in both cases.
+/// Four covers the turns without words before a turn with words. After that,
+/// pie omits the first message and does not guess.
 const SCRIPT_FIRST_CANDIDATES: usize = 4;
 
-/// Where pi keeps its sessions on a host reached over SSH, relative to the
-/// login home - an sftp session starts there, and pi's own `.pi` root follows
-/// `HOME` (pinned `core/config.ts`, `CONFIG_DIR_NAME`). This is the default
-/// pi resolves when neither of its environment overrides is set.
+/// The place where pi keeps its sessions on a host reached over SSH, relative to
+/// the login home. An sftp session starts there, and the `.pi` root of pi
+/// follows `HOME` (pinned `core/config.ts`, `CONFIG_DIR_NAME`). This is the
+/// default that pi resolves if neither environment override is set.
 pub(crate) const REMOTE_SESSIONS_ROOT: &str = ".pi/agent/sessions";
 
-/// Where pi keeps the sessions it started on this machine.
+/// The place where pi keeps the sessions that it started on this machine.
 ///
-/// pi resolves its sessions root in one order (pinned `main.ts`): the
+/// Pi resolves its sessions root in one order (pinned `main.ts`): the
 /// `--session-dir` flag, which pie never passes, then the two environment
-/// variables, then the default under the home. The names are pi's package name
-/// uppercased (`config.ts`, `ENV_AGENT_DIR`); the standard package spells them
-/// `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`. A user who moved
-/// their sessions has said so in one of them, and a listing that quietly showed
-/// none is the worst way to find out.
+/// variables, then the default under the home. The names are the package name
+/// of pi in capitals (`config.ts`, `ENV_AGENT_DIR`). The standard package writes
+/// them as `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`. A user who
+/// moved the sessions said so in one of them. A listing that shows none without
+/// a message is the worst result.
 ///
-/// The leg before the flag - pi's own `settings.json` `sessionDir` - is not
-/// read here; a user who set only that still sees an empty listing.
+/// Pie does not read the step before the flag here: the `sessionDir` of pi in
+/// `settings.json`. A user who set only that value still sees an empty listing.
 ///
-/// The home itself resolves the way pi resolves it - `$HOME`, else the login
-/// entry, the rule Node's `os.homedir()` and [`dirs::home_dir`] share.
+/// The home itself resolves as pi resolves it: `$HOME`, or the login entry. This
+/// is the rule that `os.homedir()` of Node and [`dirs::home_dir`] share.
 pub(crate) fn local_sessions_root() -> Option<PathBuf> {
     sessions_root_from(
         std::env::var_os("PI_CODING_AGENT_DIR")
@@ -110,9 +112,9 @@ pub(crate) fn local_sessions_root() -> Option<PathBuf> {
 
 /// The root [`local_sessions_root`] reads, over the pieces it reads it from.
 fn sessions_root_from(agent_dir: Option<&str>, session_dir: Option<&str>, home: Option<PathBuf>) -> Option<PathBuf> {
-    // `PI_CODING_AGENT_SESSION_DIR` names the sessions root itself;
-    // `PI_CODING_AGENT_DIR` names pi's agent root, and the sessions live under
-    // it (pinned `getAgentDir`, `getDefaultSessionDirPath`).
+    // `PI_CODING_AGENT_SESSION_DIR` names the sessions root itself.
+    // `PI_CODING_AGENT_DIR` names the agent root of pi, and the sessions are
+    // below it (pinned `getAgentDir`, `getDefaultSessionDirPath`).
     if let Some(dir) = session_dir {
         return Some(expand_home(dir, home.as_deref()));
     }
@@ -122,8 +124,8 @@ fn sessions_root_from(agent_dir: Option<&str>, session_dir: Option<&str>, home: 
     Some(home?.join(".pi").join("agent").join("sessions"))
 }
 
-/// pi expands a leading `~` in these paths (pinned `expandTildePath`); a value
-/// without one stands as it is, home or not.
+/// Pi expands a leading `~` in these paths (pinned `expandTildePath`). A value
+/// without a `~` stays as it is, with or without a home.
 fn expand_home(path: &str, home: Option<&Path>) -> PathBuf {
     match (path, home) {
         ("~", Some(home)) => home.to_path_buf(),
@@ -136,27 +138,29 @@ fn expand_home(path: &str, home: Option<&Path>) -> PathBuf {
     }
 }
 
-/// One session pi has written, as its own lines tell it.
+/// One session that pi wrote, as its own lines report it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
-    /// Where the file is, as the host sees it.
+    /// The place of the file, as the host sees it.
     pub path: String,
-    /// pi's id for the session, from the file's header.
+    /// The id of the session from pi, from the header of the file.
     pub id: String,
-    /// Where the session was started. Empty for files pi predates the field in.
+    /// The start of the session. Empty for files that are older than this field
+    /// of pi.
     pub cwd: String,
-    /// The display name the user last gave it, when there is one.
+    /// The display name that the user gave last, if present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// The session this one was forked from, when it was forked.
+    /// The session of the fork, if this session is a fork.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_path: Option<String>,
-    /// When pi started the session (the header's timestamp, RFC3339).
+    /// The start time of the session by pi (the timestamp in the header,
+    /// RFC3339).
     pub created: String,
-    /// When the file last grew, RFC3339.
+    /// The time of the last growth of the file, RFC3339.
     pub modified: String,
-    /// What the user first said, when the file gets that far.
+    /// The first words of the user, if the file goes that far.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_message: Option<String>,
 }
@@ -165,56 +169,57 @@ pub struct SessionSummary {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirEntryInfo {
-    /// Name within the directory.
+    /// The name in the directory.
     pub name: String,
-    /// Where the entry is, as the host sees it. Absolute, so the picker walks
-    /// with these and never builds a path of its own - pie resolves nothing
-    /// relative to wherever it happens to be running.
+    /// The place of the entry, as the host sees it. The value is absolute.
+    /// Therefore the picker walks with these values and never builds a path.
+    /// Pie resolves nothing relative to its own directory.
     pub path: String,
-    /// Whether the entry is a directory itself - a link to one counts, because
-    /// that is what a directory picker needs to walk.
+    /// Whether the entry is a directory. A link to a directory counts, because
+    /// the picker must walk into it.
     pub is_dir: bool,
 }
 
-/// The first line of a session file: pi's `SessionHeader` (pinned
+/// The first line of a session file: the `SessionHeader` of pi (pinned
 /// `core/session-manager.ts`).
 ///
-/// The header is the only place the working directory lives. pi also encodes a
-/// cwd into the directory name, but lossily - the encoding replaces `/` and
-/// `:` alike, so `/home/pie` and `/home-pie` collide - which is why nothing
-/// here decodes a directory name back into one.
+/// The header is the only place of the working directory. Pi also encodes a cwd
+/// into the name of the directory, but with loss: the encoding replaces `/` and
+/// `:` in the same way. Therefore `/home/pie` and `/home-pie` are the same name.
+/// For this reason, nothing here decodes a directory name back into a cwd.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FileHeader {
-    /// The entry kind. pi decides a file is a session by this being `session`,
-    /// and so does this reader: anything with an id and a timestamp would
-    /// otherwise pass for a header.
+    /// The kind of the entry. Pi decides that a file is a session if this value
+    /// is `session`. This reader does the same. Without the check, anything with
+    /// an id and a timestamp would be a header.
     #[serde(rename = "type")]
     kind: String,
-    /// pi's session id.
+    /// The session id from pi.
     id: String,
-    /// When pi started the session, ISO.
+    /// The start time of the session by pi, ISO.
     timestamp: String,
-    /// Where the session was started; missing in files older than the field.
+    /// The start of the session. The value is absent in files that are older
+    /// than this field.
     #[serde(default)]
     cwd: String,
-    /// The session this one was forked from, when it was forked.
+    /// The session of the fork, if this session is a fork.
     #[serde(default)]
     parent_session: Option<String>,
 }
 
-/// The three lines a summary is built from, wherever they were read.
+/// The three lines for a summary, from any place of the read.
 #[derive(Debug, Default, Clone)]
 struct Extract {
-    /// The file's header line.
+    /// The header line of the file.
     header: Option<String>,
-    /// The first thing the user said, as pi reads it.
+    /// The first words of the user, as pi reads them.
     first: Option<String>,
-    /// The latest display name the file carries, a clear included.
+    /// The latest display name in the file, including a clear.
     name: Option<String>,
 }
 
-/// Builds a summary from one file's extracted lines.
+/// Builds a summary from the extracted lines of one file.
 fn summary_of(path: &str, extract: Extract, modified: Option<String>) -> Option<SessionSummary> {
     let header: FileHeader = serde_json::from_str(extract.header.as_deref()?).ok()?;
     if header.kind != "session" {
@@ -232,9 +237,9 @@ fn summary_of(path: &str, extract: Extract, modified: Option<String>) -> Option<
     })
 }
 
-/// A session name as pi stores it: trimmed, and empty means unnamed. pi's
-/// scan takes the latest `session_info` entry whatever it says, an empty one
-/// included, because renaming to nothing is how a name is cleared.
+/// A session name as pi stores it: without space at the ends, and empty for no
+/// name. The scan of pi takes the latest `session_info` entry, whatever it says,
+/// including an empty entry: a rename to nothing clears a name.
 fn cleaned_name(name: Option<&str>) -> Option<String> {
     let name = name?.trim();
     (!name.is_empty()).then(|| name.to_string())
@@ -242,8 +247,8 @@ fn cleaned_name(name: Option<&str>) -> Option<String> {
 
 /// What one line says about the display name.
 ///
-/// `Some(None)` is an explicit clear - pi drops a name by renaming to nothing,
-/// and a scan stops there rather than reading an older one.
+/// `Some(None)` is a clear. Pi removes a name with a rename to nothing. A scan
+/// stops there and does not read an older name.
 fn name_in(line: &[u8]) -> Option<Option<String>> {
     let entry: SessionEntry = serde_json::from_slice(line).ok()?;
     let SessionEntry::SessionInfo(info) = entry else {
@@ -252,15 +257,16 @@ fn name_in(line: &[u8]) -> Option<Option<String>> {
     Some(cleaned_name(info.name.as_deref()))
 }
 
-/// What one line says the user said, in the shape pi's own scan takes it: a
-/// user message with any text in it (pinned `extractTextContent`).
+/// What one line reports as the words of the user, in the shape that the scan of
+/// pi uses: a user message with text in it (pinned `extractTextContent`).
 ///
-/// One deliberate difference from pi's scan, which keeps a blank first turn:
-/// `if (!textContent) continue` is false for a non-empty string like `" "`, so
-/// that turn becomes pi's first message (pinned `session-manager.ts:840`).
-/// This reader looks for a turn that says something and keeps going - the
-/// difference is what the session drawer shows for a session that opened with
-/// a stray space, and skipping it is the answer worth showing.
+/// One difference from the scan of pi is deliberate. The scan of pi keeps a
+/// first turn without text: `if (!textContent) continue` is false for a
+/// non-empty string such as `" "`. Therefore that turn becomes the first message
+/// of pi (pinned `session-manager.ts:840`). This reader looks for a turn that says
+/// something, and continues the search. The difference is the value in the
+/// session drawer for a session that started with one space. The skip of that
+/// turn is the correct result.
 fn first_text(line: &[u8]) -> Option<String> {
     let entry: SessionEntry = serde_json::from_slice(line).ok()?;
     let SessionEntry::Message(message) = entry else {
@@ -273,8 +279,8 @@ fn first_text(line: &[u8]) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
-/// The text of a message's content: a plain string as it is, otherwise the
-/// text parts joined with a space, the way pi reads it back.
+/// The text of the content of a message: a plain string as it is, or the text
+/// parts joined with one space, as pi reads them.
 fn text_of(content: &UserContent) -> String {
     match content {
         UserContent::Text(text) => text.clone(),
@@ -289,9 +295,8 @@ fn text_of(content: &UserContent) -> String {
     }
 }
 
-/// Formats a file time the way pi's own ISO strings read (`toISOString()`,
-/// three fractional digits always), so timestamps compare and sort in one
-/// order.
+/// Formats the time of a file as the ISO strings of pi (`toISOString()`, always
+/// three fractional digits). Therefore timestamps compare and sort in one order.
 fn rfc3339(when: SystemTime) -> Option<String> {
     let since_epoch = when.duration_since(std::time::UNIX_EPOCH).ok()?;
     let millis = since_epoch.as_millis() as i64;
@@ -312,13 +317,14 @@ fn rfc3339_of_millis(millis: i64) -> Option<String> {
     ))
 }
 
-/// Reads a session file whole, the way pi's own listing does - line by line,
-/// so the file's size is never its size in memory.
+/// Reads a session file in full, as the listing of pi does: line by line.
+/// Therefore the size of the file is never its size in memory.
 ///
-/// Lines are split on bytes and decoded leniently: pi reads through a decoder
-/// that replaces whatever is not UTF-8 with U+FFFD and carries on, so a file
-/// with one bad byte still lists. Failing the whole file on it would be
-/// stricter than the reader it mirrors.
+/// The function splits lines on bytes and decodes without strict rules. Pi reads
+/// through a decoder that replaces each value that is not UTF-8 with U+FFFD and
+/// continues. Therefore a file with one bad byte still lists. A failure of the
+/// full file for that byte would be stricter than the reader that this function
+/// mirrors.
 async fn read_whole<F>(file: F) -> std::io::Result<Extract>
 where
     F: AsyncRead + Unpin,
@@ -337,8 +343,8 @@ where
         {
             extract.first = Some(text);
         }
-        // The latest name wins, a clear included: pi appends a `session_info`
-        // entry on every rename and reads the last one.
+        // The latest name wins, including a clear. Pi appends a `session_info`
+        // entry at each rename and reads the last one.
         if let Some(name) = name_in(line.as_bytes()) {
             extract.name = name;
         }
@@ -347,15 +353,16 @@ where
     Ok(extract)
 }
 
-/// The shell that extracts a project directory's summary lines on the host.
+/// The shell that extracts the summary lines of one project directory on the
+/// host.
 ///
-/// One pass per file: the header, the latest name, and the first few lines
-/// that look like user turns - which ones of those the user actually said
-/// anything in is [`first_text`]'s call, the same one the local read makes.
-/// `sh`, `printf`, `head`, `awk`, `grep` and `tail` are what every POSIX system
-/// ships; the guard turns a host that has not into a clear failure, so the
-/// Windows script or the sftp fallback gets its turn. Session file names are
-/// pi's own (`<timestamp>_<id>.jsonl`), so a plain glob is safe over them.
+/// One pass for each file: the header, the latest name, and the first lines that
+/// look like user turns. [`first_text`] decides which of those turns say
+/// something, as the local read does. Every POSIX system ships `sh`, `printf`,
+/// `head`, `awk`, `grep`, and `tail`. The guard turns a host without them into a
+/// clear failure. Then the Windows script or the sftp fallback gets its turn. The
+/// session file names come from pi (`<timestamp>_<id>.jsonl`). Therefore a plain
+/// glob is safe over them.
 fn posix_summary_script(dir: &str) -> String {
     format!(
         "command -v head awk grep tail >/dev/null 2>&1 || exit 127; \
@@ -374,10 +381,11 @@ fn posix_summary_script(dir: &str) -> String {
 
 /// The same extraction in PowerShell, for a Windows host.
 ///
-/// Windows ships no POSIX shell, but every supported Windows ships this, and
-/// the same three lines come back in the same shape. The script is built here
-/// and travels as its own parameter - see [`windows_summary_command`] - so the
-/// directory the user picked never has to survive anyone's quoting rules.
+/// Windows ships no POSIX shell. Every supported Windows ships PowerShell, and
+/// the same three lines come back in the same shape. Pie builds the script here.
+/// It travels as its own parameter (see [`windows_summary_command`]). Therefore
+/// the directory that the user selected never passes through the quoting rules
+/// of a shell.
 fn windows_summary_script(dir: &str) -> String {
     format!(
         "[Console]::OutputEncoding = [Text.Encoding]::UTF8; \
@@ -398,14 +406,14 @@ fn windows_summary_script(dir: &str) -> String {
     )
 }
 
-/// How [`windows_summary_script`] is run: `powershell` with the script as its
+/// How pie runs [`windows_summary_script`]: `powershell` with the script as its
 /// own encoded parameter.
 ///
-/// `-EncodedCommand` takes base64 of UTF-16LE, which PowerShell decodes
-/// itself - so the script's own quoting is the only quoting in the world here.
-/// The console encoding is set to UTF-8 inside the script because Windows
-/// PowerShell otherwise prints in the OEM code page, and a name with any
-/// non-ASCII character would come back as mojibake.
+/// `-EncodedCommand` takes base64 of UTF-16LE, and PowerShell decodes it itself.
+/// Therefore the quoting of the script is the only quoting here. The script sets
+/// the console encoding to UTF-8. Without that step, Windows PowerShell prints in
+/// the OEM code page, and a name with a character outside ASCII returns as
+/// unwanted characters.
 fn windows_summary_command(dir: &str) -> String {
     format!(
         "powershell -NoProfile -NonInteractive -EncodedCommand {}",
@@ -413,32 +421,31 @@ fn windows_summary_command(dir: &str) -> String {
     )
 }
 
-/// base64 of `script` as UTF-16LE, the one encoding `-EncodedCommand` wants.
+/// The base64 of `script` as UTF-16LE, the only encoding for `-EncodedCommand`.
 fn base64_utf16le(script: &str) -> String {
     use base64::Engine as _;
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// What one summary block of [`posix_summary_script`]'s output carries.
+/// What one summary block of the output of [`posix_summary_script`] carries.
 struct Extracted {
-    /// Where the file is: `dir` and the name the block was stamped with, the
-    /// same join the sftp listing makes, so the two match by path.
+    /// The place of the file: `dir` and the name of the block. This is the same
+    /// join as the sftp listing makes, so the two agree by path.
     path: String,
     extract: Extract,
 }
 
-/// Asks the host where pi keeps its sessions, for a host that was told to keep
-/// them somewhere else.
+/// Asks the host where pi keeps its sessions, for a host with another location.
 ///
-/// The question goes to the very login shell pi itself is started through, so
-/// the answer is the environment pi itself would see. With neither override
-/// set the host still answers - with the default - so `None` means the host
-/// would not answer at all, which is the one case the caller falls back on its
-/// own default. A leading `~` is finished here rather than in the shell, against
-/// the home the host reported (pi expands it too, pinned `expandTildePath`);
-/// without that a `~/pi-sessions` would be taken for a missing path and the
-/// listing would come back empty with nothing said.
+/// The question goes to the login shell that also starts pi itself. Therefore
+/// the answer is the environment that pi sees. The host answers even with
+/// neither override set, with the default. Therefore `None` means that the host
+/// gives no answer at all. That is the only case where the caller uses its own
+/// default. The function finishes a leading `~` here and not in the shell,
+/// against the home that the host reported (pi expands it too, pinned
+/// `expandTildePath`). Without that step, pie would take `~/pi-sessions` for a
+/// path that is absent, and the listing would be empty with no message.
 async fn host_sessions_root(session: &SshSession) -> Option<String> {
     for command in [posix_root_script(), windows_root_command()] {
         if let Ok(output) = session.output(command).await
@@ -456,14 +463,14 @@ async fn host_sessions_root(session: &SshSession) -> Option<String> {
     None
 }
 
-/// The shell that asks the host where its sessions are, in the same order
-/// [`sessions_root_from`] reads them: the sessions root, else the agent root
-/// plus `sessions`, else the default under the home.
+/// The shell that asks the host where its sessions are, in the same order as
+/// [`sessions_root_from`] reads them: the sessions root, or the agent root plus
+/// `sessions`, or the default under the home.
 ///
-/// Two lines come back - the value and the host's home - because pi expands a
-/// leading `~` in these paths (pinned `expandTildePath`) and a shell expands
-/// nothing inside a variable: the value keeps its `~`, and pie finishes the job
-/// against the home the host itself reported.
+/// Two lines come back: the value, and the home of the host. Pi expands a leading
+/// `~` in these paths (pinned `expandTildePath`), and a shell expands nothing in a
+/// variable. Therefore the value keeps its `~`, and pie finishes the step against
+/// the home that the host reported.
 fn posix_root_script() -> String {
     "if [ -n \"$PI_CODING_AGENT_SESSION_DIR\" ]; then printf '%s\\n' \"$PI_CODING_AGENT_SESSION_DIR\"; \
      elif [ -n \"$PI_CODING_AGENT_DIR\" ]; then printf '%s\\n' \"$PI_CODING_AGENT_DIR/sessions\"; \
@@ -471,8 +478,8 @@ fn posix_root_script() -> String {
         .to_string()
 }
 
-/// The same question in PowerShell, for a Windows host: the value, then the
-/// home, on two lines - the same two lines [`posix_root_script`] sends.
+/// The same question in PowerShell, for a Windows host: the value, then the home,
+/// on two lines. These are the same two lines that [`posix_root_script`] sends.
 fn windows_root_command() -> String {
     format!(
         "powershell -NoProfile -NonInteractive -EncodedCommand {}",
@@ -485,10 +492,10 @@ fn windows_root_command() -> String {
     )
 }
 
-/// Runs one summary script on the host and reads its blocks back.
+/// Runs one summary script on the host and reads its blocks.
 ///
-/// `None` when the host would not run it at all - no such shell, no such
-/// tools - which is the caller's cue to try the other one.
+/// `None` if the host does not run it: no such shell, or no such tools. Then the
+/// caller tries the other script.
 async fn host_summary(session: &SshSession, dir: &str, command: String) -> Option<Vec<Extracted>> {
     match session.output(command).await {
         Ok(output) if output.termination == Termination::Exited { code: 0, success: true } => {
@@ -505,13 +512,14 @@ async fn host_summary(session: &SshSession, dir: &str, command: String) -> Optio
     }
 }
 
-/// Reads [`posix_summary_script`]'s output back into per-file lines.
+/// Reads the output of [`posix_summary_script`] into lines for each file.
 ///
-/// Three `---`-separated slots per `=== ` file block: header, candidates for
-/// the first message, name. An empty slot is an absent one - the host prints
-/// the separators either way - and the first slot may hold several candidate
-/// lines: the first one [`first_text`] can use is the first message, which is
-/// how a turn with no words in it does not swallow the one after it.
+/// Each `=== ` block has three slots, separated by `---`: the header, the
+/// candidates for the first message, and the name. An empty slot is an absent
+/// value; the host prints the separators in all cases. The first slot can hold
+/// several candidate lines. The first line that [`first_text`] can use is the
+/// first message. Therefore a turn without words does not consume the turn after
+/// it.
 fn parse_summary_output(dir: &str, output: &str) -> Vec<Extracted> {
     let mut extracted = Vec::new();
     let mut current: Option<(String, Extract, usize)> = None;
@@ -562,11 +570,11 @@ fn parse_summary_output(dir: &str, output: &str) -> Vec<Extracted> {
     extracted
 }
 
-/// Reads the fallback's two fragments of one session file.
+/// Reads the two fragments of one session file for the fallback.
 ///
-/// The head up to the first user turn, the name backwards from the end. Both
-/// are bounded whatever the file does; what only a whole file can show - a
-/// name in its middle - comes back as no name rather than a guess.
+/// The head up to the first user turn, and the name backwards from the end. Both
+/// reads have a limit, whatever the file does. Only a full file can show a name
+/// in the middle. Such a name comes back as no name, not as a guess.
 async fn read_fragments<F>(file: &mut F, size: Option<u64>) -> std::io::Result<Extract>
 where
     F: AsyncRead + AsyncSeek + Unpin,
@@ -600,34 +608,35 @@ where
     Ok(Extract { header, first, name })
 }
 
-/// How far the head scan has got inside the line it is still reading.
+/// The position of the head scan in the line that it still reads.
 #[derive(Default)]
 struct HeadScan {
-    /// Where the last completed line ended, so the current one starts here.
+    /// The end of the last line that is complete. The current line starts here.
     line_start: usize,
-    /// How far into the current line the literal has already been looked for.
+    /// The distance into the current line that pie already searched for the
+    /// literal.
     searched: usize,
 }
 
-/// Whether the head read holds a whole user turn to stop at.
+/// Whether the head read holds a full user turn to stop at.
 ///
-/// Only what arrived since the last call is looked at: pi's system entry is one
-/// line long enough to span the whole head, and rescanning it per chunk would
-/// cost more than reading it did. The literal is what a serialized user message
-/// always carries; the reverse risk is real but was in none of the real
-/// sessions checked - a lookalike inside some tool's arguments would stop the
-/// scan early and lose the first message. Wrong by omission, never by
-/// invention.
+/// The function reads only the bytes that arrived after the last call. The system
+/// entry of pi is one line that can span the full head, and a new scan of it for
+/// each chunk would cost more than the read. A serialized user message always
+/// carries the literal. The opposite risk is real, but it was in none of the real
+/// sessions that pie checked: a similar value in the arguments of a tool would
+/// stop the scan early and lose the first message. The failure is an omission,
+/// never an invention.
 fn first_turn_is_whole(head: &[u8], scan: &mut HeadScan) -> bool {
-    // Every line the new bytes completed, not just the first: the head is a
-    // byte budget, and a chunk of short lines must not advance the scan one
-    // line at a time.
+    // All lines that the new bytes completed, not only the first. The head is a
+    // budget of bytes. A chunk of short lines must not move the scan one line at
+    // a time.
     let mut found = false;
     while !found {
         let fresh = &head[scan.searched..];
         let Some(at) = fresh.iter().position(|byte| *byte == b'\n') else {
-            // Still inside one line: note how far it has been read and wait
-            // for its end rather than looking at the same bytes again.
+            // The scan is still in one line. Record the distance read, and wait
+            // for the end of the line. Do not read the same bytes again.
             scan.searched = head.len();
             break;
         };
@@ -641,18 +650,18 @@ fn first_turn_is_whole(head: &[u8], scan: &mut HeadScan) -> bool {
 
 /// The display name, read backwards from the end of the file.
 ///
-/// pi appends a `session_info` entry whenever a session is renamed and takes
-/// the last one (pinned `buildSessionInfo`), so scanning back from the end
-/// meets exactly that one first. The scan stops at the first entry it meets -
-/// usually a line or two in - at [`NAME_SCAN_BYTES`], or at the file's start.
-/// A name that misses the budget comes back as no name; an earlier one is
-/// never shown in its place.
+/// Pi appends a `session_info` entry at each rename of a session and takes the
+/// last one (pinned `buildSessionInfo`). Therefore a scan backwards from the end
+/// meets that entry first. The scan stops at the first entry that it meets,
+/// usually one or two lines in, at [`NAME_SCAN_BYTES`], or at the start of the
+/// file. A name beyond the limit comes back as no name. An older name never takes
+/// its place.
 async fn name_backwards<F>(file: &mut F, size: Option<u64>) -> std::io::Result<Option<String>>
 where
     F: AsyncRead + AsyncSeek + Unpin,
 {
-    // The listing usually carries the size; a host that kept it back is asked
-    // directly rather than skipped.
+    // The listing usually carries the size. Pie asks the host directly if the
+    // host did not send it, and does not skip the file.
     let size = match size {
         Some(size) => size,
         None => file.seek(SeekFrom::End(0)).await?,
@@ -660,8 +669,8 @@ where
     let budget = size.min(NAME_SCAN_BYTES);
     let mut position = size;
     let mut scanned = 0u64;
-    // The half line at the left edge of the scanned suffix: it continues into
-    // the block read next.
+    // The half line at the left edge of the scanned part continues into the block
+    // that pie reads next.
     let mut carry: Vec<u8> = Vec::new();
 
     while scanned < budget {
@@ -682,8 +691,8 @@ where
         suffix.extend_from_slice(&carry);
         scanned += block as u64;
 
-        // Whole lines first, newest one first; whatever is left over at the
-        // left edge carries into the next round.
+        // Full lines first, newest first. The part that remains at the left edge
+        // continues into the next round.
         let mut end = suffix.len();
         loop {
             let Some(line_end) = suffix[..end].iter().rposition(|byte| *byte == b'\n') else {
@@ -700,11 +709,11 @@ where
     Ok(None)
 }
 
-/// The sessions pi has written under a local `sessions` directory.
+/// The sessions that pi wrote under a local `sessions` directory.
 ///
-/// A file or a project directory pie cannot read is skipped rather than
-/// failing the listing: one damaged part must not hide the rest (pi's own scan
-/// drops unreadable entries the same way).
+/// Pie skips a file or a project directory that it cannot read, and does not fail
+/// the listing. One damaged part must not hide the rest. The scan of pi also drops
+/// unreadable entries.
 pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, Error> {
     let mut summaries = Vec::new();
     let mut projects = match tokio::fs::read_dir(root).await {
@@ -715,9 +724,8 @@ pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, Error
     while let Some(project) = next_entry(&mut projects, &root.display().to_string()).await? {
         let project_path = project.path();
         let shown_project = project_path.display().to_string();
-        // The free `metadata` follows links (a `DirEntry`'s own `metadata`
-        // does not): a project directory reached through one is still a
-        // project directory.
+        // The free `metadata` follows links. The `metadata` of a `DirEntry` does
+        // not. A project directory behind a link is still a project directory.
         if !match tokio::fs::metadata(&project_path).await {
             Ok(metadata) => metadata.is_dir(),
             Err(error) => {
@@ -764,9 +772,9 @@ pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, Error
 
 /// The same listing over SSH.
 ///
-/// The summary lines are extracted on the host, one command per project
-/// directory, so a listing moves those lines and nothing else. A host whose
-/// shell pie cannot use falls back to fragments over sftp.
+/// The host extracts the summary lines, with one command for each project
+/// directory. Therefore a listing moves those lines and nothing else. A host with
+/// a shell that pie cannot use falls back to fragments over sftp.
 pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Result<Vec<SessionSummary>, Error> {
     let mut summaries = Vec::new();
     let root = host_sessions_root(session)
@@ -774,8 +782,8 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
         .unwrap_or_else(|| REMOTE_SESSIONS_ROOT.to_string());
     let root = match sftp.canonicalize(&root).await {
         Ok(root) => root,
-        // A host pi has not run on yet has no such directory; that is a host
-        // with no sessions, not a listing that failed.
+        // A host where pi did not run yet has no such directory. That is a host
+        // without sessions, not a failed listing.
         Err(error) if is_no_such_file(&error) => return Ok(summaries),
         Err(error) => return Err(unreadable_there(&root, error)),
     };
@@ -807,16 +815,16 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
 
         let extracted = match host_summary(session, &dir, posix_summary_script(&dir)).await {
             Some(extracted) if !extracted.is_empty() => extracted,
-            // A Windows host has no POSIX shell: the same three lines come
-            // back from PowerShell before pie falls to reading fragments.
+            // A Windows host has no POSIX shell. PowerShell gives the same three
+            // lines before pie falls back to the read of fragments.
             _ => host_summary(session, &dir, windows_summary_command(&dir))
                 .await
                 .unwrap_or_default(),
         };
-        // Not what either script printed - or neither ran: read the file's
-        // fragments over sftp rather than drop the row, and say so once, so a
-        // host whose scripts silently stopped working is not mistaken for a
-        // host with nothing to show.
+        // This is not what either script printed, or neither script ran. Pie
+        // reads the fragments of the file over sftp and does not drop the row. It
+        // says so one time, so a host with scripts that stopped without a message
+        // is not a host with nothing to show.
         let found: std::collections::HashMap<String, Extract> =
             extracted.into_iter().map(|item| (item.path, item.extract)).collect();
         if found.is_empty() {
@@ -830,8 +838,8 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
                     first: extract.first.clone(),
                     name: extract.name.clone(),
                 },
-                // Not what the script said it would print: read the file's
-                // fragments over sftp rather than drop the row.
+                // This is not what the script said it would print. Pie reads the
+                // fragments of the file over sftp and does not drop the row.
                 None => {
                     let mut opened = match sftp.open_with_flags(&path, OpenFlags::READ).await {
                         Ok(opened) => opened,
@@ -861,10 +869,10 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
 
 /// One directory level on the local filesystem, for the directory picker.
 ///
-/// Paths are absolute and belong to the host: pie resolves nothing relative to
-/// its own directory, which on a phone is not anyone's home. `path` is `None`
-/// for the home directory the connection was told about - the app's own home,
-/// which is not looked up again here.
+/// The paths are absolute and belong to the host. Pie resolves nothing relative to
+/// its own directory, which on a phone is not the home of a person. `path` is
+/// `None` for the home directory of the connection: the home of the app, which
+/// pie does not look up again here.
 pub(crate) async fn list_dirs_local(home: Option<&Path>, path: Option<&str>) -> Result<Vec<DirEntryInfo>, Error> {
     let path = match path {
         None => home.map(Path::to_path_buf).ok_or(Error::NoHomeDirectory)?,
@@ -885,10 +893,10 @@ pub(crate) async fn list_dirs_local(home: Option<&Path>, path: Option<&str>) -> 
         if name == "." || name == ".." {
             continue;
         }
-        // The free `metadata` follows links (a `DirEntry`'s own `metadata`
-        // does not): a picker that cannot walk into a linked directory has lost
-        // half of some home directories. A link that leads nowhere is still a
-        // row - it just is not a directory.
+        // The free `metadata` follows links. The `metadata` of a `DirEntry` does
+        // not. A picker that cannot walk into a linked directory loses half of
+        // some home directories. A link with no target is still a row. It is only
+        // not a directory.
         let is_dir = match tokio::fs::metadata(entry.path()).await {
             Ok(target) => target.is_dir(),
             Err(error) => {
@@ -906,8 +914,8 @@ pub(crate) async fn list_dirs_local(home: Option<&Path>, path: Option<&str>) -> 
     Ok(rows)
 }
 
-/// The same directory level over an sftp channel. `None` asks for the login
-/// home, which is where an sftp session starts.
+/// The same directory level over an sftp channel. `None` asks for the login home,
+/// which is the start of an sftp session.
 pub(crate) async fn list_dirs_remote(sftp: &SftpSession, path: Option<&str>) -> Result<Vec<DirEntryInfo>, Error> {
     let base = match path {
         None => sftp
@@ -916,9 +924,9 @@ pub(crate) async fn list_dirs_remote(sftp: &SftpSession, path: Option<&str>) -> 
             .map_err(|error| unreadable_there("the login home", error))?,
         Some(path) => {
             if !is_absolute_on_the_host(path) {
-                // The host's paths, not this machine's: over sftp they are
-                // whatever the host speaks, POSIX or Windows, and neither is
-                // pie's own directory.
+                // These are the paths of the host, not the paths of this machine.
+                // Over sftp they are as the host writes them, POSIX or Windows.
+                // Neither is the directory of pie.
                 return Err(not_absolute(path));
             }
             path.to_string()
@@ -944,11 +952,11 @@ pub(crate) async fn list_dirs_remote(sftp: &SftpSession, path: Option<&str>) -> 
     Ok(rows)
 }
 
-/// Whether an sftp entry is a directory a picker can walk, links included.
+/// Whether an sftp entry is a directory that a picker can walk, with links.
 ///
-/// sftp reports what the link is, not what it points at; a picker needs the
-/// target, so a link is asked about on its own (one round trip for the links,
-/// none for everything else).
+/// sftp reports what the link is, not where it points. The picker needs the
+/// target. Therefore pie asks about a link on its own: one round trip for the
+/// links, and no round trip for everything else.
 async fn sftp_is_dir(sftp: &SftpSession, entry: &russh_sftp::client::fs::DirEntry) -> bool {
     if !entry.file_type().is_symlink() {
         return entry.file_type().is_dir();
@@ -962,19 +970,20 @@ async fn sftp_is_dir(sftp: &SftpSession, entry: &russh_sftp::client::fs::DirEntr
     }
 }
 
-/// [`FileAttributes::is_dir`], named for the `?` to read well.
+/// [`FileAttributes::is_dir`], with a name so that the `?` reads well.
 fn is_dir(attrs: &FileAttributes) -> bool {
     attrs.is_dir()
 }
 
-/// The sftp channel over an SSH session, opened on first use and kept.
+/// The sftp channel over an SSH session. Pie opens it at the first use and keeps
+/// it.
 ///
-/// On first use rather than at connect: a host whose sshd serves no `sftp`
-/// subsystem still runs pi fine, and only its file listing is lost. Shared by
-/// pointer because a channel is one thing the session answers on and a listing
-/// reads it from several places at once; and shared behind a slot rather than
-/// fixed, because a channel can die under a live connection - see
-/// [`forget_sftp`].
+/// The open happens at the first use, not at the connect. A host whose sshd serves
+/// no `sftp` subsystem still runs pi correctly, and only the file listing is lost.
+/// The value is shared by pointer: a channel is one object that the session answers
+/// on, and a listing reads it from several places at the same time. The value is
+/// also in a slot and not fixed, because a channel can die under a live connection
+/// (see [`forget_sftp`]).
 pub(crate) async fn sftp(
     session: &SshSession,
     cell: &Mutex<Option<Arc<SftpSession>>>,
@@ -989,27 +998,28 @@ pub(crate) async fn sftp(
         source,
     })?;
     let opened = Arc::new(opened);
-    // A failed open leaves the slot empty, so the next listing tries again -
-    // a host may simply not serve sftp yet.
+    // A failed open leaves the slot empty. Therefore the next listing tries
+    // again. A host can also serve no sftp yet.
     *cell.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&opened));
     Ok(opened)
 }
 
-/// Drops the cached sftp channel after a listing failed over it - but only
-/// when it is the very channel that listing used.
+/// Drops the cached sftp channel after a failed listing over it, but only if it is
+/// the same channel that the listing used.
 ///
-/// A listing that raced another one may be reporting a failure over a channel
-/// the other has already replaced with a fresh, healthy one; clearing that
-/// would throw away a working channel over a failure that had nothing to do
-/// with it. The identity check keeps each listing responsible for its own.
+/// A listing that raced another listing can report a failure over a channel that
+/// the other listing already replaced with a new channel in good condition. A clear
+/// would throw away a channel in operation for a failure with no relation to it.
+/// The identity check makes each listing responsible for its own channel.
 pub(crate) fn forget_sftp(cell: &Mutex<Option<Arc<SftpSession>>>, used: &Arc<SftpSession>) {
     drop_if_same(&mut cell.lock().unwrap_or_else(PoisonError::into_inner), used);
 }
 
-/// Clears `slot` when it still holds the very thing `used` points at.
+/// Clears `slot` if it still holds the object that `used` points at.
 ///
-/// Generic so the identity rule can be told apart from the sftp handshake it
-/// guards: the question is "is this the same one", not "is this one alive".
+/// The function is generic, so the identity rule is separate from the sftp
+/// handshake that it guards. The question is "is this the same object", not "is
+/// this object in operation".
 fn drop_if_same<T>(slot: &mut Option<Arc<T>>, used: &Arc<T>) -> bool {
     if slot.as_ref().is_some_and(|cached| Arc::ptr_eq(cached, used)) {
         *slot = None;
@@ -1019,14 +1029,14 @@ fn drop_if_same<T>(slot: &mut Option<Arc<T>>, used: &Arc<T>) -> bool {
     }
 }
 
-/// Newest conversation first, the order the session list reads in.
+/// The newest conversation first, the order of the session list.
 fn newest_first(summaries: &mut [SessionSummary]) {
     summaries.sort_by(|a, b| b.modified.cmp(&a.modified));
 }
 
-/// A path on this machine pie cannot read surfaces like any other reach
-/// failure: the frontend offers the same retry, and the message names the path
-/// that is at fault.
+/// A path on this machine that pie cannot read appears as any other failure of the
+/// reach. The frontend offers the same retry, and the message names the path at
+/// fault.
 fn unreadable(path: &str, source: std::io::Error) -> Error {
     Error::UnreadableLocal {
         path: path.to_string(),
@@ -1042,20 +1052,20 @@ fn unreadable_there(path: &str, source: SftpError) -> Error {
     }
 }
 
-/// A relative path is the frontend's mistake, not the host's failure.
+/// A relative path is a mistake of the frontend, not a failure of the host.
 ///
-/// Asked for by name so a caller holding a connection can reject such a path
-/// before it spends a channel handshake on it.
+/// The function has a name so that a caller with a connection can reject such a
+/// path before the handshake of a channel.
 pub(crate) fn not_absolute(path: &str) -> Error {
     Error::NotAbsolute { path: path.to_string() }
 }
 
-/// Whether `path` is absolute on the host it names: POSIX or Windows style.
+/// Whether `path` is absolute on the host that it names: POSIX or Windows style.
 ///
-/// The host's conventions, not this machine's - pie runs on one and reads the
-/// other, so both spellings are the host's own. Asked for by name so a caller
-/// holding a connection can reject a relative path before it spends a channel
-/// handshake on it.
+/// These conventions belong to the host, not to this machine. Pie operates on one
+/// machine and reads the other, so both spellings belong to the host. The function
+/// has a name so that a caller with a connection can reject a relative path before
+/// the handshake of a channel.
 pub(crate) fn is_absolute_on_the_host(path: &str) -> bool {
     path.starts_with('/')
         || path.starts_with("\\\\")
@@ -1065,23 +1075,24 @@ pub(crate) fn is_absolute_on_the_host(path: &str) -> bool {
         )
 }
 
-/// Whether an sftp failure is simply "there is no such path".
+/// Whether an sftp failure is only "there is no such path".
 fn is_no_such_file(error: &SftpError) -> bool {
     matches!(error, SftpError::Status(status) if status.status_code == StatusCode::NoSuchFile)
 }
 
-/// Reads the next directory entry, naming the directory being listed when one
-/// of its entries cannot be read.
+/// Reads the next directory entry. The function names the directory of the listing
+/// if pie cannot read one of its entries.
 async fn next_entry(entries: &mut tokio::fs::ReadDir, shown: &str) -> Result<Option<tokio::fs::DirEntry>, Error> {
     entries.next_entry().await.map_err(|error| unreadable(shown, error))
 }
 
-/// Quotes `text` for a POSIX shell, so it reaches the remote command unmangled.
+/// Quotes `text` for a POSIX shell, so that it reaches the remote command without
+/// a change.
 ///
-/// The same quoting lives in `pi_rpc`'s transport, which cannot share it across
-/// the module boundary; the two encode different things - a directory the user
-/// picked, here, a remote command there - so a change to one is a change to
-/// both.
+/// The same quoting is in the transport of `pi_rpc`, which cannot share it across
+/// the module boundary. The two encode different values: a directory that the user
+/// selected here, and a remote command there. Therefore a change to one is a change
+/// to both.
 fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
@@ -1090,7 +1101,7 @@ fn quote(text: &str) -> String {
 mod tests {
     use super::*;
 
-    /// A session file's first line, the way pi writes it.
+    /// The first line of a session file, as pi writes it.
     const HEADER: &str =
         r#"{"type":"session","version":3,"id":"s1","timestamp":"2026-10-02T13:45:12.345Z","cwd":"/home/pie"}"#;
 
@@ -1173,9 +1184,9 @@ mod tests {
 
     #[test]
     fn the_sessions_root_follows_pis_own_order() {
-        // pi resolves flag, then `PI_CODING_AGENT_SESSION_DIR`, then
+        // Pi resolves the flag, then `PI_CODING_AGENT_SESSION_DIR`, then
         // `PI_CODING_AGENT_DIR` plus `sessions`, then the default (pinned
-        // `main.ts`, `getAgentDir`). pie never passes the flag.
+        // `main.ts`, `getAgentDir`). Pie never passes the flag.
         let home = || Some(PathBuf::from("/home/u"));
         assert_eq!(
             sessions_root_from(None, None, home()),
@@ -1202,18 +1213,18 @@ mod tests {
 
     #[tokio::test]
     async fn a_file_with_a_bad_byte_still_lists() {
-        // pi reads through a decoder that replaces whatever is not UTF-8 with
-        // U+FFFD and carries on; a whole file skipped over one bad byte would
-        // be stricter than the reader it mirrors.
+        // Pi reads through a decoder that replaces each value that is not UTF-8
+        // with U+FFFD and continues. A full file that pie skips for one bad byte
+        // would be stricter than the reader that it mirrors.
         let directory = tempfile::tempdir().expect("a temp directory");
         let path = directory.path().join("s.jsonl");
         let mut content: Vec<u8> = Vec::new();
         content.extend_from_slice(HEADER.as_bytes());
         content.push(b'\n');
-        // The one bad byte is a real byte in the file, spliced into the line
-        // rather than written as an escape: `\xff` inside a raw string is four
-        // characters, and JSON has no such escape. A lone 0xFF is never valid
-        // UTF-8, which is the point.
+        // The one bad byte is a real byte in the file, added to the line and not
+        // written as an escape. `\xff` in a raw string is four characters, and
+        // JSON has no such escape. One 0xFF alone is never valid UTF-8. That is
+        // the purpose of the test.
         let mut line: Vec<u8> =
             String::from(r#"{"type":"message","id":"m1","parentId":null,"timestamp":"2026-10-02T13:45:13.000Z","message":{"role":"user","content":"hi "#)
                 .into_bytes();
@@ -1234,9 +1245,8 @@ mod tests {
 
     #[test]
     fn the_first_slot_takes_the_first_candidate_the_reader_can_use() {
-        // The script prints candidates, not the answer: a turn that says
-        // nothing (an image, a lookalike line) must not swallow the message
-        // after it.
+        // The script prints candidates, not the answer. A turn that says nothing
+        // (an image, or a similar line) must not consume the message after it.
         let image_turn = r#"{"type":"message","id":"m0","parentId":null,"timestamp":"2026-10-02T13:45:12.600Z","message":{"role":"user","content":[{"type":"image","data":"AAAA","mimeType":"image/png"}],"timestamp":1790948712600}}"#;
         let real = r#"{"type":"message","id":"m1","parentId":null,"timestamp":"2026-10-02T13:45:13.000Z","message":{"role":"user","content":"the real first words","timestamp":1790948713000}}"#;
         let output = format!("=== a.jsonl\n{HEADER}\n---\n{image_turn}\n{real}\n---\n---\n");
@@ -1252,8 +1262,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_whole_file_read_meets_the_last_rename_last() {
-        // pi takes the latest `session_info` entry however the file grew; a
-        // whole read sees them in order and keeps the last.
+        // Pi takes the latest `session_info` entry, whatever the growth of the
+        // file. A full read sees the entries in order and keeps the last one.
         let (_keep, path) = on_disk(&format!(
             "{HEADER}\n{}\n{}\n{}",
             name_line("n1", "First"),
@@ -1288,9 +1298,9 @@ mod tests {
     async fn the_first_message_is_what_the_user_said_not_what_is_in_the_way() {
         let (_keep, path) = on_disk(&format!(
             "{HEADER}\n{}\n{}\n{}",
-            // Not a message at all.
+            // This is not a message.
             r#"{"type":"usage","id":"u1","parentId":null,"timestamp":"2026-10-02T13:45:12.500Z","kind":"cache_warm"}"#,
-            // A message, but nothing a user said.
+            // This is a message, but the user said nothing.
             r#"{"type":"message","id":"m0","parentId":null,"timestamp":"2026-10-02T13:45:12.600Z","message":{"role":"user","content":[{"type":"image","data":"AAAA","mimeType":"image/png"}],"timestamp":1790948712600}}"#,
             user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "the real first words"),
         ))
@@ -1322,8 +1332,8 @@ mod tests {
     fn the_host_script_quotes_the_directory_it_walks() {
         let script = posix_summary_script("/home/o'brien/.pi/agent/sessions/--x--");
 
-        // The directory is a path the user picked; it must reach the host as
-        // data, never as shell.
+        // The directory is a path that the user selected. It must reach the host
+        // as data, never as shell text.
         assert!(
             script.contains("for f in '/home/o'\\''brien/.pi/agent/sessions/--x--'/*.jsonl"),
             "got `{script}`"
@@ -1350,8 +1360,8 @@ mod tests {
 
     #[test]
     fn the_windows_script_travels_as_its_own_encoded_parameter() {
-        // `-EncodedCommand` is base64 of UTF-16LE: the script's quoting is the
-        // only quoting in the world, whatever shells sit between pie and it.
+        // `-EncodedCommand` takes base64 of UTF-16LE. The quoting of the script is
+        // the only quoting, whatever shell is between pie and the script.
         assert_eq!(base64_utf16le("abc"), "YQBiAGMA");
 
         let command = windows_summary_command(r"C:\Users\o'brien\sessions\--x--");
@@ -1371,8 +1381,8 @@ mod tests {
 
     #[test]
     fn the_windows_script_escapes_the_directory_the_windows_way() {
-        // PowerShell doubles a single quote inside a single-quoted string -
-        // the one rule its own quoting has.
+        // PowerShell writes two single quotes for one single quote in a
+        // single-quoted string. That is the only rule of its quoting.
         let script = windows_summary_script(r"C:\Users\o'brien\sessions");
 
         assert!(script.contains(r"$d = 'C:\Users\o''brien\sessions'"), "got `{script}`");
@@ -1380,8 +1390,8 @@ mod tests {
 
     #[test]
     fn a_hosts_absolute_paths_come_in_both_spellings() {
-        // pie runs on one machine and reads another: both conventions are the
-        // host's own, and a Windows host speaks neither pie's cwd nor POSIX.
+        // Pie operates on one machine and reads another. Both conventions belong
+        // to the host. A Windows host uses neither the cwd of pie nor POSIX.
         for path in ["/home/u/.pi", r"C:\Users\u\.pi", r"d:/sessions", r"\\server\share"] {
             assert!(is_absolute_on_the_host(path), "{path} is absolute on its host");
         }
@@ -1392,8 +1402,8 @@ mod tests {
 
     #[test]
     fn the_modified_time_formats_the_way_pi_stores_it() {
-        // pi's own ISO strings and pie's file times have to land in one order
-        // for the list to sort.
+        // The ISO strings of pi and the file times of pie must land in one order
+        // for the sort of the list.
         assert_eq!(
             rfc3339_of_millis(1790948713000).as_deref(),
             Some("2026-10-02T13:45:13.000Z")
@@ -1402,9 +1412,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_fallback_reads_past_the_system_entry_to_the_first_turn() {
-        // pi writes its system entry - every tool definition it has loaded -
-        // before the first turn, as one line no fixed window outruns. The
-        // fallback's head read stops at the turn instead.
+        // Pi writes its system entry, with all tool definitions that it loaded,
+        // before the first turn, as one line that no fixed window covers. The head
+        // read of the fallback stops at the turn instead.
         let mut content = format!("{HEADER}\n{}\n", system_line(&"x".repeat(200_000)));
         content.push_str(&user_line(
             "m1",
@@ -1427,9 +1437,9 @@ mod tests {
 
     #[test]
     fn the_scan_finds_a_turn_split_across_its_own_calls() {
-        // Only what arrived since the last call is looked at, so a literal half
-        // at the end of one call and half at the start of the next must still
-        // stop the scan.
+        // The function reads only the bytes that arrived after the last call.
+        // Therefore a literal with one half at the end of one call and one half at
+        // the start of the next must still stop the scan.
         let mut scan = HeadScan::default();
         let mut head = br#"{"type":"message","id":"m1","message":{"role":"us"#.to_vec();
         assert!(!first_turn_is_whole(&head, &mut scan), "half a turn is not a turn");
@@ -1509,9 +1519,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_fallback_never_shows_a_name_the_file_does_not_hold_latest() {
-        // The one thing the fallback owes when it cannot see the whole file:
-        // a miss is no name, never an older one. The name sits past the head
-        // and before the tail window - the gap a mid-size file really has.
+        // The fallback cannot see the full file. It owes one result: a miss is no
+        // name, never an older name. The name is beyond the head and before the
+        // tail window. That is the gap of a file of middle size.
         let mut content = format!("{HEADER}\n{}\n", system_line(&"x".repeat(HEAD_BYTES)));
         content.push_str(&name_line("n1", "early"));
         content.push('\n');
@@ -1531,11 +1541,11 @@ mod tests {
 
     #[test]
     fn a_forgotten_channel_leaves_the_slot_ready_for_a_new_one() {
-        // The one thing a cached channel owes: after a listing failed over it,
-        // the slot must be empty so the next listing builds a fresh one.
-        // Building a channel itself needs a real sftp handshake - the fixture
-        // tests cover that half - so what is under test here is the identity
-        // rule, told apart from the handshake with a stand-in type.
+        // A cached channel owes one result: after a failed listing over it, the
+        // slot must be empty so that the next listing builds a new channel. The
+        // build of a channel needs a real sftp handshake. The fixture tests cover
+        // that half. Therefore this test covers the identity rule, with a
+        // stand-in type and no handshake.
         let installed = Arc::new(());
         let mut slot = Some(Arc::clone(&installed));
 
@@ -1567,7 +1577,7 @@ mod tests {
             ),
         )
         .expect("the session file");
-        // Neither a directory nor a session file: ignored by both kinds.
+        // This is neither a directory nor a session file. Both kinds ignore it.
         std::fs::write(root.join("stray.txt"), HEADER).expect("the stray");
 
         let summaries = list_local(&root).await.expect("the listing");
@@ -1607,7 +1617,7 @@ mod tests {
         std::fs::create_dir(&bad).expect("the unreadable project");
         std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o000)).expect("the lock");
         if tokio::fs::read_dir(&bad).await.is_ok() {
-            // Running as root ignores the mode; the skip has nothing to prove.
+            // A run as root ignores the mode. The skip has nothing to prove.
             return;
         }
 
@@ -1642,8 +1652,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_local_picker_follows_a_link_to_a_directory() {
-        // A picker that cannot walk into a linked directory has lost half of
-        // some home directories.
+        // A picker that cannot walk into a linked directory loses half of some
+        // home directories.
         let directory = tempfile::tempdir().expect("a temp directory");
         let target = directory.path().join("elsewhere");
         std::fs::create_dir(&target).expect("the target");
@@ -1662,8 +1672,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_broken_link_is_a_row_and_not_a_failure() {
-        // Home directories full of stale dotfile links are the normal case,
-        // not the exception; one of them must not take the listing down.
+        // Home directories full of old dotfile links are the usual case, not the
+        // exception. One of them must not stop the listing.
         let directory = tempfile::tempdir().expect("a temp directory");
         std::os::unix::fs::symlink(directory.path().join("nowhere"), directory.path().join("stale")).expect("the link");
         std::fs::write(directory.path().join("z-file"), "").expect("the file");
@@ -1678,8 +1688,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_picker_takes_no_relative_path() {
-        // pie resolves no path against its own directory: on a phone that is
-        // not anyone's home, and the two reaches would not even agree on it.
+        // Pie resolves no path against its own directory: on a phone that
+        // directory is not the home of a person, and the two paths would not even
+        // agree on it.
         for path in [".", "..", "sessions", "./sessions"] {
             let error = list_dirs_local(None, Some(path))
                 .await
@@ -1688,11 +1699,12 @@ mod tests {
         }
     }
 
-    /// The listings of this machine's real sessions, checked against pi's own
-    /// way of reading a file: whole-file, latest name, first user words.
+    /// The listings of the real sessions of this machine, checked against the read
+    /// of a file by pi: the full file, the latest name, and the first words of the
+    /// user.
     ///
-    /// Reads whatever sessions exist on the machine running it, so it is
-    /// ignored here and run when the reading of real data matters.
+    /// The test reads the sessions that exist on the machine of the run. Therefore
+    /// it is ignored here and runs when the read of real data is important.
     #[tokio::test]
     #[ignore = "reads whatever sessions exist on this machine"]
     async fn the_names_of_this_machines_sessions_all_come_out_right() {

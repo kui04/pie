@@ -1,15 +1,15 @@
-//! What can go wrong while reaching a host or answering what the state of the
-//! one connection is.
+//! What can go wrong during the connect to a host, or in the answer about the
+//! state of the one connection.
 //!
-//! Every variant names *what happened* rather than carrying a finished
-//! sentence: a caller that has to tell a refused host key from a dead socket
-//! matches on it, and the wording a person reads is
-//! [`Display`](std::fmt::Display)'s job.
+//! Every variant names *what happened*. It does not carry a full sentence: a
+//! caller that must tell a refused host key from a dead socket matches on the
+//! variant. The wording for a person is the task of
+//! [`Display`](std::fmt::Display).
 //!
-//! Only the host is here. A failure of the protocol or the transport under it
-//! is already a named variant of [`pi_rpc::Error`] and reaches the boundary as
-//! it is, so nothing in this enum wraps it and every variant is a failure of
-//! pie's own reach for a machine.
+//! This enum holds the host only. A failure of the protocol or of the transport
+//! below it is a named variant of [`pi_rpc::Error`] and reaches the boundary
+//! without a change. Therefore nothing in this enum wraps it. Every variant is a
+//! failure of the reach of pie to a machine.
 
 use russh_sftp::client::error::Error as SftpError;
 use serde::Serialize;
@@ -20,36 +20,36 @@ use thiserror::Error;
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Error {
-    /// A live connection is already there.
+    /// A live connection is present.
     #[error("pie is already connected to {endpoint}")]
     AlreadyConnected {
-        /// Host the live connection is on, `local` or `user@host:port`.
+        /// The host of the live connection, `local` or `user@host:port`.
         endpoint: String,
     },
 
-    /// The command needs a connection and there is none.
+    /// The command needs a connection. No connection is present.
     #[error("connect to a host before {doing}")]
     NotConnected {
-        /// What the person was trying to do, phrased to finish that sentence.
+        /// What the person tried to do. The sentence above uses it.
         doing: String,
     },
 
-    /// The host's `pi --version` did not print a release pie speaks.
+    /// `pi --version` on the host did not print a release that pie speaks.
     ///
-    /// One variant rather than one per exit code, because what a person can act
-    /// on is already inside the sentence; the case worth matching on - a `pi`
-    /// that is there but speaks another release - is
-    /// [`pi_rpc::Error::VersionMismatch`](crate::pi_rpc::Error::VersionMismatch),
-    /// which is a failure of the protocol layer and lives there.
+    /// This is one variant, not one for each exit code: the sentence already
+    /// holds what a person can do. The case that needs a match - a `pi` that is
+    /// present but speaks another release - is
+    /// [`pi_rpc::Error::VersionMismatch`](crate::pi_rpc::Error::VersionMismatch).
+    /// That is a failure of the protocol layer, and it lives there.
     #[error("`pi --version` on {endpoint} {reported}")]
     RemoteVersion {
-        /// Host that was asked, `user@host:port`.
+        /// The host that pie asked, `user@host:port`.
         endpoint: String,
         /// How the probe ended, and what it printed instead.
         reported: String,
     },
 
-    /// A path on this machine could not be read.
+    /// Pie cannot read a path on this machine.
     #[error("cannot read {path}: {source}")]
     UnreadableLocal {
         /// The path at fault.
@@ -60,7 +60,7 @@ pub enum Error {
         source: std::io::Error,
     },
 
-    /// A path on the host could not be read.
+    /// Pie cannot read a path on the host.
     #[error("cannot read {path}: {source}")]
     UnreadableRemote {
         /// The path at fault, as the host sees it.
@@ -71,10 +71,10 @@ pub enum Error {
         source: SftpError,
     },
 
-    /// The host took the request for an sftp channel and never opened one.
+    /// The host took the request for an sftp channel. It did not open one.
     #[error("the sftp subsystem on {endpoint} did not answer: {source}")]
     SftpUnanswered {
-        /// Host that went quiet, `user@host:port`.
+        /// The host that went quiet, `user@host:port`.
         endpoint: String,
         /// What the handshake reported.
         #[serde(skip)]
@@ -82,14 +82,14 @@ pub enum Error {
         source: SftpError,
     },
 
-    /// A relative path, where only an absolute one says anything.
+    /// A relative path. Only an absolute path says something here.
     #[error("`{path}` is not absolute; pie resolves no path against its own directory")]
     NotAbsolute {
-        /// The path as the frontend sent it.
+        /// The path from the frontend.
         path: String,
     },
 
-    /// This machine has no home directory, so there is nothing to browse.
+    /// This machine has no home directory. Therefore there is nothing to browse.
     #[error("there is no home directory on this machine to browse")]
     NoHomeDirectory,
 }

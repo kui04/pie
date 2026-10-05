@@ -1,12 +1,12 @@
-//! Everything pi can send on stdout, with graceful degradation.
+//! Everything that pi can send on stdout, with graceful degradation.
 //!
 //! Pi writes four kinds of record: responses, session events, extension UI
 //! requests, and extension errors. [`ServerMessage::parse`] sorts one line into
-//! them. A record whose `type` this crate does not know - or whose shape changed
-//! under a known `type` - becomes [`ServerMessage::Unknown`] with the original
-//! JSON kept intact, so a protocol addition on pi's side never breaks a running
-//! client. A line that is not JSON at all becomes
-//! [`ServerMessage::Unparseable`] and is likewise not fatal.
+//! these kinds. A record with a `type` that this crate does not know - or with a
+//! shape that changed under a known `type` - becomes [`ServerMessage::Unknown`]
+//! with the original JSON intact. Therefore an addition to the protocol on the
+//! side of pi never breaks a client in operation. A line that is not JSON becomes
+//! [`ServerMessage::Unparseable`] and is also not fatal.
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -15,12 +15,12 @@ use super::event::Event;
 use super::extension::{ExtensionError, ExtensionUiRequest};
 use super::response::Response;
 
-/// One record read from pi's stdout.
+/// One record that pie read from the stdout of pi.
 ///
-/// Kept unboxed on purpose: records are parsed once, moved into the fan-out
-/// channel, and matched by every consumer, so paying for an allocation and a
-/// pointer chase on each of pi's streaming deltas would cost more than the
-/// hundred-odd bytes of enum padding it saves.
+/// This value stays unboxed on purpose. Pie parses a record one time, moves it
+/// into the fan-out channel, and every consumer matches on it. An allocation and
+/// a pointer chase for each streaming delta of pi would cost more than the
+/// hundred-odd bytes of enum padding that this saves.
 #[expect(
     clippy::large_enum_variant,
     reason = "records are matched and moved as values, not boxed"
@@ -32,16 +32,16 @@ pub enum ServerMessage {
     Response(Response),
     /// A session event.
     Event(Event),
-    /// A dialog or status update from an extension.
+    /// A dialog or a status update from an extension.
     ExtensionUiRequest(ExtensionUiRequest),
-    /// An extension handler failure.
+    /// A failure of an extension handler.
     ExtensionError(ExtensionError),
-    /// A record this crate does not mirror; the raw JSON is preserved.
+    /// A record that this crate does not mirror. The original JSON stays.
     Unknown {
         /// The record as pi wrote it.
         raw: Value,
     },
-    /// A line that could not be parsed as JSON.
+    /// A line that pie cannot parse as JSON.
     Unparseable {
         /// The line as received.
         line: String,
@@ -135,7 +135,7 @@ mod tests {
             }
         );
 
-        // `agent_settled` with a shape we do not mirror must not be fatal either.
+        // A changed `queue_update` record must not be fatal either.
         let drifted = ServerMessage::parse(r#"{"type":"queue_update","steering":"not an array"}"#);
         assert!(matches!(drifted, ServerMessage::Unknown { .. }));
     }

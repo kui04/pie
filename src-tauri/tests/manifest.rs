@@ -1,21 +1,21 @@
-//! The manifest's own rules, checked mechanically.
+//! The rules of the manifest, checked by a machine.
 //!
-//! `Cargo.toml` lists every crate pie depends on, and a list nobody can scan is
-//! a list nobody trusts. The dependency tables are sorted by crate name, so a
-//! dependency is found by looking for it rather than by reading the whole table,
-//! and two people adding the same crate land in the same place.
+//! `Cargo.toml` lists every crate that pie uses. A list that nobody can scan is
+//! a list that nobody trusts. The dependency tables are sorted by crate name.
+//! Therefore a person finds a dependency by a search, not by the read of the
+//! full table. Also, two people who add the same crate put it in the same place.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Crate names under every dependency table in `Cargo.toml`, keyed by the table's
-/// own header.
+/// The crate names under every dependency table in `Cargo.toml`, with the header
+/// of the table as the key.
 ///
-/// The key is the whole header so that `[target.'cfg(...)'.dependencies]` is a
-/// table of its own rather than a continuation of `[dependencies]`; that header
-/// still counts as a dependency table, because it lists crates the same way.
-/// One dependency per line is assumed: a value broken across lines would put
+/// The key is the full header. Therefore `[target.'cfg(...)'.dependencies]` is a
+/// table of its own and not a continuation of `[dependencies]`. That header is
+/// still a dependency table, because it lists crates in the same way. The parser
+/// expects one dependency for each line. A value on more than one line would put
 /// its continuation lines in as crates of their own.
 fn dependency_tables() -> BTreeMap<String, Vec<String>> {
     let manifest = fs::read_to_string(manifest()).expect("reading Cargo.toml");
@@ -24,15 +24,15 @@ fn dependency_tables() -> BTreeMap<String, Vec<String>> {
     let mut inside: Option<String> = None;
     for line in manifest.lines() {
         let line = line.trim();
-        // A header ends the previous table: bare `[name]`, or the dotted target
-        // form, whose last segment is what the table is called.
+        // A header ends the table before it: a bare `[name]`, or the form with a
+        // target, whose last segment is the name of the table.
         if line.starts_with('[') && line.ends_with(']') {
             let name = line.trim_start_matches('[').trim_end_matches(']');
             inside = (name.ends_with("dependencies")).then(|| name.to_string());
             continue;
         }
-        // A comment is not a crate, and neither is anything outside the table
-        // being read.
+        // A comment is not a crate. Neither is a line outside the table that pie
+        // reads.
         let Some(table) = inside.as_ref() else {
             continue;
         };
@@ -56,8 +56,9 @@ fn manifest() -> PathBuf {
 
 #[test]
 fn the_dependency_tables_are_sorted() {
-    // `[build-dependencies]` and `[dev-dependencies]` are only in the manifest
-    // if something needs them, so they are looked up rather than assumed.
+    // `[build-dependencies]` and `[dev-dependencies]` are in the manifest only
+    // if something needs them. Therefore the test looks them up and does not
+    // assume them.
     for required in ["build-dependencies", "dev-dependencies", "dependencies"] {
         assert!(dependency_tables().contains_key(required), "`[{required}]` is missing");
     }

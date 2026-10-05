@@ -1,10 +1,10 @@
 //! Everything that can go wrong while talking to `pi --mode rpc`.
 //!
-//! The variants report what happened. `PieError` carries this enum whole, and
-//! serde sends the name of the variant that failed as `kind`, which is what the
-//! frontend branches on; the sentence a person reads is
-//! [`Display`](std::fmt::Display)'s job. So a failure is named once here rather
-//! than in every place that reports one.
+//! The variants report what happened. `PieError` carries this enum whole. Serde
+//! sends the name of the variant that failed as `kind`. The frontend branches on
+//! that name. The sentence for a person is the task of
+//! [`Display`](std::fmt::Display). Therefore a failure has a name in one place
+//! here, not in every place that reports it.
 
 use std::time::Duration;
 
@@ -14,29 +14,29 @@ use thiserror::Error;
 /// Result alias for the protocol layer.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// A protocol, transport, or process failure.
+/// A failure of the protocol, the transport, or the process.
 ///
-/// Serialized under a `kind` tag, because the app's boundary hands this enum to
-/// the frontend nested inside its own failure: the name of the variant that
-/// failed is the whole of what the UI can branch on. Payloads that are not
-/// plain data - an `io::Error`, a `russh::Error` - stay typed on this side and
-/// do not travel; their `Display` is already in the sentence beside them.
+/// Serde serializes this enum under a `kind` tag. The boundary of the app gives
+/// this enum to the frontend inside its own failure. The name of the variant
+/// that failed is the full value for a branch in the UI. A payload that is not
+/// plain data - an `io::Error`, a `russh::Error` - stays typed on this side and
+/// does not travel. Its `Display` is already in the sentence beside it.
 #[derive(Debug, Error, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Error {
-    /// Starting the peer failed (missing binary, permission denied, ...).
+    /// The start of the peer failed (a missing binary, permission denied, ...).
     #[error("failed to start `{program}`: {source}")]
     Spawn {
-        /// Program that was being started.
+        /// The program that pie started.
         program: String,
-        /// Underlying failure.
+        /// The failure below.
         #[serde(skip)]
         #[source]
         source: std::io::Error,
     },
 
-    /// An i/o operation on an established transport failed.
+    /// An i/o operation on an open transport failed.
     #[error("transport i/o failed: {0}")]
     Io(
         #[serde(skip)]
@@ -44,7 +44,7 @@ pub enum Error {
         std::io::Error,
     ),
 
-    /// A record could not be serialized. Always a bug in this crate.
+    /// Pie cannot serialize a record. This is always a bug in this crate.
     #[error("failed to encode a protocol record: {0}")]
     Encode(
         #[serde(skip)]
@@ -52,16 +52,16 @@ pub enum Error {
         serde_json::Error,
     ),
 
-    /// `<program> --version` failed or printed nothing usable.
+    /// `<program> --version` failed, or printed nothing usable.
     #[error("`{program} --version` failed: {message}")]
     VersionProbe {
-        /// Program that was probed.
+        /// The program that pie probed.
         program: String,
-        /// What went wrong, or what was printed instead.
+        /// The failure, or the value that it printed instead.
         message: String,
     },
 
-    /// The `pi` binary does not match the release this crate mirrors.
+    /// The `pi` binary is not the release that this crate mirrors.
     #[error("pi version mismatch: expected {expected}, found {found}")]
     VersionMismatch {
         /// Version this crate mirrors.
@@ -70,7 +70,7 @@ pub enum Error {
         found: String,
     },
 
-    /// The connection is closed, so the command was not sent.
+    /// The connection is closed. Pie did not send the command.
     #[error("connection is closed")]
     Closed,
 
@@ -87,32 +87,32 @@ pub enum Error {
         message: String,
     },
 
-    /// No response arrived within the timeout the caller applied.
+    /// No response arrived in the time that the caller set.
     #[error("`{command}` (id {id}) produced no response within {timeout:?}")]
     Timeout {
-        /// Request id that stayed unanswered.
+        /// The request id without an answer.
         id: String,
-        /// Command that was sent.
+        /// The command that pie sent.
         command: String,
-        /// Timeout the caller applied.
+        /// The time that the caller set.
         timeout: Duration,
     },
 
-    /// A response carried a payload that did not match the mirrored type.
+    /// A response carried a payload that does not match the mirrored type.
     #[error("unexpected `{command}` payload: {message}")]
     Payload {
-        /// Command whose payload failed to decode.
+        /// The command whose payload did not decode.
         command: String,
-        /// Decoding failure.
+        /// The failure of the decode.
         message: String,
     },
 
-    /// The host did not accept the TCP connection in time.
+    /// The host did not accept the TCP connection in the time limit.
     #[error("connecting to {endpoint} timed out after {timeout:?}")]
     ConnectTimeout {
-        /// Host that was being reached, `user@host:port`.
+        /// The host that pie tried to reach, `user@host:port`.
         endpoint: String,
-        /// Limit that expired.
+        /// The limit that expired.
         timeout: Duration,
     },
 
@@ -127,7 +127,7 @@ pub enum Error {
         source: std::io::Error,
     },
 
-    /// The SSH layer failed: handshake, channel, or session.
+    /// The SSH layer failed: the handshake, a channel, or the session.
     #[error("ssh: {0}")]
     Ssh(
         #[serde(skip)]
@@ -135,10 +135,10 @@ pub enum Error {
         russh::Error,
     ),
 
-    /// A private key could not be decoded or decrypted.
+    /// Pie cannot decode or decrypt a private key.
     #[error("reading the private key: {source}")]
     SshKey {
-        /// Why it failed.
+        /// The reason for the failure.
         #[serde(skip)]
         #[source]
         source: russh::keys::Error,
@@ -147,70 +147,68 @@ pub enum Error {
     /// The host refused the credentials.
     #[error("the host refused the credentials for {endpoint}")]
     Auth {
-        /// Host that refused them, `user@host:port`.
+        /// The host that refused them, `user@host:port`.
         endpoint: String,
     },
 
-    /// The host neither accepted nor refused the credentials.
+    /// The host did not accept and did not refuse the credentials.
     #[error("{endpoint} did not answer within {timeout:?}")]
     AuthTimeout {
-        /// Host that stayed silent, `user@host:port`.
+        /// The host with no answer, `user@host:port`.
         endpoint: String,
-        /// Limit that expired.
+        /// The limit that expired.
         timeout: Duration,
     },
 
-    /// The host refused to run the command: a missing `pi`, usually.
+    /// The host refused to run the command. A missing `pi` is the usual cause.
     #[error("{endpoint} refused to run `{command}`")]
     Exec {
-        /// Host that refused, `user@host:port`.
+        /// The host that refused, `user@host:port`.
         endpoint: String,
-        /// Command as it was sent.
+        /// The command as pie sent it.
         command: String,
     },
 
-    /// The host accepted the connection but never answered the request to run
-    /// the command.
+    /// The host accepted the connection and gave no answer about the command.
     #[error("{endpoint} did not answer within {timeout:?} whether it can run `{command}`")]
     ExecTimeout {
-        /// Host that stayed silent, `user@host:port`.
+        /// The host that stayed silent, `user@host:port`.
         endpoint: String,
-        /// Command as it was sent.
+        /// The command as pie sent it.
         command: String,
-        /// Limit that expired.
+        /// The limit that expired.
         timeout: Duration,
     },
 
-    /// The host refused to start a subsystem on a channel: an sshd without
-    /// `sftp` on its `Subsystem` line, usually.
+    /// The host refused to start a subsystem on a channel. An sshd without
+    /// `sftp` on its `Subsystem` line is the usual cause.
     #[error("{endpoint} refused to start the `{name}` subsystem")]
     Subsystem {
-        /// Host that refused, `user@host:port`.
+        /// The host that refused, `user@host:port`.
         endpoint: String,
-        /// Subsystem name as it was asked for, like `sftp`.
+        /// The subsystem name as pie asked for it, for example `sftp`.
         name: String,
     },
 
-    /// The host accepted the connection but never answered the request to
-    /// start a subsystem.
+    /// The host accepted the connection and gave no answer about the subsystem.
     #[error("{endpoint} did not answer within {timeout:?} whether it will start the `{name}` subsystem")]
     SubsystemTimeout {
-        /// Host that stayed silent, `user@host:port`.
+        /// The host that stayed silent, `user@host:port`.
         endpoint: String,
-        /// Subsystem name as it was asked for, like `sftp`.
+        /// The subsystem name as pie asked for it, for example `sftp`.
         name: String,
-        /// Limit that expired.
+        /// The limit that expired.
         timeout: Duration,
     },
 
-    /// The host's key was not accepted, so the handshake was abandoned.
+    /// Pie did not accept the key of the host. Therefore the handshake stopped.
     #[error("the host key of {endpoint} was not accepted: {reason}")]
     HostKeyRejected {
-        /// Host whose key was refused, as `host:port`. What is checked is the
-        /// host, not who is logging in, so the app's policy does not know the
-        /// login name here (unlike [`Error::Connect`], which does).
+        /// The host whose key pie refused, as `host:port`. Pie checks the host,
+        /// not the login name. Therefore the policy of the app has no login
+        /// name here, unlike [`Error::Connect`].
         endpoint: String,
-        /// Why it was refused, phrased for a person.
+        /// The reason for the refusal, in words for a person.
         reason: String,
     },
 }

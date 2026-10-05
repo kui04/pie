@@ -1,19 +1,19 @@
-//! The named failures the frontend has words for, kept together with the names
-//! Rust gives them.
+//! The named failures that the frontend has words for, together with the names
+//! that Rust gives them.
 //!
 //! `PieError` sends each failure as the name of the variant that failed, tagged
-//! `kind`, and `ConnectScreen` holds the sentence a person reads for each name
-//! in its `FAILURE_REASON` table. Two files, one set of names: a variant renamed
-//! in Rust would leave its row pointing at nothing, and two modules naming a
-//! failure alike would make one of them read the other's words. Neither shows up
-//! in a test that runs the code, so the names are compared here, from the
-//! sources themselves - the way `purity.rs` and `manifest.rs` check their rules.
+//! `kind`. `ConnectScreen` holds the text for a person in its `FAILURE_REASON`
+//! table. Two files hold one set of names. A renamed variant in Rust would leave
+//! its row with no target. Two modules with the same name for a failure would
+//! make one of them read the words of the other. A test that operates on the
+//! code does not show either problem. Therefore this test compares the names,
+//! from the sources, as `purity.rs` and `manifest.rs` check their rules.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-/// The sentence table `ConnectScreen` looks a failure up in.
+/// The table of text in `ConnectScreen` for a failure.
 const FRONTEND: &str = "../src/routes/connect/ConnectScreen.tsx";
 
 /// Every error enum whose variant names reach the frontend as a `kind`.
@@ -28,11 +28,11 @@ fn read(path: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))
 }
 
-/// A variant's name as serde writes it under `rename_all = "snake_case"`: a
-/// lower-case word, with an underscore before each later capital.
+/// The name of a variant as serde writes it under `rename_all = "snake_case"`:
+/// a lower-case word, with an underscore before each later capital.
 ///
-/// None of the names here runs two capitals together or uses a digit, which is
-/// what keeps this simpler than serde's own rule.
+/// No name here puts two capitals together or uses a digit. Therefore this is
+/// simpler than the rule of serde.
 fn kind_of(variant: &str) -> String {
     let mut kind = String::with_capacity(variant.len() + 4);
     for (index, character) in variant.char_indices() {
@@ -56,8 +56,8 @@ fn variants(path: &str) -> BTreeSet<String> {
             inside = line == "pub enum Error {";
             continue;
         }
-        // A blank line has no indentation to read: it separates variants and
-        // is not the end of the enum.
+        // A blank line has no indentation. It separates variants. It is not the
+        // end of the enum.
         if line.is_empty() {
             continue;
         }
@@ -65,8 +65,8 @@ fn variants(path: &str) -> BTreeSet<String> {
         if indent == 0 {
             break;
         }
-        // A variant is one level in. Its attributes and doc comment are one
-        // level in too, and its fields are two.
+        // A variant is one level in. Its attributes and its doc comment are one
+        // level in too. Its fields are two levels in.
         if indent != 4 || line.starts_with("//") || line.starts_with("#[") {
             continue;
         }
@@ -120,8 +120,8 @@ fn the_frontend_has_words_for_exactly_the_names_rust_gives() {
 
 #[test]
 fn no_two_modules_name_a_failure_alike() {
-    // The frontend lookup is one flat table keyed by `kind`, so a name used by
-    // two modules would send a person the sentence of the other one.
+    // The frontend lookup is one flat table with `kind` as the key. A name that
+    // two modules use would send a person the text of the other module.
     let enums: Vec<(&str, BTreeSet<String>)> = ENUMS.iter().map(|path| (*path, variants(path))).collect();
     for (index, (left, left_kinds)) in enums.iter().enumerate() {
         for (right, right_kinds) in &enums[index + 1..] {

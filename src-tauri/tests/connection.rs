@@ -1,16 +1,16 @@
 //! [`Connection`](pie_lib::connection::Connection) against real hosts.
 //!
-//! Ignored by default: the local tests need `pi` on `PATH`, and the SSH ones
-//! need the container from `tests/scripts/ssh-fixture.sh`:
+//! These tests are ignored by default. The local tests need `pi` on `PATH`. The
+//! SSH tests need the container from `tests/scripts/ssh-fixture.sh`:
 //!
 //! ```text
 //! eval "$(tests/scripts/ssh-fixture.sh start)"
 //! cargo test --test connection -- --ignored --test-threads=1
 //! ```
 //!
-//! What these add over `tests/ssh.rs` is the app's half: a session is started
-//! and stopped, and a host key goes through the whole policy - asked about
-//! once, remembered, and refused when it changes.
+//! These tests add the app's half to `tests/ssh.rs`: pie starts and stops a
+//! session, and a host key goes through the full policy. Pie asks about the key
+//! one time, remembers it, and refuses it after a change.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -27,8 +27,8 @@ use pie_lib::error::PieError;
 use pie_lib::pi_rpc::Error as ProtocolError;
 use pie_lib::pi_rpc::protocol::{Command, CommandKind, SessionState};
 
-/// An asker for tests: answers with a fixed verdict, and panics if it is asked
-/// when a store should have answered instead.
+/// An asker for tests. It answers with a fixed verdict. It panics if pie asks
+/// it when a store must answer.
 #[derive(Debug)]
 struct Answering {
     verdict: Option<bool>,
@@ -63,7 +63,7 @@ impl AskHostKey for Answering {
     }
 }
 
-/// What `ssh-fixture.sh start` prints, as these tests need it.
+/// The values that `ssh-fixture.sh start` prints, as these tests need them.
 struct Fixture {
     host: String,
     port: u16,
@@ -97,7 +97,7 @@ impl Fixture {
         }
     }
 
-    /// The same host, authenticating with the fixture key instead.
+    /// The same host, with the fixture key for authentication.
     fn key_spec(&self) -> ConnectSpec {
         ConnectSpec::Ssh {
             host: self.host.clone(),
@@ -138,8 +138,9 @@ impl Fixture {
 
 /// Waits for pi to write the session file and for the listing to see it.
 ///
-/// pi creates the file as the turn starts rather than when the prompt is
-/// taken (its own `#10000` rule), so the row lands a beat after the response.
+/// Pi creates the file at the start of the turn, not at the time of the prompt
+/// (its own `#10000` rule). Therefore the row arrives a moment after the
+/// response.
 async fn wait_for_the_listing(connection: &Connection, id: &str) -> SessionSummary {
     for _ in 0..50 {
         let listed = connection.list_sessions().await.expect("the listing");
@@ -177,11 +178,11 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
     assert_eq!(session.cwd(), Some(home.path()), "the session starts where pie said");
     let client = session.client().clone();
 
-    // pi keeps its sessions under `HOME` whatever directory it starts in (its
-    // own config root rule), and the listing reads the same files back. pi
-    // creates a session file only once a conversation message exists - its own
-    // `#10000` rule, so that opening pi and closing it leaves no file behind -
-    // so this session says something before the listing.
+    // Pi keeps its sessions under `HOME`, whatever directory it starts in (its
+    // own config root rule). The listing reads the same files. Pi creates a
+    // session file only after a conversation message exists (its `#10000`
+    // rule). Therefore a start and a stop of pi leaves no file. This session
+    // says something before the listing.
     let state: SessionState = client
         .request(Command::new(CommandKind::GetState))
         .await
@@ -259,8 +260,8 @@ async fn a_trusted_host_key_is_remembered_and_used_without_asking_again() {
     assert!(recorded.contains(&fixture.host), "got {recorded}");
     connection.disconnect().await;
 
-    // Second time around nobody may be asked: the answer is on record. The key
-    // is, after all, about the host - it holds for another way in.
+    // The second time, pie must ask nobody: the answer is on record. The key
+    // belongs to the host and is also correct for another entry.
     let remembered = fixture
         .connect_with(&fixture.key_spec(), &store, None, Answering::never())
         .await
@@ -275,8 +276,8 @@ async fn a_host_key_that_changed_is_refused_and_says_which_store_to_fix() {
     let fixture = Fixture::from_env();
     let home = TempDir::new().expect("a temp directory");
     let store = home.path().join("known_hosts");
-    // A key that is not the host's, recorded for the host: what a rebuilt
-    // machine - or someone in the middle - looks like to pie.
+    // This key is not the key of the host, but it is recorded for the host.
+    // Pie sees a rebuilt machine, or an attacker in the middle.
     std::fs::write(
         &store,
         format!(
@@ -294,8 +295,8 @@ async fn a_host_key_that_changed_is_refused_and_says_which_store_to_fix() {
     match &error {
         PieError::Rpc { error, .. } => match &**error {
             ProtocolError::HostKeyRejected { reason, .. } => {
-                // The message has to be one a person can act on: which file,
-                // which line of it, and that connecting again is what follows.
+                // The message must tell a person what to do: the file, the line
+                // in the file, and the next step of another connect.
                 assert!(
                     reason.contains(&store.display().to_string()),
                     "the message names the store: {reason}"
@@ -316,15 +317,15 @@ async fn the_users_own_known_hosts_is_enough_to_connect() {
     let home = TempDir::new().expect("a temp directory");
     let own = home.path().join("known_hosts");
 
-    // Trust the key once, which records it in pie's own store.
+    // Trust the key one time. Pie records it in its own store.
     let first = fixture
         .connect(&own, None, Answering::trusting(true))
         .await
         .expect("trusted");
     first.disconnect().await;
 
-    // The same key, in the file the user's own `ssh` already trusts: pie takes
-    // that decision as made, and writes nothing of its own.
+    // The same key is in the file that the `ssh` of the user trusts. Pie accepts
+    // that decision and writes nothing to its own store.
     let borrowed = home.path().join("user-known_hosts");
     std::fs::copy(&own, &borrowed).expect("a copy of the store");
     std::fs::remove_file(&own).expect("pie's store is gone");
@@ -339,8 +340,8 @@ async fn the_users_own_known_hosts_is_enough_to_connect() {
     assert!(!own.exists(), "reading another store does not write pie's own");
 }
 
-/// The sftp channel lists the sessions the host's pi writes: the same listing
-/// the local path gives, read off the host over the very session pi runs on.
+/// The sftp channel lists the sessions that the pi of the host writes: the same
+/// listing as the local path, read from the host over the session of pi.
 #[ignore = "requires the ssh fixture"]
 #[tokio::test]
 async fn the_host_session_listing_comes_back_over_sftp() {
@@ -352,8 +353,8 @@ async fn the_host_session_listing_comes_back_over_sftp() {
         .await
         .expect("the host is reached");
 
-    // pi writes its session file as the turn starts (its `#10000` rule), so
-    // the session says something and the listing waits for the row.
+    // Pi writes its session file at the start of the turn (its `#10000` rule).
+    // Therefore the session says something and the listing waits for the row.
     let session = &connection.sessions()[0];
     let state: SessionState = session
         .client()
@@ -405,8 +406,8 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
         pi_root.path
     );
 
-    // Walking on is done with the rows' own paths, never a path the picker
-    // builds: the home of an sftp session is not pie's own directory.
+    // The walk uses the paths of the rows, never a path that the picker builds.
+    // The home of an sftp session is not the directory of pie.
     let sessions = format!("{}/agent/sessions", pi_root.path);
     let projects = connection
         .list_dirs(Some(&sessions))

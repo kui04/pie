@@ -1,13 +1,12 @@
 //! What the commands share.
 //!
-//! One host at a time is what the product needs, so the connection is a single
-//! slot, and the slot's lock is what keeps two `connect`s from racing for it.
-//! The question a person is being asked lives in a lock of its own, *not*
-//! inside that slot: `connect` holds the slot from the moment it starts until
-//! it is connected, and on first contact it spends that time waiting for the
-//! answer to exactly this question - so one lock for both would deadlock, and a
-//! separate one is what lets an answer arrive while the connection is being
-//! made.
+//! The product keeps one host at a time. Therefore the connection is one slot.
+//! The lock of the slot stops two `connect` commands from a race for it. The
+//! question for a person lives in its own lock, *not* in that slot. `connect`
+//! holds the slot from its start until the connection is ready. On first
+//! contact, it waits during that time for the answer to this question. One lock
+//! for both would deadlock. A separate lock lets an answer arrive while the
+//! connection is in progress.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -18,33 +17,33 @@ use crate::connection::Connection;
 
 /// How long a person has to answer a host-key question.
 ///
-/// Nothing else bounds that wait: the transport's own host-key step is
-/// unbounded by design, because it is the one place a person is involved. A
-/// dialog that is dismissed, or a frontend that goes away mid-question, would
-/// otherwise hold `connect` - and the connection slot it locked - forever, with
-/// no way out but restarting pie. Long enough to compare a fingerprint by eye.
+/// Nothing else limits this wait. The host-key step of the transport has no
+/// limit by design, because a person operates there. A dialog that is dismissed,
+/// or a frontend that goes away during a question, would hold `connect` and its
+/// locked slot forever. Only a restart of pie would give an exit. This time is
+/// long enough to compare a fingerprint by eye.
 pub(crate) const HOST_KEY_PATIENCE: Duration = Duration::from_secs(120);
 
 /// What the commands share.
 #[derive(Debug, Default)]
 pub struct AppState {
-    /// Shared hands on the one connection: the file listings run on theirs
-    /// while `connect`/`disconnect` keep the slot itself moving.
+    /// Shared hands on the one connection. The file listings use their hand
+    /// while `connect`/`disconnect` move the slot itself.
     pub(crate) connection: AsyncMutex<Option<Arc<Connection>>>,
     pub(crate) question: Arc<HostKeyQuestion>,
 }
 
-/// The host-key question a person is being asked right now.
+/// The host-key question that a person is asked now.
 #[derive(Debug, Default)]
 pub(crate) struct HostKeyQuestion {
-    /// Which connection asked, and where its answer goes, while the question is
-    /// on screen.
+    /// The connection that asked, and the place for its answer, while the
+    /// question is on screen.
     waiting: Mutex<Option<(String, oneshot::Sender<bool>)>>,
 }
 
 impl HostKeyQuestion {
-    /// Starts waiting for an answer from `connection`, replacing a question
-    /// nobody answered.
+    /// Waits for an answer from `connection`. This function replaces a question
+    /// without an answer.
     pub(crate) fn open(&self, connection: &str, answer: oneshot::Sender<bool>) {
         let replaced = self
             .waiting
@@ -56,11 +55,11 @@ impl HostKeyQuestion {
         }
     }
 
-    /// Stops waiting, when the question could not be put to anyone.
+    /// Stops the wait, if there is no person to receive the question.
     ///
-    /// Only this connection's question is dropped, the way only this
-    /// connection's answer is taken: one connection at a time means those are
-    /// always the same question today, but nothing here has to rely on that.
+    /// This function drops the question of this connection only, as it takes the
+    /// answer of this connection only. One connection at a time means that these
+    /// are always the same question today. Nothing here must depend on that.
     pub(crate) fn close(&self, connection: &str) {
         let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
         if waiting.as_ref().is_some_and(|(asked, _)| asked == connection) {
@@ -68,13 +67,13 @@ impl HostKeyQuestion {
         }
     }
 
-    /// Delivers an answer, if this connection is the one waiting for one.
+    /// Delivers an answer, if this connection waits for one.
     ///
-    /// A question that was abandoned can leave its dialog on screen, and a
-    /// person clicking that one must not be answering the question that
-    /// replaced it: the keys they were shown are not the keys being asked
-    /// about. A mismatched answer is ignored rather than delivered, and the
-    /// question it did not belong to stays open for the answer that does.
+    /// An abandoned question can leave its dialog on screen. A person who clicks
+    /// that dialog must not answer the question that replaced it, because the
+    /// person did not see the keys of the new question. This function ignores a
+    /// mismatched answer. The question of the answer stays open for the correct
+    /// answer.
     pub(crate) fn answer(&self, connection: &str, trusted: bool) -> bool {
         let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
         match waiting.as_ref() {
@@ -94,9 +93,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_answer_for_another_connection_cannot_land() {
-        // An abandoned question can leave its dialog on screen; clicking it then
-        // must not answer the question that replaced it, whose key the person
-        // has not seen.
+        // An abandoned question can leave its dialog on screen. A click on that
+        // dialog must not answer the question that replaced it. The person did
+        // not see the key of the new question.
         let question = HostKeyQuestion::default();
         let (answer, decision) = oneshot::channel();
         question.open("first", answer);
@@ -108,8 +107,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_question_is_only_closed_by_the_connection_that_asked_it() {
-        // Symmetric with answering: dropping a question that could not be put to
-        // anyone must not be able to drop somebody else's.
+        // This is the same rule as for answering. The drop of a question that no
+        // person receives must not drop the question of another connection.
         let question = HostKeyQuestion::default();
         let (answer, decision) = oneshot::channel();
         question.open("first", answer);
