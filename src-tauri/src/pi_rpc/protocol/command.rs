@@ -13,9 +13,10 @@ use super::model::ModelThinkingLevel;
 ///
 /// `id` is pi's correlation field - optional, and omitted from the wire when it
 /// is `None`, which is what makes a command fire-and-forget. Prefer
-/// [`crate::pi_rpc::Client::request`], which assigns an id and awaits the matching
+/// `pi_rpc::Client::request`, which assigns an id and awaits the matching
 /// response.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct Command {
     /// Correlation id. Omitted from the wire when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,7 +51,8 @@ impl From<CommandKind> for Command {
 }
 
 /// How pi queues a message that arrives while the agent is streaming.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum StreamingBehavior {
@@ -61,7 +63,8 @@ pub enum StreamingBehavior {
 }
 
 /// Queue drain mode for steering and follow-up messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum QueueMode {
@@ -72,7 +75,8 @@ pub enum QueueMode {
 }
 
 /// The tagged body of a [`Command`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum CommandKind {

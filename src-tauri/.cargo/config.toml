@@ -1,0 +1,26 @@
+# ts-rs writes the frontend's copy of the protocol types into the frontend, and
+# `cargo test` is what writes it: every protocol type carries
+# `#[ts(export, export_to = "index.ts")]`, which generates one test per type, and
+# the shared file name is what makes ts-rs merge all of them into one `index.ts`
+# (in the order of the type names, under one lock per process).
+#
+# A filtered test run leaves that file truncated. The first type a process
+# exports creates it with `File::create` (ts-rs `src/export.rs`); the merge with
+# the types already in the file happens only inside that process. So
+# `cargo test --lib export_bindings_usage` writes a file that holds that one
+# type, and a runner that gives each test a process of its own leaves it holding
+# whichever type ran last. Run `just types` after either: it clears the directory
+# and runs all of the export tests. A full `cargo test` repairs it as well.
+#
+# Nothing breaks quietly: `just types-check` regenerates the file and reports it
+# as a difference when the index does not hold what the protocol produces, and
+# the frontend stops compiling while a type it imports is missing.
+
+# Both settings are the ones ts-rs recommends for a persistent configuration.
+[env]
+# Relative to this directory, which holds the crate: the frontend's
+# `src/lib/protocol`.
+TS_RS_EXPORT_DIR = { value = "../src/lib/protocol", relative = true }
+# The wire carries JSON numbers, and `JSON.parse` never gives the frontend a
+# `bigint`, which is ts-rs's default for `u64`.
+TS_RS_LARGE_INT = "number"

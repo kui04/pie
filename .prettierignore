@@ -5,3 +5,4 @@ src-tauri/gen
 src-tauri/target
 .devenv
 pnpm-lock.yaml
+src/lib/protocol

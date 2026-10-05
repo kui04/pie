@@ -11,7 +11,8 @@ use super::model::Usage;
 ///
 /// Values are pi's literals, spelled out rather than derived from a rename rule:
 /// the `top-level` origin is evidence that these unions mix word styles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[non_exhaustive]
 pub enum SourceScope {
     /// Installed for the user.
@@ -26,7 +27,8 @@ pub enum SourceScope {
 }
 
 /// How a resource was resolved (`SourceOrigin`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[non_exhaustive]
 pub enum SourceOrigin {
     /// Came from an installed package.
@@ -38,7 +40,8 @@ pub enum SourceOrigin {
 }
 
 /// Metadata of the resource that owns a command (`SourceInfo`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     /// Absolute path of the resource.
@@ -55,7 +58,8 @@ pub struct SourceInfo {
 }
 
 /// What kind of thing provides a slash command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum SlashCommandSource {
@@ -68,7 +72,8 @@ pub enum SlashCommandSource {
 }
 
 /// A command that can be invoked through a prompt (`RpcSlashCommand`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SlashCommand {
     /// Command name without the leading slash.
@@ -83,7 +88,8 @@ pub struct SlashCommand {
 }
 
 /// Token totals of a session (`SessionStats["tokens"]`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTokens {
     /// Input tokens.
@@ -99,7 +105,8 @@ pub struct SessionTokens {
 }
 
 /// How full the context window is (`ContextUsage`).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ContextUsage {
     /// Estimated context tokens, or `null` while unknown (e.g. right after compaction).
@@ -111,7 +118,8 @@ pub struct ContextUsage {
 }
 
 /// Aggregate statistics of a session (`SessionStats`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
     /// Path of the session file; absent when the session is not persisted.
@@ -139,7 +147,8 @@ pub struct SessionStats {
 }
 
 /// Result of running a shell command through pi (`BashResult`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct BashResult {
     /// Combined stdout and stderr, sanitized and possibly truncated.
@@ -157,7 +166,8 @@ pub struct BashResult {
 }
 
 /// Result of compacting the conversation (`CompactionResult`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionResult {
     /// The generated summary.
@@ -178,7 +188,8 @@ pub struct CompactionResult {
 }
 
 /// How pi dispatched an accepted prompt (`PromptDisposition`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PromptDisposition {
@@ -191,7 +202,8 @@ pub enum PromptDisposition {
 }
 
 /// How pi dispatched queued input (`QueuedInputDisposition`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum QueuedInputDisposition {
@@ -202,7 +214,8 @@ pub enum QueuedInputDisposition {
 }
 
 /// One entry offered for forking (`get_fork_messages`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ForkMessage {
     /// Entry the fork would start from.

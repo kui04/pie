@@ -57,7 +57,13 @@ are the source of truth for the commands themselves.
   `just ssh-test` for the SSH paths (transport and the app's connection layer),
   which brings up its own sshd in a container (`just ssh-fixture` to keep one
   running).
-- JS: `just lint`, `just format`, `just test`.
+- JS: `just lint`, `just format`, `just test` — none of them typechecks; only
+  `pnpm build` runs `tsc`.
+- Frontend types of the protocol: `just types` writes them (`src/lib/protocol`,
+  one generated `index.ts`), and `just types-check` regenerates and reports when
+  the worktree does not hold what the protocol produces. Run it before pushing,
+  like `just clippy` — nothing else runs it, and a filtered `cargo test` leaves
+  the generated file truncated (see `src-tauri/.cargo/config.toml`).
 
 Stories sit in their component's `__stories__/` folder
 (`src/**/__stories__/*.stories.tsx`) and render from static args; the recorded
@@ -131,8 +137,10 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 
 ## Gotchas
 
-- React never interprets the wire: `src/lib/protocol.ts` is types-only; parsing,
-  framing and degradation stay in Rust.
+- React never interprets the wire: `src/lib/protocol/` holds types only, and it
+  is generated — `just types` writes it from the Rust protocol types
+  (`cargo test` does too), so never edit it by hand; parsing, framing and
+  degradation stay in Rust.
 - `src-tauri/src/pi_rpc` mirrors Pi's wire protocol, not Tauri's needs: it holds
   no connection policy, and an unmapped record must degrade to
   `ServerMessage::Unknown` instead of failing the connection.

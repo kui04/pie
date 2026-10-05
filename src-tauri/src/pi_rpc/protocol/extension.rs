@@ -9,7 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 /// What kind of notification pi is showing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum NotifyType {
@@ -22,7 +23,8 @@ pub enum NotifyType {
 }
 
 /// Where a widget is placed relative to the editor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum WidgetPlacement {
@@ -36,7 +38,8 @@ pub enum WidgetPlacement {
 ///
 /// `method` casing is pi's: mostly camelCase, with `set_editor_text` in
 /// snake_case.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "method", rename_all = "snake_case", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum ExtensionUiRequestKind {
@@ -123,7 +126,8 @@ pub enum ExtensionUiRequestKind {
 }
 
 /// The value pi writes into the `type` field of an [`ExtensionUiRequest`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ExtensionUiRequestTag {
@@ -135,7 +139,8 @@ pub enum ExtensionUiRequestTag {
 ///
 /// Answer the ones that ask a question with [`ExtensionUiResponse`]; `notify`,
 /// `setStatus`, `setWidget` and `setTitle` need no answer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct ExtensionUiRequest {
     /// Record kind.
     #[serde(rename = "type")]
@@ -148,7 +153,8 @@ pub struct ExtensionUiRequest {
 }
 
 /// The value pi writes into the `type` field of an [`ExtensionUiResponse`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ExtensionUiResponseTag {
@@ -161,7 +167,8 @@ pub enum ExtensionUiResponseTag {
 /// Pi's three shapes are mutually exclusive: a value, a confirmation, or a
 /// cancellation. Build them with [`ExtensionUiResponse::value`],
 /// [`ExtensionUiResponse::confirm`] and [`ExtensionUiResponse::cancel`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum ExtensionUiResponse {
@@ -192,7 +199,11 @@ pub enum ExtensionUiResponse {
         message_type: ExtensionUiResponseTag,
         /// Dialog id from the request.
         id: String,
-        /// Always `true`.
+        /// Always `true`: pi's own type is the literal, and so is the generated
+        /// TypeScript. `ExtensionUiResponse::cancel` is the intended constructor
+        /// for this variant, because the field is public and a `Cancel` literal
+        /// that carries `false` still compiles.
+        #[ts(type = "true")]
         cancelled: bool,
     },
 }
@@ -217,6 +228,11 @@ impl ExtensionUiResponse {
     }
 
     /// Dismisses a request.
+    ///
+    /// The `cancelled` field of the record is the literal `true` in pi's types
+    /// and in the generated TypeScript. Build the variant here: a hand-built
+    /// `Cancel` that carries `false` puts a value on the wire that the
+    /// frontend's type cannot describe.
     pub fn cancel(id: impl Into<String>) -> Self {
         Self::Cancel {
             message_type: ExtensionUiResponseTag::ExtensionUiResponse,
@@ -234,7 +250,8 @@ impl ExtensionUiResponse {
 }
 
 /// The value pi writes into the `type` field of an [`ExtensionError`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ExtensionErrorTag {
@@ -245,7 +262,8 @@ pub enum ExtensionErrorTag {
 /// An extension handler failure pi reported on stdout.
 ///
 /// Pi drops the stack it holds internally when it writes this record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionError {
     /// Record kind.

@@ -7,7 +7,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Pi thinking level (`ThinkingLevel` in `packages/ai/src/types.ts`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ThinkingLevel {
@@ -32,7 +33,8 @@ pub enum ThinkingLevel {
 /// answers `["off","low","high","max"]` on a real `pi --mode rpc` (see
 /// `tests/fixtures`), which is wider than the `ThinkingLevel` annotation on some
 /// responses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ModelThinkingLevel {
@@ -58,7 +60,8 @@ pub enum ModelThinkingLevel {
 /// The three states are distinct and preserved: an absent key means "use the
 /// provider default", `null` means "this level is unsupported", and a string is
 /// the provider's own value for the level.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct ThinkingLevelMap {
     /// Provider value for `off`.
     #[serde(
@@ -66,6 +69,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub off: Option<Option<String>>,
     /// Provider value for `minimal`.
     #[serde(
@@ -73,6 +77,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub minimal: Option<Option<String>>,
     /// Provider value for `low`.
     #[serde(
@@ -80,6 +85,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub low: Option<Option<String>>,
     /// Provider value for `medium`.
     #[serde(
@@ -87,6 +93,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub medium: Option<Option<String>>,
     /// Provider value for `high`.
     #[serde(
@@ -94,6 +101,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub high: Option<Option<String>>,
     /// Provider value for `xhigh`.
     #[serde(
@@ -101,6 +109,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub xhigh: Option<Option<String>>,
     /// Provider value for `max`.
     #[serde(
@@ -108,6 +117,7 @@ pub struct ThinkingLevelMap {
         deserialize_with = "optional_value",
         skip_serializing_if = "Option::is_none"
     )]
+    #[ts(type = "string | null")]
     pub max: Option<Option<String>>,
 }
 
@@ -124,7 +134,8 @@ where
 }
 
 /// Input modality a model accepts (`input` in `BaseModel`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum InputModality {
@@ -138,7 +149,8 @@ pub enum InputModality {
 ///
 /// Pi declares `type?: "chat"` on its chat model and models image and classifier
 /// models as separate TS types, so only `chat` can appear here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ModelType {
@@ -147,7 +159,8 @@ pub enum ModelType {
 }
 
 /// Per-million-token prices (`ModelCostRates` in `packages/ai/src/types.ts`).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct ModelCostRates {
     /// Input price.
     pub input: f64,
@@ -162,7 +175,8 @@ pub struct ModelCostRates {
 }
 
 /// Prices for requests whose input exceeds a threshold (`ModelCostTier`).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCostTier {
     /// Input price.
@@ -178,7 +192,8 @@ pub struct ModelCostTier {
 }
 
 /// Model pricing (`ModelCost` in `packages/ai/src/types.ts`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCost {
     /// Input price.
@@ -195,7 +210,8 @@ pub struct ModelCost {
 }
 
 /// Cache-safe image resize profile (`ModelImageResizeOptions`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ModelImageResizeOptions {
     /// Maximum width.
@@ -213,7 +229,8 @@ pub struct ModelImageResizeOptions {
 }
 
 /// Image limits of a model (`ModelImageInputLimits`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ModelImageInputLimits {
     /// Resize profile applied before an image enters history.
@@ -228,7 +245,8 @@ pub struct ModelImageInputLimits {
 }
 
 /// Input limits of a model (`ModelInputLimits`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInputLimits {
     /// Maximum serialized provider request size.
@@ -241,7 +259,8 @@ pub struct ModelInputLimits {
 
 /// Best-effort prompt cache lifetime in seconds per retention tier
 /// (`ModelPromptCache`, a `Partial<Record<"short"|"long", number>>`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct ModelPromptCache {
     /// Lifetime of a short-retention cache entry, in seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -256,7 +275,8 @@ pub struct ModelPromptCache {
 /// `api`, `provider` and `compat` are open in pi (`KnownApi | (string & {})`,
 /// `ProviderId`, and a per-API compat union). `compat` is kept as raw JSON so no
 /// provider shape is invented here.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
     /// Model id.
@@ -303,7 +323,8 @@ pub struct Model {
 }
 
 /// Cost breakdown of one usage record (`Usage["cost"]`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct UsageCost {
     /// Input cost.
@@ -319,7 +340,8 @@ pub struct UsageCost {
 }
 
 /// Token usage of one LLM response (`Usage` in `packages/ai/src/types.ts`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
     /// Input tokens.

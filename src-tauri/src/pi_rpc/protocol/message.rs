@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use super::model::{ModelThinkingLevel, Usage};
 
 /// Plain text content part (`TextContent`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct TextContent {
     /// Part kind; always `text`.
@@ -29,7 +30,8 @@ pub struct TextContent {
 }
 
 /// The single value pi writes in [`TextContent::part_type`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum TextPartType {
@@ -38,7 +40,8 @@ pub enum TextPartType {
 }
 
 /// Reasoning text content part (`ThinkingContent`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingContent {
     /// Part kind; always `thinking`.
@@ -55,7 +58,8 @@ pub struct ThinkingContent {
 }
 
 /// The single value pi writes in [`ThinkingContent::part_type`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ThinkingPartType {
@@ -64,7 +68,8 @@ pub enum ThinkingPartType {
 }
 
 /// Base64 image content part (`ImageContent`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ImageContent {
     /// Part kind; always `image`.
@@ -77,7 +82,8 @@ pub struct ImageContent {
 }
 
 /// The single value pi writes in [`ImageContent::part_type`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ImagePartType {
@@ -88,7 +94,8 @@ pub enum ImagePartType {
 /// A tool call requested by the assistant (`ToolCall`).
 ///
 /// The tag is `toolCall` - camelCase, unlike the other part tags.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ToolCall {
     /// Part kind; always `toolCall`.
@@ -109,7 +116,8 @@ pub struct ToolCall {
 }
 
 /// The single value pi writes in [`ToolCall::part_type`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[non_exhaustive]
 pub enum ToolCallPartType {
     /// A tool call.
@@ -122,7 +130,8 @@ pub enum ToolCallPartType {
 /// Untagged on purpose: each part struct carries pi's literal `type`, and that is
 /// what discriminates the union. Tagging the enum instead would consume the field
 /// the struct needs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum UserContentPart {
@@ -139,7 +148,8 @@ pub enum UserContentPart {
 ///
 /// Untagged for the same reason as [`UserContentPart`]: the literal `type` lives
 /// on the part structs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum AssistantContentPart {
@@ -157,7 +167,8 @@ pub enum AssistantContentPart {
 /// A content part of a tool result (`TextContent | ImageContent`).
 ///
 /// Untagged for the same reason as [`UserContentPart`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum ToolResultContentPart {
@@ -173,7 +184,8 @@ pub enum ToolResultContentPart {
 /// element).
 ///
 /// Untagged for the same reason as [`UserContentPart`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum EditableContentPart {
@@ -192,7 +204,8 @@ pub enum EditableContentPart {
 }
 
 /// A system message body: a bare string or text parts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 pub enum SystemContent {
     /// A single string.
@@ -202,7 +215,8 @@ pub enum SystemContent {
 }
 
 /// A user message body: a bare string or text/image parts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 pub enum UserContent {
     /// A single string.
@@ -213,7 +227,8 @@ pub enum UserContent {
 
 /// Content an append-only context edit may replace
 /// (`ContextEditableContent` in `session-manager.ts`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(untagged)]
 pub enum EditableContent {
     /// A single string.
@@ -223,7 +238,8 @@ pub enum EditableContent {
 }
 
 /// Why an assistant response stopped (`StopReason`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[non_exhaustive]
 pub enum StopReason {
     /// Still streaming.
@@ -250,7 +266,8 @@ pub enum StopReason {
 }
 
 /// One nested tool call a tool made while it ran (`NestedToolCallRecord`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct NestedToolCallRecord {
     /// Tool call id.
@@ -274,7 +291,8 @@ pub struct NestedToolCallRecord {
 }
 
 /// Outcome of a nested tool call.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum NestedToolCallStatus {
@@ -287,7 +305,8 @@ pub enum NestedToolCallStatus {
 }
 
 /// Bounded record of the nested calls a tool made (`NestedToolCalls`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct NestedToolCalls {
     /// The recorded calls.
@@ -297,7 +316,8 @@ pub struct NestedToolCalls {
 }
 
 /// Instructions replayed into the context (`SystemMessage`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SystemMessage {
     /// Instruction text.
@@ -316,7 +336,8 @@ pub struct SystemMessage {
 }
 
 /// A user turn (`UserMessage`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct UserMessage {
     /// Message text or parts.
@@ -326,7 +347,8 @@ pub struct UserMessage {
 }
 
 /// An assistant turn (`AssistantMessage`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AssistantMessage {
     /// Text, reasoning, and tool calls.
@@ -373,7 +395,8 @@ pub struct AssistantMessage {
 }
 
 /// The result of one tool call (`ToolResultMessage`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ToolResultMessage {
     /// Id of the call this answers.
@@ -400,7 +423,8 @@ pub struct ToolResultMessage {
 /// A shell execution kept in the transcript (`BashExecutionMessage`, one of the
 /// roles `packages/coding-agent/src/core/messages.ts` adds to
 /// `CustomAgentMessages`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct BashExecutionMessage {
     /// The command line.
@@ -425,7 +449,8 @@ pub struct BashExecutionMessage {
 }
 
 /// A message an extension injected into the conversation (`CustomMessage`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessage {
     /// Extension-defined message kind.
@@ -442,7 +467,8 @@ pub struct CustomMessage {
 }
 
 /// A summary of a branch that was abandoned (`BranchSummaryMessage`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummaryMessage {
     /// The generated summary.
@@ -454,7 +480,8 @@ pub struct BranchSummaryMessage {
 }
 
 /// A summary that replaced compacted history (`CompactionSummaryMessage`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionSummaryMessage {
     /// The generated summary.
@@ -470,10 +497,10 @@ pub struct CompactionSummaryMessage {
 /// The variant is the `role` field. Besides the four core roles,
 /// `packages/coding-agent/src/core/messages.ts` adds `bashExecution`, `custom`,
 /// `branchSummary` and `compactionSummary` through TS declaration merging, and
-/// they are mirrored here. A role from an unknown extension still degrades to
-/// [`crate::pi_rpc::protocol::ServerMessage::Unknown`] rather than breaking the
-/// connection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// they are mirrored here. A role from an unknown extension still degrades to an
+/// unknown record rather than breaking the connection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "role", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum AgentMessage {

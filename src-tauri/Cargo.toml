@@ -34,6 +34,13 @@ time = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# `no-serde-warnings`: ts-rs cannot read `deserialize_with`, which
+# `crate::pi_rpc::protocol::model::ThinkingLevelMap` uses on seven fields to keep
+# "absent" apart from `null`. It changes no shape here, and the generated type of
+# that struct is pinned by `tests/types.rs`, test
+# `a_key_that_is_absent_apart_from_null_stays_both`. Without the feature, every
+# build prints seven warnings about an attribute that is deliberate.
+ts-rs = { version = "12", features = ["no-serde-warnings", "serde-json-impl"] }
 
 # Alphabetical, like `[dependencies]` above.
 [dev-dependencies]

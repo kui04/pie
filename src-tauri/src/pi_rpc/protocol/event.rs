@@ -16,7 +16,8 @@ use super::model::{ModelThinkingLevel, Usage};
 use super::session_entry::SessionEntry;
 
 /// Why pi compacted the conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum CompactionReason {
@@ -29,7 +30,8 @@ pub enum CompactionReason {
 }
 
 /// Why an assistant response finished normally (`done` event).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[non_exhaustive]
 pub enum DoneReason {
     /// Natural stop.
@@ -47,7 +49,8 @@ pub enum DoneReason {
 }
 
 /// Why an assistant response failed (`error` event).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[non_exhaustive]
 pub enum ErrorReason {
     /// Aborted by the client.
@@ -63,7 +66,8 @@ pub enum ErrorReason {
 ///
 /// The cumulative `partial` message is not on the wire; the deltas are, and
 /// `message_start` / `message_end` bracket them.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum AssistantMessageEvent {
@@ -149,7 +153,8 @@ pub enum AssistantMessageEvent {
 /// What produced a summarization retry (`summarization_retry_attempt_start`).
 ///
 /// Pi emits two shapes for this event; the tag is `source`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "source", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum SummarizationRetrySource {
@@ -163,7 +168,8 @@ pub enum SummarizationRetrySource {
 }
 
 /// One event from pi's session event stream (`JsonAgentSessionEvent`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum Event {

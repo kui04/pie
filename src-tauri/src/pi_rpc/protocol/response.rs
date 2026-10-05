@@ -17,7 +17,8 @@ use crate::pi_rpc::error::{Error, Result};
 /// `success: false` carries `error`; successful commands carry `data`, which may
 /// be absent or `null` (pi sends `null` for `cycle_model` when there is nothing
 /// to cycle).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct Response {
     /// Id of the command this answers; absent for parse errors.
     #[serde(default, skip_serializing_if = "Option::is_none")]

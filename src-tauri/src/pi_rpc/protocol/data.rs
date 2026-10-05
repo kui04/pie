@@ -39,7 +39,8 @@ use super::model::{Model, ModelThinkingLevel};
 use super::session_entry::{SessionEntry, SessionTreeNode};
 
 /// Payload of `prompt`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct PromptData {
     /// How the prompt was dispatched.
@@ -47,7 +48,8 @@ pub struct PromptData {
 }
 
 /// Payload of `steer` and `follow_up`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct QueuedInputData {
     /// How the message was dispatched.
@@ -55,7 +57,8 @@ pub struct QueuedInputData {
 }
 
 /// Payload of `clear_queue`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ClearQueueData {
     /// Steering messages that were dropped.
@@ -65,7 +68,8 @@ pub struct ClearQueueData {
 }
 
 /// Payload of `new_session`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct NewSessionData {
     /// Whether a running operation was cancelled.
@@ -73,7 +77,8 @@ pub struct NewSessionData {
 }
 
 /// Payload of `cycle_model`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CycleModelData {
     /// The model that became active.
@@ -85,7 +90,8 @@ pub struct CycleModelData {
 }
 
 /// Payload of `get_available_models`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableModelsData {
     /// Models pi can use.
@@ -93,7 +99,8 @@ pub struct AvailableModelsData {
 }
 
 /// Payload of `cycle_thinking_level`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CycleThinkingLevelData {
     /// The level that became active.
@@ -101,7 +108,8 @@ pub struct CycleThinkingLevelData {
 }
 
 /// Payload of `get_available_thinking_levels`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AvailableThinkingLevelsData {
     /// Levels this session accepts.
@@ -109,7 +117,8 @@ pub struct AvailableThinkingLevelsData {
 }
 
 /// Payload of `export_html`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ExportHtmlData {
     /// File pi wrote.
@@ -117,7 +126,8 @@ pub struct ExportHtmlData {
 }
 
 /// Payload of `switch_session`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchSessionData {
     /// Whether a running operation was cancelled.
@@ -125,7 +135,8 @@ pub struct SwitchSessionData {
 }
 
 /// Payload of `fork`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ForkData {
     /// Text of the entry the fork started from.
@@ -135,7 +146,8 @@ pub struct ForkData {
 }
 
 /// Payload of `clone`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CloneData {
     /// Whether a running operation was cancelled.
@@ -143,7 +155,8 @@ pub struct CloneData {
 }
 
 /// Payload of `get_fork_messages`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ForkMessagesData {
     /// Entries a fork can start from.
@@ -151,7 +164,8 @@ pub struct ForkMessagesData {
 }
 
 /// Payload of `get_entries`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct EntriesData {
     /// Session entries.
@@ -161,7 +175,8 @@ pub struct EntriesData {
 }
 
 /// Payload of `get_tree`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct TreeData {
     /// Roots of the session tree.
@@ -174,7 +189,8 @@ pub struct TreeData {
 ///
 /// Pi omits `text` entirely when the session has no assistant message yet; the
 /// recorded fixtures show `data: {}`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct LastAssistantTextData {
     /// Text of the last assistant message, absent when there is none.
@@ -183,7 +199,8 @@ pub struct LastAssistantTextData {
 }
 
 /// Payload of `get_messages`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct MessagesData {
     /// Conversation messages.
@@ -191,7 +208,8 @@ pub struct MessagesData {
 }
 
 /// Payload of `get_commands`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CommandsData {
     /// Commands a prompt can invoke.

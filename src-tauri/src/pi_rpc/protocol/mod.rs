@@ -17,6 +17,18 @@
 //! extension-defined bag (`details`, `data`) or a redaction record
 //! (`diagnostics`) are mirrored as [`serde_json::Value`] so that no shape is
 //! invented here and protocol additions stay lossless.
+//!
+//! Every type that reaches the wire also derives [`ts_rs::TS`] and carries
+//! `#[ts(export, export_to = "index.ts")]`, because the frontend reads these
+//! records as they arrive: `cargo test` writes **one** TypeScript file into
+//! `src/lib/protocol` (`src-tauri/.cargo/config.toml` says where), which is what
+//! `@/lib/protocol` resolves to. [`ServerMessage`] in `server` is the one
+//! exception: it is this crate's own parse result, has no serde derive, and
+//! never reaches the frontend. The shared `export_to` is what makes it one
+//! file: ts-rs merges the declarations of every type that names the same file,
+//! in the order of their names, so the result does not depend on which test ran
+//! first. The derive adds no runtime behavior: a type that reaches the wire is a
+//! type the frontend reads.
 
 mod command;
 mod data;

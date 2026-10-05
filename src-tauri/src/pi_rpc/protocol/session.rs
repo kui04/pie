@@ -8,7 +8,8 @@ use super::command::QueueMode;
 use super::model::{Model, ModelThinkingLevel};
 
 /// The state of the session behind a connection (`RpcSessionState`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionState {
     /// Active model, absent before a model is resolved.

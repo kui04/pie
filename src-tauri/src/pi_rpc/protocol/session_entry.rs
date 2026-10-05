@@ -12,7 +12,8 @@ use super::message::{AgentMessage, EditableContent, SystemMessage};
 use super::model::Usage;
 
 /// A `message` entry: one conversation message.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMessageEntry {
     /// Entry id.
@@ -26,7 +27,8 @@ pub struct SessionMessageEntry {
 }
 
 /// A `thinking_level_change` entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingLevelChangeEntry {
     /// Entry id.
@@ -40,7 +42,8 @@ pub struct ThinkingLevelChangeEntry {
 }
 
 /// A `model_change` entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ModelChangeEntry {
     /// Entry id.
@@ -56,7 +59,8 @@ pub struct ModelChangeEntry {
 }
 
 /// A `usage` entry: usage outside the main conversation, e.g. cache warming.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct UsageEntry {
     /// Entry id.
@@ -79,7 +83,8 @@ pub struct UsageEntry {
 }
 
 /// A `compaction` entry: a summary that replaced earlier history.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionEntry {
     /// Entry id.
@@ -109,7 +114,8 @@ pub struct CompactionEntry {
 }
 
 /// A `branch_summary` entry.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct BranchSummaryEntry {
     /// Entry id.
@@ -134,7 +140,8 @@ pub struct BranchSummaryEntry {
 }
 
 /// A `custom` entry: extension state, never sent to the model.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CustomEntry {
     /// Entry id.
@@ -151,7 +158,8 @@ pub struct CustomEntry {
 }
 
 /// A `custom_message` entry: extension content that does enter the context.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct CustomMessageEntry {
     /// Entry id.
@@ -172,14 +180,16 @@ pub struct CustomMessageEntry {
 }
 
 /// Replacement carried by a `context_edit` entry.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 pub struct ContextEditReplacement {
     /// Replacement content for the target entry.
     pub content: EditableContent,
 }
 
 /// A `context_edit` entry: an append-only change to earlier context.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ContextEditEntry {
     /// Entry id.
@@ -195,7 +205,8 @@ pub struct ContextEditEntry {
 }
 
 /// A `label` entry: a user-defined marker on another entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct LabelEntry {
     /// Entry id.
@@ -212,7 +223,8 @@ pub struct LabelEntry {
 }
 
 /// A `session_info` entry: session metadata such as a display name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfoEntry {
     /// Entry id.
@@ -229,9 +241,9 @@ pub struct SessionInfoEntry {
 /// One entry of the session tree (`SessionEntry`).
 ///
 /// The variant is the `type` field. Unknown entry kinds - extensions may add
-/// their own through pi's session API - degrade to
-/// [`crate::pi_rpc::protocol::ServerMessage::Unknown`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// their own through pi's session API - degrade to an unknown record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum SessionEntry {
@@ -260,7 +272,8 @@ pub enum SessionEntry {
 }
 
 /// One node of the session tree (`SessionTreeNode`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(export, export_to = "index.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTreeNode {
     /// The entry this node wraps.
