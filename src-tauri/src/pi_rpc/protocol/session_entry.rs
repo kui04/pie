@@ -240,8 +240,14 @@ pub struct SessionInfoEntry {
 
 /// One entry of the session tree (`SessionEntry`).
 ///
-/// The variant is the `type` field. Unknown entry kinds - extensions may add
-/// their own through pi's session API - degrade to an unknown record.
+/// The variant is the `type` field. These eleven kinds are the whole set that
+/// this mirror knows. An extension does not add a kind of its own: it appends a
+/// `custom` entry that carries its own `customType` inside. Therefore an entry
+/// whose `type` is none of these fails the read that carries it - a named
+/// payload failure of the protocol, not a dropped entry - because the leaf path
+/// of a transcript walks `parentId` and a dropped entry would break it without a
+/// word. A kind that pi adds later needs its variant here: until it has one, the
+/// read that carries it fails and the failure names the kind that arrived.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[ts(export, export_to = "index.ts")]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -286,4 +292,66 @@ pub struct SessionTreeNode {
     /// Timestamp of the latest label change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_timestamp: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pi_rpc::protocol::EntriesData;
+
+    /// The kinds of pi's `SessionEntry` at the pinned release, transcribed from
+    /// the union of `session-manager.ts`.
+    ///
+    /// A transcription, not a check of pi: the checkout of the pinned release is
+    /// not part of this repository, so no test can read it. This list and the
+    /// variants above are held together by the test below it.
+    const KINDS: [&str; 11] = [
+        "message",
+        "thinking_level_change",
+        "model_change",
+        "usage",
+        "compaction",
+        "branch_summary",
+        "custom",
+        "custom_message",
+        "context_edit",
+        "label",
+        "session_info",
+    ];
+
+    #[test]
+    fn every_kind_this_mirror_lists_has_a_variant() {
+        // A bare tag carries no fields, so the decode must fail. What is under
+        // test is *how* it fails: a kind that has no variant here is the one
+        // failure that may not appear.
+        //
+        // This holds the list above and the variants above together. It holds
+        // nothing about pi itself - a kind that a later release adds is in
+        // neither - so what keeps the mirror in step with pi is the update of
+        // the pinned release, which re-reads the union and re-records the
+        // fixtures.
+        for kind in KINDS {
+            let error = serde_json::from_str::<SessionEntry>(&format!(r#"{{"type":"{kind}"}}"#))
+                .expect_err("a bare tag carries the fields of no variant");
+            assert!(
+                !error.to_string().contains("unknown variant"),
+                "`{kind}` is a kind of pi, so a variant here answers to it: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_entry_kind_this_mirror_does_not_know_fails_the_read() {
+        // The strictness is deliberate. The variant that carries the raw JSON
+        // would have to keep `id` and `parentId` to be worth anything; a unit
+        // fallback would drop them and cut the leaf path silently.
+        let payload = r#"{"entries":[{"type":"future_kind","id":"e1","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z"}],"leafId":"e1"}"#;
+
+        let error = serde_json::from_str::<EntriesData>(payload).expect_err("no variant answers to it");
+
+        assert!(
+            error.to_string().contains("unknown variant `future_kind`"),
+            "the failure names the kind that arrived: {error}"
+        );
+    }
 }

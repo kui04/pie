@@ -1813,8 +1813,14 @@ error?: string | null, };
 /**
  * One entry of the session tree (`SessionEntry`).
  *
- * The variant is the `type` field. Unknown entry kinds - extensions may add
- * their own through pi's session API - degrade to an unknown record.
+ * The variant is the `type` field. These eleven kinds are the whole set that
+ * this mirror knows. An extension does not add a kind of its own: it appends a
+ * `custom` entry that carries its own `customType` inside. Therefore an entry
+ * whose `type` is none of these fails the read that carries it - a named
+ * payload failure of the protocol, not a dropped entry - because the leaf path
+ * of a transcript walks `parentId` and a dropped entry would break it without a
+ * word. A kind that pi adds later needs its variant here: until it has one, the
+ * read that carries it fails and the failure names the kind that arrived.
  */
 export type SessionEntry = { "type": "message" } & SessionMessageEntry | { "type": "thinking_level_change" } & ThinkingLevelChangeEntry | { "type": "model_change" } & ModelChangeEntry | { "type": "usage" } & UsageEntry | { "type": "compaction" } & CompactionEntry | { "type": "branch_summary" } & BranchSummaryEntry | { "type": "custom" } & CustomEntry | { "type": "custom_message" } & CustomMessageEntry | { "type": "context_edit" } & ContextEditEntry | { "type": "label" } & LabelEntry | { "type": "session_info" } & SessionInfoEntry;
 
