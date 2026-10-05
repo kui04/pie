@@ -275,7 +275,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
             // height. On a desktop, the app shell already uses one row for the
             // title bar. A panel with the height of the screen would overflow the
             // window.
-            className="bg-background text-foreground flex min-h-0 w-full flex-1 flex-col overflow-hidden font-sans"
+            className="flex min-h-0 w-full flex-1 flex-col overflow-hidden font-sans"
         >
             <Panel
                 id="connect-stage"

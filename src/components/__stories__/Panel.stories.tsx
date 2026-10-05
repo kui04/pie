@@ -10,7 +10,7 @@ const meta = {
     parameters: { layout: "fullscreen" },
     decorators: [
         (Story: React.ComponentType) => (
-            <div className="bg-background flex h-svh w-full font-sans">
+            <div className="flex h-svh w-full font-sans">
                 <Story />
             </div>
         ),

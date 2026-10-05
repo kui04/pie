@@ -34,7 +34,7 @@ function Window() {
             // `h-svh` and not `min-h-svh`: a minimum does not constrain, so the shell would
             // grow to fit a long form and the document would scroll — taking the
             // title bar out of a window that has no decorations of its own to drag.
-            className="bg-background text-foreground flex h-svh w-full flex-col overflow-hidden font-sans"
+            className="flex h-svh w-full flex-col overflow-hidden font-sans"
         >
             {/* The window's frame, and only where there is a window to frame: a
                 phone's OS owns no title bar, so the bar is the desktop's second

@@ -51,7 +51,7 @@ export function TitleBar({ mark }: TitleBarProps) {
         <header
             id="title-bar-root"
             data-tauri-drag-region
-            className="bg-background text-foreground flex w-full shrink-0 items-center gap-3 p-1 font-sans"
+            className="flex w-full shrink-0 items-center gap-3 p-1 font-sans"
         >
             {mark === undefined ? null : <img id="title-bar-mark" src={mark} alt="" className="size-4 shrink-0" />}
             {/* `ms-auto` rather than `space-between` on the bar: the keys stay at the end
