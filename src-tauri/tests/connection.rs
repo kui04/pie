@@ -132,6 +132,7 @@ impl Fixture {
         let options = ConnectOptions {
             home: None,
             host_key: Arc::new(KnownHosts::new(store, borrowed, asker)),
+            session_number: 1,
         };
         Connection::connect("test", spec, &options).await
     }
@@ -165,6 +166,7 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
             None,
             Answering::never(),
         )),
+        session_number: 1,
     };
 
     let connection = Connection::connect("local-test", &ConnectSpec::Local, &options)
@@ -471,6 +473,7 @@ async fn the_reads_answer_about_the_session_that_was_named() {
             None,
             Answering::never(),
         )),
+        session_number: 1,
     };
     let connection = Connection::connect("read-test", &ConnectSpec::Local, &options)
         .await
@@ -531,4 +534,42 @@ async fn the_reads_answer_about_the_session_that_was_named() {
             "`{id}` survived the prompt: the entry set only grows"
         );
     }
+}
+
+/// The id of a session is unique for the run of pie, not for the connection.
+///
+/// The frontend subscribes to `pi://session/{id}/...`. A reconnect starts a new
+/// pi under the name of the same connection, and the listeners of the old one
+/// may still be there. Therefore the new process must not take the id of the
+/// process before it, or its events would arrive on a channel that the frontend
+/// reads for the pi that is gone.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn two_connects_of_one_name_do_not_share_the_id_of_a_session() {
+    let home = TempDir::new().expect("a temp directory");
+    let options = |session_number: u64| ConnectOptions {
+        home: Some(home.path().to_path_buf()),
+        host_key: Arc::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+        session_number,
+    };
+
+    let first = Connection::connect("twice", &ConnectSpec::Local, &options(1))
+        .await
+        .expect("pi is on PATH");
+    assert_eq!(first.sessions()[0].id(), "twice:1");
+    first.disconnect().await;
+
+    let second = Connection::connect("twice", &ConnectSpec::Local, &options(2))
+        .await
+        .expect("pi is on PATH");
+    assert_eq!(
+        second.sessions()[0].id(),
+        "twice:2",
+        "the second pi of a connection has an id of its own"
+    );
+    second.disconnect().await;
 }

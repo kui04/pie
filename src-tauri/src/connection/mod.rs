@@ -116,6 +116,14 @@ pub struct ConnectOptions {
     /// connection, because a host-key question names the connection of the
     /// question.
     pub host_key: Arc<dyn HostKey>,
+    /// The number that the id of the session carries.
+    ///
+    /// The app keeps one count for the whole run of pie, and each connect takes
+    /// the next number from it: `main:1` for the first session of the run,
+    /// `main:2` for the next one, whether or not the connection is the same one.
+    /// That keeps the events of a new pi off the channels of an old pi, whose
+    /// frontend listeners may still be there.
+    pub session_number: u64,
 }
 
 /// A host that pie is connected to.
@@ -300,7 +308,7 @@ impl Connection {
         tracing::info!(connection = %id, endpoint = %endpoint, "connected");
         Ok(Self {
             sessions: vec![Session {
-                id: format!("{id}:1"),
+                id: session_id(&id, options.session_number),
                 cwd,
                 client,
             }],
@@ -488,6 +496,21 @@ fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieE
 /// The endpoint of a host that is this machine.
 const LOCAL_ENDPOINT: &str = "local";
 
+/// The id of the session that a connect starts.
+///
+/// The frontend subscribes to `pi://session/{id}/...` with this id, and it reads
+/// it from the answer of the connect. The number makes it unique for the run of
+/// pie: see [`ConnectOptions::session_number`].
+///
+/// The id must be usable in an event name. That is why the name of a connection
+/// is checked before it arrives here, and why this function adds nothing but a
+/// colon and digits to it: an event name may hold letters, digits, `-`, `_`, `:`
+/// and `/` only, and a name outside that set is refused with
+/// `tauri::Error::IllegalEventName`.
+fn session_id(connection: &str, number: u64) -> String {
+    format!("{connection}:{number}")
+}
+
 impl Session {
     /// The id of this session, for the `pi://session/{id}/...` events.
     pub fn id(&self) -> &str {
@@ -561,6 +584,32 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_is_named_after_its_connection_and_its_number() {
+        assert_eq!(session_id("main", 1), "main:1");
+        assert_eq!(
+            session_id("main", 2),
+            "main:2",
+            "the second pi of a connection does not take the id of the first"
+        );
+    }
+
+    #[test]
+    fn the_id_of_a_session_is_usable_in_an_event_name() {
+        // The frontend subscribes to `pi://session/{id}/...`, and Tauri refuses
+        // an event name that holds a character outside letters, digits, `-`,
+        // `_`, `:` and `/` (`tauri::event::event_name`). The name of a connection
+        // is checked before it arrives here; this holds that the id that is
+        // built from it stays inside that set too.
+        for number in [0, 1, 42, u64::MAX] {
+            let id = session_id("conn-1_b", number);
+            assert!(
+                id.chars().all(|c| c.is_ascii_alphanumeric() || "_-:".contains(c)),
+                "`{id}` must survive as the name of an event"
+            );
+        }
+    }
 
     #[test]
     fn credentials_never_reach_a_log() {

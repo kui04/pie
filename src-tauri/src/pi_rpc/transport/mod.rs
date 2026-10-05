@@ -16,6 +16,7 @@ pub use ssh::{
 
 use std::future::Future;
 
+use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::pi_rpc::error::Result;
@@ -83,7 +84,17 @@ pub trait Control: Send + 'static {
 }
 
 /// How a peer stopped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// This is not a record of pi. No form of it appears in `rpc-types.ts`: it is
+/// what this crate observed about the process, or the channel, that ran pi.
+///
+/// It carries a `type` tag and snake_case values, the shape that
+/// `.agents/rules/architecture.md` gives the payloads of this app, and the app
+/// sends this value unchanged as the end of a session. That shape on a
+/// crate-local type is a deliberate choice, held by
+/// `how_a_peer_ended_travels_under_a_tag_of_its_own`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Termination {
     /// The peer exited with this status.
@@ -100,4 +111,30 @@ pub enum Termination {
     },
     /// The peer ended without a status this crate can read.
     Unknown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn how_a_peer_ended_travels_under_a_tag_of_its_own() {
+        assert_eq!(
+            serde_json::to_value(Termination::Exited {
+                code: 3,
+                success: false
+            })
+            .expect("an end serializes"),
+            json!({ "type": "exited", "code": 3, "success": false })
+        );
+        assert_eq!(
+            serde_json::to_value(Termination::Signalled { signal: 9 }).expect("an end serializes"),
+            json!({ "type": "signalled", "signal": 9 })
+        );
+        assert_eq!(
+            serde_json::to_value(Termination::Unknown).expect("an end serializes"),
+            json!({ "type": "unknown" })
+        );
+    }
 }

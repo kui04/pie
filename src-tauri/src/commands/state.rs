@@ -8,6 +8,7 @@
 //! for both would deadlock. A separate lock lets an answer arrive while the
 //! connection is in progress.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -31,6 +32,25 @@ pub struct AppState {
     /// while `connect`/`disconnect` move the slot itself.
     pub(crate) connection: AsyncMutex<Option<Arc<Connection>>>,
     pub(crate) question: Arc<HostKeyQuestion>,
+    /// How many pi processes this run of pie has started.
+    ///
+    /// The id of a session carries this number. The ids must stay apart for the
+    /// whole run: a reconnect starts a new pi under the name of the same
+    /// connection, and the frontend must not take the events of the one for the
+    /// events of the other (`main:1`, then `main:2`). The count only rises, and
+    /// it starts again when pie does - the processes of the last run are gone
+    /// with it.
+    session_number: AtomicU64,
+}
+
+impl AppState {
+    /// The number for the next pi process that starts.
+    ///
+    /// A connect that fails takes a number with it, because the count is read
+    /// before the attempt. A gap says nothing, and the ids stay unique.
+    pub(crate) fn next_session_number(&self) -> u64 {
+        self.session_number.fetch_add(1, Ordering::Relaxed) + 1
+    }
 }
 
 /// The host-key question that a person is asked now.
@@ -90,6 +110,15 @@ impl HostKeyQuestion {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_number_of_a_session_only_rises() {
+        let state = AppState::default();
+
+        assert_eq!(state.next_session_number(), 1, "the first pi of a run is `:1`");
+        assert_eq!(state.next_session_number(), 2, "a reconnect is `:2`, not `:1` again");
+        assert_eq!(state.next_session_number(), 3);
+    }
 
     #[tokio::test]
     async fn an_answer_for_another_connection_cannot_land() {
