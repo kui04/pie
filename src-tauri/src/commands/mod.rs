@@ -11,10 +11,12 @@
 //!
 //! One file for each area of the product: [`connect`] opens and closes the one
 //! host, [`files`] reads what is on it, [`keys`] asks the person for a private
-//! key, [`platform`] says which kind of machine this is, [`session`] reads what a
-//! session of pi holds, and [`state`] holds what they share.
+//! key, [`pipe`] forwards what pi says about a session, [`platform`] says which
+//! kind of machine this is, [`session`] reads what a session of pi holds, and
+//! [`state`] holds what they share.
 //!
-//! `run()` names them by module. `#[tauri::command]` puts the wrapper that
+//! `run()` names every command by module; [`pipe`] holds none, because it has no
+//! command: `connect` starts its task. `#[tauri::command]` puts the wrapper that
 //! `generate_handler!` looks for next to the function. A re-export of the
 //! function does not carry it.
 //!
@@ -27,6 +29,7 @@ pub mod connect;
 mod error;
 pub mod files;
 pub mod keys;
+pub mod pipe;
 pub mod platform;
 pub mod session;
 pub mod state;

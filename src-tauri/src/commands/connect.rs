@@ -22,6 +22,7 @@ use crate::connection::{
 use crate::error::PieError;
 
 use super::Error;
+use super::pipe;
 use super::state::{AppState, HOST_KEY_PATIENCE, HostKeyQuestion};
 
 /// The event of the connection for a state.
@@ -146,11 +147,26 @@ pub async fn connect(
                 connection: id.clone(),
             }),
         )),
+        session_number: state.next_session_number(),
     };
 
-    let connection = Connection::connect(id, &spec, &options).await?;
+    let connection = Arc::new(Connection::connect(id, &spec, &options).await?);
     let info = connection.info();
-    *slot = Some(Arc::new(connection));
+    // Every session of this connect gets a pipe here. A session that starts
+    // later, from the session menu of M5, needs its own call: this loop runs
+    // once.
+    for session in connection.sessions() {
+        // The subscription happens before the task starts, not inside it, so
+        // the pipe itself misses nothing that pi writes after this line.
+        //
+        // What the frontend hears is another matter: its listener can only start
+        // after the answer of this command, because that answer is where it
+        // reads the id of the session. What pi wrote before then is lost, and
+        // lost in silence - the module of `commands::pipe` carries the whole of
+        // that, and the loss that a dialog can pay for it.
+        pipe::forward(app.clone(), session, session.client().clone().subscribe());
+    }
+    *slot = Some(connection);
     Ok(info)
 }
 
