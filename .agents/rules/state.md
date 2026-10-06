@@ -27,4 +27,4 @@ State is split by kind. Pick the layer by what the state IS, not by convenience.
 - TanStack Query keys mirror the RPC command, e.g. `["session", id, "entries"]`;
   events invalidate caches, they never mutate them ad hoc.
 - React components never subscribe to Tauri events directly — subscriptions live
-  in the bridge layer (`src/lib/bridge.ts`).
+  in the bridge layer (`src/lib/bridge/`).
