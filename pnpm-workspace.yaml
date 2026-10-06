@@ -4,3 +4,14 @@
 # Set to true only if a future dependency genuinely needs it.
 allowBuilds:
   esbuild: false
+# virtua 0.53.2 was published hours before this install. pnpm refuses a package
+# inside its release-age window (24 hours, measured on this machine: taking this
+# line away makes `pnpm install` fail with
+# `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` and a cutoff 24 hours back), and an
+# exclusion is how a version that a person has looked at gets in. Where that
+# policy is off, this line does nothing. Its peers cover React 19. A person
+# removes the line once virtua's pinned version is older than that window: pnpm
+# prunes these entries only when `minimumReleaseAgeExcludePrune` is on, and it is
+# off here.
+minimumReleaseAgeExclude:
+  - virtua@0.53.2

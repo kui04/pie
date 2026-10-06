@@ -64,6 +64,17 @@ export function connect(id: string, spec: ConnectSpec): Promise<ConnectionInfo> 
 }
 
 /**
+ * What pie holds about its one connection, or `null` when there is none.
+ *
+ * The machine that opened the connection dies with the connect screen. The
+ * workspace reads the session it subscribes to from here instead. Rust holds the
+ * connection, so a reload of the webview reads the same answer.
+ */
+export function getConnection(): Promise<ConnectionInfo | null> {
+    return call<ConnectionInfo | null>("get_connection");
+}
+
+/**
  * Answers the host-key question that the frontend shows.
  *
  * `connection` receives the answer. Do not use it as a label only. A sheet that

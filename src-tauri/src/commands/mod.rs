@@ -9,11 +9,11 @@
 //! aggregates these errors. It does not decide their meaning. The rules of the
 //! boundary are in `.agents/rules/architecture.md`.
 //!
-//! One file for each area of the product: [`connect`] opens and closes the one
-//! host, [`files`] reads what is on it, [`keys`] asks the person for a private
-//! key, [`pipe`] forwards what pi says about a session, [`platform`] says which
-//! kind of machine this is, [`session`] reads what a session of pi holds, and
-//! [`state`] holds what they share.
+//! One file for each area of the product: [`connect`] opens, reads and closes
+//! the one host, [`files`] reads what is on it, [`keys`] asks the person for a
+//! private key, [`pipe`] forwards what pi says about a session, [`platform`]
+//! says which kind of machine this is, [`session`] reads what a session of pi
+//! holds, and [`state`] holds what they share.
 //!
 //! `run()` names every command by module; [`pipe`] holds none, because it has no
 //! command: `connect` starts its task. `#[tauri::command]` puts the wrapper that

@@ -1,4 +1,4 @@
-//! Opening and closing the one host.
+//! Opening, reading and closing the one host.
 //!
 //! `connect` is the only command that waits for a person. Pie cannot answer one
 //! question itself: whether an unknown host key belongs to the host. The
@@ -153,8 +153,8 @@ pub async fn connect(
     let connection = Arc::new(Connection::connect(id, &spec, &options).await?);
     let info = connection.info();
     // Every session of this connect gets a pipe here. A session that starts
-    // later, from the session menu of M5, needs its own call: this loop runs
-    // once.
+    // later, when the product can open a second one, needs its own call: this
+    // loop runs once.
     for session in connection.sessions() {
         // The subscription happens before the task starts, not inside it, so
         // the pipe itself misses nothing that pi writes after this line.
@@ -168,6 +168,31 @@ pub async fn connect(
     }
     *slot = Some(connection);
     Ok(info)
+}
+
+/// The one connection that pie holds now, or `null` when there is none.
+///
+/// The workspace reads the session it subscribes to from here. The machine that
+/// opened the connection dies with the connect screen, so its answer cannot
+/// outlive it, and Rust is the source of truth: a reload of the webview reads
+/// the same connection instead of losing it.
+///
+/// A connection whose pi has exited is still the connection that pie holds. The
+/// read of a session reports the end; this read does not guess it.
+///
+/// # Errors
+///
+/// The result is the shape of the boundary (`architecture.md`). It is not a
+/// claim about today's code. A read of the slot has nothing to fail on yet.
+#[tauri::command]
+pub async fn get_connection(state: State<'_, AppState>) -> Result<Option<ConnectionInfo>, PieError> {
+    Ok(current_connection(&state).await)
+}
+
+/// What the frontend is told about the one connection, if there is one.
+async fn current_connection(state: &AppState) -> Option<ConnectionInfo> {
+    let slot = state.connection.lock().await;
+    slot.as_ref().map(|connection| connection.info())
 }
 
 /// Ends the connection. Every session stops. The files of the sessions stay.
@@ -225,6 +250,16 @@ mod tests {
     use super::*;
     use crate::error::PieError;
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_missing_connection_reads_as_none_rather_than_failing() {
+        let state = AppState::default();
+
+        assert!(
+            current_connection(&state).await.is_none(),
+            "no connection is a state, not a failure"
+        );
+    }
 
     #[tokio::test]
     async fn a_question_nobody_answers_stops_waiting() {

@@ -15,7 +15,7 @@
  */
 
 import { assign, fromCallback, fromPromise, setup } from "xstate";
-import type { ConnectionInfo, ConnectSpec, PresentedKey } from "@/lib/bridge";
+import type { ConnectSpec, PresentedKey } from "@/lib/bridge";
 import * as bridge from "@/lib/bridge";
 
 /** What this machine needs from the outside world. */
@@ -31,8 +31,10 @@ export interface ConnectionContext {
     deps: ConnectionDeps;
     /** What was asked for. The handshake reads it when `connecting` starts. */
     spec: ConnectSpec | null;
-    /** What `connect` returned. */
-    info: ConnectionInfo | null;
+    // What `connect` answered is not kept here. The workspace outlives this
+    // machine, so it reads the session it has to subscribe to from Rust with
+    // `get_connection` (`lib/query.ts`). A copy in this context would be a value
+    // with no reader.
     /** The reason for the last failure, while the error is on screen. */
     error: bridge.PieError | null;
     /** The key of the question, while the question is on screen. */
@@ -45,7 +47,7 @@ export type ConnectionEvent =
     | { type: "CONNECT"; spec: ConnectSpec }
     | { type: "HOST_KEY"; key: PresentedKey }
     | { type: "ANSWER_HOST_KEY"; trusted: boolean }
-    | { type: "CONNECTED"; info: ConnectionInfo }
+    | { type: "CONNECTED" }
     | { type: "FAILED"; error: bridge.PieError };
 
 export const connectionMachine = setup({
@@ -74,8 +76,11 @@ export const connectionMachine = setup({
                         unlisten();
                         return;
                     }
-                    const info = await input.deps.connect(input.deps.connection, input.spec);
-                    sendBack({ type: "CONNECTED", info });
+                    // What the connect answered is not carried: Rust holds the
+                    // connection, and the workspace reads it back with
+                    // `get_connection` (`lib/query.ts`).
+                    await input.deps.connect(input.deps.connection, input.spec);
+                    sendBack({ type: "CONNECTED" });
                 } catch (thrown) {
                     sendBack({ type: "FAILED", error: bridge.asPieError(thrown) });
                 }
@@ -93,7 +98,7 @@ export const connectionMachine = setup({
 }).createMachine({
     id: "connection",
     initial: "idle",
-    context: ({ input }) => ({ deps: input, spec: null, info: null, error: null, hostKey: null, trusted: false }),
+    context: ({ input }) => ({ deps: input, spec: null, error: null, hostKey: null, trusted: false }),
     states: {
         idle: {
             on: {
@@ -117,12 +122,20 @@ export const connectionMachine = setup({
                 // in the same way with or without a question on screen. Rust
                 // keeps one question open at a time.
                 HOST_KEY: { target: ".asking", actions: assign({ hostKey: ({ event }) => event.key }) },
-                CONNECTED: { target: "connected", actions: assign({ info: ({ event }) => event.info, hostKey: null }) },
+                CONNECTED: {
+                    target: "connected",
+                    // The answer stays in Rust, which holds the connection. The
+                    // workspace reads it back with `get_connection`.
+                    actions: assign({ hostKey: null }),
+                },
                 // Clear `hostKey`, as on every other exit from `connecting`. If
                 // it stays set, the prompt stays open over the error.
                 // `ANSWER_HOST_KEY` is handled only in `asking`, so no event can
                 // close the prompt.
-                FAILED: { target: "error", actions: assign({ error: ({ event }) => event.error, hostKey: null }) },
+                FAILED: {
+                    target: "error",
+                    actions: assign({ error: ({ event }) => event.error, hostKey: null }),
+                },
             },
             states: {
                 waiting: {},

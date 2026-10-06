@@ -86,7 +86,6 @@ describe("connectionMachine", () => {
         expect(actor.getSnapshot().matches("connecting")).toBe(true);
 
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
-        expect(actor.getSnapshot().context.info?.endpoint).toBe("local");
         expect(harness.unsubscribed()).toBe("main");
         expect(harness.unlistenCalls()).toBe(1);
     });
@@ -316,7 +315,7 @@ describe("connectionMachine", () => {
         expect(actor.getSnapshot().context.hostKey).toBeNull();
     });
 
-    it("stops listening once the question is replaced rather than answered", async () => {
+    it("stops listening when the actor is stopped", async () => {
         const harness = pendingDeps();
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
@@ -324,8 +323,9 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
 
         actor.stop();
-        // One listener for each handshake. A replaced question is the business
-        // of Rust, and the channel of this actor no longer carries it.
+        // One listener for each handshake, and stopping the actor is what drops
+        // it. A question that Rust replaces never returns to this channel, so
+        // there is no second subscription to leave behind.
         expect(harness.unsubscribed()).toBe("main");
         expect(actor.getSnapshot().status).toBe("stopped");
     });
