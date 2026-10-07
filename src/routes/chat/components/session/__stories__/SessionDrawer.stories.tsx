@@ -4,6 +4,7 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SessionSummary } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
+import { Panel } from "@/components/Panel";
 import { SessionDrawer } from "@/routes/chat/components/session/SessionDrawer";
 import { SessionSheet } from "@/routes/chat/components/session/SessionSheet";
 import { sessionSummary } from "@/preview/fixtures";
@@ -42,7 +43,11 @@ const meta = {
                     column of a window is not a centred thing: `fixed` is what
                     escapes that centring and lands at the viewport's own edge. */}
                 <div className="fixed inset-0 flex items-stretch font-sans">
-                    <Story />
+                    {/* The pane the drawer fills in the window: a panel of its own,
+                        with the frame that a panel beside a neighbour carries. */}
+                    <Panel id="session-panel" className="bg-surface-dim w-64 flex-none">
+                        <Story />
+                    </Panel>
                 </div>
             </Seeded>
         ),
@@ -54,10 +59,9 @@ const meta = {
         working: false,
         busy: false,
         onPick: () => undefined,
-        // The column of the window, as `ChatScreen` frames it - without the `lg`
-        // gate of the app, which is how the real window decides between this column
-        // and the sheet, not part of how the column looks.
-        className: "border-border w-64 shrink-0 border-r",
+        // The app frames this pane with a `Panel` and mounts it from `lg` only; the
+        // story's own frame stands in for both, so the drawer fills it.
+        className: "flex-1",
     },
 } satisfies Meta<typeof SessionDrawer>;
 

@@ -39,8 +39,10 @@ export function SessionSheet({ id, open, onOpenChange, children, className }: Se
                     id={id}
                     className={cn(
                         // A square left edge and a round right one: the sheet arrives
-                        // from the edge it is anchored to.
-                        "bg-surface-dim border-border fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85%] flex-col rounded-r-xl border-r outline-none",
+                        // from the edge it is anchored to. The clip is what holds it:
+                        // the panel inside paints its own square background, and
+                        // nothing cuts it to the corner without this.
+                        "bg-surface-dim border-border fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85%] flex-col overflow-hidden rounded-r-xl border-r outline-none",
                         "lg:hidden",
                         className,
                     )}

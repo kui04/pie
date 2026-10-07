@@ -87,7 +87,7 @@ export function ToolResultCard({ id, presentation }: ToolResultCardProps) {
     // failure of it is its `(exit N)` line.
     const header = (
         <>
-            <span className="text-body-md min-w-0 flex-1 break-all">
+            <span className="text-body-md min-w-0 flex-1 truncate">
                 <span className={tone === "user-run" ? "text-user-run" : "text-primary"}>{title}</span>
                 {detail !== null && detail !== "" && <span className="text-muted-foreground ml-3">{detail}</span>}
             </span>

@@ -28,6 +28,20 @@ export const SWAPPED_OUT = { opacity: 0, scale: 1.1 } as const;
 /** A card's body opening: a short tween of its own height, and no overshoot. */
 export const REVEAL = { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] } as const;
 
+/**
+ * The session list taking a column of its own: a short tween of its width.
+ *
+ * The transcript gives the room up as the column takes it, so the width is what
+ * moves: a panel of the window opening, not a surface arriving over one.
+ */
+export const UNFOLD = { type: "tween", duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
+
+/** How that column stands while the window is too narrow for it. */
+export const UNFOLD_HIDDEN = { width: 0 } as const;
+
+/** How it stands while there is room: the width of the panel inside (`w-64`). */
+export const UNFOLD_SHOWN = { width: 256 } as const;
+
 /** How a body stands while it is closed. */
 export const REVEAL_HIDDEN = { height: 0, opacity: 0 } as const;
 
@@ -60,6 +74,15 @@ export const SPIN = { type: "tween", duration: 1, ease: "linear", repeat: Infini
 
 /** The turn of that ring. */
 export const SPIN_TURN = { rotate: 360 } as const;
+
+/**
+ * The turn of the refresh key: one turn, from where the icon stood back to it.
+ *
+ * One turn and not a loop, because the key says what a hand did and not what the
+ * host is doing: a read of the list of a local host is over before a loop would
+ * show, and the key was pressed. The turn is the same length every time.
+ */
+export const REFRESH_TURN = { type: "tween", duration: 0.6, ease: "easeInOut" } as const;
 
 /**
  * The light of a session row: one breath in milliseconds - dim, bright, dim.

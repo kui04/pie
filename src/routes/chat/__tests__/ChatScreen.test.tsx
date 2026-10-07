@@ -52,6 +52,24 @@ const CONNECTED = {
 };
 
 /**
+ * A window of a stated width, and the way back to the real one.
+ *
+ * The workspace asks the width itself (the list is a panel of its own from `lg`),
+ * and this environment answers one width for every query: without this, a test of
+ * either shape would be a test of whichever the environment happens to report.
+ */
+function windowOf(width: "narrow" | "wide"): () => void {
+    const list = {
+        matches: width === "wide",
+        media: "(min-width: 64rem)",
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+    } as unknown as MediaQueryList;
+    vi.spyOn(window, "matchMedia").mockReturnValue(list);
+    return () => vi.restoreAllMocks();
+}
+
+/**
  * The rows of the transcript are drawn by a list that measures itself, and this
  * environment does not lay anything out: the height has to be in a style, where
  * the list can read it, or it draws nothing.
@@ -96,6 +114,42 @@ describe("ChatScreen", () => {
         expect(await screen.findByText("Open a session")).toBeInTheDocument();
         expect(await screen.findByText("This window is not connected to a host.")).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/");
+    });
+
+    it("frames one panel when the list is not beside the transcript", async () => {
+        const restore = windowOf("narrow");
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries());
+
+        const { container } = renderScreen();
+        await screen.findByText("Nothing has been said yet.");
+
+        // A panel reads as a card only beside a neighbour: a workspace that wrapped
+        // its own panel in the stage's would draw two frames around one thing, and
+        // the id of the stage would not name one element.
+        expect(container.querySelectorAll("section[data-solo]")).toHaveLength(1);
+        expect(container.querySelectorAll("#chat-stage")).toHaveLength(1);
+        expect(container.querySelector("#session-reveal")).toBeNull();
+        restore();
+    });
+
+    it("frames a panel for the list when the window holds one", async () => {
+        const restore = windowOf("wide");
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries());
+
+        const { container } = renderScreen();
+        await screen.findByText("Nothing has been said yet.");
+
+        expect(container.querySelector("#session-panel")).not.toBeNull();
+        expect(container.querySelectorAll("section[data-solo]")).toHaveLength(2);
+        // The column unfolds, so the room it takes is a width the wrapper owns: the
+        // panel inside is fixed (`w-64`), and a wrapper that ends anywhere else
+        // would leave a strip of nothing beside it.
+        const reveal = container.querySelector<HTMLElement>("#session-reveal");
+        expect(reveal?.querySelector("#session-panel")).not.toBeNull();
+        expect(reveal?.style.width).toBe("256px");
+        restore();
     });
 
     it("says a session is empty rather than showing nothing", async () => {

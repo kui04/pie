@@ -51,6 +51,29 @@ export const Log: Story = {
     },
 };
 
+/**
+ * A header longer than the card: the words stay on one line and end in an ellipsis,
+ * because the state of the call and its clock sit at the end of the same line.
+ */
+export const LongHeader: Story = {
+    args: {
+        id: "story-long-header",
+        presentation: presentCall(
+            "read",
+            {
+                path: "~/.pi/agent/sessions/-home-kui-projects-pie-with-a-rather-long-name/2026-10-07T14-58-00-000Z_0199e1a0-0000-7000-8000-000000000000.jsonl",
+            },
+            {
+                toolCallId: "c1",
+                toolName: "read",
+                content: [{ type: "text", text: "the head of the file\nthe rest of it" }],
+                isError: false,
+                timestamp: 0,
+            } satisfies ToolResultMessage,
+        ),
+    },
+};
+
 /** A file, numbered from where the read started. */
 export const File: Story = {
     args: {

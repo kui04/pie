@@ -12,12 +12,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Folder, RefreshCw, Search } from "lucide-react";
-import { useAnimationFrame, useReducedMotion } from "motion/react";
+import { motion, useAnimationFrame, useReducedMotion } from "motion/react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import * as bridge from "@/lib/bridge";
 import { reasonFor } from "@/lib/failure-text";
+import { REFRESH_TURN } from "@/lib/motion";
 import { sessionsQueries } from "@/lib/query";
 import { breatheAt, groupSessions, matchesSearch, pathKey, relativeTime, sessionTitle } from "./session";
 import { FAILURE_REASON } from "@/routes/chat/failure-reason";
@@ -60,6 +61,10 @@ export function SessionDrawer({
     const sessions = useQuery(sessionsQueries.list(endpoint));
     const [search, setSearch] = useState("");
     const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+    // The turn of the key, counted rather than held: every press is one turn of its
+    // own, and two presses in a row play two (the `key` of the icon is this number).
+    const [turns, setTurns] = useState(0);
+    const still = useReducedMotion();
     const now = useMinutes();
 
     const filtered = useMemo(
@@ -102,14 +107,29 @@ export function SessionDrawer({
                 <Button
                     id={`${id}-refresh`}
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon-xs"
                     aria-label="Refresh the session list"
                     // The read is not stale on its own (a session file changes
                     // without an event), so this key is the only thing that asks
                     // for the list again.
-                    onClick={() => void client.invalidateQueries({ queryKey: ["sessions", endpoint] })}
+                    disabled={sessions.isFetching}
+                    onClick={() => {
+                        setTurns((before) => before + 1);
+                        void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+                    }}
                 >
-                    <RefreshCw />
+                    <motion.span
+                        // A key of its own per press: a turn is played from its start
+                        // every time. The first draw has no turn in it - a list that
+                        // was just opened was asked for nothing.
+                        key={turns}
+                        className="flex"
+                        initial={turns === 0 || still ? false : { rotate: 0 }}
+                        animate={{ rotate: 360 }}
+                        transition={still ? { duration: 0 } : REFRESH_TURN}
+                    >
+                        <RefreshCw className="size-4" />
+                    </motion.span>
                 </Button>
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
@@ -220,7 +240,7 @@ function SessionRow({
                         // The light of the row, and the only thing here that moves:
                         // the colour says which state it reports.
                         className={cn(
-                            "size-2 shrink-0 rounded-full",
+                            "size-1 shrink-0 rounded-full",
                             mark === "working" ? "bg-primary" : "bg-tertiary",
                         )}
                     />
