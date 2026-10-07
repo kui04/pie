@@ -1,19 +1,13 @@
 /**
- * The workspace's one session: its subscriptions, its snapshot, and the store
- * they both feed.
+ * The workspace's one session: its subscriptions, its snapshot, and the store they
+ * both feed.
  *
- * The order matters and this hook is where it is kept. The listener starts
- * first; the snapshot is pulled after it, and a record that arrived before the
- * snapshot is in the snapshot too (`get_entries` is the authority). The event
- * bus has no replay and Rust sends an event only to a window that already
- * listens, so the other order would lose the records in between.
+ * The listener starts first and the snapshot is pulled after it: the event bus has
+ * no replay, and Rust sends an event only to a window that already listens, so the
+ * other order would lose the records in between.
  *
- * The subscription lives here and not in a component: a component renders state
- * and calls the bridge, it never listens to the bus itself
+ * The subscription lives here rather than in a component
  * (`.agents/rules/state.md`).
- *
- * A session read fails with a named `PieError`, so a caller shows the reason the
- * query carries; nothing here has words for a person.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,22 +21,21 @@ export function useSession(session: string) {
     /** The session whose listeners are open, once they are. */
     const [listening, setListening] = useState<string | null>(null);
     /**
-     * The session whose listeners could not be opened, and why.
-     *
-     * The session travels beside the failure so that a new session shows none
-     * of it: the answer is a fact about one session, and a hook whose session
-     * changed has no failure to report yet.
+     * The failure of opening the listeners of `session`, which no query holds.
      */
     const [failure, setFailure] = useState<{ session: string; error: bridge.PieError } | null>(null);
+    /**
+     * How many times the listeners of this session have been asked for. That a
+     * subscription failed is a state of this hook, which no invalidation reaches.
+     */
+    const [attempt, setAttempt] = useState(0);
     const appendEntry = useTranscriptStore((state) => state.appendEntry);
     const hydrate = useTranscriptStore((state) => state.hydrate);
     const clear = useTranscriptStore((state) => state.clear);
 
-    // A different session starts from nothing: entries of the last one must not
-    // stand in for the entries of this one while its snapshot arrives. This runs
-    // before the browser paints, and not in the effect below: a consumer reads
-    // the store while it renders, so a clear that waited for a passive effect
-    // would paint the entries of the session before this one for one frame.
+    // A different session starts from nothing: a consumer reads the store while it
+    // renders, so clearing after a passive effect would paint one frame of the last
+    // session's entries.
     useLayoutEffect(() => {
         clear();
     }, [session, clear]);
@@ -52,11 +45,8 @@ export function useSession(session: string) {
         let off: bridge.Unsubscribe[] = [];
 
         void (async () => {
-            // Both listeners are opened inside the try, as the handshake of the
-            // connect machine opens its own: a listener that does not arrive is
-            // a session that cannot be read, and half a pair is worth less than
-            // none. What did arrive is dropped again, so a failed second
-            // subscription does not leave the first one listening.
+            // Half a pair of listeners is worth less than none: a second subscription
+            // that fails drops the first one again.
             try {
                 const events = await bridge.onSessionEvent(session, (event) => {
                     switch (event.type) {
@@ -87,10 +77,9 @@ export function useSession(session: string) {
                     events();
                     return;
                 }
+                // The pi of this session is gone; the read that follows fails with the
+                // reason Rust names.
                 const end = await bridge.onSessionState(session, () => {
-                    // The pi of this session is gone. Whatever a screen shows is a
-                    // read away from the truth, and that read now fails with the
-                    // reason Rust names.
                     void queryClient.invalidateQueries({ queryKey: ["session", session] });
                 });
                 off = [events, end];
@@ -101,23 +90,17 @@ export function useSession(session: string) {
                 return;
             }
 
-            // The effect is gone. Nothing may stay open, and no read starts.
+            // The effect is gone: nothing stays open, and no read starts.
             if (!alive) {
                 for (const unsubscribe of off) unsubscribe();
                 return;
             }
-            // These listeners are open now, and only now may this session be read.
-            // The reads of a session whose cache is still warm are asked again: an
-            // answer that was read before the listeners existed may miss every
-            // record in between, and `staleTime` would keep that answer fresh
-            // forever. They are not enabled yet, so this marks them stale without
-            // a fetch of its own - the read that follows it is the one with the
-            // listeners open.
+            // These listeners are open now, and only now may this session be read. The
+            // reads are marked stale first: an answer from before the listeners existed
+            // may miss every record in between, and `staleTime` would keep it fresh.
             void queryClient.invalidateQueries({ queryKey: ["session", session] });
             setListening(session);
-            // A session that opens now has no failure: the one that may be here
-            // belongs to an earlier attempt, and its session guard would hide it
-            // only while the session differs.
+            // The attempt before this one has nothing to say about the session now open.
             setFailure(null);
         })();
 
@@ -125,42 +108,35 @@ export function useSession(session: string) {
             alive = false;
             for (const unsubscribe of off) unsubscribe();
             off = [];
-            // The listeners of this effect are gone, so a later read of this
-            // session may not be taken on the word of the effect before it: a
-            // second visit waits for the listeners of its own run.
+            // A later read of this session may not be taken on the word of this effect.
             setListening(null);
         };
-    }, [session, appendEntry, clear, queryClient]);
+    }, [session, appendEntry, clear, queryClient, attempt]);
 
-    // The two listeners of this session are open, and only then is the snapshot
-    // of this session read. A session whose listeners are not open yet has no such
-    // read, so the records in between cannot pass unheard.
+    // The listeners are open, so this session may be read: `enabled` keeps the reads
+    // off until then, and the records in between cannot pass unheard.
     const open = listening === session;
     const state = useQuery({ ...sessionQueries.state(session), enabled: open });
     const entries = useQuery({ ...sessionQueries.entries(session), enabled: open });
     const stats = useQuery({ ...sessionQueries.stats(session), enabled: open });
 
-    // The snapshot is the authority for the transcript, and it is kept in the
-    // store. It is not written from a cache that the visit before left behind: a
-    // disabled query does not fetch, and it still hands out what it holds, so
-    // `entries.data` may be the answer of the visit before this one. A visit
-    // starts from what its own listeners heard.
+    // The snapshot is the authority for the transcript; it is not written from a
+    // cache the visit before left behind, which the open gate above prevents.
     useEffect(() => {
         if (open && entries.data) hydrate(entries.data);
     }, [open, entries.data, hydrate]);
 
-    // What a caller likely wants is the transcript, and that is the store, not
-    // this query: `entries` is the raw snapshot of one read, while the store also
-    // holds what the events appended since. The name says so.
+    // The transcript a caller wants is the store, not this query: `snapshot` is one
+    // read, while the store also holds what the events appended since.
     //
-    // `listening` says whether this session's listeners are open. A consumer that
-    // renders the store can gate on it, so that the frame before the listeners
-    // exist shows nothing rather than a guess.
+    // `reopen` asks for the listeners again, for a screen whose failure is the
+    // subscription itself.
     return {
         state,
         snapshot: entries,
         stats,
         listening: open,
         error: failure?.session === session ? failure.error : null,
+        reopen: () => setAttempt((times) => times + 1),
     };
 }

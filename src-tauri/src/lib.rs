@@ -20,6 +20,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::connect::connect,
@@ -29,6 +30,7 @@ pub fn run() {
             commands::files::list_dirs,
             commands::files::list_sessions,
             commands::keys::pick_private_key,
+            commands::open::open_url,
             commands::platform::platform,
             commands::session::get_entries,
             commands::session::get_session_stats,

@@ -22,6 +22,25 @@ pub enum Error {
         id: String,
     },
 
+    /// A link pie will not open: not a link, or a scheme it does not trust.
+    #[error("`{url}` is not a link pie opens")]
+    UnopenableUrl {
+        /// The address, as short as a sentence can hold it.
+        url: String,
+    },
+
+    /// The machine would not open a link pie asked it to.
+    #[error("the machine would not open `{url}`: {source}")]
+    OpenFailed {
+        /// The address, as short as a sentence can hold it.
+        url: String,
+        /// What the opener said, boxed: the whole error would make every
+        /// `Result` of this module pay for the one failure that carries it.
+        #[serde(skip)]
+        #[source]
+        source: Box<tauri_plugin_opener::Error>,
+    },
+
     /// Pie cannot find its own directory for host keys.
     #[error("pie cannot resolve where to keep host keys: {source}")]
     NoHostKeyStore {

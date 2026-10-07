@@ -11,7 +11,8 @@
 //!
 //! One file for each area of the product: [`connect`] opens, reads and closes
 //! the one host, [`files`] reads what is on it, [`keys`] asks the person for a
-//! private key, [`pipe`] forwards what pi says about a session, [`platform`]
+//! private key, [`open`] hands a link to the machine, [`pipe`] forwards what pi
+//! says about a session, [`platform`]
 //! says which kind of machine this is, [`session`] reads what a session of pi
 //! holds, and [`state`] holds what they share.
 //!
@@ -29,6 +30,7 @@ pub mod connect;
 mod error;
 pub mod files;
 pub mod keys;
+pub mod open;
 pub mod pipe;
 pub mod platform;
 pub mod session;

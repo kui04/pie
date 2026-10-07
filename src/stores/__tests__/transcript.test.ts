@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { EntriesData, SessionEntry } from "@/lib/protocol";
-import { contextEntries, sessionPath, useTranscriptStore, type TranscriptEntries } from "@/stores/transcript.store";
+import { contextEntries, sessionPath, type TranscriptEntries } from "@/lib/transcript";
+import { useTranscriptStore } from "@/stores/transcript.store";
 
 const AT = "2026-10-05T00:00:00.000Z";
 

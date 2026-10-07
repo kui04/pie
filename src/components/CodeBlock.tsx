@@ -1,0 +1,61 @@
+import { Copy, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/clipboard";
+
+export interface CodeBlockProps {
+    /** The code, exactly as it arrived. */
+    code: string;
+    /** The language of the fence, when the markdown named one. */
+    language?: string;
+    /** The base of the control ids, when the caller has a unique one to give. */
+    id?: string;
+    className?: string;
+}
+
+/**
+ * A fenced code block: the language, a copy key, and the code in mono.
+ *
+ * The copy key is a courtesy and not a way to get the text out: the code is
+ * selectable like any other text, so a clipboard this webview refuses leaves the
+ * reader with the text rather than with a wrong answer.
+ */
+export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        if (!copied) return;
+        const timer = setTimeout(() => setCopied(false), 1500);
+        return () => clearTimeout(timer);
+    }, [copied]);
+
+    const copy = () => {
+        void copyText(code).then((copied) => {
+            if (copied) setCopied(true);
+        });
+    };
+
+    return (
+        <div
+            className={cn("border-border bg-card overflow-hidden rounded-md border", className)}
+            data-language={language ?? "text"}
+        >
+            <div className="flex items-center justify-between gap-2 py-1 pr-1 pl-3">
+                <span className="text-label-sm text-muted-foreground font-mono">{language ?? "text"}</span>
+                <Button
+                    id={id === undefined ? undefined : `${id}-copy`}
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Copy code"
+                    onClick={copy}
+                >
+                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                </Button>
+            </div>
+            <pre className="text-code overflow-x-auto px-3 pb-3 font-mono">
+                <code>{code}</code>
+            </pre>
+        </div>
+    );
+}

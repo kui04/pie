@@ -2,19 +2,23 @@
 //! that Rust gives them.
 //!
 //! `PieError` sends each failure as the name of the variant that failed, tagged
-//! `kind`. `ConnectScreen` holds the text for a person in its `FAILURE_REASON`
-//! table. Two files hold one set of names. A renamed variant in Rust would leave
-//! its row with no target. Two modules with the same name for a failure would
-//! make one of them read the words of the other. A test that operates on the
-//! code does not show either problem. Therefore this test compares the names,
-//! from the sources, as `purity.rs` and `manifest.rs` check their rules.
+//! `kind`. Each screen holds the text for a person in its own `FAILURE_REASON`
+//! table, because a screen can only meet some of the failures. Together the
+//! tables hold one set of names. A renamed variant in Rust would leave its row
+//! with no target. Two modules with the same name for a failure would make one of
+//! them read the words of the other. A test that operates on the code does not
+//! show either problem. Therefore this test compares the names, from the sources,
+//! as `purity.rs` and `manifest.rs` check their rules.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-/// The table of text in `ConnectScreen` for a failure.
-const FRONTEND: &str = "../src/routes/connect/ConnectScreen.tsx";
+/// The screens that hold text for a failure, in the order they are read.
+const FRONTEND: [&str; 2] = [
+    "../src/routes/connect/ConnectScreen.tsx",
+    "../src/routes/chat/ChatScreen.tsx",
+];
 
 /// Every error enum whose variant names reach the frontend as a `kind`.
 const ENUMS: [&str; 3] = [
@@ -82,9 +86,18 @@ fn variants(path: &str) -> BTreeSet<String> {
     kinds
 }
 
-/// The keys of the `FAILURE_REASON` table in the frontend source.
+/// The keys of the `FAILURE_REASON` tables of the screens.
 fn frontend_kinds() -> BTreeSet<String> {
-    let text = read(FRONTEND);
+    let mut kinds = BTreeSet::new();
+    for path in FRONTEND {
+        kinds.extend(table_kinds(path));
+    }
+    kinds
+}
+
+/// The keys of the `FAILURE_REASON` table in one frontend source.
+fn table_kinds(path: &str) -> BTreeSet<String> {
+    let text = read(path);
     let mut kinds = BTreeSet::new();
     let mut inside = false;
     for line in text.lines() {
@@ -104,7 +117,7 @@ fn frontend_kinds() -> BTreeSet<String> {
             kinds.insert(key.trim().to_string());
         }
     }
-    assert!(!kinds.is_empty(), "no sentences read from {FRONTEND}");
+    assert!(!kinds.is_empty(), "no sentences read from {path}");
     kinds
 }
 

@@ -1,15 +1,7 @@
 /**
- * The app's motion, in one place.
- *
- * Anything that moves should take its shape from here, so a screen reads as one
- * thing rather than as whichever library each part happened to use. The values
- * are the design's own scale: 150ms is a swap, 450ms is a surface being
- * replaced.
- *
- * `type: "tween"` is written out rather than left to the default because Motion
- * springs transform values by default and tweens everything else. A page handover
- * that sprang would overshoot the screen it is leaving; the curve here is the
- * one the durations were chosen against.
+ * The app's motion, in one place: 150ms is a swap, 450ms is a surface being
+ * replaced. `type: "tween"` is written out because Motion springs transforms by
+ * default, and a handover that sprang would overshoot the screen it is leaving.
  */
 
 /** Something appearing or disappearing in place. */
@@ -32,3 +24,39 @@ export const SWAPPED_IN = { opacity: 0, scale: 0.9 } as const;
 
 /** The element an icon swap replaced. */
 export const SWAPPED_OUT = { opacity: 0, scale: 1.1 } as const;
+
+/** A card's body opening: a short tween of its own height, and no overshoot. */
+export const REVEAL = { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] } as const;
+
+/** How a body stands while it is closed. */
+export const REVEAL_HIDDEN = { height: 0, opacity: 0 } as const;
+
+/** How it stands while it is open: its own height, whatever that turned out to be. */
+export const REVEAL_SHOWN = { height: "auto", opacity: 1 } as const;
+
+/**
+ * The light that runs along a word while a model thinks.
+ *
+ * One period of the pattern per loop, and its direction is the order of the two
+ * positions: `background-position` falling carries the image to the right, so the
+ * light travels from the left of the word to its right.
+ */
+export const SHIMMER = { type: "tween", duration: 1.8, ease: "linear", repeat: Infinity } as const;
+
+/** Where that light runs, from the right of the image to its left. */
+export const SHIMMER_SWEEP = { backgroundPosition: ["200% 0%", "0% 0%"] };
+
+/**
+ * The hourglass: one cycle, and the moments in it - the transfer is over, the turn
+ * is over. One clock, not two: two made the seam flicker.
+ */
+export const HOURGLASS_CYCLE = 5000;
+
+/** Nothing, the transfer finished, the turn finished, and the end - the beginning. */
+export const HOURGLASS_STEPS = [0, 0.5, 0.72, 1] as const;
+
+/** The ring of a call that is running now: a full turn, repeating without a seam. */
+export const SPIN = { type: "tween", duration: 1, ease: "linear", repeat: Infinity } as const;
+
+/** The turn of that ring. */
+export const SPIN_TURN = { rotate: 360 } as const;

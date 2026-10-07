@@ -16,6 +16,7 @@ import { Panel } from "@/components/Panel";
 import { useIsMobile } from "@/hooks/use-platform";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
+import { reasonFor, type FailureText } from "@/lib/failure-text";
 
 /** The first contents of the card: this machine, no data typed. */
 const EMPTY_FORM: ConnectionForm = {
@@ -150,10 +151,10 @@ const REAL_DEPS: ConnectScreenDeps = {
  * message such as "authentication failed" does not tell what to do.
  *
  * The keys are the variant names of the error enums of Rust. These names are
- * the values of `PieError.error.kind`. If pie has no text for a failure, the
- * text of the module is used.
+ * the values of `PieError.error.kind`. A failure this screen has no words for
+ * falls back to the text of its module (`@/lib/failure-text`).
  */
-const FAILURE_REASON: Record<bridge.PieErrorKind, string> = {
+const FAILURE_REASON: FailureText = {
     // `pi_rpc::Error`: the connect to the host, and the run of pi on the host.
     connect: "The host could not be reached.",
     connect_timeout: "The host did not answer in time.",
@@ -181,7 +182,6 @@ const FAILURE_REASON: Record<bridge.PieErrorKind, string> = {
     // that connection.
     already_connected: "pie is already connected to a host.",
     not_connected: "There is no connection.",
-    unknown_session: "That session is gone from this connection. Connect again.",
     remote_version: "pi on the host would not say which release it is.",
     unreadable_local: "That file could not be read. Another one may work.",
     unreadable_remote: "That file could not be read on the host. Another one may work.",
@@ -193,14 +193,6 @@ const FAILURE_REASON: Record<bridge.PieErrorKind, string> = {
     no_host_key_store: "Pie cannot find where to keep host keys.",
 };
 
-/** The text for a failure with a name in the table above. */
-const MODULE_REASON: Record<bridge.PieErrorModule, string> = {
-    connection: "Something went wrong reaching the host.",
-    commands: "Something on pie's own side went wrong.",
-    rpc: "Something went wrong talking to pi.",
-    io: "That file could not be read. Another one may work.",
-};
-
 /**
  * The action for a failure, in the words of the named variant.
  *
@@ -208,9 +200,8 @@ const MODULE_REASON: Record<bridge.PieErrorModule, string> = {
  * new variant of Rust without text uses the text of its module. The toast is
  * never empty.
  */
-function reasonFor(failure: bridge.PieError): string {
-    const named = failure.error ? FAILURE_REASON[failure.error.kind] : undefined;
-    return named ?? MODULE_REASON[failure.type];
+function reasonForFailure(failure: bridge.PieError): string {
+    return reasonFor(failure, FAILURE_REASON);
 }
 
 /**
@@ -247,7 +238,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     // message from Rust does not carry.
     const failure = state.context.error;
     useEffect(() => {
-        if (failure) toast.error(failure.message, { description: reasonFor(failure) });
+        if (failure) toast.error(failure.message, { description: reasonForFailure(failure) });
     }, [failure]);
 
     const spec = useMemo(() => connectSpec(form), [form]);
@@ -266,7 +257,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
             if (key !== null) setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
         } catch (thrown) {
             const failure = bridge.asPieError(thrown);
-            toast.error(failure.message, { description: reasonFor(failure) });
+            toast.error(failure.message, { description: reasonForFailure(failure) });
         }
     }, [pickPrivateKey]);
 
