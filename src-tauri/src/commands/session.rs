@@ -1,4 +1,4 @@
-//! What a session of pi holds.
+//! What a session of pi holds, and how pie moves it to another conversation.
 //!
 //! Three reads for the read-only workspace: the state of a session, its
 //! transcript, and its usage. Each one names its session, because one connection
@@ -20,7 +20,7 @@ use tauri::State;
 
 use crate::connection;
 use crate::error::PieError;
-use crate::pi_rpc::protocol::{EntriesData, SessionState, SessionStats};
+use crate::pi_rpc::protocol::{EntriesData, SessionState, SessionStats, SwitchSessionData};
 
 use super::state::AppState;
 
@@ -81,6 +81,43 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
         .session(&session)
         .ok_or_else(|| connection::Error::UnknownSession { id: session.clone() })?
         .stats()
+        .await
+}
+
+/// Switches one session to another conversation, in another session file.
+///
+/// The file is one that [`super::files::list_sessions`] gave back, by its `path`.
+/// The pi process of this session keeps running; it opens the file and continues
+/// from the leaf of that conversation. Pie never builds such a path: pi opens one
+/// that holds no file as a new conversation in its own directory.
+///
+/// The answer says whether the switch happened. An extension of pi may refuse one,
+/// and then `cancelled` is true and the session is the one it was.
+///
+/// The frontend reads the transcript again after a switch that happened: nothing of
+/// the new conversation comes over the events of the session.
+///
+/// # Errors
+///
+/// [`connection::Error::NotConnected`] if there is no host,
+/// [`connection::Error::UnknownSession`] if the id belongs to no session of this
+/// connection, and the failure of the protocol — including a refusal of pi itself:
+/// neither a session file whose working directory is gone nor a file of the host
+/// that is not a session is one pi opens.
+#[tauri::command]
+pub async fn switch_session(
+    state: State<'_, AppState>,
+    session: String,
+    path: String,
+) -> Result<SwitchSessionData, PieError> {
+    let connection = state.connection.lock().await.clone();
+    let connection = connection.ok_or_else(|| connection::Error::NotConnected {
+        doing: "switching a session to another conversation".to_string(),
+    })?;
+    connection
+        .session(&session)
+        .ok_or_else(|| connection::Error::UnknownSession { id: session.clone() })?
+        .switch_session(&path)
         .await
 }
 

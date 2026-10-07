@@ -1060,6 +1060,23 @@ pub(crate) fn not_absolute(path: &str) -> Error {
     Error::NotAbsolute { path: path.to_string() }
 }
 
+/// The path of a session file, or the mistake of a caller that handed in another.
+///
+/// A session file is named the way the listings hand it out: absolutely. pi resolves
+/// a relative path against its own directory, which on a phone is not the home of a
+/// person. The answer comes before any channel or process is touched.
+///
+/// # Errors
+///
+/// [`Error::NotAbsolute`].
+pub(crate) fn checked_session_path(path: &str) -> Result<&str, Error> {
+    if is_absolute_on_the_host(path) {
+        Ok(path)
+    } else {
+        Err(not_absolute(path))
+    }
+}
+
 /// Whether `path` is absolute on the host that it names: POSIX or Windows style.
 ///
 /// These conventions belong to the host, not to this machine. Pie operates on one
@@ -1398,6 +1415,20 @@ mod tests {
         for path in [".pi", "sessions", "C:x", "C:sessions\\x"] {
             assert!(!is_absolute_on_the_host(path), "{path} is not");
         }
+    }
+
+    #[test]
+    fn a_session_file_is_named_absolutely() {
+        // The rule that `switch_session` answers with before it touches the client.
+        assert_eq!(
+            checked_session_path("/home/u/.pi/agent/sessions/x/one.jsonl").expect("absolute"),
+            "/home/u/.pi/agent/sessions/x/one.jsonl"
+        );
+        assert!(matches!(
+            checked_session_path("sessions/one.jsonl"),
+            Err(Error::NotAbsolute { .. })
+        ));
+        assert!(matches!(checked_session_path(""), Err(Error::NotAbsolute { .. })));
     }
 
     #[test]

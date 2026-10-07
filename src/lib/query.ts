@@ -74,6 +74,25 @@ export const sessionQueries = {
 };
 
 /**
+ * The sessions that pi wrote on the connected host.
+ *
+ * The drawer reads this one, and its Refresh is what asks again: nothing announces a
+ * session file that appears or grows, so this read is never stale on its own.
+ *
+ * The host is part of the key: the answer is what that machine holds, and a second
+ * connection in one run of pie would otherwise be handed the list of the first.
+ */
+export const sessionsQueries = {
+    /** Every session of the host, most recently written first. */
+    list: (endpoint: string) =>
+        queryOptions({
+            queryKey: ["sessions", endpoint] as const,
+            queryFn: () => bridge.listSessions(),
+            retry: false,
+        }),
+};
+
+/**
  * The one connection that pie holds, by the name of the read.
  *
  * The machine that opened the connection dies with the connect screen. This read

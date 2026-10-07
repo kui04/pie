@@ -5,45 +5,26 @@
  * opened it: a reload of the webview finds the same connection here.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { cn } from "cn";
 import { Panel } from "@/components/Panel";
 import { Button } from "@/components/ui/button";
 import { useConnection } from "@/hooks/use-connection";
 import { useIsMobile } from "@/hooks/use-platform";
+import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
-import { reasonFor, type FailureText } from "@/lib/failure-text";
+import { reasonFor } from "@/lib/failure-text";
 import * as bridge from "@/lib/bridge";
 import { transcriptRows } from "@/lib/transcript";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
+import { SessionDrawer } from "@/routes/chat/components/session/SessionDrawer";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
+import { SessionSheet } from "@/routes/chat/components/session/SessionSheet";
+import { FAILURE_REASON } from "@/routes/chat/failure-reason";
 import { useTranscriptStore } from "@/stores/transcript.store";
-
-/**
- * The words of this screen for the failures it can meet.
- *
- * The names of the IPC layer are here as well: Rust holds the union of the screens'
- * tables against its own enums (`tests/failure_kinds.rs`), and this is the only
- * other screen.
- */
-const FAILURE_REASON: FailureText = {
-    // `connection::Error`: which session a screen asked for.
-    unknown_session: "That session is gone from this connection. Connect again.",
-    not_connected: "There is no connection.",
-    // `pi_rpc::Error`: the reads behind the transcript.
-    closed: "The connection to pi ended.",
-    timeout: "pi did not answer in time.",
-    rpc: "pi refused the command.",
-    payload: "pi answered in a way pie does not know.",
-    io: "The connection to pi failed.",
-    no_runtime: "Pie could not reach its own runtime.",
-    // `commands::Error`: the IPC layer itself.
-    unusable_name: "That name cannot be used for a connection.",
-    no_host_key_store: "Pie cannot find where to keep host keys.",
-    unopenable_url: "That link is not one pie opens.",
-    open_failed: "The machine would not open that link.",
-};
 
 export function ChatScreen() {
     const isMobile = useIsMobile();
@@ -60,16 +41,21 @@ export function ChatScreen() {
                 {connection.isPending ? null : session === null ? (
                     <Landing disconnected={connection.isError || connection.data === null} idle={idle} />
                 ) : (
-                    <Session session={session} cwd={connection.data?.sessions[0]?.cwd ?? null} />
+                    <Session
+                        session={session}
+                        cwd={connection.data?.sessions[0]?.cwd ?? null}
+                        endpoint={connection.data?.endpoint ?? "local"}
+                    />
                 )}
             </Panel>
         </main>
     );
 }
 
-function Session({ session, cwd }: { session: string; cwd: string | null }) {
+function Session({ session, cwd, endpoint }: { session: string; cwd: string | null; endpoint: string }) {
+    const wide = useWideWindow();
     const client = useQueryClient();
-    const { state, snapshot, stats, listening, error, reopen } = useSession(session);
+    const { state, snapshot, stats, listening, error, reopen, switchTo, switching } = useSession(session);
     // The failure may be the subscription itself, which no cache holds.
     const retry = () => {
         reopen();
@@ -88,6 +74,28 @@ function Session({ session, cwd }: { session: string; cwd: string | null }) {
     // Two kinds of failure reach this screen: the listeners never opened, which the
     // hook reports, and a read, which the query holds. They are read in that order.
     const failure = error ?? snapshot.error ?? state.error ?? stats.error;
+
+    // The drawer is which panel of the workspace the reader opened: pure UI, so it
+    // lives here (`lg` it is the column; below that a sheet over the transcript).
+    const [drawer, setDrawer] = useState(false);
+    const currentSessionId = state.data?.sessionId ?? null;
+    const working = state.data?.isStreaming ?? false;
+
+    /**
+     * Continues the conversation of the row that was chosen.
+     *
+     * The sheet closes before the switch is answered: a host across a network can take
+     * a moment, and meanwhile the transcript says that it is opening the session.
+     */
+    function pick(path: string) {
+        if (working || switching) return;
+        setDrawer(false);
+        void switchTo(path).catch((thrown: unknown) => {
+            toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
+        });
+    }
+
+    const drawerProps = { endpoint, currentSessionId, working, busy: working || switching, onPick: pick };
     const header = (
         <SessionHeader
             id="session-header"
@@ -95,10 +103,17 @@ function Session({ session, cwd }: { session: string; cwd: string | null }) {
             cwd={cwd}
             stats={stats.data ?? null}
             auto={state.data?.autoCompactionEnabled ?? false}
+            onOpenSessions={() => setDrawer(true)}
         />
     );
+
+    // What stands under the header: the transcript, or why there is none. An empty
+    // one is not yet a fact while the listeners are opening or while a switch is
+    // having the next conversation read. `switching`, not `isFetching`: a read that
+    // an event asked for also fetches, and a transcript on screen beats a sentence.
+    let content: ReactNode;
     if (failure !== null) {
-        return (
+        content = (
             <div
                 id="chat-failure"
                 role="alert"
@@ -115,31 +130,35 @@ function Session({ session, cwd }: { session: string; cwd: string | null }) {
                 </div>
             </div>
         );
-    }
-    // An empty transcript is not yet a fact while the first read is on its way.
-    if (!listening || snapshot.isPending) {
-        return (
-            <>
-                {header}
-                <p className="text-body-md text-muted-foreground m-auto">Opening the session…</p>
-            </>
-        );
-    }
-    if (rows.length === 0) {
+    } else if (!listening || snapshot.isPending || switching) {
+        content = <p className="text-body-md text-muted-foreground m-auto">Opening the session…</p>;
+    } else if (rows.length === 0) {
         // Pi writes a model and a thinking level into a new session before anything
         // is said; nothing of that is a message, so its transcript is empty.
-        return (
-            <>
-                {header}
-                <p className="text-body-md text-muted-foreground m-auto px-6 text-center">Nothing has been said yet.</p>
-            </>
+        content = (
+            <p className="text-body-md text-muted-foreground m-auto px-6 text-center">Nothing has been said yet.</p>
         );
+    } else {
+        content = <TranscriptList rows={rows} />;
     }
+
     return (
-        <>
-            {header}
-            <TranscriptList rows={rows} />
-        </>
+        <div id="chat-workspace" className="flex min-h-0 w-full flex-1">
+            {/* Below `lg` this column is not mounted: a hidden column still
+                subscribes, so a phone would read the host's sessions for nothing. */}
+            <SessionDrawer
+                id="session-drawer"
+                {...drawerProps}
+                className={cn("border-border w-64 shrink-0 border-r", wide ? "flex" : "hidden")}
+            />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                {header}
+                {content}
+            </div>
+            <SessionSheet id="session-sheet" open={drawer} onOpenChange={setDrawer}>
+                <SessionDrawer id="session-sheet-drawer" {...drawerProps} className="h-full" />
+            </SessionSheet>
+        </div>
     );
 }
 

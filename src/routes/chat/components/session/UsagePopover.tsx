@@ -9,7 +9,13 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import type { SessionStats } from "@/lib/protocol";
-import { costText, formatTokens, percentText, tokenBreakdown, usageTone } from "@/lib/usage";
+import {
+    costText,
+    formatTokens,
+    percentText,
+    tokenBreakdown,
+    usageTone,
+} from "@/routes/chat/components/session/session";
 
 const RING_RADIUS = 8;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;

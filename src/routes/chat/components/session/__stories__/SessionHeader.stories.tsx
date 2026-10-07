@@ -19,6 +19,7 @@ const meta = {
         cwd: "/home/kui/Projects/pie",
         stats: sessionStats(),
         auto: false,
+        onOpenSessions: () => undefined,
     },
 } satisfies Meta<typeof SessionHeader>;
 

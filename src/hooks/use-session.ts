@@ -11,7 +11,7 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as bridge from "@/lib/bridge";
 import { sessionQueries } from "@/lib/query";
 import { useTranscriptStore } from "@/stores/transcript.store";
@@ -48,6 +48,10 @@ export function useSession(session: string) {
      * subscription failed is a state of this hook, which no invalidation reaches.
      */
     const [attempt, setAttempt] = useState(0);
+    /** A switch of this session is on its way, and its transcript is being read. */
+    const [switching, setSwitching] = useState(false);
+    /** The same, for the guard: a state is not read again until the next render. */
+    const inFlight = useRef(false);
     const appendEntry = useTranscriptStore((state) => state.appendEntry);
     const hydrate = useTranscriptStore((state) => state.hydrate);
     const clear = useTranscriptStore((state) => state.clear);
@@ -70,7 +74,11 @@ export function useSession(session: string) {
                 const events = await bridge.onSessionEvent(session, (event) => {
                     switch (event.type) {
                         case "entry_appended":
-                            appendEntry(event.entry);
+                            // While a switch is on its way this entry may be the tail of
+                            // the conversation being left (pi aborts a running turn
+                            // before it replaces the session). The read that follows the
+                            // switch carries everything the new conversation holds.
+                            if (!inFlight.current) appendEntry(event.entry);
                             break;
                         case "session_info_changed":
                             // The name of the session changed; its state is stale.
@@ -141,9 +149,49 @@ export function useSession(session: string) {
 
     // The snapshot is the authority for the transcript; it is not written from a
     // cache the visit before left behind, which the open gate above prevents.
+    //
+    // A read that brings the same entries back still writes them: a switch to
+    // another conversation clears the store, and the answer of the read that
+    // follows it may compare equal to the one before (the same session file).
+    // Therefore this runs on the answer itself, not on its shape.
     useEffect(() => {
         if (open && entries.data) hydrate(entries.data);
-    }, [open, entries.data, hydrate]);
+    }, [open, entries.data, entries.dataUpdatedAt, hydrate]);
+
+    /**
+     * Makes this session continue the conversation of `path`.
+     *
+     * Nothing of the new conversation comes over the events of this session, so the
+     * store is emptied and the reads are asked again. A failure reaches the caller,
+     * which says what happened.
+     *
+     * A switch that is already on its way is not joined by a second one: pi runs the
+     * commands of one session one after another, not together, so two of them would
+     * leave whichever finished last on screen.
+     */
+    const switchTo = useCallback(
+        async (path: string) => {
+            // Read in the same tick as it is written: two picks of the drawer can
+            // arrive before a render.
+            if (inFlight.current) return;
+            inFlight.current = true;
+            setSwitching(true);
+            try {
+                const answer = await bridge.switchSession(session, path);
+                if (answer.cancelled) return;
+                clear();
+                await queryClient.invalidateQueries({ queryKey: ["session", session] });
+                // A switch aborts a run that is in flight (`teardownCurrent`) and that
+                // abort persists to the session file it leaves: the listing now holds
+                // a write this side has not seen.
+                await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+            } finally {
+                inFlight.current = false;
+                setSwitching(false);
+            }
+        },
+        [session, clear, queryClient],
+    );
 
     // The transcript a caller wants is the store, not this query: `snapshot` is one
     // read, while the store also holds what the events appended since.
@@ -157,5 +205,7 @@ export function useSession(session: string) {
         listening: open,
         error: failure?.session === session ? failure.error : null,
         reopen: () => setAttempt((times) => times + 1),
+        switchTo,
+        switching,
     };
 }

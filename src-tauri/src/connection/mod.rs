@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::PieError;
 use crate::pi_rpc::Client;
-use crate::pi_rpc::protocol::{Command, CommandKind, EntriesData, SessionState, SessionStats};
+use crate::pi_rpc::protocol::{Command, CommandKind, EntriesData, SessionState, SessionStats, SwitchSessionData};
 use crate::pi_rpc::transport::{
     ExecOutput, HostKey, LocalTransport, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
 };
@@ -527,11 +527,15 @@ impl Session {
         &self.client
     }
 
-    /// Sends one read command and decodes the payload into its mirrored type.
+    /// Sends one command and decodes the answer into its mirrored type.
     ///
-    /// A read is a command whose answer is data, not an effect. Pi answers the
-    /// three of them from its own memory. Therefore none of them fails on the
-    /// side of pi, and a failure here is the failure of the protocol.
+    /// A read is a command whose answer is data, not an effect: pi answers the
+    /// three of them from its own memory, and a failure here is the failure of
+    /// the protocol. A write can also be refused by pi itself, and it arrives
+    /// here the same way — [`Response::into_result`] turns a refusal into
+    /// `Error::Rpc` with pi's own message.
+    ///
+    /// [`Response::into_result`]: crate::pi_rpc::protocol::Response::into_result
     async fn ask<T: DeserializeOwned>(&self, command: Command) -> Result<T, PieError> {
         Ok(self.client.request(command).await?.into_result()?.decode::<T>()?)
     }
@@ -570,6 +574,42 @@ impl Session {
     /// The same as [`Session::state`].
     pub async fn stats(&self) -> Result<SessionStats, PieError> {
         self.ask(Command::new(CommandKind::GetSessionStats)).await
+    }
+
+    /// Makes this session continue the conversation in another session file.
+    ///
+    /// The process stays where it is; the conversation it holds does not. Pi
+    /// opens the file, takes its leaf as the point to continue from, and
+    /// re-binds the extensions to the new session (the `switch_session` arm of
+    /// `rpc-mode.ts`, pinned). Its answer carries one fact: `cancelled` says
+    /// that an extension's `before_switch` hook refused the switch, and then
+    /// this session is the one it was.
+    ///
+    /// Nothing in the answer describes the new transcript, and no event
+    /// announces the change: the caller reads it again with
+    /// [`Session::entries`].
+    ///
+    /// A path that holds no session file is opened rather than refused (pi
+    /// reads a header only when the file is there). Therefore the caller hands
+    /// out the paths of [`Connection::list_sessions`] and builds none: pi would
+    /// continue in its own directory and write a new conversation there.
+    ///
+    /// The path must be absolute, as the paths of that listing are. A relative one
+    /// is a mistake: pi would resolve it against its own directory, which on a phone
+    /// is not the home of a person.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAbsolute`] for a relative path, and the failure of the protocol —
+    /// including a refusal of pi itself: neither a session file whose working
+    /// directory is gone nor a file of the host that is not a session is one pi
+    /// opens.
+    pub async fn switch_session(&self, session_path: &str) -> Result<SwitchSessionData, PieError> {
+        let path = files::checked_session_path(session_path)?;
+        self.ask(Command::new(CommandKind::SwitchSession {
+            session_path: path.to_string(),
+        }))
+        .await
     }
 
     /// What the frontend is told about this session.

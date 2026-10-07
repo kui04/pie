@@ -14,7 +14,8 @@
 //! private key, [`open`] hands a link to the machine, [`pipe`] forwards what pi
 //! says about a session, [`platform`]
 //! says which kind of machine this is, [`session`] reads what a session of pi
-//! holds, and [`state`] holds what they share.
+//! holds and moves it to another conversation, and [`state`] holds what they
+//! share.
 //!
 //! `run()` names every command by module; [`pipe`] holds none, because it has no
 //! command: `connect` starts its task. `#[tauri::command]` puts the wrapper that

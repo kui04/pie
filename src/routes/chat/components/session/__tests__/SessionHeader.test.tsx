@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
 import { sessionStats } from "@/preview/fixtures";
 
@@ -11,6 +11,7 @@ function show(overrides: Partial<Parameters<typeof SessionHeader>[0]> = {}) {
             cwd="/home/kui/Projects/pie"
             stats={sessionStats()}
             auto={false}
+            onOpenSessions={() => undefined}
             {...overrides}
         />,
     );
@@ -49,5 +50,14 @@ describe("SessionHeader", () => {
         const { container } = show({ stats: null });
         expect(screen.getByRole("button", { name: "Context usage" })).toBeTruthy();
         expect(container.querySelectorAll("circle")).toHaveLength(1);
+    });
+
+    it("carries the way to the session list, and nothing else in that flank", () => {
+        const opened = vi.fn();
+        show({ onOpenSessions: opened });
+
+        const list = screen.getByRole("button", { name: "Sessions" });
+        fireEvent.click(list);
+        expect(opened).toHaveBeenCalledTimes(1);
     });
 });

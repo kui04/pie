@@ -15,9 +15,12 @@ use std::fs;
 use std::path::Path;
 
 /// The screens that hold text for a failure, in the order they are read.
+///
+/// The workspace keeps its table in a module of its own, because two components
+/// of that screen read it: the transcript and the session drawer beside it.
 const FRONTEND: [&str; 2] = [
     "../src/routes/connect/ConnectScreen.tsx",
-    "../src/routes/chat/ChatScreen.tsx",
+    "../src/routes/chat/failure-reason.ts",
 ];
 
 /// Every error enum whose variant names reach the frontend as a `kind`.
@@ -103,7 +106,7 @@ fn table_kinds(path: &str) -> BTreeSet<String> {
     for line in text.lines() {
         let line = line.trim_start();
         if !inside {
-            inside = line.starts_with("const FAILURE_REASON");
+            inside = line.starts_with("const FAILURE_REASON") || line.starts_with("export const FAILURE_REASON");
             continue;
         }
         if line.trim_end() == "};" {

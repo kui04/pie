@@ -26,7 +26,9 @@ use pie_lib::connection::{
 };
 use pie_lib::error::PieError;
 use pie_lib::pi_rpc::Error as ProtocolError;
-use pie_lib::pi_rpc::protocol::{Command, CommandKind, EntriesData, SessionEntry, SessionState};
+use pie_lib::pi_rpc::protocol::{
+    AgentMessage, Command, CommandKind, EntriesData, SessionEntry, SessionState, UserContent, UserContentPart,
+};
 
 /// An asker for tests. It answers with a fixed verdict. It panics if pie asks
 /// it when a store must answer.
@@ -152,6 +154,19 @@ async fn wait_for_the_listing(connection: &Connection, id: &str) -> SessionSumma
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("pi never wrote a session file for {id}");
+}
+
+/// Stops the pi of a connection when the test ends, passed or panicked.
+///
+/// A runtime that shuts down first cancels the task; then pi sees its stdin close
+/// with this process, which is its own way out.
+struct StopsPi(Arc<Connection>);
+
+impl Drop for StopsPi {
+    fn drop(&mut self) {
+        let connection = Arc::clone(&self.0);
+        tokio::spawn(async move { connection.disconnect().await });
+    }
 }
 
 #[ignore = "requires pi on PATH"]
@@ -536,6 +551,163 @@ async fn the_reads_answer_about_the_session_that_was_named() {
     }
 }
 
+/// The switch of a session: the process stays, the conversation changes.
+///
+/// This is the path the session drawer takes: the reader picks a row of the
+/// listing, and the pi that is already running continues that conversation. The
+/// switch is a fact of the protocol with no event behind it, so what a switch
+/// did shows in the reads that follow it.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn a_switch_moves_the_session_to_the_conversation_of_another_file() {
+    let home = TempDir::new().expect("a temp directory");
+    let options = ConnectOptions {
+        home: Some(home.path().to_path_buf()),
+        host_key: Arc::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+        session_number: 1,
+    };
+    let connection = Connection::connect("switch-test", &ConnectSpec::Local, &options)
+        .await
+        .expect("pi is on PATH");
+    // Everything below may fail; the pi of this test stops either way.
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let session = &connection.sessions()[0];
+
+    // The conversation to come back to. The path of the session exists from the
+    // start, but the file itself does not: pi writes it at the first turn (its
+    // `#10000` rule), and the response to a prompt reports the preflight, before
+    // the turn begins. Therefore the listing is what says the file is there.
+    session
+        .client()
+        .request(Command::new(CommandKind::Prompt {
+            message: "first words".to_string(),
+            images: None,
+            streaming_behavior: None,
+        }))
+        .await
+        .expect("pi takes the prompt");
+    let before = session.state().await.expect("the state of the conversation");
+    let file = wait_for_the_listing(&connection, &before.session_id).await.path;
+
+    // Another conversation in the same process, and the one that was open is now
+    // a file that nothing points at.
+    session
+        .client()
+        .request(Command::new(CommandKind::NewSession { parent_session: None }))
+        .await
+        .expect("pi takes the new session");
+    let away = session.state().await.expect("the state of the new conversation");
+    assert_ne!(
+        away.session_id, before.session_id,
+        "a new session is another conversation"
+    );
+
+    let switched = session
+        .switch_session(&file)
+        .await
+        .expect("pi opens the file of a session");
+    assert!(!switched.cancelled, "no extension asked to hold this switch");
+
+    // A relative path is a mistake of the caller and does not reach pi: pi would
+    // resolve it against its own directory and quietly open another conversation.
+    let relative = session.switch_session("sessions/one.jsonl").await;
+    assert!(
+        matches!(&relative, Err(PieError::Connection { error, .. }) if matches!(&**error, Error::NotAbsolute { .. })),
+        "got {relative:?}"
+    );
+
+    let back = session.state().await.expect("the state after the switch");
+    assert_eq!(
+        back.session_id, before.session_id,
+        "the session of the file is the open one"
+    );
+    assert_eq!(back.session_file.as_deref(), Some(file.as_str()));
+
+    // The conversation itself came back, not only its name: the entries are the
+    // ones pi wrote before the switch, read from the file.
+    let entries = session.entries().await.expect("the entries after the switch");
+    let written: Vec<String> = entries.entries.iter().filter_map(user_text).collect();
+    assert!(
+        written.iter().any(|text| text == "first words"),
+        "the conversation that was switched to came back: {written:?}"
+    );
+
+    // A session file that names a working directory which is gone is the one
+    // switch that pi refuses (`assertSessionCwdExists` before the runtime is
+    // replaced). The file is a copy of a real one, with only that field
+    // changed: pi reads the directory from the header of the file.
+    let stranded = home.path().join("stranded.jsonl");
+    let original = std::fs::read_to_string(&file).expect("the session file of this test");
+    let (header, rest) = original.split_once('\n').expect("a header line and entries");
+    let mut header: serde_json::Value = serde_json::from_str(header).expect("a JSON header");
+    header["cwd"] = serde_json::Value::String("/no-such-directory-of-pie".to_string());
+    std::fs::write(&stranded, format!("{header}\n{rest}")).expect("a session file of this test's own");
+
+    let refused = session.switch_session(&stranded.display().to_string()).await;
+    assert!(
+        matches!(&refused, Err(PieError::Rpc { error, .. }) if matches!(&**error, ProtocolError::Rpc { .. })),
+        "pi refuses the session whose directory is gone, got {refused:?}"
+    );
+    assert_eq!(
+        session.state().await.expect("the state is readable").session_id,
+        before.session_id,
+        "a refused switch leaves the session where it was"
+    );
+
+    // A path that holds no file is *not* refused: pi opens it, and with no
+    // header to name a working directory it continues in the directory of the
+    // process (`SessionManager.open`). That is a conversation of pie's own home
+    // — which is why the drawer hands out only the paths of the listing.
+    let empty = home.path().join("no-such-session.jsonl");
+    let opened = session
+        .switch_session(&empty.display().to_string())
+        .await
+        .expect("pi opens a path it is given");
+    assert!(!opened.cancelled);
+    let moved = session.state().await.expect("the state after the switch");
+    assert_ne!(
+        moved.session_id, before.session_id,
+        "a path with no file is another conversation"
+    );
+    assert!(
+        moved
+            .session_file
+            .as_deref()
+            .is_some_and(|path| path.ends_with("no-such-session.jsonl")),
+        "got {:?}",
+        moved.session_file
+    );
+}
+
+/// The text of a user message, from an entry of the wire, for the test above.
+///
+/// Every other kind of entry answers with nothing, which is what lets a test ask
+/// one question of a set of eleven kinds.
+fn user_text(entry: &SessionEntry) -> Option<String> {
+    let SessionEntry::Message(entry) = entry else {
+        return None;
+    };
+    match &entry.message {
+        AgentMessage::User(user) => Some(match &user.content {
+            UserContent::Text(text) => text.clone(),
+            UserContent::Parts(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    UserContentPart::Text(text) => Some(text.text.clone()),
+                    // An image, or a part of a later pi: neither is words.
+                    _ => None,
+                })
+                .collect(),
+        }),
+        _ => None,
+    }
+}
+
 /// The id of a session is unique for the run of pie, not for the connection.
 ///
 /// The frontend subscribes to `pi://session/{id}/...`. A reconnect starts a new
@@ -572,4 +744,60 @@ async fn two_connects_of_one_name_do_not_share_the_id_of_a_session() {
         "the second pi of a connection has an id of its own"
     );
     second.disconnect().await;
+}
+
+/// A path that holds something other than a session is refused, and left alone.
+///
+/// Nothing is written to such a file either: `SessionManager` opens a session file
+/// with `wx`, so an existing file is never overwritten.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn a_switch_to_a_file_that_is_not_a_session_is_refused_and_leaves_it_be() {
+    let home = TempDir::new().expect("a temp directory");
+    let options = ConnectOptions {
+        home: Some(home.path().to_path_buf()),
+        host_key: Arc::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+        session_number: 1,
+    };
+    let connection = Connection::connect("refuse-test", &ConnectSpec::Local, &options)
+        .await
+        .expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let session = &connection.sessions()[0];
+    let before = session.state().await.expect("the state of a fresh session");
+
+    // A file with words in it, and nothing of the shape of a session.
+    let stranger = home.path().join("notes.txt");
+    std::fs::write(&stranger, "these are notes, not a conversation\n").expect("a file of this test's own");
+
+    let refused = session.switch_session(&stranger.display().to_string()).await;
+    assert!(
+        matches!(&refused, Err(PieError::Rpc { error, .. }) if matches!(&**error, ProtocolError::Rpc { .. })),
+        "got {refused:?}"
+    );
+    match &refused {
+        Err(PieError::Rpc { error, .. }) => match &**error {
+            ProtocolError::Rpc { message, .. } => {
+                assert!(message.contains("not a valid"), "pi says why: {message}");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        },
+        other => panic!("unexpected error: {other:?}"),
+    }
+
+    assert_eq!(
+        std::fs::read_to_string(&stranger).expect("the file is still there"),
+        "these are notes, not a conversation\n",
+        "pi leaves a file it did not write alone"
+    );
+    assert_eq!(
+        session.state().await.expect("the state is readable").session_id,
+        before.session_id,
+        "a refused switch leaves the session where it was"
+    );
 }

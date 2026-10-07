@@ -17,6 +17,7 @@ import type {
     ToolResultMessage,
     Usage,
 } from "@/lib/protocol";
+import type { SessionSummary } from "@/lib/bridge";
 import type { TranscriptEntries } from "@/lib/transcript";
 
 /** When every fixture happened. The clock is not part of what is under test. */
@@ -64,6 +65,25 @@ export const sessionStats = (overrides: Partial<SessionStats> = {}): SessionStat
     contextUsage: { tokens: 23349, contextWindow: 512000, percent: 4.5603515625 },
     ...overrides,
 });
+
+/** Which row a fixture is, so that two of them never answer to one id. */
+let rows = 0;
+
+/** A row of the session list, as the scan of the host reports it. */
+export function sessionSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
+    rows += 1;
+    const cwd = overrides.cwd ?? "/home/kui/Projects/pie";
+    return {
+        path: `/home/kui/.pi/agent/sessions/--home-kui-Projects-pie--/2026-01-01T00-00-00-000Z_${rows}.jsonl`,
+        id: `0193f0c4-0000-7000-8000-${String(rows).padStart(12, "0")}`,
+        cwd,
+        name: "Fix the parser",
+        created: AT,
+        modified: AT,
+        firstMessage: "Make the parser skip empty lines, and run the tests.",
+        ...overrides,
+    };
+}
 
 export function user(text: string, timestamp = MILLIS): AgentMessage {
     return { role: "user", content: text, timestamp };

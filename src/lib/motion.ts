@@ -60,3 +60,13 @@ export const SPIN = { type: "tween", duration: 1, ease: "linear", repeat: Infini
 
 /** The turn of that ring. */
 export const SPIN_TURN = { rotate: 360 } as const;
+
+/**
+ * The light of a session row: one breath in milliseconds - dim, bright, dim.
+ *
+ * A cycle rather than a Motion transition, because the component writes this one on
+ * Motion's frame clock. A transition of `opacity` is driven by `Element.animate`,
+ * and an animation that a row is taken away in the middle of is `cancel()`ed: the
+ * spec rejects that animation's `finished` promise and nothing holds it.
+ */
+export const BREATHE_CYCLE = 2400;

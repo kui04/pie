@@ -3,22 +3,28 @@ import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Toaster } from "@/components/ui/sonner";
 import type * as Bridge from "@/lib/bridge";
+import type { SessionLifecycle } from "@/lib/bridge";
+import type { Event } from "@/lib/protocol";
 import { MODULE_REASON } from "@/lib/failure-text";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { useTranscriptStore } from "@/stores/transcript.store";
-import { chain, messageEntry, sessionStats, storeOf, user } from "@/preview/fixtures";
+import { chain, messageEntry, sessionStats, sessionSummary, storeOf, user } from "@/preview/fixtures";
 
 type Call = () => Promise<unknown>;
-type Listen = () => Promise<() => void>;
+type ListenEvent = (session: string, handler: (payload: Event) => void) => Promise<() => void>;
+type ListenState = (session: string, handler: (payload: SessionLifecycle) => void) => Promise<() => void>;
 
 const bridge = vi.hoisted(() => ({
     getConnection: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getEntries: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
-    onSessionEvent: vi.fn<Listen>(),
-    onSessionState: vi.fn<Listen>(),
+    listSessions: vi.fn<Call>(),
+    switchSession: vi.fn<Call>(),
+    onSessionEvent: vi.fn<ListenEvent>(),
+    onSessionState: vi.fn<ListenState>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -59,6 +65,9 @@ function renderScreen() {
     return render(
         <QueryClientProvider client={client}>
             <MemoryRouter>
+                {/* The toast stack belongs to the app; the workspace announces
+                    what a switch could not do. */}
+                <Toaster position="top-center" />
                 <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
                     <ChatScreen />
                 </div>
@@ -75,6 +84,7 @@ beforeEach(() => {
     bridge.getState.mockResolvedValue({});
     bridge.getSessionStats.mockResolvedValue(sessionStats());
     bridge.getEntries.mockResolvedValue({ entries: [], leafId: null });
+    bridge.listSessions.mockResolvedValue([]);
 });
 
 describe("ChatScreen", () => {
@@ -171,6 +181,127 @@ describe("ChatScreen", () => {
         // it: the retry has to ask the hook for the listeners of this session.
         await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalledTimes(2));
         expect(await screen.findByText("hello again")).toBeInTheDocument();
+    });
+
+    it("moves the session to the conversation that was picked, and reads it again", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries
+            .mockResolvedValueOnce(storeOfEntries(chain(messageEntry(user("first words")))))
+            .mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
+        const target = sessionSummary({ name: "The other one" });
+        bridge.listSessions.mockResolvedValue([target]);
+        bridge.switchSession.mockResolvedValue({ cancelled: false });
+
+        renderScreen();
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        // The narrow window shows the list again as a sheet; the column is still
+        // mounted behind it, so the row is searched inside the sheet.
+        const sheet = await screen.findByRole("dialog");
+        fireEvent.click(within(sheet).getByText("The other one"));
+
+        // The path of the row is the one that is handed over: the workspace reads
+        // the file, it builds no path of its own.
+        await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledWith("main:1", target.path));
+        // Nothing of the new conversation arrives as an event, so the transcript is
+        // read again - and the store is emptied first, so the words of the
+        // conversation that was left are not on screen while it is read.
+        expect(await screen.findByText("the other conversation")).toBeInTheDocument();
+        expect(screen.queryByText("first words")).toBeNull();
+    });
+
+    it("keeps the words on screen while an event has the read asked again", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
+        let ended: () => void = () => undefined;
+        bridge.onSessionState.mockImplementation(async (_session, onState) => {
+            ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
+            return () => undefined;
+        });
+
+        renderScreen();
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        // The pi of this session is gone, so the transcript is asked for again. Until
+        // that read answers, the words that are already on screen stay: they are the
+        // last thing that session said, which is what the reader is looking at.
+        bridge.getEntries.mockReturnValue(new Promise(() => undefined));
+        ended();
+
+        await waitFor(() => expect(bridge.getEntries).toHaveBeenCalledTimes(2));
+        expect(screen.getByText("first words")).toBeInTheDocument();
+        expect(screen.queryByText("Opening the session…")).toBeNull();
+    });
+
+    it("sends one switch for two rows that are picked at the same instant", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
+        const first = sessionSummary({ name: "The first one" });
+        const second = sessionSummary({ name: "The second one" });
+        bridge.listSessions.mockResolvedValue([first, second]);
+        // A host across a network answers when it answers, and until it does the
+        // reader can pick another row; pi runs the commands of one session one after
+        // another, so two switches would leave the conversation of whichever ends
+        // last on screen.
+        let answer: (data: unknown) => void = () => undefined;
+        bridge.switchSession.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+
+        renderScreen();
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        const sheet = await screen.findByRole("dialog");
+        fireEvent.click(within(sheet).getByText("The first one"));
+        fireEvent.click(within(sheet).getByText("The second one"));
+
+        expect(bridge.switchSession).toHaveBeenCalledTimes(1);
+        expect(bridge.switchSession).toHaveBeenCalledWith("main:1", first.path);
+        answer({ cancelled: false });
+    });
+
+    it("keeps the transcript of the session a cancelled switch leaves alone", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
+        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
+        // An extension of pi refused the switch, so the session is what it was.
+        bridge.switchSession.mockResolvedValue({ cancelled: true });
+
+        renderScreen();
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        // The narrow window shows the list again as a sheet; the column is still
+        // mounted behind it, so the row is searched inside the sheet.
+        const sheet = await screen.findByRole("dialog");
+        fireEvent.click(within(sheet).getByText("The other one"));
+
+        await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledTimes(1));
+        expect(bridge.getEntries).toHaveBeenCalledTimes(1);
+        expect(screen.getByText("first words")).toBeInTheDocument();
+    });
+
+    it("announces a switch that failed, and keeps the session that runs", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
+        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
+        bridge.switchSession.mockRejectedValue({
+            type: "rpc",
+            message: "raw",
+            error: { kind: "rpc" },
+        });
+
+        renderScreen();
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        // The narrow window shows the list again as a sheet; the column is still
+        // mounted behind it, so the row is searched inside the sheet.
+        const sheet = await screen.findByRole("dialog");
+        fireEvent.click(within(sheet).getByText("The other one"));
+
+        expect(await screen.findByText("pi refused the command.")).toBeInTheDocument();
+        expect(screen.getByText("first words")).toBeInTheDocument();
     });
 });
 
