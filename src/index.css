@@ -119,6 +119,14 @@
   --excluded: #9a9898;
 
   --radius: 0.5rem;
+
+  /*
+   * The scrollbar's own measures: the lane it takes, and the air around the thumb
+   * inside that lane. The colours it draws with are the tokens above, so the bar
+   * follows the theme (see the rules at the end of this file).
+   */
+  --scrollbar-size: 10px;
+  --scrollbar-inset: 2px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -165,5 +173,97 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
+  }
+
+  /*
+   * The scrollbars, which are pie's own and not the engine's.
+   *
+   * Every surface of the app is a flat near-black or near-white card, and the
+   * engine's default bar is a wide strip with arrows that belongs to none of them.
+   * This one floats: no track, no buttons, a pill of a thumb inset from the lane by
+   * `--scrollbar-inset`, quiet in the border's own colour and answering in the
+   * outline's when the pointer is on the surface it belongs to.
+   *
+   * A finger has no bar to read: on a device whose pointer cannot hover the bar is
+   * not drawn at all, and the content says what it holds.
+   */
+  ::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* A classic bar draws arrows at its ends; a quiet one does not. */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: var(--scrollbar-inset) solid transparent;
+    border-radius: 9999px;
+    background-color: var(--border-strong);
+    /* The border is air rather than paint: the thumb is a pill inside the lane. */
+    background-clip: padding-box;
+  }
+
+  :hover::-webkit-scrollbar-thumb {
+    background-color: var(--outline);
+  }
+
+  @media (hover: none) {
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+/*
+ * The engines that draw no scrollbar the WebKit way (Firefox): the same words
+ * cannot be said there, so they say the colour and the thinness and no more.
+ *
+ * The query is load-bearing, not decoration: Chromium drops every
+ * `::-webkit-scrollbar` rule the moment `scrollbar-color` is set, so the engines
+ * that do draw the pseudo-element must never see these two properties. Firefox
+ * answers this query with "no support" even where it has partial support, which
+ * is what brings it here.
+ */
+@supports not selector(::-webkit-scrollbar) {
+  :root {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  @media (hover: none) {
+    :root {
+      scrollbar-width: none;
+    }
+  }
+}
+
+/**
+ * A pane that keeps the scrollbar's lane: the bar arrives when the words outgrow
+ * the pane, and a lane reserved on both sides of that moment is a lane the words
+ * never move for. A device without a bar gets no lane either.
+ *
+ * Where the engine reserves that lane differs: Chromium does (a pane with nothing
+ * to scroll is a scrollbar narrower), WebKitGTK 2.52 does not, and a pane there
+ * moves its words once when the bar first arrives.
+ */
+@utility scrollbar-lane {
+  @media (hover: hover) {
+    scrollbar-gutter: stable;
+  }
+}
+
+/** A surface that scrolls without saying so, for a short list that wants no bar. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
