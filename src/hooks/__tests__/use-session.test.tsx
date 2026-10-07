@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/protocol";
-import { useSession } from "@/hooks/use-session";
+import { statsRefetchInterval, useSession } from "@/hooks/use-session";
 import { queryDefaults } from "@/lib/query";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
@@ -310,5 +310,13 @@ describe("the session of the workspace", () => {
         unmount();
 
         await waitFor(() => expect(unlistened).toEqual(["event:main:1", "state:main:1"]));
+    });
+});
+
+describe("statsRefetchInterval", () => {
+    it("stops asking a session whose read failed, and keeps asking otherwise", () => {
+        expect(statsRefetchInterval({ state: { status: "error" } })).toBe(false);
+        expect(statsRefetchInterval({ state: { status: "success" } })).toBe(30_000);
+        expect(statsRefetchInterval({ state: { status: "pending" } })).toBe(30_000);
     });
 });

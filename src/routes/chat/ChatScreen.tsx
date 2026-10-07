@@ -17,6 +17,7 @@ import { reasonFor, type FailureText } from "@/lib/failure-text";
 import * as bridge from "@/lib/bridge";
 import { transcriptRows } from "@/lib/transcript";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
+import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
 /**
@@ -55,18 +56,18 @@ export function ChatScreen() {
 
     return (
         <main id="chat-root" className="text-foreground flex min-h-0 w-full flex-1 flex-col overflow-hidden font-sans">
-            <Panel id="chat-stage" solo={isMobile} className="justify-center">
+            <Panel id="chat-stage" solo={isMobile}>
                 {connection.isPending ? null : session === null ? (
                     <Landing disconnected={connection.isError || connection.data === null} idle={idle} />
                 ) : (
-                    <Session session={session} />
+                    <Session session={session} cwd={connection.data?.sessions[0]?.cwd ?? null} />
                 )}
             </Panel>
         </main>
     );
 }
 
-function Session({ session }: { session: string }) {
+function Session({ session, cwd }: { session: string; cwd: string | null }) {
     const client = useQueryClient();
     const { state, snapshot, stats, listening, error, reopen } = useSession(session);
     // The failure may be the subscription itself, which no cache holds.
@@ -87,6 +88,15 @@ function Session({ session }: { session: string }) {
     // Two kinds of failure reach this screen: the listeners never opened, which the
     // hook reports, and a read, which the query holds. They are read in that order.
     const failure = error ?? snapshot.error ?? state.error ?? stats.error;
+    const header = (
+        <SessionHeader
+            id="session-header"
+            name={state.data?.sessionName ?? null}
+            cwd={cwd}
+            stats={stats.data ?? null}
+            auto={state.data?.autoCompactionEnabled ?? false}
+        />
+    );
     if (failure !== null) {
         return (
             <div
@@ -108,14 +118,29 @@ function Session({ session }: { session: string }) {
     }
     // An empty transcript is not yet a fact while the first read is on its way.
     if (!listening || snapshot.isPending) {
-        return <p className="text-body-md text-muted-foreground m-auto">Opening the session…</p>;
+        return (
+            <>
+                {header}
+                <p className="text-body-md text-muted-foreground m-auto">Opening the session…</p>
+            </>
+        );
     }
     if (rows.length === 0) {
         // Pi writes a model and a thinking level into a new session before anything
         // is said; nothing of that is a message, so its transcript is empty.
-        return <p className="text-body-md text-muted-foreground m-auto px-6 text-center">Nothing has been said yet.</p>;
+        return (
+            <>
+                {header}
+                <p className="text-body-md text-muted-foreground m-auto px-6 text-center">Nothing has been said yet.</p>
+            </>
+        );
     }
-    return <TranscriptList rows={rows} />;
+    return (
+        <>
+            {header}
+            <TranscriptList rows={rows} />
+        </>
+    );
 }
 
 /**
@@ -127,7 +152,7 @@ function Session({ session }: { session: string }) {
  */
 function Landing({ disconnected, idle }: { disconnected: boolean; idle: boolean }) {
     return (
-        <div id="chat-landing" className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <div id="chat-landing" className="m-auto flex flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-title-lg text-foreground font-medium">pie</p>
             <p className="text-body-md text-muted-foreground">
                 {idle ? "This connection has no session yet" : "Open a session"}

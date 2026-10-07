@@ -12,6 +12,7 @@ import type {
     AssistantMessage,
     BashExecutionMessage,
     SessionEntry,
+    SessionStats,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -46,6 +47,21 @@ export const usage = (overrides: Partial<Usage> = {}): Usage => ({
     cacheWrite: 0,
     totalTokens: 1200,
     cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.03 },
+    ...overrides,
+});
+
+/** What a session reports about itself, as the header's popover reads it. */
+export const sessionStats = (overrides: Partial<SessionStats> = {}): SessionStats => ({
+    sessionId: "0193f0c4-0000-7000-8000-000000000000",
+    sessionFile: "/home/kui/.pi/agent/sessions/pie.jsonl",
+    userMessages: 4,
+    assistantMessages: 8,
+    toolCalls: 3,
+    toolResults: 3,
+    totalMessages: 12,
+    tokens: { input: 12000, output: 3400, cacheRead: 184000, cacheWrite: 9200, total: 208600 },
+    cost: 0.45,
+    contextUsage: { tokens: 23349, contextWindow: 512000, percent: 4.5603515625 },
     ...overrides,
 });
 

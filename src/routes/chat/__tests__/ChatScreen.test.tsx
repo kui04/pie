@@ -7,7 +7,7 @@ import type * as Bridge from "@/lib/bridge";
 import { MODULE_REASON } from "@/lib/failure-text";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { useTranscriptStore } from "@/stores/transcript.store";
-import { chain, messageEntry, storeOf, user } from "@/preview/fixtures";
+import { chain, messageEntry, sessionStats, storeOf, user } from "@/preview/fixtures";
 
 type Call = () => Promise<unknown>;
 type Listen = () => Promise<() => void>;
@@ -73,7 +73,7 @@ beforeEach(() => {
     bridge.onSessionEvent.mockResolvedValue(() => undefined);
     bridge.onSessionState.mockResolvedValue(() => undefined);
     bridge.getState.mockResolvedValue({});
-    bridge.getSessionStats.mockResolvedValue({});
+    bridge.getSessionStats.mockResolvedValue(sessionStats());
     bridge.getEntries.mockResolvedValue({ entries: [], leafId: null });
 });
 

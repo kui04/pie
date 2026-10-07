@@ -16,6 +16,25 @@ import * as bridge from "@/lib/bridge";
 import { sessionQueries } from "@/lib/query";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
+/**
+ * How often the usage of a session is read with no event to say it changed.
+ *
+ * A run that streams for minutes reports its cost in events of the run, which
+ * this query does not see, so the ring of the header asks again after a while.
+ */
+const STATS_FALLBACK_MS = 30_000;
+
+/**
+ * When to ask again for the usage of a session.
+ *
+ * A read that failed is not asked again: the pi of this connection is gone, the
+ * answer would be the same one, and the asking would go on every 30 seconds for
+ * as long as the screen stays open.
+ */
+export function statsRefetchInterval(query: { state: { status: string } }): number | false {
+    return query.state.status === "error" ? false : STATS_FALLBACK_MS;
+}
+
 export function useSession(session: string) {
     const queryClient = useQueryClient();
     /** The session whose listeners are open, once they are. */
@@ -118,7 +137,7 @@ export function useSession(session: string) {
     const open = listening === session;
     const state = useQuery({ ...sessionQueries.state(session), enabled: open });
     const entries = useQuery({ ...sessionQueries.entries(session), enabled: open });
-    const stats = useQuery({ ...sessionQueries.stats(session), enabled: open });
+    const stats = useQuery({ ...sessionQueries.stats(session), enabled: open, refetchInterval: statsRefetchInterval });
 
     // The snapshot is the authority for the transcript; it is not written from a
     // cache the visit before left behind, which the open gate above prevents.
