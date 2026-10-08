@@ -177,6 +177,23 @@
 }
 
 @layer base {
+  /*
+   * The document is the window, and the window does not scroll.
+   *
+   * The shell is `h-svh` and clips its own overflow, so a page that could
+   * scroll would only drag the window off its own frame - and a title bar is
+   * the only handle a window without decorations has. `clip` rather than
+   * `hidden`: a hidden box is still a scroll container, so a focus or a
+   * `scrollIntoView` landing outside the shell could still scroll the body out
+   * from under the app. The `hidden` line is for an engine that has no `clip`.
+   */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overflow: clip;
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);

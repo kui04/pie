@@ -340,10 +340,13 @@ inset 4px from the window and told apart from its neighbour by a hairline.
 - **Mobile first.** Base styles are the phone's; wider windows layer on with
   Tailwind breakpoints. A pane that only exists above `lg` (the session column)
   is not mounted below it.
-- **One scroller per pane.** The window itself never scrolls. A panel scrolls
-  its own body; a transcript scrolls its list; a tool body scrolls its own lines
-  sideways. A card never scrolls inside a pane that also scrolls in the same
-  direction except where the content demands it (a diff's line column).
+- **One scroller per pane.** The window itself never scrolls: the shell is
+  `h-svh` and clips, and `html`/`body` carry `overflow: clip`, so nothing that
+  lands outside the shell — a portal, a stray element — can scroll the window
+  out from under its own title bar. A panel scrolls its own body; a transcript
+  scrolls its list; a tool body scrolls its own lines sideways. A card never
+  scrolls inside a pane that also scrolls in the same direction except where the
+  content demands it (a diff's line column).
 - **Air.** 4px between panels, 12px inside a tile, 8px around a tile's body and
   under its last line, 24px inside a floating layer, 48px of a control's height
   on a touch pointer.
