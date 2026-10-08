@@ -9,7 +9,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { cn } from "cn";
-import { Drawer } from "vaul";
+import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { useWideWindow } from "@/hooks/use-wide-window";
 
 export interface SessionSheetProps {
@@ -32,25 +32,23 @@ export function SessionSheet({ id, open, onOpenChange, children, className }: Se
     return (
         // Vaul assumes the bottom of the screen unless it is told: a drawer anchored
         // to the left edge has to arrive from the left and be dragged sideways.
-        <Drawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={false} direction="left">
-            <Drawer.Portal>
-                <Drawer.Overlay className="bg-surface-container-highest/70 fixed inset-0 z-40 lg:hidden" />
-                <Drawer.Content
-                    id={id}
-                    className={cn(
-                        // A square left edge and a round right one: the sheet arrives
-                        // from the edge it is anchored to. The clip is what holds it:
-                        // the panel inside paints its own square background, and
-                        // nothing cuts it to the corner without this.
-                        "bg-surface-dim border-border fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85%] flex-col overflow-hidden rounded-r-xl border-r outline-none",
-                        "lg:hidden",
-                        className,
-                    )}
-                >
-                    <Drawer.Title className="sr-only">Sessions</Drawer.Title>
-                    {children}
-                </Drawer.Content>
-            </Drawer.Portal>
-        </Drawer.Root>
+        <Drawer open={open} onOpenChange={onOpenChange} direction="left">
+            <DrawerContent
+                id={id}
+                overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40 lg:hidden"
+                className={cn(
+                    // A square left edge and a round right one: the sheet arrives
+                    // from the edge it is anchored to. The clip is what holds it:
+                    // the panel inside paints its own square background, and
+                    // nothing cuts it to the corner without this.
+                    "bg-surface-dim border-border w-72 max-w-[85%] overflow-hidden rounded-r-xl border-r outline-none",
+                    "lg:hidden",
+                    className,
+                )}
+            >
+                <DrawerTitle className="sr-only">Sessions</DrawerTitle>
+                {children}
+            </DrawerContent>
+        </Drawer>
     );
 }

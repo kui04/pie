@@ -365,13 +365,16 @@ divider inside a tile is a 1px hairline in `divider`; a tile's footer is
 separated from its body by that hairline, never by a gap alone. This is what
 keeps a long transcript readable: no edges accumulate down the column.
 
-**Floating — one.** A layer that leaves the page — the gate card, the
-jump-to-latest pill, a menu, a popover, a dialog, a sheet, a toast — carries the
-theme's shadow and a 1px `ring` of `foreground` at 10%: `shadow-sm` for the gate
-card, `shadow-md` for a pill or a popover, `shadow-lg` for a dialog or a sheet.
-A dialog dims the page with `bg-black/10` behind it. Nothing else is allowed a
-shadow: a shadow on an in-flow tile reads as a mistake, because the tile is not
-above anything.
+**Floating — what the scrim does not.** A layer that leaves the page carries the
+theme's shadow: `shadow-sm` for the gate card, `shadow-md` for a pill, a menu or
+a popover, `shadow-lg` for a submenu. A toast brings the library's own. Its edge
+is a 1px hairline — `foreground` at 10% as a `ring` where the layer is a bare
+surface, the theme's `border` where it has a frame of its own. A layer with a
+scrim behind it shows no shadow at all: the scrim is what separates it, and a
+shadow on top of one answers the same question twice. A dialog dims the page
+with `bg-black/10`, a sheet with `surface-container-highest` at 70%, and each
+shows only its hairline. Nothing else is allowed a shadow: a shadow on an
+in-flow tile reads as a mistake, because the tile is not above anything.
 
 ## Shapes
 
@@ -426,8 +429,10 @@ ring and a caret; 48px tall on a touch pointer.
 key in a bar), and link (`primary-text`, underlined on hover).
 
 **Overlay** — a popover, a menu, a dialog or a sheet: `popover` fill, 8px (12px
-over a dialog or a sheet), the ring, and the shadow its elevation names. One
-overlay at a time; the sheet is what a dialog becomes on a phone.
+over a dialog or a sheet), and the edge and the shadow its layer names. One
+overlay at a time; the sheet — shadcn's `drawer`, over vaul, taken into
+`src/components/ui/drawer.tsx` — is what a dialog becomes on a phone, and a
+bottom sheet shows the drag bar that says it can be swiped away.
 
 **Toast** — sonner, top-centre, over the page, never in the layout.
 

@@ -90,25 +90,18 @@ describe("the host-key prompt's host", () => {
         expect(document.querySelector("[data-vaul-drawer]")).toBeNull();
     });
 
-    it("runs the full width of the window, the way a bottom sheet does", () => {
+    it("asks from the window's bottom edge, and not from its side", () => {
         render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile />);
         const sheet = document.querySelector("[data-vaul-drawer]");
-        // A bottom sheet is the window's own bottom edge, not a card floating
-        // above it, so it is not inset and not capped.
-        expect(sheet?.className).toContain("inset-x-0");
+        // Which edge the sheet arrives from is this prompt's own shape; how the
+        // wrapper draws that sheet is the wrapper's business, pinned in its test.
+        expect(sheet?.getAttribute("data-vaul-drawer-direction")).toBe("bottom");
         expect(sheet?.className).not.toContain("mx-auto");
-        expect(sheet?.className).not.toContain("max-w-");
     });
 
-    it("rounds only the sheet's top corners, because its bottom is the window's", () => {
-        const { unmount } = render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile />);
-        // A sheet is flush with the bottom edge; rounding there would draw a
-        // gap the window does not have.
-        expect(document.querySelector("[data-vaul-drawer]")?.className).toContain("rounded-t-xl");
-        unmount();
-
+    it("floats its dialog, so all four of that one's corners show", () => {
         render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile={false} />);
-        // A dialog floats, so all four of its corners show.
+        // A dialog is not the window's edge: it keeps every corner it has.
         expect(screen.getByRole("dialog").className).toContain("rounded-xl");
     });
 });

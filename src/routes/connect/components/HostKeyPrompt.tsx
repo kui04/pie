@@ -2,7 +2,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-platform";
-import { Drawer } from "vaul";
+import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import type { PresentedKey } from "@/lib/bridge";
 
 export interface HostKeyPromptProps {
@@ -62,26 +62,20 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
 
     if (isMobile ?? mobile) {
         return (
-            <Drawer.Root open={open} onOpenChange={refuseOnClose} shouldScaleBackground={false}>
-                <Drawer.Portal>
-                    <Drawer.Overlay className="bg-surface-container-highest/70 fixed inset-0 z-40" />
-                    {/* No `w-full` beside both insets: the width would win and the
-                        right inset would be dropped, hanging the sheet off-screen. */}
-                    <Drawer.Content
-                        className={cn(
-                            FRAME,
-                            "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-xl p-6 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1rem))] outline-none",
-                        )}
-                        aria-describedby="host-key-sheet-message"
-                    >
-                        <Drawer.Title className={TITLE}>Trust this host?</Drawer.Title>
-                        <Drawer.Description id="host-key-sheet-message" className={MESSAGE}>
-                            {message}
-                        </Drawer.Description>
-                        <Answers id="host-key-sheet" onAnswer={onAnswer} />
-                    </Drawer.Content>
-                </Drawer.Portal>
-            </Drawer.Root>
+            <Drawer open={open} onOpenChange={refuseOnClose} direction="bottom">
+                <DrawerContent
+                    overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40"
+                    // No top padding: the grab bar's own `my-4` is the sheet's top gap.
+                    className={cn(FRAME, "px-6 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1rem))] outline-none")}
+                    aria-describedby="host-key-sheet-message"
+                >
+                    <DrawerTitle className={TITLE}>Trust this host?</DrawerTitle>
+                    <DrawerDescription id="host-key-sheet-message" className={MESSAGE}>
+                        {message}
+                    </DrawerDescription>
+                    <Answers id="host-key-sheet" onAnswer={onAnswer} />
+                </DrawerContent>
+            </Drawer>
         );
     }
 
