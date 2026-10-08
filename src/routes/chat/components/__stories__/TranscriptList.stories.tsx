@@ -20,6 +20,9 @@ const meta = {
     title: "Transcript/TranscriptList",
     component: TranscriptList,
     parameters: { layout: "fullscreen" },
+    // The list lays out from the pane; a story stands in for the composer band the
+    // pane measures (the design's own first-frame value).
+    args: { clearance: 144 },
     decorators: [
         (Story: React.ComponentType) => (
             <div className="bg-surface flex h-svh w-full flex-col font-sans">

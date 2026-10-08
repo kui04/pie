@@ -12,8 +12,10 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createActor } from "xstate";
 import * as bridge from "@/lib/bridge";
 import { sessionQueries } from "@/lib/query";
+import { sessionMachine } from "@/machines/session.machine";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
 /**
@@ -37,6 +39,12 @@ export function statsRefetchInterval(query: { state: { status: string } }): numb
 
 export function useSession(session: string) {
     const queryClient = useQueryClient();
+    /**
+     * The run state of this session, fed by its events and by the reads of it. The
+     * composer is what asks: while a run streams, its key stops the run instead of
+     * sending (`machines/session.machine.ts`).
+     */
+    const [machine] = useState(() => createActor(sessionMachine));
     /** The session whose listeners are open, once they are. */
     const [listening, setListening] = useState<string | null>(null);
     /**
@@ -55,6 +63,18 @@ export function useSession(session: string) {
     const appendEntry = useTranscriptStore((state) => state.appendEntry);
     const hydrate = useTranscriptStore((state) => state.hydrate);
     const clear = useTranscriptStore((state) => state.clear);
+    const setQueue = useTranscriptStore((state) => state.setQueue);
+    const appendBash = useTranscriptStore((state) => state.appendBash);
+
+    // The actor lives as long as this hook. A screen that renders another session
+    // is keyed by it (`ChatScreen`), so the machine of the one before does not
+    // answer for the one now.
+    useEffect(() => {
+        machine.start();
+        return () => {
+            machine.stop();
+        };
+    }, [machine]);
 
     // A different session starts from nothing: a consumer reads the store while it
     // renders, so clearing after a passive effect would paint one frame of the last
@@ -68,6 +88,10 @@ export function useSession(session: string) {
         let off: bridge.Unsubscribe[] = [];
 
         void (async () => {
+            // The records of a closed listener are gone: only a read covers the time
+            // before this subscription. The machine drops that read once it hears a
+            // run event of its own.
+            machine.send({ type: "LISTENING" });
             // Half a pair of listeners is worth less than none: a second subscription
             // that fails drops the first one again.
             try {
@@ -83,6 +107,27 @@ export function useSession(session: string) {
                         case "session_info_changed":
                             // The name of the session changed; its state is stale.
                             void queryClient.invalidateQueries({ queryKey: sessionQueries.state(session).queryKey });
+                            break;
+                        case "agent_start":
+                            // The composer answers this one itself; the state of the
+                            // session changes with it, because its `isStreaming` does.
+                            machine.send({ type: "RUN_STARTED" });
+                            break;
+                        case "agent_end":
+                            machine.send({ type: "RUN_ENDED", willRetry: event.willRetry });
+                            break;
+                        case "agent_settled":
+                            machine.send({ type: "SETTLED" });
+                            break;
+                        case "queue_update":
+                            // Pi reports both queues whole, so the store replaces its
+                            // lists instead of appending to them.
+                            setQueue({ steering: event.steering, followUp: event.followUp });
+                            break;
+                        case "bash_execution_update":
+                            // The live card of a command the reader ran. The entry of
+                            // `entry_appended` is the one that stays.
+                            appendBash(event.delta);
                             break;
                         case "message_end":
                         case "turn_end":
@@ -138,7 +183,7 @@ export function useSession(session: string) {
             // A later read of this session may not be taken on the word of this effect.
             setListening(null);
         };
-    }, [session, appendEntry, clear, queryClient, attempt]);
+    }, [session, appendEntry, appendBash, setQueue, clear, machine, queryClient, attempt]);
 
     // The listeners are open, so this session may be read: `enabled` keeps the reads
     // off until then, and the records in between cannot pass unheard.
@@ -146,6 +191,13 @@ export function useSession(session: string) {
     const state = useQuery({ ...sessionQueries.state(session), enabled: open });
     const entries = useQuery({ ...sessionQueries.entries(session), enabled: open });
     const stats = useQuery({ ...sessionQueries.stats(session), enabled: open, refetchInterval: statsRefetchInterval });
+
+    // The read of the state is the authority for the time before the listeners
+    // opened, and for that time only: the machine drops it once a run event was
+    // heard, because its answer was built before that event.
+    useEffect(() => {
+        if (open && state.data) machine.send({ type: "STATE_READ", streaming: state.data.isStreaming });
+    }, [open, state.data, machine]);
 
     // The snapshot is the authority for the transcript; it is not written from a
     // cache the visit before left behind, which the open gate above prevents.
@@ -199,6 +251,7 @@ export function useSession(session: string) {
     // `reopen` asks for the listeners again, for a screen whose failure is the
     // subscription itself.
     return {
+        machine,
         state,
         snapshot: entries,
         stats,

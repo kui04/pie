@@ -1,0 +1,68 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ReactNode } from "react";
+import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createActor } from "xstate";
+import { queryDefaults } from "@/lib/query";
+import { sessionMachine } from "@/machines/session.machine";
+import { Composer } from "@/routes/chat/components/composer/Composer";
+import { sessionState, slashCommand } from "@/preview/fixtures";
+
+/**
+ * The box reads the state and the commands of its session over the bridge, which no
+ * story can call. The cache is seeded with those answers instead: that is what a
+ * read leaves behind, and the box then draws them without asking anyone.
+ */
+function Seeded({ children }: { children: ReactNode }) {
+    const [client] = useState(() => {
+        const client = new QueryClient(queryDefaults);
+        client.setQueryData(["session", "main:1", "state"], sessionState());
+        client.setQueryData(["session", "main:1", "commands"], {
+            commands: [
+                slashCommand("review", "Review the working tree", "extension"),
+                slashCommand("fix-test", "Fix a failing test", "prompt"),
+                slashCommand("deploy", "Deploy the app", "skill"),
+            ],
+        });
+        return client;
+    });
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+/** The run state of a story. A story is one frame: no event moves the actor on. */
+function run(working: boolean) {
+    const machine = createActor(sessionMachine);
+    machine.start();
+    if (working) machine.send({ type: "RUN_STARTED" });
+    return machine;
+}
+
+const meta = {
+    title: "Chat/Composer",
+    component: Composer,
+    parameters: { layout: "fullscreen" },
+    decorators: [
+        (Story) => (
+            <Seeded>
+                {/* The box covers the foot of the transcript in the app; the story
+                    pins it to the same place, in the band the pane measures. */}
+                <div className="fixed inset-x-0 bottom-0 mx-auto w-full max-w-[64rem] p-2 font-sans min-[840px]:px-4">
+                    <Story />
+                </div>
+            </Seeded>
+        ),
+    ],
+    args: {
+        session: "main:1",
+        machine: run(false),
+    },
+} satisfies Meta<typeof Composer>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+/** Nothing runs: the key sends the message. */
+export const Idle: Story = {};
+
+/** An answer streams: the key stops the run, and Enter steers it. */
+export const Working: Story = { args: { machine: run(true) } };

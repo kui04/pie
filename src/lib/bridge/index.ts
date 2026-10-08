@@ -6,8 +6,9 @@
  * these functions, which is the whole of what React is allowed to know about the
  * outside (see `.agents/rules/architecture.md`).
  *
- * One file per area, and none of them mixes two: [`connect`] is the one host that
- * pie holds, [`session`] is one session of pi (its reads, the switch between its
+ * One file per area, and none of them mixes two: [`composer`] says what the
+ * person wants a session to do, [`connect`] is the one host that pie holds,
+ * [`session`] is one session of pi (its reads, the switch between its
  * conversations, the sessions of the host, and what it says while it runs),
  * [`open`] / [`pick`] / [`platform`] carry one command each, and [`error`] /
  * [`invoke`] are the machinery of this layer itself. Import from this file.
@@ -17,6 +18,7 @@
  * made here too — Rust is the authority and the mirror follows it.
  */
 
+export * from "./composer";
 export * from "./connect";
 export * from "./error";
 export * from "./invoke";

@@ -57,4 +57,15 @@ describe("EntryRenderer", () => {
         expect(screen.getByText("[compaction]")).toBeInTheDocument();
         expect(screen.getByText("and after the compaction")).toBeInTheDocument();
     });
+
+    it("draws a message that waits, with the queue it waits in", () => {
+        render(
+            <EntryRenderer
+                row={{ kind: "queued", id: "queued-steer-0", text: "run the tests first", queue: "steer" }}
+            />,
+        );
+
+        expect(screen.getByText("run the tests first")).toBeInTheDocument();
+        expect(screen.getByText("queued · steer")).toBeInTheDocument();
+    });
 });

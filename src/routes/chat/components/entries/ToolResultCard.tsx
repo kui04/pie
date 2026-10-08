@@ -14,6 +14,8 @@ export interface ToolResultCardProps {
     id: string;
     /** The call and its result, already read into the shape a card shows. */
     presentation: ToolPresentation;
+    /** Placement of this card, for a caller that gives it its own frame. */
+    className?: string;
 }
 
 /**
@@ -27,7 +29,7 @@ const CLOSED_LINES = { log: 5, file: 3, diff: 3, none: 0 } as const;
  * whole of it. A diff or a file holds its numbers and marks still while the text
  * scrolls sideways.
  */
-export function ToolResultCard({ id, presentation }: ToolResultCardProps) {
+export function ToolResultCard({ id, presentation, className }: ToolResultCardProps) {
     const { title, detail, tone, status, body, notes } = presentation;
     const [open, setOpen] = useState(false);
     const still = useReducedMotion();
@@ -98,7 +100,12 @@ export function ToolResultCard({ id, presentation }: ToolResultCardProps) {
     );
 
     return (
-        <Collapsible id={id} open={open} onOpenChange={setOpen} className="bg-card overflow-hidden rounded-md">
+        <Collapsible
+            id={id}
+            open={open}
+            onOpenChange={setOpen}
+            className={cn("bg-card overflow-hidden rounded-md", className)}
+        >
             {expandable ? (
                 <CollapsibleTrigger asChild>
                     <button

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,7 @@ const bridge = vi.hoisted(() => ({
     getSessionStats: vi.fn<Call>(),
     listSessions: vi.fn<Call>(),
     switchSession: vi.fn<Call>(),
+    clearQueue: vi.fn<Call>(),
     onSessionEvent: vi.fn<ListenEvent>(),
     onSessionState: vi.fn<ListenState>(),
 }));
@@ -103,6 +104,7 @@ beforeEach(() => {
     bridge.getSessionStats.mockResolvedValue(sessionStats());
     bridge.getEntries.mockResolvedValue({ entries: [], leafId: null });
     bridge.listSessions.mockResolvedValue([]);
+    bridge.clearQueue.mockResolvedValue({ steering: [], followUp: [] });
 });
 
 describe("ChatScreen", () => {
@@ -258,6 +260,27 @@ describe("ChatScreen", () => {
         // it: the retry has to ask the hook for the listeners of this session.
         await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalledTimes(2));
         expect(await screen.findByText("hello again")).toBeInTheDocument();
+    });
+
+    it("keeps a queued prompt in the thread, and drops the queue when it is retracted", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries());
+        bridge.clearQueue.mockResolvedValue({ steering: ["run the tests first"], followUp: [] });
+
+        renderScreen();
+        // Wait for the session to be open first: opening one clears the store it reads
+        // through, and the queue of a session arrives after that.
+        await screen.findByText("Nothing has been said yet.");
+        act(() => useTranscriptStore.getState().setQueue({ steering: ["run the tests first"], followUp: [] }));
+
+        // A queued prompt is a row of the thread, below what was said.
+        expect(await screen.findByText("run the tests first")).toBeInTheDocument();
+        expect(screen.getByText("queued · steer")).toBeInTheDocument();
+
+        fireEvent.contextMenu(screen.getByText("run the tests first"));
+        fireEvent.click(await screen.findByText("Retract queued message"));
+
+        await waitFor(() => expect(bridge.clearQueue).toHaveBeenCalledWith("main:1"));
     });
 
     it("moves the session to the conversation that was picked, and reads it again", async () => {

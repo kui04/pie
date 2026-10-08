@@ -105,6 +105,22 @@ export function presentExecution(message: BashExecutionMessage): ToolPresentatio
     };
 }
 
+/**
+ * A shell command that runs right now, as far as pi streamed it: the same card as a
+ * recorded run ([`presentExecution`]), with the state that runs its clock. Pi has
+ * not ended the command, so it has no exit code yet.
+ */
+export function presentRunningExecution(run: { command: string; output: string }): ToolPresentation {
+    return {
+        title: "$",
+        detail: run.command,
+        tone: "user-run",
+        status: "running",
+        body: { kind: "log", lines: linesOf(displayText(run.output)) },
+        notes: [],
+    };
+}
+
 /** The body of a tool this build does not know: what it answered, or nothing. */
 function genericBody(lines: string[]): ToolBody {
     return lines.length === 0 ? { kind: "none" } : { kind: "log", lines };

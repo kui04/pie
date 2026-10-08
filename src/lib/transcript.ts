@@ -89,6 +89,14 @@ export type TranscriptRow =
       }
     | { kind: "bash"; id: string; message: BashExecutionMessage }
     | {
+          kind: "queued";
+          id: string;
+          /** The words of the message that waits. */
+          text: string;
+          /** The queue it waits in. */
+          queue: "steer" | "followUp";
+      }
+    | {
           kind: "notice";
           id: string;
           /** The bracketed word the header leads with, e.g. `[compaction]`. */
@@ -151,6 +159,31 @@ export function transcriptRows(store: TranscriptEntries, leafId: string | null):
     }
 
     return rows;
+}
+
+/**
+ * The rows of the messages that pi holds, in the order they were queued: steering
+ * first, then follow-ups, which is the order pi drains them.
+ *
+ * A queued prompt is a transcript row - the chat page hangs it below the working
+ * row - so it lives in the same fold as the entries. It is the last thing the
+ * reader said, and it scrolls with the thread.
+ */
+export function queuedRows(queued: { steering: readonly string[]; followUp: readonly string[] }): TranscriptRow[] {
+    return [
+        ...queued.steering.map((text, index) => ({
+            kind: "queued" as const,
+            id: `queued-steer-${index}`,
+            text,
+            queue: "steer" as const,
+        })),
+        ...queued.followUp.map((text, index) => ({
+            kind: "queued" as const,
+            id: `queued-follow-${index}`,
+            text,
+            queue: "followUp" as const,
+        })),
+    ];
 }
 
 /** A notice: the label, its first line, and the whole text when it has more. */

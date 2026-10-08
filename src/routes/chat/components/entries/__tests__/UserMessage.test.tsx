@@ -64,4 +64,30 @@ describe("UserMessage", () => {
         fireEvent.contextMenu(screen.getByRole("img"));
         expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
     });
+
+    it("marks a message that waits, and offers its retract in the menu", async () => {
+        const retract = vi.fn();
+        render(
+            <UserMessage id="q1" message={asUser(userMessage("waiting words"))} queued="steer" onRetract={retract} />,
+        );
+
+        expect(screen.getByText("queued · steer")).toBeInTheDocument();
+        fireEvent.contextMenu(screen.getByText("waiting words"));
+        await userEvent.click(await screen.findByText("Retract queued message"));
+
+        expect(retract).toHaveBeenCalledTimes(1);
+    });
+
+    it("names the other queue under the bubble", () => {
+        render(
+            <UserMessage
+                id="q2"
+                message={asUser(userMessage("waiting words"))}
+                queued="followUp"
+                onRetract={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByText("queued · follow-up")).toBeInTheDocument();
+    });
 });

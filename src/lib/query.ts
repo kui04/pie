@@ -71,6 +71,30 @@ export const sessionQueries = {
             queryFn: () => bridge.getSessionStats(session),
             retry: false,
         }),
+
+    /** The commands that a prompt of this session can invoke, for the command menu. */
+    commands: (session: string) =>
+        queryOptions({
+            queryKey: ["session", session, "commands"] as const,
+            queryFn: () => bridge.getCommands(session),
+            retry: false,
+        }),
+
+    /** The models this session can use. */
+    models: (session: string) =>
+        queryOptions({
+            queryKey: ["session", session, "models"] as const,
+            queryFn: () => bridge.getAvailableModels(session),
+            retry: false,
+        }),
+
+    /** The thinking levels this session accepts. */
+    thinkingLevels: (session: string) =>
+        queryOptions({
+            queryKey: ["session", session, "thinkingLevels"] as const,
+            queryFn: () => bridge.getAvailableThinkingLevels(session),
+            retry: false,
+        }),
 };
 
 /**

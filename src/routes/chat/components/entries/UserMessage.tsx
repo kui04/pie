@@ -1,4 +1,4 @@
-import { Copy } from "lucide-react";
+import { Clock, Copy, Undo2 } from "lucide-react";
 import { cn } from "cn";
 import { toast } from "sonner";
 import { Markdown } from "@/components/Markdown";
@@ -11,6 +11,16 @@ export interface UserMessageProps {
     /** The entry this card draws, as the base of its ids. */
     id: string;
     message: UserMessageData;
+    /**
+     * The queue this message waits in. Only a message that pi has not run has this:
+     * the bubble dims, and it says where it waits.
+     */
+    queued?: "steer" | "followUp";
+    /**
+     * Drops the queue that this message waits in. Pi has no way to take back one
+     * message, so this drops them all (G7 of the plan).
+     */
+    onRetract?: () => void;
 }
 
 /**
@@ -19,7 +29,7 @@ export interface UserMessageProps {
  * (a right-click, or the long press a touch screen turns into one), not a key in a
  * corner of the reader's own words.
  */
-export function UserMessage({ id, message }: UserMessageProps) {
+export function UserMessage({ id, message, queued, onRetract }: UserMessageProps) {
     const images = imagesOf(message);
     const text = messageText(message.content);
     // A pill is for a short line: a long one has no line to be a pill around.
@@ -40,8 +50,11 @@ export function UserMessage({ id, message }: UserMessageProps) {
             tabIndex={0}
             aria-label="Your message"
             className={cn(
-                "bg-primary text-primary-foreground focus-visible:ring-ring max-w-[85%] min-w-0 space-y-2 break-words outline-none focus-visible:ring-2",
+                "bg-primary text-primary-foreground focus-visible:ring-ring max-w-[80%] min-w-0 space-y-2 break-words outline-none focus-visible:ring-2",
                 oneLine ? "rounded-full px-4 py-2" : "rounded-xl p-3",
+                // A message that waits is not in the conversation yet: it reads as
+                // quieter than the words around it.
+                queued !== undefined && "opacity-60",
             )}
         >
             {images.map((image, index) => (
@@ -66,7 +79,9 @@ export function UserMessage({ id, message }: UserMessageProps) {
     );
 
     return (
-        <div className="flex justify-end">
+        // `relative` holds the caption, which hangs below the bubble's own box; the
+        // room under it (24px, the design's space-xl) is what keeps the next row clear.
+        <div className={cn("relative flex flex-col items-end", queued !== undefined && "pb-6")}>
             {text === "" ? (
                 bubble
             ) : (
@@ -81,8 +96,20 @@ export function UserMessage({ id, message }: UserMessageProps) {
                             <Copy className="size-4" />
                             Copy
                         </ContextMenuItem>
+                        {queued !== undefined && onRetract !== undefined && (
+                            <ContextMenuItem onSelect={onRetract}>
+                                <Undo2 className="size-4" />
+                                Retract queued message
+                            </ContextMenuItem>
+                        )}
                     </ContextMenuContent>
                 </ContextMenu>
+            )}
+            {queued !== undefined && (
+                <p className="text-body-md text-muted-foreground absolute top-full right-0 mt-1 flex items-center gap-1">
+                    <Clock className="size-4 shrink-0" aria-hidden />
+                    queued · {queued === "steer" ? "steer" : "follow-up"}
+                </p>
             )}
         </div>
     );

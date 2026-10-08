@@ -9,10 +9,11 @@
 //! aggregates these errors. It does not decide their meaning. The rules of the
 //! boundary are in `.agents/rules/architecture.md`.
 //!
-//! One file for each area of the product: [`connect`] opens, reads and closes
-//! the one host, [`files`] reads what is on it, [`keys`] asks the person for a
-//! private key, [`open`] hands a link to the machine, [`pipe`] forwards what pi
-//! says about a session, [`platform`]
+//! One file for each area of the product: [`composer`] sends what the person
+//! says to a session and reads what its pi can do, [`connect`] opens, reads and
+//! closes the one host, [`files`] reads what is on it, [`keys`] asks the person
+//! for a private key, [`open`] hands a link to the machine, [`pipe`] forwards
+//! what pi says about a session, [`platform`]
 //! says which kind of machine this is, [`session`] reads what a session of pi
 //! holds and moves it to another conversation, and [`state`] holds what they
 //! share.
@@ -27,6 +28,7 @@
 //! frontend names the connection that it opens (`connect` takes that name) and
 //! listens on `pi://connection/{id}/state` before it calls.
 
+pub mod composer;
 pub mod connect;
 mod error;
 pub mod files;

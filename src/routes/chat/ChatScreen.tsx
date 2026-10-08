@@ -5,10 +5,11 @@
  * opened it: a reload of the webview finds the same connection here.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Window } from "@/components/Window";
@@ -18,8 +19,9 @@ import { useSession } from "@/hooks/use-session";
 import { reasonFor } from "@/lib/failure-text";
 import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN } from "@/lib/motion";
 import * as bridge from "@/lib/bridge";
-import { transcriptRows } from "@/lib/transcript";
+import { queuedRows, transcriptRows } from "@/lib/transcript";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
+import { Composer } from "@/routes/chat/components/composer/Composer";
 import { SessionDrawer } from "@/routes/chat/components/session/SessionDrawer";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
 import { SessionSheet } from "@/routes/chat/components/session/SessionSheet";
@@ -44,6 +46,10 @@ export function ChatScreen() {
     }
     return (
         <Session
+            // Another session is another screen: the run state of a session, its queue
+            // and its live command are per-session state, and a remount is what gives
+            // them to it (`useSession`).
+            key={session}
             session={session}
             cwd={connection.data?.sessions[0]?.cwd ?? null}
             endpoint={connection.data?.endpoint ?? "local"}
@@ -55,7 +61,7 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const wide = useWideWindow();
     const still = useReducedMotion();
     const client = useQueryClient();
-    const { state, snapshot, stats, listening, error, reopen, switchTo, switching } = useSession(session);
+    const { machine, state, snapshot, stats, listening, error, reopen, switchTo, switching } = useSession(session);
     // The failure may be the subscription itself, which no cache holds.
     const retry = () => {
         reopen();
@@ -65,11 +71,25 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const entries = useTranscriptStore((state) => state.entries);
     const order = useTranscriptStore((state) => state.order);
     const leafId = useTranscriptStore((state) => state.leafId);
+    const queued = useTranscriptStore((state) => state.queued);
 
     // The fold runs when the entries change, which is once per event and once per
     // read: the store copies its map on every append, so the map's identity is the
-    // event's, and a render that changed nothing else pays for neither.
-    const rows = useMemo(() => transcriptRows({ entries, order }, leafId), [entries, order, leafId]);
+    // event's, and a render that changed nothing else pays for neither. The messages
+    // that wait are rows of the same thread: the page hangs them below the working
+    // row, and they scroll with it.
+    const rows = useMemo(
+        () => [...transcriptRows({ entries, order }, leafId), ...queuedRows(queued)],
+        [entries, order, leafId, queued],
+    );
+
+    // The composer band covers the foot of the stage. The pane measures it and the
+    // transcript pads itself by that height, so no row hides behind the card (the
+    // design's `_ComposerBand`). The first frame has no measurement yet; nine rem is
+    // the design's own stand-in.
+    const band = useRef<HTMLDivElement>(null);
+    const [clearance, setClearance] = useState(9 * 16);
+    const composerOn = listening && error === null && !switching;
 
     // Two kinds of failure reach this screen: the listeners never opened, which the
     // hook reports, and a read, which the query holds. They are read in that order.
@@ -80,7 +100,35 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const [sheet, setSheet] = useState(false);
     const [column, setColumn] = useState(true);
     const currentSessionId = state.data?.sessionId ?? null;
-    const working = state.data?.isStreaming ?? false;
+    // The run state comes from the session machine, not from the state read: a read
+    // is a round trip behind, and the composer answers a key with it.
+    const working = useSelector(machine, (snapshot) => snapshot.matches("working"));
+
+    useEffect(() => {
+        const element = band.current;
+        // A pane in a test environment lays nothing out and has no observer; the
+        // stand-in of the first frame stays, which is the design's own fallback.
+        if (!element || typeof ResizeObserver === "undefined") return;
+        const measure = () => {
+            const height = element.getBoundingClientRect().height;
+            if (height > 0) setClearance(height);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [composerOn]);
+
+    /** Drops every queued message, and says how many went: pi cannot take back one. */
+    function retractQueue() {
+        void bridge
+            .clearQueue(session)
+            .then((dropped) => {
+                const count = dropped.steering.length + dropped.followUp.length;
+                toast(count === 1 ? "The queued message was dropped." : `${count} queued messages were dropped.`);
+            })
+            .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
+    }
 
     /**
      * Continues the conversation of the row that was chosen.
@@ -131,7 +179,7 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
             <p className="text-body-md text-muted-foreground m-auto px-6 text-center">Nothing has been said yet.</p>
         );
     } else {
-        content = <TranscriptList rows={rows} />;
+        content = <TranscriptList rows={rows} clearance={clearance} onRetractQueued={retractQueue} />;
     }
 
     return (
@@ -168,8 +216,22 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                         onToggleSessions={toggleSessions}
                     />
                 }
+                // The band is placed against the foot of the body, so the body is what
+                // it is positioned in.
+                bodyClassName="relative"
             >
                 {content}
+                {composerOn && (
+                    // The composer covers the foot of the chat. The transcript keeps room
+                    // for its whole height (measured above), so no row hides behind it.
+                    <div
+                        id="composer-band"
+                        ref={band}
+                        className="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[64rem] p-2 min-[840px]:px-4"
+                    >
+                        <Composer session={session} machine={machine} />
+                    </div>
+                )}
             </Window>
             <SessionSheet id="session-sheet" open={sheet} onOpenChange={setSheet}>
                 <SessionDrawer id="session-sheet-drawer" {...drawerProps} className="h-full" />

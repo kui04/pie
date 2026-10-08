@@ -70,14 +70,31 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
     );
 }
 
+/**
+ * The bare input of cmdk, for a panel that draws its own search row.
+ *
+ * `CommandInput` above is the whole row (a field of its own around the input). A
+ * design that names the row itself takes this one and wraps it; cmdk still reads
+ * what was typed, so its filter stays the filter of the list.
+ */
+function CommandInputRaw({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Input>) {
+    return (
+        <CommandPrimitive.Input
+            data-slot="command-input-raw"
+            className={cn(
+                "text-body-md placeholder:text-outline w-full bg-transparent outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
+                className,
+            )}
+            {...props}
+        />
+    );
+}
+
 function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
     return (
         <CommandPrimitive.List
             data-slot="command-list"
-            className={cn(
-                "no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
-                className,
-            )}
+            className={cn("max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none", className)}
             {...props}
         />
     );
@@ -148,11 +165,12 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
 export {
     Command,
     CommandDialog,
-    CommandInput,
-    CommandList,
     CommandEmpty,
     CommandGroup,
+    CommandInput,
+    CommandInputRaw,
     CommandItem,
-    CommandShortcut,
+    CommandList,
     CommandSeparator,
+    CommandShortcut,
 };

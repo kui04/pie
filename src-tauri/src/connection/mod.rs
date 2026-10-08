@@ -31,7 +31,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::PieError;
 use crate::pi_rpc::Client;
-use crate::pi_rpc::protocol::{Command, CommandKind, EntriesData, SessionState, SessionStats, SwitchSessionData};
+use crate::pi_rpc::protocol::{
+    AvailableModelsData, AvailableThinkingLevelsData, BashResult, ClearQueueData, Command, CommandKind, CommandsData,
+    CompactionResult, EntriesData, ImageContent, LastAssistantTextData, Model, ModelThinkingLevel, PromptData,
+    SessionState, SessionStats, StreamingBehavior, SwitchSessionData,
+};
 use crate::pi_rpc::transport::{
     ExecOutput, HostKey, LocalTransport, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
 };
@@ -192,7 +196,10 @@ impl Media {
 }
 
 /// One `pi --mode rpc` process and the client that speaks to it.
-#[derive(Debug)]
+///
+/// A clone is another handle to the same process: the id, the directory and the
+/// client inside are all values a second hand can hold.
+#[derive(Debug, Clone)]
 pub struct Session {
     id: String,
     /// The start of pi, if pie selected it. `None` means the directory of the
@@ -618,6 +625,214 @@ impl Session {
             id: self.id.clone(),
             cwd: self.cwd.clone(),
         }
+    }
+
+    /// Sends a message to this session: it starts a run when nothing streams, and
+    /// when a run streams, `behavior` says how the message joins it.
+    ///
+    /// `images` are the pictures that the person attached to the message. Pi
+    /// processes them itself (it resizes them and converts what it can), so pie
+    /// passes them through as they were picked.
+    ///
+    /// Pi decides which of the two happened, and its answer says which it was:
+    /// `disposition` is `started` for a run that began, `queued` for a message that
+    /// waits in the queue, and `handled` for one that a command of an extension
+    /// took without a run. A `behavior` while nothing streams is ignored, and the
+    /// message starts a run (the `prompt` method of `core/agent-session.ts`).
+    /// Therefore the frontend does not have to be right about the stream: it names
+    /// the key that the person pressed.
+    ///
+    /// Pi refuses a prompt while a compaction runs, and one without a model or
+    /// credentials. A refusal arrives as `Error::Rpc` with pi's own message.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including the refusals above.
+    pub async fn prompt(
+        &self,
+        message: &str,
+        images: Option<Vec<ImageContent>>,
+        behavior: Option<StreamingBehavior>,
+    ) -> Result<PromptData, PieError> {
+        self.ask(Command::new(CommandKind::Prompt {
+            message: message.to_string(),
+            images,
+            streaming_behavior: behavior,
+        }))
+        .await
+    }
+
+    /// Stops the run of this session, and a compaction or branch summary in
+    /// progress with it.
+    ///
+    /// The answer arrives when the session is idle: pi waits for that (`abort` of
+    /// `core/agent-session.ts`). The events that report the end of the run are
+    /// therefore on their way when this returns. An abort with nothing to stop is
+    /// not a failure.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn abort(&self) -> Result<(), PieError> {
+        self.act(Command::new(CommandKind::Abort)).await
+    }
+
+    /// Drops every queued message of this session and answers which ones they were.
+    ///
+    /// The protocol has no way to take back one message (G7 of the plan): this drops
+    /// the steering queue and the follow-up queue together. The two lists of the
+    /// answer let a screen say what went.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn clear_queue(&self) -> Result<ClearQueueData, PieError> {
+        self.ask(Command::new(CommandKind::ClearQueue)).await
+    }
+
+    /// Runs a shell command on the host of pi, in the directory of this session.
+    ///
+    /// The command runs through pi, so its result can enter the transcript like the
+    /// result of a tool. While it runs, `bash_execution_update` events stream what it
+    /// prints; [`Session::abort_bash`] stops it. `exclude_from_context` keeps the
+    /// command and its output out of the context of the model (the `!!` form of the
+    /// composer).
+    ///
+    /// The wait has no limit and needs none: `abort_bash` is the handle for a command
+    /// that does not end, and the failure of the protocol reports a pi that went away.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn bash(&self, command: &str, exclude_from_context: bool) -> Result<BashResult, PieError> {
+        self.ask(Command::new(CommandKind::Bash {
+            command: command.to_string(),
+            exclude_from_context: Some(exclude_from_context),
+        }))
+        .await
+    }
+
+    /// Stops the shell command of this session, if one runs.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn abort_bash(&self) -> Result<(), PieError> {
+        self.act(Command::new(CommandKind::AbortBash)).await
+    }
+
+    /// The commands that a prompt of this session can invoke.
+    ///
+    /// Pi answers the commands of its extensions, its prompt templates and its skills.
+    /// Its own commands are not in this list: the client answers those itself
+    /// (`BUILTIN_SLASH_COMMANDS` of `core/slash-commands.ts`).
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn commands(&self) -> Result<CommandsData, PieError> {
+        self.ask(Command::new(CommandKind::GetCommands)).await
+    }
+
+    /// The models that this session can use.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn available_models(&self) -> Result<AvailableModelsData, PieError> {
+        self.ask(Command::new(CommandKind::GetAvailableModels)).await
+    }
+
+    /// The thinking levels that this session accepts.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn available_thinking_levels(&self) -> Result<AvailableThinkingLevelsData, PieError> {
+        self.ask(Command::new(CommandKind::GetAvailableThinkingLevels)).await
+    }
+
+    /// Selects the model of this session and answers the one that is now active.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including a model that pi does not know.
+    pub async fn set_model(&self, provider: &str, model_id: &str) -> Result<Model, PieError> {
+        self.ask(Command::new(CommandKind::SetModel {
+            provider: provider.to_string(),
+            model_id: model_id.to_string(),
+        }))
+        .await
+    }
+
+    /// Sets the thinking level of this session.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including a level that the session does not support.
+    pub async fn set_thinking_level(&self, level: ModelThinkingLevel) -> Result<(), PieError> {
+        self.act(Command::new(CommandKind::SetThinkingLevel { level })).await
+    }
+
+    /// Turns automatic compaction of this session on or off.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn set_auto_compaction(&self, enabled: bool) -> Result<(), PieError> {
+        self.act(Command::new(CommandKind::SetAutoCompaction { enabled })).await
+    }
+
+    /// Compacts the conversation of this session into a summary, now.
+    ///
+    /// `custom_instructions` steers the summary. The answer arrives when pi has
+    /// written it, and [`Session::abort`] stops it. Compaction reports itself on the
+    /// event channel (`compaction_start`, `compaction_end`), so the transcript hears of
+    /// it whether or not this call is the one that asked.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including a compaction that already runs.
+    pub async fn compact(&self, custom_instructions: Option<&str>) -> Result<CompactionResult, PieError> {
+        self.ask(Command::new(CommandKind::Compact {
+            custom_instructions: custom_instructions.map(str::to_string),
+        }))
+        .await
+    }
+
+    /// The text of the last assistant message of this session.
+    ///
+    /// Pi answers no `text` when the session has no assistant message.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn last_assistant_text(&self) -> Result<LastAssistantTextData, PieError> {
+        self.ask(Command::new(CommandKind::GetLastAssistantText)).await
+    }
+
+    /// Names this session.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including an empty name, which pi refuses.
+    pub async fn set_session_name(&self, name: &str) -> Result<(), PieError> {
+        self.act(Command::new(CommandKind::SetSessionName { name: name.to_string() }))
+            .await
+    }
+
+    /// Sends one command whose answer carries nothing and waits for it.
+    ///
+    /// The failure of pi arrives here the same way as the failure of a read:
+    /// [`Response::into_result`] turns a refusal into `Error::Rpc` with pi's own
+    /// message.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    async fn act(&self, command: Command) -> Result<(), PieError> {
+        self.client.request(command).await?.into_result()?;
+        Ok(())
     }
 }
 

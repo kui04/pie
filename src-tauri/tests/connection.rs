@@ -27,7 +27,8 @@ use pie_lib::connection::{
 use pie_lib::error::PieError;
 use pie_lib::pi_rpc::Error as ProtocolError;
 use pie_lib::pi_rpc::protocol::{
-    AgentMessage, Command, CommandKind, EntriesData, SessionEntry, SessionState, UserContent, UserContentPart,
+    AgentMessage, Command, CommandKind, EntriesData, ModelThinkingLevel, SessionEntry, SessionState, UserContent,
+    UserContentPart,
 };
 
 /// An asker for tests. It answers with a fixed verdict. It panics if pie asks
@@ -799,5 +800,164 @@ async fn a_switch_to_a_file_that_is_not_a_session_is_refused_and_leaves_it_be() 
         session.state().await.expect("the state is readable").session_id,
         before.session_id,
         "a refused switch leaves the session where it was"
+    );
+}
+
+/// The queue of one session, and the one way that the composer can take a message
+/// back.
+///
+/// The protocol keeps a steering queue and a follow-up queue, reports both whole on
+/// every change (`queue_update`), and drops both of them together (`clear_queue`):
+/// there is no way to take back a single message (G7 of the plan). The queue does not
+/// need a run for this: `steer` and `follow_up` queue whether or not a run streams,
+/// and `prompt` is the command that decides between a run and a queue.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn the_queue_holds_what_was_queued_and_clear_queue_answers_it() {
+    let home = TempDir::new().expect("a temp directory");
+    let options = ConnectOptions {
+        home: Some(home.path().to_path_buf()),
+        host_key: Arc::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+        session_number: 1,
+    };
+    let connection = Connection::connect("queue-test", &ConnectSpec::Local, &options)
+        .await
+        .expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let session = &connection.sessions()[0];
+
+    session
+        .client()
+        .request(Command::new(CommandKind::Steer {
+            message: "a steering message".to_string(),
+            images: None,
+        }))
+        .await
+        .expect("pi takes a steering message");
+    session
+        .client()
+        .request(Command::new(CommandKind::FollowUp {
+            message: "a follow-up message".to_string(),
+            images: None,
+        }))
+        .await
+        .expect("pi takes a follow-up message");
+
+    let waiting = session.state().await.expect("the state of the session");
+    assert_eq!(waiting.pending_message_count, 2, "pi counts both queues");
+    assert!(!waiting.is_streaming, "the queue does not need a run");
+
+    let cleared = session.clear_queue().await.expect("pi clears the queue");
+    assert_eq!(cleared.steering, vec!["a steering message".to_string()]);
+    assert_eq!(cleared.follow_up, vec!["a follow-up message".to_string()]);
+
+    let again = session.clear_queue().await.expect("an empty queue clears too");
+    assert!(again.steering.is_empty() && again.follow_up.is_empty());
+    assert_eq!(
+        session
+            .state()
+            .await
+            .expect("the state after the clear")
+            .pending_message_count,
+        0
+    );
+    session
+        .abort()
+        .await
+        .expect("an abort with nothing to stop is not a failure");
+}
+
+/// The reads of the composer, the name of a session, and a shell command of the
+/// reader's own.
+///
+/// No model answer is needed for any of this: the reads come from the memory of pi,
+/// and `bash` is a shell of pi's own. The prompt that reaches a model is held by
+/// [`the_reads_answer_about_the_session_that_was_named`].
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn the_composer_reads_answer_and_a_shell_command_enters_the_transcript() {
+    let home = TempDir::new().expect("a temp directory");
+    let options = ConnectOptions {
+        home: Some(home.path().to_path_buf()),
+        host_key: Arc::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+        session_number: 1,
+    };
+    let connection = Connection::connect("composer-test", &ConnectSpec::Local, &options)
+        .await
+        .expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let session = &connection.sessions()[0];
+
+    // A host may have no provider configured, so the lists may be empty. What this
+    // holds is that each read answers.
+    let commands = session.commands().await.expect("the commands of a session");
+    let models = session.available_models().await.expect("the models of a session");
+    let levels = session.available_thinking_levels().await.expect("the thinking levels");
+    assert!(
+        levels.levels.contains(&ModelThinkingLevel::Off),
+        "every session can turn its reasoning off, got {:?}",
+        levels.levels
+    );
+    let _ = (commands.commands.len(), models.models.len());
+    assert_eq!(
+        session.last_assistant_text().await.expect("the last answer").text,
+        None,
+        "a session that said nothing has no last answer"
+    );
+
+    let named = "composer test session";
+    session.set_session_name(named).await.expect("pi takes a name");
+    assert_eq!(
+        session
+            .state()
+            .await
+            .expect("the state after the rename")
+            .session_name
+            .as_deref(),
+        Some(named)
+    );
+
+    let command = "printf 'hello from the composer'";
+    let ran = session.bash(command, true).await.expect("pi runs a shell command");
+    assert_eq!(ran.output, "hello from the composer");
+    assert_eq!(ran.exit_code, Some(0));
+    assert!(!ran.truncated && !ran.cancelled);
+    session
+        .abort_bash()
+        .await
+        .expect("an abort with no command running is not a failure");
+
+    // The command is in the transcript as the message pi records it. Both paths of
+    // the composer meet here: `entry_appended` carries it while the session is
+    // open, and the snapshot of `get_entries` holds it after.
+    let entries = session.entries().await.expect("the entries after the command");
+    let recorded = entries.entries.iter().any(|entry| {
+        matches!(
+            entry,
+            SessionEntry::Message(message)
+                if matches!(&message.message, AgentMessage::BashExecution(ran)
+                    if ran.command == command && ran.exclude_from_context == Some(true))
+        )
+    });
+    assert!(recorded, "the shell command is an entry of the session");
+
+    session.set_auto_compaction(true).await.expect("pi takes the switch");
+    assert!(
+        session
+            .state()
+            .await
+            .expect("the state after the switch")
+            .auto_compaction_enabled,
+        "the switch is readable in the state"
     );
 }

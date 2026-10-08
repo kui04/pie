@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { EntriesData, SessionEntry } from "@/lib/protocol";
 import { contextEntries, sessionPath, type TranscriptEntries } from "@/lib/transcript";
 import { useTranscriptStore } from "@/stores/transcript.store";
+import { bashExecution, chain, messageEntry } from "@/preview/fixtures";
 
 const AT = "2026-10-05T00:00:00.000Z";
 
@@ -235,12 +236,83 @@ describe("the transcript store", () => {
         expect(useTranscriptStore.getState().order).toEqual(["a"]);
     });
 
-    it("forgets everything when it is cleared", () => {
+    it("forgets the entries, the queue and the running command when it is cleared", () => {
         useTranscriptStore.getState().hydrate({ entries: [userMessage("a", null)], leafId: "a" });
+        useTranscriptStore.getState().setQueue({ steering: ["one"], followUp: ["two"] });
+        useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: false });
 
         useTranscriptStore.getState().clear();
 
-        expect(useTranscriptStore.getState().order).toEqual([]);
-        expect(useTranscriptStore.getState().leafId).toBeNull();
+        const state = useTranscriptStore.getState();
+        expect(state.order).toEqual([]);
+        expect(state.leafId).toBeNull();
+        expect(state.queued).toEqual({ steering: [], followUp: [] });
+        expect(state.runningBash).toBeNull();
+    });
+
+    it("replaces the queued messages whole, as pi reports them", () => {
+        useTranscriptStore.getState().setQueue({ steering: ["one", "two"], followUp: ["three"] });
+        expect(useTranscriptStore.getState().queued).toEqual({ steering: ["one", "two"], followUp: ["three"] });
+
+        useTranscriptStore.getState().setQueue({ steering: [], followUp: [] });
+        expect(useTranscriptStore.getState().queued).toEqual({ steering: [], followUp: [] });
+    });
+
+    it("copies the queue it was given", () => {
+        // The payload belongs to the event that carried it; a later event must not
+        // reach into what the store holds.
+        const steering = ["one"];
+
+        useTranscriptStore.getState().setQueue({ steering, followUp: [] });
+        steering.push("two");
+
+        expect(useTranscriptStore.getState().queued.steering).toEqual(["one"]);
+    });
+
+    it("gathers the output of the shell command that runs", () => {
+        useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: false });
+        useTranscriptStore.getState().appendBash("one\n");
+        useTranscriptStore.getState().appendBash("two\n");
+
+        expect(useTranscriptStore.getState().runningBash).toEqual({
+            command: "ls",
+            output: "one\ntwo\n",
+            excludeFromContext: false,
+        });
+    });
+
+    it("ignores output that arrives without a command that runs", () => {
+        // Pi can write a delta that this side reads after the command ended.
+        useTranscriptStore.getState().appendBash("late");
+
+        expect(useTranscriptStore.getState().runningBash).toBeNull();
+    });
+
+    it("drops the live row when pi recorded the command", () => {
+        useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: true });
+
+        useTranscriptStore.getState().finishBash();
+
+        expect(useTranscriptStore.getState().runningBash).toBeNull();
+    });
+
+    it("takes the live card down with the entry of its run", () => {
+        // Pi defers the entry while a run streams; the card stands above the composer
+        // until the record it belongs to arrives, and then the record supersedes it.
+        useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: false });
+
+        const [entry] = chain(messageEntry(bashExecution("ls", "one\n")));
+        useTranscriptStore.getState().appendEntry(entry);
+
+        expect(useTranscriptStore.getState().runningBash).toBeNull();
+    });
+
+    it("keeps the live card when another command's entry arrives", () => {
+        useTranscriptStore.getState().startBash({ command: "sleep 60", excludeFromContext: false });
+
+        const [entry] = chain(messageEntry(bashExecution("ls", "one\n")));
+        useTranscriptStore.getState().appendEntry(entry);
+
+        expect(useTranscriptStore.getState().runningBash).toMatchObject({ command: "sleep 60" });
     });
 });

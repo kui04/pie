@@ -11,8 +11,12 @@ import type {
     AgentMessage,
     AssistantMessage,
     BashExecutionMessage,
+    Model,
     SessionEntry,
+    SessionState,
     SessionStats,
+    SlashCommand,
+    SlashCommandSource,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -66,6 +70,23 @@ export const sessionStats = (overrides: Partial<SessionStats> = {}): SessionStat
     ...overrides,
 });
 
+/** The state of a session, as `get_state` reports it. */
+export const sessionState = (overrides: Partial<SessionState> = {}): SessionState => ({
+    model: model(),
+    thinkingLevel: "medium",
+    isStreaming: false,
+    isCompacting: false,
+    steeringMode: "all",
+    followUpMode: "all",
+    sessionFile: "/home/kui/.pi/agent/sessions/pie.jsonl",
+    sessionId: "0193f0c4-0000-7000-8000-000000000000",
+    sessionName: "Fix the parser",
+    autoCompactionEnabled: false,
+    messageCount: 12,
+    pendingMessageCount: 0,
+    ...overrides,
+});
+
 /** Which row a fixture is, so that two of them never answer to one id. */
 let rows = 0;
 
@@ -82,6 +103,39 @@ export function sessionSummary(overrides: Partial<SessionSummary> = {}): Session
         modified: AT,
         firstMessage: "Make the parser skip empty lines, and run the tests.",
         ...overrides,
+    };
+}
+
+/** One model of `get_available_models`, as pi reports it. */
+export function model(overrides: Partial<Model> = {}): Model {
+    return {
+        id: "claude-sonnet-4-5",
+        name: "Claude Sonnet 4.5",
+        api: "anthropic-messages",
+        provider: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        input: ["text", "image"],
+        cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+        reasoning: true,
+        contextWindow: 200_000,
+        maxTokens: 64_000,
+        ...overrides,
+    };
+}
+
+/** One command of `get_commands`, as pi reports it. */
+export function slashCommand(name: string, description: string | null, source: SlashCommandSource): SlashCommand {
+    return {
+        name,
+        description,
+        source,
+        sourceInfo: {
+            path: `/home/pie/.pi/${source}s/${name}.md`,
+            source: source === "extension" ? "npm:pi-review" : source === "prompt" ? "top-level" : "~/work/pie",
+            scope: "user",
+            origin: source === "extension" ? "package" : "top-level",
+            baseDir: null,
+        },
     };
 }
 

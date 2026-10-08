@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolResultMessage } from "@/lib/protocol";
-import { presentCall, presentExecution } from "@/routes/chat/components/toolPresentation";
+import { presentCall, presentExecution, presentRunningExecution } from "@/routes/chat/components/toolPresentation";
 
 const result = (text: string, overrides: Partial<ToolResultMessage> = {}): ToolResultMessage => ({
     toolCallId: "c1",
@@ -57,5 +57,18 @@ describe("how a tool reads on the card", () => {
         expect(failedRun.title).toBe("$");
         expect(failedRun.tone).toBe("user-run");
         expect(failedRun.notes).toEqual([{ text: "(exit 1)", tone: "error" }]);
+    });
+
+    it("shows a command that still runs as running, with what it printed so far", () => {
+        const running = presentRunningExecution({ command: "sleep 5", output: "one\ntwo\n" });
+
+        expect(running).toMatchObject({
+            title: "$",
+            detail: "sleep 5",
+            tone: "user-run",
+            status: "running",
+            body: { kind: "log", lines: ["one", "two"] },
+        });
+        expect(running.notes).toEqual([]);
     });
 });

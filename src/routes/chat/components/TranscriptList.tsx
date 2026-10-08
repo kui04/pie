@@ -9,6 +9,16 @@ import { EntryRenderer } from "@/routes/chat/components/EntryRenderer";
 export interface TranscriptListProps {
     /** The transcript, as the store and the fold read it. */
     rows: TranscriptRow[];
+    /**
+     * The height of the composer band that covers the foot of this list, in pixels.
+     * The list pads its scroll box by that much, and the key that jumps to the end
+     * floats that much above the list's own edge, so nothing hides behind the card.
+     */
+    clearance: number;
+    /** Placement of the scroller, for the pane that holds it. */
+    className?: string;
+    /** Passed to the retract of a queued row. */
+    onRetractQueued?: () => void;
 }
 
 /**
@@ -21,6 +31,9 @@ const ROW = 88;
 /** How close to the end counts as being at the end, in pixels. */
 const NEAR = 24;
 
+/** The gap the design keeps between the composer's band and everything that clears it. */
+const BAND_GAP = 8;
+
 /**
  * The transcript, as a list that draws only what is on screen.
  *
@@ -28,7 +41,7 @@ const NEAR = 24;
  * where they were while rows arrive: the list follows the end only when the
  * reader was already there, which is what the pill under it is for otherwise.
  */
-export function TranscriptList({ rows }: TranscriptListProps) {
+export function TranscriptList({ rows, clearance, className, onRetractQueued }: TranscriptListProps) {
     const list = useRef<VListHandle>(null);
     const atEnd = useRef(true);
     const [away, setAway] = useState(false);
@@ -65,31 +78,40 @@ export function TranscriptList({ rows }: TranscriptListProps) {
                 data={rows}
                 itemSize={ROW}
                 onScroll={onScroll}
-                className="min-h-0 flex-1 px-3"
+                // The composer band covers the foot of the pane; the box keeps room
+                // for the whole of it, plus the gap the design leaves above the card
+                // (`clearance` is the band's own height, measured by the pane).
+                style={{ paddingBottom: clearance + BAND_GAP }}
+                className={cn("min-h-0 flex-1 px-2 pt-2 min-[840px]:px-4", className)}
                 id="transcript-list"
             >
                 {(row) => (
                     // Keyed by the row: virtua draws rows by position, and React would
                     // otherwise keep a card's state (an open body, a clock) with the
                     // next row that lands in that position.
-                    <div key={row.id} className="pb-3">
-                        <EntryRenderer row={row} />
+                    <div key={row.id} className="pb-2">
+                        <EntryRenderer row={row} onRetractQueued={onRetractQueued} />
                     </div>
                 )}
             </VList>
             {away && (
                 <Button
                     id="transcript-jump"
-                    variant="secondary"
-                    size="sm"
+                    variant="ghost"
                     onClick={toEnd}
-                    aria-label="Jump to the latest"
+                    aria-label="To bottom"
+                    // The design's key: a 32px circle at the band's end edge on a
+                    // narrow screen, a pill with its label from 600px, either one a
+                    // gap above the card because the band's height is what it clears.
+                    style={{ bottom: clearance + BAND_GAP }}
                     className={cn(
-                        "border-border absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border shadow-md",
+                        "border-border bg-surface-container hover:bg-surface-container-high text-foreground absolute right-2 size-8 rounded-full border p-0 shadow-md",
+                        "min-[600px]:right-auto min-[600px]:left-1/2 min-[600px]:h-auto min-[600px]:w-max min-[600px]:-translate-x-1/2",
+                        "min-[600px]:gap-2 min-[600px]:rounded-xl min-[600px]:px-3 min-[600px]:py-2",
                     )}
                 >
-                    <ArrowDown className="size-4" />
-                    <span className="hidden sm:inline">Latest</span>
+                    <ArrowDown className="text-muted-foreground size-4" />
+                    <span className="text-body-md hidden min-[600px]:block">To bottom</span>
                 </Button>
             )}
         </div>

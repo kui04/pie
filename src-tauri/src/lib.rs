@@ -23,6 +23,21 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::composer::abort,
+            commands::composer::abort_bash,
+            commands::composer::bash,
+            commands::composer::clear_queue,
+            commands::composer::compact,
+            commands::composer::get_available_models,
+            commands::composer::get_available_thinking_levels,
+            commands::composer::get_commands,
+            commands::composer::get_last_assistant_text,
+            commands::composer::pick_images,
+            commands::composer::prompt,
+            commands::composer::set_auto_compaction,
+            commands::composer::set_model,
+            commands::composer::set_session_name,
+            commands::composer::set_thinking_level,
             commands::connect::connect,
             commands::connect::disconnect,
             commands::connect::get_connection,
