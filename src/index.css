@@ -216,6 +216,101 @@
   }
 }
 
+/*
+ * The `shimmer` utility, vendored from the `shadcn` package's own
+ * `tailwind.css` (4.21.3) so the app needs no package for it: the light is
+ * pure CSS, the highlight is derived from `currentColor`, it brightens itself
+ * in dark, and `prefers-reduced-motion` stops it. Left out of the copy: the RTL
+ * flip (nothing here sets `dir`) and the modifiers that package also ships
+ * (`shimmer-color-*`, `shimmer-duration-*`, `shimmer-spread-*`,
+ * `shimmer-angle-*`, `shimmer-once`, `shimmer-reverse`, `shimmer-none`) - take
+ * one from the package when a call site needs it.
+ */
+/* shimmer */
+@property --shimmer-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 20deg;
+}
+@property --shimmer-image {
+  syntax: "*";
+  inherits: false;
+}
+@property --shimmer-text-fill {
+  syntax: "*";
+  inherits: false;
+}
+
+@theme inline {
+  @keyframes tw-shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: 0 0;
+    }
+  }
+}
+
+@utility shimmer {
+  --_spread: var(--shimmer-spread, calc(3ch + 40px));
+  --_base: currentColor;
+  --_highlight: var(
+    --shimmer-color,
+    oklch(from currentColor l c h / calc(alpha* 0.2))
+  );
+
+  background-image: var(
+    --shimmer-image,
+    linear-gradient(
+      calc(90deg + var(--shimmer-angle)),
+      var(--_base) calc(50% - var(--_spread)),
+      color-mix(in oklch, var(--_highlight), var(--_base) 50%)
+        calc(50% - var(--_spread) * 0.5),
+      var(--_highlight) 50%,
+      color-mix(in oklch, var(--_highlight), var(--_base) 50%)
+        calc(50% + var(--_spread) * 0.5),
+      var(--_base) calc(50% + var(--_spread))
+    )
+  );
+  background-repeat: no-repeat;
+  background-size: calc(200% + var(--_spread) * 2) 100%;
+  background-position: 0 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
+  animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
+
+  @variant dark {
+    --_highlight: var(
+      --shimmer-color,
+      oklch(from currentColor max(0.8, calc(l + 0.4)) c h / calc(alpha + 0.4))
+    );
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/*
+ * An engine without relative colours cannot compute the highlight, and a
+ * background image that cannot be computed stays at `none` while the fill is
+ * still transparent: the word would be invisible. There it is a plain word - no
+ * light and no animation, which is what a reader who asked for less motion gets
+ * anyway. `oklch(from ...)` is the newest link of that chain, so an engine too
+ * old for it is too old for the rest of the utility as well.
+ */
+@supports not (color: oklch(from red l c h)) {
+  .shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 /** A surface that scrolls without saying so, for a short list that wants no bar. */
 @utility no-scrollbar {
   scrollbar-width: none;

@@ -1,10 +1,11 @@
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import { cn } from "cn";
 import { Markdown } from "@/components/Markdown";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { REVEAL, SHIMMER, SHIMMER_SWEEP } from "@/lib/motion";
+import { Marker, MarkerContent } from "@/components/ui/marker";
+import { REVEAL } from "@/lib/motion";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
 
 export interface ThinkingCardProps {
@@ -23,8 +24,9 @@ export interface ThinkingCardProps {
  * is reasoning to read, and a reader asks for it. Pi's own card is the same shape,
  * and opens from the header row and from the row under it.
  *
- * A thought that is still arriving says `Thinking…` and shimmers, so that a
- * reader can tell a model at work from a model that has finished thinking.
+ * A thought that is still arriving says `Thinking…` in shadcn's marker with
+ * its `shimmer` utility, so that a reader can tell a model at work from a
+ * model that has finished thinking.
  */
 export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCardProps) {
     const [open, setOpen] = useState(false);
@@ -39,18 +41,11 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
                     aria-controls={`${id}-body`}
                 >
                     {stillThinking ? (
-                        // The light that runs along the word has to be brighter than
-                        // what stands around it, or the sweep is invisible: the two
-                        // greys of the palette are the same lightness in dark mode,
-                        // so the base of the text is dimmed and only the middle of
-                        // the gradient is the bright one.
-                        <motion.span
-                            className="text-body-md from-muted-foreground/35 via-foreground to-muted-foreground/35 bg-linear-to-r bg-size-[200%_100%] bg-clip-text font-medium text-transparent"
-                            animate={still ? undefined : SHIMMER_SWEEP}
-                            transition={SHIMMER}
-                        >
-                            Thinking…
-                        </motion.span>
+                        <Marker asChild role="status">
+                            <span>
+                                <MarkerContent className="shimmer text-body-md font-medium">Thinking…</MarkerContent>
+                            </span>
+                        </Marker>
                     ) : (
                         <span className="text-body-md text-muted-foreground font-medium">Thoughts</span>
                     )}

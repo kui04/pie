@@ -189,6 +189,9 @@ components:
     backgroundColor: "{colors.surface-container-highest}"
     textColor: "{colors.foreground}"
     rounded: "{rounded.lg}"
+  marker:
+    textColor: "{colors.muted-foreground}"
+    typography: "{typography.body-md}"
   tool-name:
     textColor: "{colors.primary-text}"
   tool-name-user-run:
@@ -399,6 +402,12 @@ a thought (`ThinkingCard`), a notice (`NoticeCard`), a fenced code block
 outline, no shadow, 12px of padding at the header's and the footer's ends. The
 header is one line, truncated, with the status mark at its end and centred in
 it; the footer is a full-width button over a hairline.
+
+**Stream** — what a model is doing while it works. A thought that is still
+arriving says `Thinking…` in shadcn's **marker** with its **`shimmer`** utility
+(vendored into `src/index.css`): the light is pure CSS off the text's own
+colour, it brightens itself in dark, and it stands still where a reader asked
+for less motion. No icon — the word is the whole signal.
 
 **Tool body** — a log (plain lines) or a numbered body (a file, a diff: line
 number, mark, text; the two columns scroll as one and only the text column

@@ -54,18 +54,6 @@ export const REVEAL_HIDDEN = { height: 0, opacity: 0 } as const;
 export const REVEAL_SHOWN = { height: "auto", opacity: 1 } as const;
 
 /**
- * The light that runs along a word while a model thinks.
- *
- * One period of the pattern per loop, and its direction is the order of the two
- * positions: `background-position` falling carries the image to the right, so the
- * light travels from the left of the word to its right.
- */
-export const SHIMMER = { type: "tween", duration: 1.8, ease: "linear", repeat: Infinity } as const;
-
-/** Where that light runs, from the right of the image to its left. */
-export const SHIMMER_SWEEP = { backgroundPosition: ["200% 0%", "0% 0%"] };
-
-/**
  * The hourglass: one cycle, and the moments in it - the transfer is over, the turn
  * is over. One clock, not two: two made the seam flicker.
  */
