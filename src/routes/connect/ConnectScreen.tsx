@@ -12,8 +12,7 @@ import { useNavigate } from "react-router";
 import { ConnectionCard, type ConnectionForm } from "@/routes/connect/components/ConnectionCard";
 import { HostKeyPrompt } from "@/routes/connect/components/HostKeyPrompt";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
-import { Panel } from "@/components/Panel";
-import { useIsMobile } from "@/hooks/use-platform";
+import { Window } from "@/components/Window";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { reasonFor, type FailureText } from "@/lib/failure-text";
@@ -222,7 +221,6 @@ export interface ConnectScreenProps {
 export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const { pickPrivateKey } = deps;
     const navigate = useNavigate();
-    const isMobile = useIsMobile();
     const [form, setForm] = useState(EMPTY_FORM);
     const [state, send] = useMachine(connectionMachine, { input: deps });
 
@@ -262,37 +260,21 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     }, [pickPrivateKey]);
 
     return (
-        <main
-            id="connect-root"
-            // `flex-1 min-h-0` and not a viewport height. The app shell owns the
-            // height. On a desktop, the app shell already uses one row for the
-            // title bar. A panel with the height of the screen would overflow the
-            // window.
-            className="flex min-h-0 w-full flex-1 flex-col overflow-hidden font-sans"
+        <Window
+            // The gate's card: centred, and kept away from the window's edge.
+            // The body does not scroll. The card has the height of the body and
+            // scrolls its own contents - a body that scrolled would move the top
+            // edge and the border of the card out of view.
+            bodyClassName="items-center justify-center p-4"
         >
-            <Panel
-                id="connect-stage"
-                // The OS of a phone has no title bar. Therefore this panel is the
-                // whole window. The title bar of a desktop window is a panel
-                // itself.
-                solo={isMobile}
-                // Keeps the card away from the edge of the window on a phone. A
-                // phone has no chrome to separate them.
-                //
-                // The panel does not scroll. The card has the height of the panel
-                // and scrolls its own contents. A panel that scrolled would move
-                // the top edge and the border of the card out of view.
-                className="items-center justify-center p-4"
-            >
-                <ConnectionCard
-                    form={form}
-                    connecting={state.matches("connecting")}
-                    canConnect={spec !== undefined}
-                    onChange={patch}
-                    onConnect={() => spec && send({ type: "CONNECT", spec })}
-                    onPickKey={() => void pickKey()}
-                />
-            </Panel>
+            <ConnectionCard
+                form={form}
+                connecting={state.matches("connecting")}
+                canConnect={spec !== undefined}
+                onChange={patch}
+                onConnect={() => spec && send({ type: "CONNECT", spec })}
+                onPickKey={() => void pickKey()}
+            />
 
             <HostKeyPrompt
                 // Rust keeps one question open at a time. A new question replaces
@@ -302,6 +284,6 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                 presentedKey={state.context.hostKey}
                 onAnswer={(trusted) => send({ type: "ANSWER_HOST_KEY", trusted })}
             />
-        </main>
+        </Window>
     );
 }

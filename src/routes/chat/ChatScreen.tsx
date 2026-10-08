@@ -10,10 +10,9 @@ import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Panel } from "@/components/Panel";
 import { Button } from "@/components/ui/button";
+import { Window } from "@/components/Window";
 import { useConnection } from "@/hooks/use-connection";
-import { useIsMobile } from "@/hooks/use-platform";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
 import { reasonFor } from "@/lib/failure-text";
@@ -28,7 +27,6 @@ import { FAILURE_REASON } from "@/routes/chat/failure-reason";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
 export function ChatScreen() {
-    const isMobile = useIsMobile();
     const connection = useConnection();
     // A connection holds one session, so the one in the list is the one.
     const session = connection.data?.sessions[0]?.id ?? null;
@@ -36,29 +34,25 @@ export function ChatScreen() {
     // landing page says so rather than offering a way that leads nowhere.
     const idle = connection.data !== null && connection.data !== undefined && session === null;
 
+    if (connection.isPending) return <Window />;
+    if (session === null) {
+        return (
+            <Window>
+                <Landing disconnected={connection.isError || connection.data === null} idle={idle} />
+            </Window>
+        );
+    }
     return (
-        <main id="chat-root" className="text-foreground flex min-h-0 w-full flex-1 flex-col overflow-hidden font-sans">
-            {/* The landing is the whole window, so it brings its own panel. A session
-                brings its own too, and it is not always one: beside the transcript
-                from `lg` the list is a second one. */}
-            {connection.isPending ? null : session === null ? (
-                <Panel id="chat-stage" solo={isMobile}>
-                    <Landing disconnected={connection.isError || connection.data === null} idle={idle} />
-                </Panel>
-            ) : (
-                <Session
-                    session={session}
-                    cwd={connection.data?.sessions[0]?.cwd ?? null}
-                    endpoint={connection.data?.endpoint ?? "local"}
-                />
-            )}
-        </main>
+        <Session
+            session={session}
+            cwd={connection.data?.sessions[0]?.cwd ?? null}
+            endpoint={connection.data?.endpoint ?? "local"}
+        />
     );
 }
 
 function Session({ session, cwd, endpoint }: { session: string; cwd: string | null; endpoint: string }) {
     const wide = useWideWindow();
-    const isMobile = useIsMobile();
     const still = useReducedMotion();
     const client = useQueryClient();
     const { state, snapshot, stats, listening, error, reopen, switchTo, switching } = useSession(session);
@@ -81,9 +75,10 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     // hook reports, and a read, which the query holds. They are read in that order.
     const failure = error ?? snapshot.error ?? state.error ?? stats.error;
 
-    // The drawer is which panel of the workspace the reader opened: pure UI, so it
-    // lives here (`lg` it is the column; below that a sheet over the transcript).
-    const [drawer, setDrawer] = useState(false);
+    // The sheet is a narrow window's way to the list; the column is a wide one's.
+    // Pure UI, so the two live here.
+    const [sheet, setSheet] = useState(false);
+    const [column, setColumn] = useState(true);
     const currentSessionId = state.data?.sessionId ?? null;
     const working = state.data?.isStreaming ?? false;
 
@@ -95,25 +90,16 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
      */
     function pick(path: string) {
         if (working || switching) return;
-        setDrawer(false);
+        setSheet(false);
         void switchTo(path).catch((thrown: unknown) => {
             toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
         });
     }
 
     const drawerProps = { endpoint, currentSessionId, working, busy: working || switching, onPick: pick };
-    const header = (
-        <SessionHeader
-            id="session-header"
-            name={state.data?.sessionName ?? null}
-            cwd={cwd}
-            stats={stats.data ?? null}
-            auto={state.data?.autoCompactionEnabled ?? false}
-            onOpenSessions={() => setDrawer(true)}
-        />
-    );
+    const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
 
-    // What stands under the header: the transcript, or why there is none. An empty
+    // What stands under the bar: the transcript, or why there is none. An empty
     // one is not yet a fact while the listeners are opening or while a switch is
     // having the next conversation read. `switching`, not `isFetching`: a read that
     // an event asked for also fetches, and a transcript on screen beats a sentence.
@@ -149,36 +135,46 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     }
 
     return (
-        <div id="chat-workspace" className="flex min-h-0 w-full flex-1">
-            {/* A panel of its own from `lg`, and it unfolds: the transcript gives the
-                room up as the column takes it. Below `lg` it is not mounted at all -
-                a hidden column still subscribes, so a phone would read the host's
-                sessions for nothing. */}
-            <AnimatePresence initial={false}>
-                {wide && (
-                    <motion.div
-                        id="session-reveal"
-                        key="session-list"
-                        className="flex min-h-0 flex-none overflow-hidden"
-                        initial={UNFOLD_HIDDEN}
-                        animate={UNFOLD_SHOWN}
-                        exit={UNFOLD_HIDDEN}
-                        transition={still ? { duration: 0 } : UNFOLD}
-                    >
-                        <Panel id="session-panel" className="bg-surface-dim w-64 flex-none">
-                            <SessionDrawer id="session-drawer" {...drawerProps} className="flex-1" />
-                        </Panel>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-            <Panel id="chat-stage" solo={isMobile && !wide}>
-                {header}
+        <>
+            <Window
+                sidebar={
+                    // The list is a column of the window from `lg`, and not mounted below
+                    // it: a hidden column still subscribes, so a phone would read the
+                    // host's sessions for nothing. The bar's key closes it, and the column
+                    // keeps its own width while the window clips it open.
+                    <AnimatePresence initial={false}>
+                        {wide && column && (
+                            <motion.div
+                                id="sidebar"
+                                key="session-list"
+                                className="bg-surface-dim border-border flex min-h-0 flex-none flex-col overflow-hidden border-r"
+                                initial={UNFOLD_HIDDEN}
+                                animate={UNFOLD_SHOWN}
+                                exit={UNFOLD_HIDDEN}
+                                transition={still ? { duration: 0 } : UNFOLD}
+                            >
+                                <SessionDrawer id="session-drawer" {...drawerProps} className="w-64 flex-1" />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                }
+                topbar={
+                    <SessionHeader
+                        name={state.data?.sessionName ?? null}
+                        cwd={cwd}
+                        stats={stats.data ?? null}
+                        auto={state.data?.autoCompactionEnabled ?? false}
+                        expanded={wide ? column : undefined}
+                        onToggleSessions={toggleSessions}
+                    />
+                }
+            >
                 {content}
-            </Panel>
-            <SessionSheet id="session-sheet" open={drawer} onOpenChange={setDrawer}>
+            </Window>
+            <SessionSheet id="session-sheet" open={sheet} onOpenChange={setSheet}>
                 <SessionDrawer id="session-sheet-drawer" {...drawerProps} className="h-full" />
             </SessionSheet>
-        </div>
+        </>
     );
 }
 

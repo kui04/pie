@@ -7,11 +7,13 @@ description:
 colors:
   # The dark theme is the base: it is what `:root` in `src/index.css` holds. The
   # light theme overrides the same names under `prefers-color-scheme: light`.
-  # Every value is VS Code's Dark Modern (the key is named in `src/index.css`).
+  # Every value is VS Code's Dark Modern (the key is named in `src/index.css`) —
+  # save the window's two planes, which take VS Code's two greys in the order the
+  # window wants them: the chat is the deeper one, and the column stands above it.
   background: "#181818"
   foreground: "#cccccc"
-  surface: "#1f1f1f"
-  surface-dim: "#181818"
+  surface: "#181818"
+  surface-dim: "#1f1f1f"
   surface-bright: "#37373d"
   surface-container: "#2b2b2b"
   surface-container-high: "#2a2d2e"
@@ -120,14 +122,14 @@ components:
   window:
     backgroundColor: "{colors.background}"
     textColor: "{colors.foreground}"
-  panel:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.foreground}"
-    rounded: "{rounded.lg}"
-  panel-recessed:
+  sidebar:
     backgroundColor: "{colors.surface-dim}"
     textColor: "{colors.foreground}"
-    rounded: "{rounded.lg}"
+  topbar:
+    textColor: "{colors.foreground}"
+  chat:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
   divider:
     backgroundColor: "{colors.divider}"
     size: 1px
@@ -222,9 +224,9 @@ components:
 ## Overview
 
 Pie is the window onto a pi session that runs on another machine — local or over
-SSH. It is a chat transcript of tiles, two panels at most, and one gate screen
-that asks where pi is. It is designed at 360–430px first; a desktop window is
-the same tree with room to spread.
+SSH. It is a chat transcript of tiles, one region of the window more at most,
+and one gate screen that asks where pi is. It is designed at 360–430px first; a
+desktop window is the same tree with room to spread.
 
 The identity is a **quiet instrument**. It does not decorate a conversation: it
 shows one. Surfaces are flat and near-neutral, the type is the reader's own
@@ -257,28 +259,33 @@ row looks like here.
 
 | Token                       | Dark      | Light     | What it is                                             |
 | --------------------------- | --------- | --------- | ------------------------------------------------------ |
-| `background`                | `#181818` | `#f8f8f8` | The window behind the panels (`titleBar.background`)   |
-| `surface-dim`               | `#181818` | `#f8f8f8` | A panel that should recede (the session list)          |
-| `surface`                   | `#1f1f1f` | `#ffffff` | A panel: the plane everything is drawn on (`editor`)   |
+| `background`                | `#181818` | `#f8f8f8` | The window behind the regions (`titleBar.background`)  |
+| `surface`                   | `#181818` | `#ffffff` | The chat: the plane everything is drawn on             |
+| `surface-dim`               | `#1f1f1f` | `#f8f8f8` | The list's column, kept one step clear of the chat     |
 | `card`                      | `#2b2b2b` | `#f8f8f8` | A tile: a transcript card, a code block, the gate card |
 | `surface-container-high`    | `#2a2d2e` | `#f2f2f2` | A control under the pointer (`list.hoverBackground`)   |
 | `surface-container-highest` | `#313131` | `#ffffff` | A chosen control, and a field's fill (`input`)         |
 | `accent`                    | `#37373d` | `#e8e8e8` | A row under the pointer, or the chosen one             |
 | `popover`                   | `#1f1f1f` | `#ffffff` | A layer that floats over the page (`menu`)             |
 
+The chat and the column are never the same grey: the step between them is what
+says there are two regions. Which of the two is the deeper one follows the theme
+— dark, where the chat is the window's own plane and the column stands above it;
+light, where the chat is the page and the column recedes under it.
+
 **Text.** `foreground` is what a sentence is written in (`#cccccc` dark,
 `#3b3b3b` light); `muted-foreground` is everything a reader does not have to
 read (a time, an elapsed duration, a directory) and still holds AA on `card` and
 on `surface`. `outline` is the colour of a placeholder, never of a label.
 
-**The two hairlines.** `border` is the edge of a surface — a panel against the
-window, a sheet against the page — and is the grey VS Code gives `panel.border`.
-`divider` is a hairline _inside_ one — a tile's footer, a markdown rule, a
-menu's separator — and is the softer grey of `input.border`, one step under the
-menu separator a menu would use: a tile here is lighter than a menu, and the
-loud line reads as a frame. They are two tokens because one grey cannot be both:
-on a tile the edge grey and the tile are the same colour, and the hairline would
-disappear.
+**The two hairlines.** `border` is the edge of a surface — the list's column
+against the chat, a sheet against the page — and is the grey VS Code gives
+`panel.border`. `divider` is a hairline _inside_ one — a tile's footer, a
+markdown rule, a menu's separator — and is the softer grey of `input.border`,
+one step under the menu separator a menu would use: a tile here is lighter than
+a menu, and the loud line reads as a frame. They are two tokens because one grey
+cannot be both: on a tile the edge grey and the tile are the same colour, and
+the hairline would disappear.
 
 **The accent.** `primary` is a fill — a button, the reader's own bubble, a
 working dot — and always takes `primary-foreground` (white in both themes).
@@ -335,24 +342,28 @@ a numbered body — a file or a diff — whose line numbers and text are code.
 
 ## Layout
 
-The window is one column of panels. A phone shows one panel, edge to edge: the
-OS owns the frame there, so a solo panel has no margin, no hairline and no
-corner. A desktop adds the title bar as the first panel, and every panel is then
-inset 4px from the window and told apart from its neighbour by a hairline.
+The window is two regions, edge to edge: the list of sessions in a column of its
+own, and the chat beside it, told apart by the one hairline the column carries.
+A phone shows the chat alone — the list arrives as a sheet, not a column — and
+the chat is a column of two: the bar, and the body under it.
+
+The bar is the window's own handle: the window has no decorations, so a press on
+the bar drags it, and the window's three keys sit at its end. Before them are
+the session's slots — the way to the list, the name, the state of the context.
 
 - **Mobile first.** Base styles are the phone's; wider windows layer on with
-  Tailwind breakpoints. A pane that only exists above `lg` (the session column)
-  is not mounted below it.
-- **One scroller per pane.** The window itself never scrolls: the shell is
+  Tailwind breakpoints. The column that only exists above `lg` (the session
+  list) is not mounted below it, and neither is the bar with no window keys to
+  carry.
+- **One scroller per region.** The window itself never scrolls: the shell is
   `h-svh` and clips, and `html`/`body` carry `overflow: clip`, so nothing that
   lands outside the shell — a portal, a stray element — can scroll the window
-  out from under its own title bar. A panel scrolls its own body; a transcript
+  out from under its own bar. The list's column scrolls its rows; a transcript
   scrolls its list; a tool body scrolls its own lines sideways. A card never
-  scrolls inside a pane that also scrolls in the same direction except where the
-  content demands it (a diff's line column).
-- **Air.** 4px between panels, 12px inside a tile, 8px around a tile's body and
-  under its last line, 24px inside a floating layer, 48px of a control's height
-  on a touch pointer.
+  scrolls inside a region that also scrolls in the same direction except where
+  the content demands it (a diff's line column).
+- **Air.** 12px inside a tile, 8px around a tile's body and under its last line,
+  24px inside a floating layer, 48px of a control's height on a touch pointer.
 - **Safe areas.** Every overlay and any bar pinned to the window edge respects
   `env(safe-area-inset-*)`, and the composer stays above the on-screen keyboard.
 
@@ -382,22 +393,32 @@ in-flow tile reads as a mistake, because the tile is not above anything.
 | ------ | ------ | -------------------------------------------------------- |
 | `sm`   | 4px    | A small control, a menu row, a radio pill inside a group |
 | `md`   | 6px    | A tile, a code block, an inline code pill                |
-| `lg`   | 8px    | A panel, a button, a field, a popover                    |
+| `lg`   | 8px    | A button, a field, a popover                             |
 | `xl`   | 12px   | The gate card, a dialog, a sheet                         |
 | `full` | 9999px | A one-line message bubble, a status dot                  |
 
-A panel that is the whole window is square: the window's own edge is not a shape
-to round. A divider is a hairline, not a shape. Nothing else is rounded, and a
-radius never grows with the size of the surface it is on.
+A divider is a hairline, not a shape. Nothing else is rounded, and a radius
+never grows with the size of the surface it is on.
 
 ## Components
 
-**Panel** (`src/components/Panel.tsx`) — a pane of the window. `surface`, one
-hairline (`border`) and an 8px corner when it has a neighbour; nothing at all
-when it is the window. A pane that opens — the session column — is revealed by a
-clip, and the width it opens to is the panel's **whole margin box**: a reveal
-that stopped at the panel's own width would cut the panel's right border as it
-opens.
+**Window** (`src/components/Window.tsx`) — the window itself: the list's column,
+where there is one, and the chat beside it. Two regions, edge to edge, told
+apart by the one hairline the column carries; no margins and no corners, because
+the window's own edge is not a shape to round.
+
+The chat is a column of two. Its bar (`#topbar`) is the window's handle — a
+press on it drags a window that has no decorations — and it carries the
+session's slots before the window's own keys (`WindowControls`): the way to the
+list, the name, the state of the context. The bar has no plane of its own and no
+hairline under it: it is the top of the chat's own plane, so the chat reads as
+one region from the window's edge down. Where a phone's OS owns the frame there
+are no keys, and a bar with nothing in it is not drawn at all.
+
+A column that opens — the session list above `lg` — is revealed by a clip: its
+wrapper owns the width the transcript gives up (256px), and the column inside it
+keeps its own width, so what moves is the edge and the hairline on it, not the
+rows.
 
 **Tile** — the transcript's card: a tool call and its result (`ToolResultCard`),
 a thought (`ThinkingCard`), a notice (`NoticeCard`), a fenced code block
@@ -441,11 +462,11 @@ bottom sheet shows the drag bar that says it can be swiped away.
 - The app asks for a thin bar in the theme's own quiet colour
   (`scrollbar-width`, `scrollbar-color`) and never touches
   `::-webkit-scrollbar`. Styling that pseudo-element turns the bar into a
-  classic one that the pane pays for in its own width; this bar takes no width
+  classic one that the region pays for in its own width; this bar takes no width
   at all.
-- The bar floats **over** the pane. No lane is reserved for it, so the words of
-  a pane never move when it arrives, and a bar may run right beside a panel's
-  hairline without touching it.
+- The bar floats **over** the region. No lane is reserved for it, so the words
+  of a region never move when it arrives, and a bar may run right beside the
+  column's hairline without touching it.
 - A finger gets no bar: a platform whose pointer cannot hover draws none.
 - Inside a tile the air still does the work: the padding above where a
   horizontal bar floats keeps the last line clear of it, and the air below keeps
@@ -465,10 +486,10 @@ bottom sheet shows the drag bar that says it can be swiped away.
 - **Do** keep AA for anything a reader reads (4.5:1) and 3:1 for an icon or an
   indicator; **don't** put `primary` behind white text _or_ in front of a dark
   surface with the same token — that is what `primary-text` is for.
-- **Do** leave 4px around anything a panel holds; **don't** let a divider or a
+- **Do** leave air around anything a region holds; **don't** let a divider or a
   tile touch a neighbour's edge. A scrollbar is no exception: it floats, so it
   never needs the room anyway.
 - **Do** write the system's own words at 14/20 and hold bigger sizes for
   headings; **don't** reach for mono outside code.
-- **Do** keep the phone's layout whole: one panel, no margin, safe areas
-  respected; **don't** fork the tree for a wide window — let it spread.
+- **Do** keep the phone's layout whole: the chat alone, safe areas respected;
+  **don't** fork the tree for a wide window — let it spread.

@@ -117,8 +117,13 @@
   --input: #3c3c3c;
   --ring: #0078d4; /* focusBorder */
 
-  --surface: #1f1f1f; /* editor.background */
-  --surface-dim: #181818; /* sideBar.background */
+  /* The window's two planes. The chat is cut from the window itself, the deepest
+     grey the window goes; the list's column stands one step above it. VS Code's own
+     keys are the other way round (its side bar sits under its editor), so the two
+     greys are kept and the roles are pie's: the window is the plane the reader
+     writes on, and the column is the frame it is read from. */
+  --surface: #181818; /* sideBar.background: the chat's plane, and the window's own */
+  --surface-dim: #1f1f1f; /* editor.background: the list's column, one step above it */
   --surface-bright: #37373d;
   --surface-container: #2b2b2b;
   --surface-container-high: #2a2d2e; /* list.hoverBackground */
@@ -160,6 +165,8 @@
     --input: #cecece;
     --ring: #005fb8;
 
+    /* The light theme keeps VS Code's own order: the chat is the page and the
+       column recedes under it, instead of the dark theme's column above the plane. */
     --surface: #ffffff; /* editor.background */
     --surface-dim: #f8f8f8;
     --surface-bright: #ffffff;
@@ -181,8 +188,8 @@
    * The document is the window, and the window does not scroll.
    *
    * The shell is `h-svh` and clips its own overflow, so a page that could
-   * scroll would only drag the window off its own frame - and a title bar is
-   * the only handle a window without decorations has. `clip` rather than
+   * scroll would only drag the window off its own frame - and the bar over the
+   * chat is the only handle a window without decorations has. `clip` rather than
    * `hidden`: a hidden box is still a scroll container, so a focus or a
    * `scrollIntoView` landing outside the shell could still scroll the body out
    * from under the app. The `hidden` line is for an engine that has no `clip`.

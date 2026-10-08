@@ -6,12 +6,11 @@ import { sessionStats } from "@/preview/fixtures";
 function show(overrides: Partial<Parameters<typeof SessionHeader>[0]> = {}) {
     return render(
         <SessionHeader
-            id="session-header"
             name="Fix the parser"
             cwd="/home/kui/Projects/pie"
             stats={sessionStats()}
             auto={false}
-            onOpenSessions={() => undefined}
+            onToggleSessions={() => undefined}
             {...overrides}
         />,
     );
@@ -52,12 +51,21 @@ describe("SessionHeader", () => {
         expect(container.querySelectorAll("circle")).toHaveLength(1);
     });
 
-    it("carries the way to the session list, and nothing else in that flank", () => {
-        const opened = vi.fn();
-        show({ onOpenSessions: opened });
+    it("carries the way to the session list, and hands a press on it out", () => {
+        const toggled = vi.fn();
+        show({ onToggleSessions: toggled });
 
-        const list = screen.getByRole("button", { name: "Sessions" });
-        fireEvent.click(list);
-        expect(opened).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        expect(toggled).toHaveBeenCalledTimes(1);
+    });
+
+    it("says whether the list is out, where the column is the one it opens", () => {
+        show({ expanded: true });
+        expect(screen.getByRole("button", { name: "Sessions" })).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("promises no column where the list is a sheet instead", () => {
+        show();
+        expect(screen.getByRole("button", { name: "Sessions" })).not.toHaveAttribute("aria-expanded");
     });
 });

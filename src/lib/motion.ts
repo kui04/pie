@@ -32,20 +32,19 @@ export const REVEAL = { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] } as 
  * The session list taking a column of its own: a short tween of its width.
  *
  * The transcript gives the room up as the column takes it, so the width is what
- * moves: a panel of the window opening, not a surface arriving over one.
+ * moves: a column of the window opening, not a surface arriving over one.
  */
 export const UNFOLD = { type: "tween", duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
 
-/** How that column stands while the window is too narrow for it. */
+/** How that column stands while the window is too narrow for it, or folded away. */
 export const UNFOLD_HIDDEN = { width: 0 } as const;
 
 /**
- * How it stands while there is room: the panel inside is `w-64` (256px), and this
- * wrapper holds that panel's margin box, so the 4px it keeps at each side are
- * part of the width. A wrapper that stopped at the panel's own width would clip
- * the panel's right border while it reveals it.
+ * How it stands while there is room: `w-64` (256px), the column's own width. The
+ * column inside keeps that width as the box opens, so what moves is the edge and
+ * the hairline on it, not the rows.
  */
-export const UNFOLD_SHOWN = { width: 264 } as const;
+export const UNFOLD_SHOWN = { width: 256 } as const;
 
 /** How a body stands while it is closed. */
 export const REVEAL_HIDDEN = { height: 0, opacity: 0 } as const;

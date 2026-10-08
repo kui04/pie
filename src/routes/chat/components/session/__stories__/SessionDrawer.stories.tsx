@@ -4,7 +4,6 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SessionSummary } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
-import { Panel } from "@/components/Panel";
 import { SessionDrawer } from "@/routes/chat/components/session/SessionDrawer";
 import { SessionSheet } from "@/routes/chat/components/session/SessionSheet";
 import { sessionSummary } from "@/preview/fixtures";
@@ -39,15 +38,15 @@ const meta = {
         (Story, context) => (
             <Seeded sessions={context.parameters.sessions as SessionSummary[]}>
                 {/* The frame is the window. The preview of the app centres what it
-                    shows and keeps room around it, and a panel that is the left
-                    column of a window is not a centred thing: `fixed` is what
-                    escapes that centring and lands at the viewport's own edge. */}
+                    shows and keeps room around it, and a column that is the left
+                    edge of a window is not a centred thing: `fixed` is what escapes
+                    that centring and lands at the viewport's own edge. */}
                 <div className="fixed inset-0 flex items-stretch font-sans">
-                    {/* The pane the drawer fills in the window: a panel of its own,
-                        with the frame that a panel beside a neighbour carries. */}
-                    <Panel id="session-panel" className="bg-surface-dim w-64 flex-none">
+                    {/* The column the drawer fills in the window: the list's own
+                        surface, with the hairline that parts it from the chat. */}
+                    <div id="sidebar" className="bg-surface-dim border-border flex w-64 flex-none flex-col border-r">
                         <Story />
-                    </Panel>
+                    </div>
                 </div>
             </Seeded>
         ),

@@ -4,49 +4,49 @@ import { UsagePopover } from "@/routes/chat/components/session/UsagePopover";
 import type { SessionStats } from "@/lib/protocol";
 
 /**
- * The bar over a session: what it is called, and how full its context is.
+ * The session's slots of the window's bar: the way to the session list, what the
+ * session is called, and how full its context is.
  *
- * The two flanks hold the same width, so the name sits in the middle of the bar
- * whatever either side carries. The left one carries the way to the session list
- * while that list is not a column of its own; from `lg` the column is always
- * there and the key is not drawn.
+ * The bar itself, and the window's own keys at its end, are the window's
+ * (`src/components/Window.tsx`); this is what a session puts in it.
  */
 export function SessionHeader({
-    id,
     name,
     cwd,
     stats,
     auto,
-    onOpenSessions,
+    expanded,
+    onToggleSessions,
 }: {
-    id: string;
     name: string | null;
     /** The directory the session runs in, for a session pi has no name for. */
     cwd: string | null;
     stats: SessionStats | null;
     auto: boolean;
-    /** Opens the session list, for a window too narrow to hold it beside this bar. */
-    onOpenSessions: () => void;
+    /** Whether the list is out beside the chat; undefined where it is a sheet. */
+    expanded?: boolean;
+    /** Folds the column away, or opens the sheet that holds the list. */
+    onToggleSessions: () => void;
 }) {
     return (
-        <header id={id} className="bg-card border-border flex shrink-0 items-center border-b px-3 py-2">
-            <div className="flex flex-1 basis-0 items-center">
-                <Button
-                    id={`${id}-sessions`}
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Sessions"
-                    onClick={onOpenSessions}
-                    className="lg:hidden"
-                >
-                    <Menu />
-                </Button>
-            </div>
-            <h1 className="text-title-sm min-w-0 shrink truncate px-2 text-center">{title(name, cwd)}</h1>
-            <div className="flex flex-1 basis-0 items-center justify-end">
-                <UsagePopover id={`${id}-usage`} stats={stats} auto={auto} />
-            </div>
-        </header>
+        <>
+            <Button
+                id="sidebar_toggle"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Sessions"
+                aria-expanded={expanded}
+                onClick={onToggleSessions}
+            >
+                <Menu />
+            </Button>
+            <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
+                {title(name, cwd)}
+            </h1>
+            <span id="session_controllers" className="flex shrink-0 items-center gap-1">
+                <UsagePopover id="session-usage" stats={stats} auto={auto} />
+            </span>
+        </>
     );
 }
 

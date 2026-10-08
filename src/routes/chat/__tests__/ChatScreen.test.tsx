@@ -116,7 +116,7 @@ describe("ChatScreen", () => {
         expect(screen.getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/");
     });
 
-    it("frames one panel when the list is not beside the transcript", async () => {
+    it("gives the whole window to the chat when it is too narrow for a list", async () => {
         const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries());
@@ -124,16 +124,27 @@ describe("ChatScreen", () => {
         const { container } = renderScreen();
         await screen.findByText("Nothing has been said yet.");
 
-        // A panel reads as a card only beside a neighbour: a workspace that wrapped
-        // its own panel in the stage's would draw two frames around one thing, and
-        // the id of the stage would not name one element.
-        expect(container.querySelectorAll("section[data-solo]")).toHaveLength(1);
-        expect(container.querySelectorAll("#chat-stage")).toHaveLength(1);
-        expect(container.querySelector("#session-reveal")).toBeNull();
+        expect(container.querySelector("#sidebar")).toBeNull();
+        expect(container.querySelectorAll("#window")).toHaveLength(1);
+        expect(container.querySelector("#chat")).not.toBeNull();
         restore();
     });
 
-    it("frames a panel for the list when the window holds one", async () => {
+    it("holds the list in a sheet where the window is too narrow for a column", async () => {
+        const restore = windowOf("narrow");
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries());
+
+        renderScreen();
+        await screen.findByText("Nothing has been said yet.");
+
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        // The sheet carries the same list the column would.
+        expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+        restore();
+    });
+
+    it("stands the list in a column of its own when the window holds one", async () => {
         const restore = windowOf("wide");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries());
@@ -141,14 +152,26 @@ describe("ChatScreen", () => {
         const { container } = renderScreen();
         await screen.findByText("Nothing has been said yet.");
 
-        expect(container.querySelector("#session-panel")).not.toBeNull();
-        expect(container.querySelectorAll("section[data-solo]")).toHaveLength(2);
-        // The column unfolds, so the room it takes is a width the wrapper owns: the
-        // panel inside is fixed (`w-64`) and keeps 4px at each side, and a wrapper
-        // that ended at the panel's own width would clip its right border.
-        const reveal = container.querySelector<HTMLElement>("#session-reveal");
-        expect(reveal?.querySelector("#session-panel")).not.toBeNull();
-        expect(reveal?.style.width).toBe("264px");
+        const sidebar = container.querySelector<HTMLElement>("#sidebar");
+        expect(sidebar).not.toBeNull();
+        expect(sidebar?.querySelector("#session-drawer")).not.toBeNull();
+        // The column opens to its own width: the list is `w-64` and is clipped to
+        // 256px, with the hairline it carries on the edge of that box.
+        expect(sidebar?.style.width).toBe("256px");
+        restore();
+    });
+
+    it("folds the column away from the bar's key, and gives the room back", async () => {
+        const restore = windowOf("wide");
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries());
+
+        const { container } = renderScreen();
+        await screen.findByText("Nothing has been said yet.");
+
+        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        await waitFor(() => expect(container.querySelector("#sidebar")).toBeNull());
+        expect(screen.getByRole("button", { name: "Sessions" })).toHaveAttribute("aria-expanded", "false");
         restore();
     });
 
@@ -238,6 +261,7 @@ describe("ChatScreen", () => {
     });
 
     it("moves the session to the conversation that was picked, and reads it again", async () => {
+        const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries
             .mockResolvedValueOnce(storeOfEntries(chain(messageEntry(user("first words")))))
@@ -253,7 +277,8 @@ describe("ChatScreen", () => {
         // The narrow window shows the list again as a sheet; the column is still
         // mounted behind it, so the row is searched inside the sheet.
         const sheet = await screen.findByRole("dialog");
-        fireEvent.click(within(sheet).getByText("The other one"));
+        // The sheet reads the list when it opens, so the row arrives with that read.
+        fireEvent.click(await within(sheet).findByText("The other one"));
 
         // The path of the row is the one that is handed over: the workspace reads
         // the file, it builds no path of its own.
@@ -263,6 +288,7 @@ describe("ChatScreen", () => {
         // conversation that was left are not on screen while it is read.
         expect(await screen.findByText("the other conversation")).toBeInTheDocument();
         expect(screen.queryByText("first words")).toBeNull();
+        restore();
     });
 
     it("keeps the words on screen while an event has the read asked again", async () => {
@@ -289,6 +315,7 @@ describe("ChatScreen", () => {
     });
 
     it("sends one switch for two rows that are picked at the same instant", async () => {
+        const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         const first = sessionSummary({ name: "The first one" });
@@ -306,15 +333,18 @@ describe("ChatScreen", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
         const sheet = await screen.findByRole("dialog");
-        fireEvent.click(within(sheet).getByText("The first one"));
+        // The sheet reads the list when it opens, so the rows arrive with that read.
+        fireEvent.click(await within(sheet).findByText("The first one"));
         fireEvent.click(within(sheet).getByText("The second one"));
 
         expect(bridge.switchSession).toHaveBeenCalledTimes(1);
         expect(bridge.switchSession).toHaveBeenCalledWith("main:1", first.path);
         answer({ cancelled: false });
+        restore();
     });
 
     it("keeps the transcript of the session a cancelled switch leaves alone", async () => {
+        const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
@@ -328,14 +358,17 @@ describe("ChatScreen", () => {
         // The narrow window shows the list again as a sheet; the column is still
         // mounted behind it, so the row is searched inside the sheet.
         const sheet = await screen.findByRole("dialog");
-        fireEvent.click(within(sheet).getByText("The other one"));
+        // The sheet reads the list when it opens, so the row arrives with that read.
+        fireEvent.click(await within(sheet).findByText("The other one"));
 
         await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledTimes(1));
         expect(bridge.getEntries).toHaveBeenCalledTimes(1);
         expect(screen.getByText("first words")).toBeInTheDocument();
+        restore();
     });
 
     it("announces a switch that failed, and keeps the session that runs", async () => {
+        const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
@@ -352,10 +385,12 @@ describe("ChatScreen", () => {
         // The narrow window shows the list again as a sheet; the column is still
         // mounted behind it, so the row is searched inside the sheet.
         const sheet = await screen.findByRole("dialog");
-        fireEvent.click(within(sheet).getByText("The other one"));
+        // The sheet reads the list when it opens, so the row arrives with that read.
+        fireEvent.click(await within(sheet).findByText("The other one"));
 
         expect(await screen.findByText("pi refused the command.")).toBeInTheDocument();
         expect(screen.getByText("first words")).toBeInTheDocument();
+        restore();
     });
 });
 

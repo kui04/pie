@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Window } from "@/components/Window";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
 import { sessionStats } from "@/preview/fixtures";
+
+/**
+ * The session's slots of the window's bar, shown in the bar the window draws: the
+ * keys to the right are the window's own, not the session's.
+ */
 
 const meta = {
     title: "Chat/SessionHeader",
@@ -8,26 +14,30 @@ const meta = {
     parameters: { layout: "fullscreen" },
     decorators: [
         (Story) => (
-            <div className="w-[360px]">
-                <Story />
+            <div className="fixed inset-0 flex font-sans">
+                <Window topbar={<Story />} />
             </div>
         ),
     ],
     args: {
-        id: "session-header",
         name: "Fix the parser",
         cwd: "/home/kui/Projects/pie",
         stats: sessionStats(),
         auto: false,
-        onOpenSessions: () => undefined,
+        onToggleSessions: () => undefined,
     },
 } satisfies Meta<typeof SessionHeader>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** A session with the name its owner gave it, and a context that is barely used. */
+/** A session with the name its owner gave it, beside the list of sessions. */
 export const Named: Story = {};
+
+/** The list folded away: the key says so, and the name takes the room it left. */
+export const Folded: Story = {
+    args: { expanded: false },
+};
 
 /** A session pi holds no name for: the bar falls back to its directory. */
 export const Unnamed: Story = {
