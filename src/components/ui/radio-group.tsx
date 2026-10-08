@@ -44,7 +44,7 @@ function RadioGroupItem({
             {children}
             <RadioGroupPrimitive.Indicator
                 data-slot="radio-group-indicator"
-                className="text-primary flex size-4 items-center justify-center"
+                className="text-primary-text flex size-4 items-center justify-center"
             >
                 {/* Radix mounts the indicator itself, so the arrival is
                     animated here rather than on the indicator: Motion treats a

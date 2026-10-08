@@ -31,15 +31,11 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
     const still = useReducedMotion();
 
     return (
-        <Collapsible
-            open={open}
-            onOpenChange={setOpen}
-            className="border-border bg-card overflow-hidden rounded-md border"
-        >
+        <Collapsible open={open} onOpenChange={setOpen} className="bg-card overflow-hidden rounded-md">
             <CollapsibleTrigger asChild>
                 <button
                     id={`${id}-thinking`}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left"
+                    className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
                     aria-controls={`${id}-body`}
                 >
                     {stillThinking ? (
@@ -49,7 +45,7 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
                         // so the base of the text is dimmed and only the middle of
                         // the gradient is the bright one.
                         <motion.span
-                            className="text-body-md from-muted-foreground/35 via-foreground to-muted-foreground/35 bg-linear-to-r bg-[length:200%_100%] bg-clip-text font-medium text-transparent"
+                            className="text-body-md from-muted-foreground/35 via-foreground to-muted-foreground/35 bg-linear-to-r bg-size-[200%_100%] bg-clip-text font-medium text-transparent"
                             animate={still ? undefined : SHIMMER_SWEEP}
                             transition={SHIMMER}
                         >
@@ -61,7 +57,7 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
                 </button>
             </CollapsibleTrigger>
             <CardBody id={`${id}-body`} open={open} transition={still ? { duration: 0 } : REVEAL}>
-                <div className="px-3 pb-2">
+                <div className="mt-2 px-3 pb-2">
                     <Markdown id={`${id}-reasoning`} className="text-body-md text-muted-foreground">
                         {thinking}
                     </Markdown>
@@ -69,7 +65,7 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
             </CardBody>
             <CollapsibleTrigger asChild>
                 <button
-                    className="border-border text-label-md text-muted-foreground flex w-full items-center gap-2 border-t px-3 pt-2 pb-2 text-left"
+                    className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 pt-2 pb-2 text-left"
                     aria-controls={`${id}-body`}
                 >
                     <span className="flex-1">

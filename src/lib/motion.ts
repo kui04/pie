@@ -39,8 +39,13 @@ export const UNFOLD = { type: "tween", duration: 0.28, ease: [0.2, 0, 0, 1] } as
 /** How that column stands while the window is too narrow for it. */
 export const UNFOLD_HIDDEN = { width: 0 } as const;
 
-/** How it stands while there is room: the width of the panel inside (`w-64`). */
-export const UNFOLD_SHOWN = { width: 256 } as const;
+/**
+ * How it stands while there is room: the panel inside is `w-64` (256px), and this
+ * wrapper holds that panel's margin box, so the 4px it keeps at each side are
+ * part of the width. A wrapper that stopped at the panel's own width would clip
+ * the panel's right border while it reveals it.
+ */
+export const UNFOLD_SHOWN = { width: 264 } as const;
 
 /** How a body stands while it is closed. */
 export const REVEAL_HIDDEN = { height: 0, opacity: 0 } as const;

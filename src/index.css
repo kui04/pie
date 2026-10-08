@@ -10,6 +10,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -20,6 +21,7 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-border-subtle: var(--border-subtle);
+  --color-divider: var(--divider);
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -81,91 +83,96 @@
   --text-code--line-height: 20px;
 }
 
+/*
+ * The palette is VS Code's: Dark Modern, and Light Modern in the theme below. The
+ * names in the comments are the theme keys the values come from, so a later bump
+ * of VS Code is a diff against it.
+ */
 :root {
-  --background: #131313;
-  --foreground: #e5e2e1;
-  --card: #202020;
-  --card-foreground: #e5e2e1;
-  --popover: #202020;
-  --popover-foreground: #e5e2e1;
-  --primary: #0078d4;
+  --background: #181818; /* titleBar/statusBar.background */
+  --foreground: #cccccc; /* editor.foreground */
+  --card: #2b2b2b; /* textCodeBlock.background */
+  --card-foreground: #cccccc;
+  --popover: #1f1f1f; /* menu.background */
+  --popover-foreground: #cccccc;
+  --primary: #0078d4; /* button.background */
   --primary-foreground: #ffffff;
-  --secondary: #474746;
-  --secondary-foreground: #b6b5b4;
-  --muted: #2a2a2a;
-  --muted-foreground: #c0c7d4;
-  --accent: #2a2a2a;
-  --accent-foreground: #e5e2e1;
-  --destructive: #f85149;
-  --destructive-foreground: #ffffff;
-  --border: #2b2b2b;
-  --border-subtle: #2e2e2e;
-  --border-strong: #3c3c3c;
-  --input: #2e2e2e;
-  --ring: #0078d4;
+  /* An accent a reader reads, rather than one a control fills: textLink.foreground
+     holds AA on a dark surface where the button's blue cannot. */
+  --primary-text: #4daafc;
+  --secondary: #313131; /* dropdown.background */
+  --secondary-foreground: #cccccc;
+  --muted: #3c3c3c; /* textPreformat.background */
+  --muted-foreground: #9d9d9d; /* descriptionForeground */
+  --accent: #37373d; /* tab.selectedBackground */
+  --accent-foreground: #ffffff;
+  --destructive: #f88070; /* list.errorForeground: the red a reader reads */
+  /* A soft red carries the ink of the dark theme; a fill's white would not hold
+     on it, and this theme reads the red far more often as a line of text. */
+  --destructive-foreground: #1c1011;
+  --border: #2b2b2b; /* panel.border: the edge of a surface */
+  --border-subtle: #252526; /* surface.border */
+  --divider: #3c3c3c; /* input.border: the softer hairline; menu.separatorBackground (#454545) is too loud on a tile */
+  --border-strong: #3c3c3c; /* input.border */
+  --input: #3c3c3c;
+  --ring: #0078d4; /* focusBorder */
 
-  --surface: #1f1f1f;
-  --surface-dim: #131313;
-  --surface-bright: #393939;
-  --surface-container: #202020;
-  --surface-container-high: #2a2a2a;
-  --surface-container-highest: #353535;
-  --outline: #8a919e;
-  --outline-variant: #404752;
-  --tertiary: #6fdd78;
-  --success: #2ea043;
-  --warning: #bb8009;
-  --user-run: #bc8cff;
-  --excluded: #9a9898;
+  --surface: #1f1f1f; /* editor.background */
+  --surface-dim: #181818; /* sideBar.background */
+  --surface-bright: #37373d;
+  --surface-container: #2b2b2b;
+  --surface-container-high: #2a2d2e; /* list.hoverBackground */
+  --surface-container-highest: #313131; /* input.background */
+  --outline: #989898; /* input.placeholderForeground */
+  --outline-variant: #3c3c3c;
+  --tertiary: #81b88b; /* gitDecoration.addedResourceForeground */
+  --success: #2ea043; /* editorGutter.addedBackground */
+  --warning: #cca700; /* editorWarning.foreground */
+  --user-run: #b180d7; /* charts.purple */
+  --excluded: #6e7681;
 
   --radius: 0.5rem;
-
-  /*
-   * The scrollbar's own measures: the lane it takes, and the air around the thumb
-   * inside that lane. The colours it draws with are the tokens above, so the bar
-   * follows the theme (see the rules at the end of this file).
-   */
-  --scrollbar-size: 10px;
-  --scrollbar-inset: 2px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     --background: #f8f8f8;
-    --foreground: #1b1b1b;
-    --card: #ffffff;
-    --card-foreground: #1b1b1b;
-    --popover: #ffffff;
-    --popover-foreground: #1b1b1b;
-    --primary: #0078d4;
+    --foreground: #3b3b3b;
+    --card: #f8f8f8;
+    --card-foreground: #3b3b3b;
+    --popover: #ffffff; /* dropdown.background */
+    --popover-foreground: #3b3b3b;
+    --primary: #005fb8; /* button.background */
     --primary-foreground: #ffffff;
-    --secondary: #e5e5e5;
-    --secondary-foreground: #303030;
-    --muted: #e5e5e5;
-    --muted-foreground: #5f6368;
-    --accent: #e5e5e5;
-    --accent-foreground: #1b1b1b;
-    --destructive: #b3261e;
+    --primary-text: #005fb8; /* textLink.foreground */
+    --secondary: #e5e5e5; /* button.secondaryBackground */
+    --secondary-foreground: #3b3b3b;
+    --muted: #e0e0e0; /* textPreformat.background, over white */
+    --muted-foreground: #616161; /* tab.inactiveForeground */
+    --accent: #e8e8e8; /* list.activeSelectionBackground */
+    --accent-foreground: #000000;
+    --destructive: #ad0707; /* gitDecoration.deletedResourceForeground */
     --destructive-foreground: #ffffff;
     --border: #e5e5e5;
-    --border-subtle: #e9e9e9;
+    --border-subtle: #f3f3f3; /* surface.border */
+    --divider: #d4d4d4; /* menu.border */
     --border-strong: #cecece;
-    --input: #e9e9e9;
-    --ring: #0078d4;
+    --input: #cecece;
+    --ring: #005fb8;
 
-    --surface: #efefef;
+    --surface: #ffffff; /* editor.background */
     --surface-dim: #f8f8f8;
-    --surface-bright: #d9d9d9;
-    --surface-container: #ffffff;
-    --surface-container-high: #efefef;
-    --surface-container-highest: #e5e5e5;
-    --outline: #757575;
+    --surface-bright: #ffffff;
+    --surface-container: #f2f2f2;
+    --surface-container-high: #f2f2f2;
+    --surface-container-highest: #ffffff; /* input.background */
+    --outline: #767676;
     --outline-variant: #cecece;
-    --tertiary: #06892f;
-    --success: #1a7f37;
-    --warning: #9a6a00;
-    --user-run: #8250df;
-    --excluded: #7f7f7f;
+    --tertiary: #388a34; /* charts.green */
+    --success: #107c10;
+    --warning: #667309; /* the olive light lists use; the amber is too weak as text */
+    --user-run: #652d90; /* charts.purple */
+    --excluded: #8e8e90;
   }
 }
 
@@ -176,86 +183,19 @@
   }
 
   /*
-   * The scrollbars, which are pie's own and not the engine's.
+   * The scrollbar is the engine's own, and it floats.
    *
-   * Every surface of the app is a flat near-black or near-white card, and the
-   * engine's default bar is a wide strip with arrows that belongs to none of them.
-   * This one floats: no track, no buttons, a pill of a thumb inset from the lane by
-   * `--scrollbar-inset`, quiet in the border's own colour and answering in the
-   * outline's when the pointer is on the surface it belongs to.
+   * `scrollbar-width` and `scrollbar-color` ask for a thin bar in the theme's own
+   * quiet colour, and an engine that can draw an overlay bar puts that bar *over*
+   * the pane: it takes no room from the words and no lane is ever reserved for it.
    *
-   * A finger has no bar to read: on a device whose pointer cannot hover the bar is
-   * not drawn at all, and the content says what it holds.
+   * Nothing here may touch `::-webkit-scrollbar`. Styling that pseudo-element (a
+   * width, a thumb, anything) turns the bar into a classic one that the pane pays
+   * for in its own width - the one thing this bar must not do.
    */
-  ::-webkit-scrollbar {
-    width: var(--scrollbar-size);
-    height: var(--scrollbar-size);
-  }
-
-  ::-webkit-scrollbar-track,
-  ::-webkit-scrollbar-corner {
-    background: transparent;
-  }
-
-  /* A classic bar draws arrows at its ends; a quiet one does not. */
-  ::-webkit-scrollbar-button {
-    display: none;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    border: var(--scrollbar-inset) solid transparent;
-    border-radius: 9999px;
-    background-color: var(--border-strong);
-    /* The border is air rather than paint: the thumb is a pill inside the lane. */
-    background-clip: padding-box;
-  }
-
-  :hover::-webkit-scrollbar-thumb {
-    background-color: var(--outline);
-  }
-
-  @media (hover: none) {
-    ::-webkit-scrollbar {
-      display: none;
-    }
-  }
-}
-
-/*
- * The engines that draw no scrollbar the WebKit way (Firefox): the same words
- * cannot be said there, so they say the colour and the thinness and no more.
- *
- * The query is load-bearing, not decoration: Chromium drops every
- * `::-webkit-scrollbar` rule the moment `scrollbar-color` is set, so the engines
- * that do draw the pseudo-element must never see these two properties. Firefox
- * answers this query with "no support" even where it has partial support, which
- * is what brings it here.
- */
-@supports not selector(::-webkit-scrollbar) {
   :root {
     scrollbar-width: thin;
-    scrollbar-color: var(--border-strong) transparent;
-  }
-
-  @media (hover: none) {
-    :root {
-      scrollbar-width: none;
-    }
-  }
-}
-
-/**
- * A pane that keeps the scrollbar's lane: the bar arrives when the words outgrow
- * the pane, and a lane reserved on both sides of that moment is a lane the words
- * never move for. A device without a bar gets no lane either.
- *
- * Where the engine reserves that lane differs: Chromium does (a pane with nothing
- * to scroll is a scrollbar narrower), WebKitGTK 2.52 does not, and a pane there
- * moves its words once when the bar first arrives.
- */
-@utility scrollbar-lane {
-  @media (hover: hover) {
-    scrollbar-gutter: stable;
+    scrollbar-color: var(--outline) transparent;
   }
 }
 

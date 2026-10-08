@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion, type Transition } from "motion/react";
 import { cn } from "cn";
 import { Hourglass } from "@/components/Hourglass";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { REVEAL, SPIN, SPIN_TURN } from "@/lib/motion";
 import type { NumberedLine } from "@/lib/text";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
@@ -83,12 +84,12 @@ export function ToolResultCard({ id, presentation }: ToolResultCardProps) {
 
     // The status mark is at the end of the header and is centered on the whole
     // of it, and it is for the calls of the model alone: a command the reader ran
-    // carries the colour of its border instead (the design's colour axis), and a
+    // carries its colour in the tool name instead (the design's colour axis), and a
     // failure of it is its `(exit N)` line.
     const header = (
         <>
             <span className="text-body-md min-w-0 flex-1 truncate">
-                <span className={tone === "user-run" ? "text-user-run" : "text-primary"}>{title}</span>
+                <span className={tone === "user-run" ? "text-user-run" : "text-primary-text"}>{title}</span>
                 {detail !== null && detail !== "" && <span className="text-muted-foreground ml-3">{detail}</span>}
             </span>
             {duration !== null && <span className="text-label-md text-muted-foreground shrink-0">{duration}</span>}
@@ -97,32 +98,28 @@ export function ToolResultCard({ id, presentation }: ToolResultCardProps) {
     );
 
     return (
-        <div
-            id={id}
-            className={cn(
-                "bg-card overflow-hidden rounded-md border",
-                tone === "user-run" ? "border-user-run" : "border-border",
-            )}
-        >
+        <Collapsible id={id} open={open} onOpenChange={setOpen} className="bg-card overflow-hidden rounded-md">
             {expandable ? (
-                <button
-                    id={`${id}-header`}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left"
-                    aria-expanded={open}
-                    aria-controls={`${id}-body`}
-                    onClick={() => setOpen(!open)}
-                >
-                    {header}
-                </button>
+                <CollapsibleTrigger asChild>
+                    <button
+                        id={`${id}-header`}
+                        className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
+                        aria-controls={`${id}-body`}
+                    >
+                        {header}
+                    </button>
+                </CollapsibleTrigger>
             ) : (
-                <div id={`${id}-header`} className="flex items-center gap-2 px-3 py-2">
+                <div id={`${id}-header`} className="mb-2 flex items-center gap-2 px-3 pt-2">
                     {header}
                 </div>
             )}
             {lines.length > 0 && (
-                <div id={`${id}-body`}>
+                // The horizontal bar of a log body sits at the body's own foot, so the
+                // air under it is added here; a numbered body brings its own.
+                <div id={`${id}-body`} className={cn(body.kind === "log" && "mt-2 pb-2")}>
                     {body.kind === "log" ? (
-                        <div className="overflow-x-auto pb-2">
+                        <div className="overflow-x-auto">
                             <div className="text-code px-3 whitespace-pre">
                                 {tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
                                 {(kept as string[]).map((line, index) => (
@@ -144,23 +141,25 @@ export function ToolResultCard({ id, presentation }: ToolResultCardProps) {
                 </div>
             )}
             {expandable && (
-                <button
-                    id={`${id}-footer`}
-                    aria-expanded={open}
-                    aria-controls={`${id}-body`}
-                    className="border-border text-body-md text-muted-foreground flex w-full items-center gap-2 border-t px-3 pt-2 pb-2 text-left"
-                    onClick={() => setOpen(!open)}
-                >
-                    <span className="flex-1">{open ? "Collapse to hide" : `Expand to view ${hidden} more lines`}</span>
-                    <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
-                </button>
+                <CollapsibleTrigger asChild>
+                    <button
+                        id={`${id}-footer`}
+                        aria-controls={`${id}-body`}
+                        className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 py-2 text-left"
+                    >
+                        <span className="flex-1">
+                            {open ? "Collapse to hide" : `Expand to view ${hidden} more lines`}
+                        </span>
+                        <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
+                    </button>
+                </CollapsibleTrigger>
             )}
             {notes.map((note, index) => (
-                <p key={`${note.text}-${index}`} className={cn("text-body-md px-3 pb-2", noteTone(note))}>
+                <p key={`${note.text}-${index}`} className={cn("text-body-md mt-2 px-3 pb-2", noteTone(note))}>
                     {note.text}
                 </p>
             ))}
-        </div>
+        </Collapsible>
     );
 }
 
@@ -173,7 +172,7 @@ function StatusMark({ status }: { status: ToolStatus }) {
     if (status === "running") {
         return (
             <motion.span
-                className="text-primary flex shrink-0"
+                className="text-primary-text flex shrink-0"
                 animate={still ? undefined : SPIN_TURN}
                 transition={SPIN}
             >
@@ -244,7 +243,7 @@ function NumberedBody({
     );
 
     return (
-        <div className="text-code flex pb-2 font-mono">
+        <div className="text-code mt-2 flex pb-2 font-mono">
             <div id={`${id}-gutter`} className="shrink-0 select-none">
                 {tail && arriving(gutter)}
                 {gutter(kept)}

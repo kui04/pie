@@ -37,7 +37,7 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
     );
     // One face for every card of the transcript: the design had this one tinted,
     // and a notice is a card like the rest - the label says what kind it is.
-    const frame = "border-border bg-card rounded-md border";
+    const frame = "bg-card rounded-md";
 
     if (body === null) {
         return <div className={cn(frame, "flex items-baseline gap-2 px-3 py-2")}>{header}</div>;
@@ -48,14 +48,14 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
             <CollapsibleTrigger asChild>
                 <button
                     id={`${id}-notice`}
-                    className="flex w-full items-baseline gap-2 px-3 py-2 text-left"
+                    className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
                     aria-controls={`${id}-body`}
                 >
                     {header}
                 </button>
             </CollapsibleTrigger>
             <CardBody id={`${id}-body`} open={open} transition={still ? { duration: 0 } : REVEAL}>
-                <div className="px-3 pb-2">
+                <div className="mt-2 px-3 pb-2">
                     <Markdown id={`${id}-text`} className="text-body-md">
                         {body}
                     </Markdown>
@@ -63,7 +63,7 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
             </CardBody>
             <CollapsibleTrigger asChild>
                 <button
-                    className="border-border text-body-md text-muted-foreground flex w-full items-center gap-2 border-t px-3 pt-2 pb-2 text-left"
+                    className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 py-2 text-left"
                     aria-controls={`${id}-body`}
                 >
                     <span className="flex-1">{open ? "Collapse to hide" : "Expand to read it all"}</span>

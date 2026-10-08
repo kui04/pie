@@ -40,7 +40,7 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                     ol: ({ children: content }) => <ol className="list-decimal space-y-1 pl-5">{content}</ol>,
                     li: ({ children: content }) => <li className="text-body-md">{content}</li>,
                     blockquote: ({ children: content }) => (
-                        <blockquote className="border-border text-muted-foreground border-l-2 pl-3">
+                        <blockquote className="border-divider text-muted-foreground border-l-2 pl-3">
                             {content}
                         </blockquote>
                     ),
@@ -61,23 +61,23 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                                     event.preventDefault();
                                     void openUrl(href).catch(() => toast.error("That link was not opened."));
                                 }}
-                                className="text-primary underline-offset-4 hover:underline"
+                                className="text-primary-text underline-offset-4 hover:underline"
                             >
                                 {content}
                             </a>
                         ) : (
                             <>{content}</>
                         ),
-                    hr: () => <hr className="border-border" />,
+                    hr: () => <hr className="border-divider" />,
                     table: ({ children: content }) => (
                         <div className="overflow-x-auto">
                             <table className="text-body-sm w-full border-collapse">{content}</table>
                         </div>
                     ),
                     th: ({ children: content }) => (
-                        <th className="border-border bg-muted border px-2 py-1 text-left font-medium">{content}</th>
+                        <th className="border-divider bg-muted border px-2 py-1 text-left font-medium">{content}</th>
                     ),
-                    td: ({ children: content }) => <td className="border-border border px-2 py-1">{content}</td>,
+                    td: ({ children: content }) => <td className="border-divider border px-2 py-1">{content}</td>,
                     // A fenced block arrives as `pre > code`. It goes to CodeBlock
                     // whether or not the fence named a language - a block without one
                     // is not an inline snippet, and would otherwise collapse into a pill.

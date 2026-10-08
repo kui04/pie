@@ -83,7 +83,11 @@ export function AssistantMessage({ id, message, results }: AssistantMessageProps
 function WorkingMark() {
     const still = useReducedMotion();
     return (
-        <motion.span className="text-primary flex shrink-0" animate={still ? undefined : SPIN_TURN} transition={SPIN}>
+        <motion.span
+            className="text-primary-text flex shrink-0"
+            animate={still ? undefined : SPIN_TURN}
+            transition={SPIN}
+        >
             <LoaderCircle className="size-4" aria-label="Working" />
         </motion.span>
     );

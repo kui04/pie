@@ -62,15 +62,12 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
             // panel and scrolls its own contents, so the frame the person is
             // looking at never slides away and the action row stays put. The panel
             // itself does not scroll at all.
-            className="border-border bg-card flex max-h-full min-h-0 w-full max-w-104 flex-col overflow-hidden rounded-xl border shadow-sm ring-0"
+            className="bg-card flex max-h-full min-h-0 w-full max-w-104 flex-col overflow-hidden rounded-xl shadow-sm"
         >
             {/* Plain elements rather than `CardHeader`/`CardDescription`: those
                 exist to sit inside a card that has its own chrome, and this card
                 has none of its own to give away. */}
-            <div
-                id="connection-card-scroll"
-                className="scrollbar-lane flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-6"
-            >
+            <div id="connection-card-scroll" className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pt-6">
                 <header id="connection-card-header" className="flex flex-col gap-2">
                     {/* A real heading, not a div: this card is the gate, and a screen
                     reader should be able to jump to it. */}

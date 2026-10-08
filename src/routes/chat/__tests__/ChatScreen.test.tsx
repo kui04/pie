@@ -144,11 +144,11 @@ describe("ChatScreen", () => {
         expect(container.querySelector("#session-panel")).not.toBeNull();
         expect(container.querySelectorAll("section[data-solo]")).toHaveLength(2);
         // The column unfolds, so the room it takes is a width the wrapper owns: the
-        // panel inside is fixed (`w-64`), and a wrapper that ends anywhere else
-        // would leave a strip of nothing beside it.
+        // panel inside is fixed (`w-64`) and keeps 4px at each side, and a wrapper
+        // that ended at the panel's own width would clip its right border.
         const reveal = container.querySelector<HTMLElement>("#session-reveal");
         expect(reveal?.querySelector("#session-panel")).not.toBeNull();
-        expect(reveal?.style.width).toBe("256px");
+        expect(reveal?.style.width).toBe("264px");
         restore();
     });
 

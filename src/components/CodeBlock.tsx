@@ -37,10 +37,7 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     };
 
     return (
-        <div
-            className={cn("border-border bg-card overflow-hidden rounded-md border", className)}
-            data-language={language ?? "text"}
-        >
+        <div className={cn("bg-card overflow-hidden rounded-md", className)} data-language={language ?? "text"}>
             <div className="flex items-center justify-between gap-2 py-1 pr-1 pl-3">
                 <span className="text-label-sm text-muted-foreground font-mono">{language ?? "text"}</span>
                 <Button

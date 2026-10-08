@@ -22,7 +22,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /** The colour of a reading, the way pi's footer colours the same number. */
 const TONE = {
-    normal: { text: "", stroke: "stroke-primary" },
+    normal: { text: "", stroke: "stroke-primary-text" },
     warning: { text: "text-warning", stroke: "stroke-warning" },
     error: { text: "text-destructive", stroke: "stroke-destructive" },
 } as const;

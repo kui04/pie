@@ -132,7 +132,7 @@ export function SessionDrawer({
                     </motion.span>
                 </Button>
             </div>
-            <div className="scrollbar-lane min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                 {sessions.isError ? (
                     <p id={`${id}-failure`} role="alert" className="text-body-md text-muted-foreground px-1 py-2">
                         {reasonFor(bridge.asPieError(sessions.error), FAILURE_REASON)}

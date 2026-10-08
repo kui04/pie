@@ -65,7 +65,7 @@ export function TranscriptList({ rows }: TranscriptListProps) {
                 data={rows}
                 itemSize={ROW}
                 onScroll={onScroll}
-                className="scrollbar-lane min-h-0 flex-1 px-3"
+                className="min-h-0 flex-1 px-3"
                 id="transcript-list"
             >
                 {(row) => (
