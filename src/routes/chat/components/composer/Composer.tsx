@@ -21,7 +21,7 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, SendHorizontal, Slash, Square, X } from "lucide-react";
+import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
@@ -391,7 +391,7 @@ export function Composer({ session, machine }: ComposerProps) {
                             input.current?.focus();
                         }}
                     >
-                        <Slash className="size-4" />
+                        <Terminal className="size-4" />
                     </ComposerKey>
                 </div>
                 <div id="composer-settings" className="flex min-w-0 items-center gap-2">

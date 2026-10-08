@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
@@ -61,26 +62,28 @@ beforeEach(() => {
 
 describe("the model of the session", () => {
     it("shows the active model, and marks it in the list", async () => {
+        const user = userEvent.setup();
         renderPickers({ model: model({ id: "deepseek-flash", name: "DeepSeek Flash", provider: "deepseek" }) });
 
         expect(screen.getByRole("button", { name: "Choose the model" })).toHaveTextContent("DeepSeek Flash");
 
-        fireEvent.click(screen.getByRole("button", { name: "Choose the model" }));
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
 
-        // The list holds every model, and the one in use carries the mark. The key of
-        // the row is the option of cmdk's list, which carries the whole row.
-        expect(await screen.findByRole("option", { name: /Claude Sonnet 4.5/ })).toBeInTheDocument();
-        expect(screen.getByLabelText("In use")).toBeInTheDocument();
+        // The list holds every model, and the one in use is the one the select marks as
+        // chosen - the check the select draws beside it.
+        expect(await screen.findByRole("option", { name: /DeepSeek Flash/ })).toHaveAttribute("aria-selected", "true");
+        expect(screen.getByRole("option", { name: /Claude Sonnet 4.5/ })).toHaveAttribute("aria-selected", "false");
     });
 
     it("sets the model that was chosen, and reads the state again", async () => {
+        const user = userEvent.setup();
         const { client } = renderPickers({ model: model() });
         // The state of the session is what reports the new model; a change marks it
         // stale so that the next render reads it.
         client.setQueryData(["session", "main:1", "state"], { sessionId: "0193" });
 
-        fireEvent.click(screen.getByRole("button", { name: "Choose the model" }));
-        fireEvent.click(await screen.findByRole("option", { name: /DeepSeek Flash/ }));
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        await user.click(await screen.findByRole("option", { name: /DeepSeek Flash/ }));
 
         await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "deepseek", "deepseek-flash"));
         expect(client.getQueryState(["session", "main:1", "state"])?.isInvalidated).toBe(true);
@@ -89,23 +92,25 @@ describe("the model of the session", () => {
 
 describe("the thinking level of the session", () => {
     it("sets the level that was chosen", async () => {
+        const user = userEvent.setup();
         const { client } = renderPickers({ thinking: "off" });
         client.setQueryData(["session", "main:1", "state"], { sessionId: "0193" });
 
         expect(screen.getByRole("button", { name: "Choose the thinking level" })).toHaveTextContent("off");
-        fireEvent.click(screen.getByRole("button", { name: "Choose the thinking level" }));
-        fireEvent.click(await screen.findByRole("option", { name: "high" }));
+        await user.click(screen.getByRole("button", { name: "Choose the thinking level" }));
+        await user.click(await screen.findByRole("option", { name: "high" }));
 
         await waitFor(() => expect(bridge.setThinkingLevel).toHaveBeenCalledWith("main:1", "high"));
         expect(client.getQueryState(["session", "main:1", "state"])?.isInvalidated).toBe(true);
     });
 
     it("does not call for the level that is already in use", async () => {
+        const user = userEvent.setup();
         renderPickers({ thinking: "low" });
 
-        fireEvent.click(screen.getByRole("button", { name: "Choose the thinking level" }));
+        await user.click(screen.getByRole("button", { name: "Choose the thinking level" }));
         // The row in use carries its check, which is part of its name.
-        fireEvent.click(await screen.findByRole("option", { name: /low/ }));
+        await user.click(await screen.findByRole("option", { name: /low/ }));
 
         expect(bridge.setThinkingLevel).not.toHaveBeenCalled();
     });

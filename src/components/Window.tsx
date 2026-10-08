@@ -32,16 +32,13 @@ export function Window({ sidebar, topbar, children, bodyClassName }: WindowProps
     return (
         <main id="window" className="text-foreground flex min-h-0 w-full flex-1 overflow-hidden font-sans">
             {sidebar}
-            <div id="chat" className="bg-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div id="main-content" className="bg-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 {/* A bar with nothing in it is not drawn: a phone's gate has no
                     keys, and no slots either. */}
                 {(topbar !== undefined || !isMobile) && (
                     <div
                         id="topbar"
                         data-tauri-drag-region={isMobile ? undefined : "deep"}
-                        // No colour of its own and no hairline under it: the bar is
-                        // part of the chat's plane, which starts at the window's top
-                        // edge (the chat's own background shows through).
                         className="flex h-11 shrink-0 items-center gap-1 px-3"
                     >
                         {topbar}

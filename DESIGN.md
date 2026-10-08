@@ -154,7 +154,7 @@ components:
   bubble-user:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.primary-foreground}"
-    rounded: "{rounded.full}"
+    rounded: "{rounded.md}"
     padding: 12px
   button-primary:
     backgroundColor: "{colors.primary}"
@@ -210,6 +210,11 @@ components:
     backgroundColor: "{colors.popover}"
     textColor: "{colors.foreground}"
     rounded: "{rounded.lg}"
+    padding: 8px
+  composer-popup:
+    backgroundColor: "{colors.popover}"
+    textColor: "{colors.foreground}"
+    rounded: "{rounded.xl}"
     padding: 8px
   dialog:
     backgroundColor: "{colors.popover}"
@@ -392,10 +397,10 @@ in-flow tile reads as a mistake, because the tile is not above anything.
 | Token  | Value  | Where                                                    |
 | ------ | ------ | -------------------------------------------------------- |
 | `sm`   | 4px    | A small control, a menu row, a radio pill inside a group |
-| `md`   | 6px    | A tile, a code block, an inline code pill                |
+| `md`   | 6px    | A tile, a code block, an inline code pill, the bubble    |
 | `lg`   | 8px    | A button, a field, a popover                             |
 | `xl`   | 12px   | The gate card, a dialog, a sheet                         |
-| `full` | 9999px | A one-line message bubble, a status dot                  |
+| `full` | 9999px | A round key, a status dot                                |
 
 A divider is a hairline, not a shape. Nothing else is rounded, and a radius
 never grows with the size of the surface it is on.
@@ -414,6 +419,12 @@ list, the name, the state of the context. The bar has no plane of its own and no
 hairline under it: it is the top of the chat's own plane, so the chat reads as
 one region from the window's edge down. Where a phone's OS owns the frame there
 are no keys, and a bar with nothing in it is not drawn at all.
+
+The body under the bar is the chat. It scrolls edge to edge — the transcript's
+scroller is the whole region, so the scrollbar stays on the region's edge —
+while what is drawn inside it is capped: the transcript's rows and the
+composer's band share one content column, 64rem wide at most and centred, so a
+row and the composer start and end on the same two lines.
 
 A column that opens — the session list above `lg` — is revealed by a clip: its
 wrapper owns the width the transcript gives up (256px), and the column inside it
@@ -438,9 +449,19 @@ number, mark, text; the two columns scroll as one and only the text column
 scrolls sideways). Closed, a log shows its last five lines and a file or diff
 its first three; the rest arrives through the footer.
 
-**Bubble** — the reader's own message: `primary`, `primary-foreground`, a pill
-for one line and a rounded card for more, right-aligned. Its actions are its own
-context menu, not a control in the corner.
+**Bubble** — the reader's own message: `primary`, `primary-foreground`, the same
+6px a tile takes, and right-aligned. One shape whatever the length; a single
+line is the same bubble in a tighter box. Its actions are its own context menu,
+not a control in the corner.
+
+**Popup** (`src/components/SelectWithSearch.tsx`) — the panel a picker of the
+composer opens: our own plane (`popover`, under the layer's 10% hairline) in the
+draft's shape — a 12px corner, `space-sm` of padding, `space-xs` between its
+rows, 17rem wide for the models and 11rem for the levels, and a fixed 240px
+where a host may offer more models than fit. The command menu's panel is the
+same plane and shape, and scrolls past 320px. Its rows take the menu's accent
+(`selected-row`) — the row under the pointer or the keyboard, and the row in use
+with its check in `primary-text`.
 
 **Field** — `input` fill, no visible stroke until focus, then a `ring` focus
 ring and a caret; 48px tall on a touch pointer.

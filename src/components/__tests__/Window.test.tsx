@@ -37,16 +37,16 @@ describe("Window", () => {
         });
 
         const window_ = container.querySelector("#window");
-        const chat = container.querySelector("#chat");
+        const main = container.querySelector("#main-content");
         const bar = container.querySelector("#topbar");
         const body = container.querySelector("#transcript");
 
         expect(window_).not.toBeNull();
-        expect(chat).not.toBeNull();
+        expect(main).not.toBeNull();
         expect(bar).not.toBeNull();
         expect(body).not.toBeNull();
-        // The bar and the body are the chat's two rows; the body takes the rest.
-        expect([...(chat?.children ?? [])]).toEqual([bar, body]);
+        // The bar and the body are the main region's two rows; the body takes the rest.
+        expect([...(main?.children ?? [])]).toEqual([bar, body]);
         expect(body?.className).toContain("flex-1");
     });
 

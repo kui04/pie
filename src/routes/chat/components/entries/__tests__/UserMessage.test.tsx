@@ -15,15 +15,21 @@ beforeEach(() => {
 const asUser = (message: ReturnType<typeof userMessage>) => message as UserMessageData;
 
 describe("UserMessage", () => {
-    it("draws one line as a pill and several as a card", () => {
+    it("gives every bubble the same corners, and a single line a tighter box", () => {
         const { unmount } = render(<UserMessage id="e1" message={asUser(userMessage("one line"))} />);
-        // The shape is the design's: a one-line question reads as a pill, and a
-        // longer one has no line to be a pill around.
-        expect(screen.getByText("one line").closest("[id]")?.className).toContain("rounded-full");
+        const one = screen.getByText("one line").closest("[id]");
+        // One radius whatever the length - the tile's - and the words decide only
+        // the box.
+        expect(one?.className).toContain("rounded-md");
+        expect(one?.className).not.toContain("rounded-full");
+        expect(one?.className).not.toContain("rounded-xl");
+        expect(one?.className).toContain("py-2");
         unmount();
 
         render(<UserMessage id="e2" message={asUser(userMessage("one line\nand another"))} />);
-        expect(screen.getByText(/and another/).closest("[id]")?.className).toContain("rounded-xl");
+        const many = screen.getByText(/and another/).closest("[id]");
+        expect(many?.className).toContain("rounded-md");
+        expect(many?.className).toContain("p-3");
     });
 
     it("copies what the reader asked, through the menu of the bubble", async () => {

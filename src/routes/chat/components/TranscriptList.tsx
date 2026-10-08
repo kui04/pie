@@ -5,6 +5,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { TranscriptRow } from "@/lib/transcript";
 import { EntryRenderer } from "@/routes/chat/components/EntryRenderer";
+import { CONTENT_COLUMN } from "@/routes/chat/content-column";
 
 export interface TranscriptListProps {
     /** The transcript, as the store and the fold read it. */
@@ -82,14 +83,19 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
                 // for the whole of it, plus the gap the design leaves above the card
                 // (`clearance` is the band's own height, measured by the pane).
                 style={{ paddingBottom: clearance + BAND_GAP }}
-                className={cn("min-h-0 flex-1 px-2 pt-2 min-[840px]:px-4", className)}
+                // The scroller is the whole region, and only the rows inside it are
+                // capped: a bar at the content's edge would leave the region's own
+                // edge empty beside it.
+                className={cn("min-h-0 flex-1 pt-2", className)}
                 id="transcript-list"
             >
                 {(row) => (
                     // Keyed by the row: virtua draws rows by position, and React would
                     // otherwise keep a card's state (an open body, a clock) with the
-                    // next row that lands in that position.
-                    <div key={row.id} className="pb-2">
+                    // next row that lands in that position. The row carries the content
+                    // column, so it lines up with the composer band over it, and the air
+                    // under it is what separates one entry from the next.
+                    <div key={row.id} className={cn(CONTENT_COLUMN, "pb-3")}>
                         <EntryRenderer row={row} onRetractQueued={onRetractQueued} />
                     </div>
                 )}
@@ -105,7 +111,11 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
                     // gap above the card because the band's height is what it clears.
                     style={{ bottom: clearance + BAND_GAP }}
                     className={cn(
-                        "border-border bg-surface-container hover:bg-surface-container-high text-foreground absolute right-2 size-8 rounded-full border p-0 shadow-md",
+                        // Its own hover, not the variant's: the pill brings an opaque
+                        // background, so its hover has to be one too (`surface-bright`,
+                        // the plane the composer's keys hover on) - and one class, so
+                        // nothing of the variant survives beside it.
+                        "border-border bg-surface-container hover:bg-surface-bright text-foreground absolute right-2 size-8 rounded-full border p-0 shadow-md",
                         "min-[600px]:right-auto min-[600px]:left-1/2 min-[600px]:h-auto min-[600px]:w-max min-[600px]:-translate-x-1/2",
                         "min-[600px]:gap-2 min-[600px]:rounded-xl min-[600px]:px-3 min-[600px]:py-2",
                     )}

@@ -22,12 +22,12 @@ type Story = StoryObj<typeof meta>;
 const asked = (message: Partial<UserMessageData>): UserMessageData =>
     ({ role: "user", content: "Make the parser skip empty lines.", timestamp: 0, ...message }) as UserMessageData;
 
-/** One line reads as a pill. */
+/** One line, in the tighter box every short message takes. */
 export const OneLine: Story = {
     args: { id: "story-user", message: asked({}) },
 };
 
-/** Several lines have no line to be a pill around. */
+/** Several lines, in the box a paragraph takes. */
 export const SeveralLines: Story = {
     args: {
         id: "story-user-many",

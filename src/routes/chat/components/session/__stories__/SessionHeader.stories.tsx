@@ -34,7 +34,12 @@ type Story = StoryObj<typeof meta>;
 /** A session with the name its owner gave it, beside the list of sessions. */
 export const Named: Story = {};
 
-/** The list folded away: the key says so, and the name takes the room it left. */
+/** The list out beside the chat: the key carries the fold that a press would do. */
+export const Expanded: Story = {
+    args: { expanded: true },
+};
+
+/** The list folded away: the key carries the open that a press would do, and the name takes the room it left. */
 export const Folded: Story = {
     args: { expanded: false },
 };

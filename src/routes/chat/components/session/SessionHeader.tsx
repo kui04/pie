@@ -1,4 +1,4 @@
-import { Menu } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UsagePopover } from "@/routes/chat/components/session/UsagePopover";
 import type { SessionStats } from "@/lib/protocol";
@@ -37,8 +37,13 @@ export function SessionHeader({
                 aria-label="Sessions"
                 aria-expanded={expanded}
                 onClick={onToggleSessions}
+                // The icon is what says whether the list is out beside the chat, so the key
+                // does not fill for it: the ghost variant would fill an expanded key.
+                className="aria-expanded:bg-transparent"
             >
-                <Menu />
+                {/* What the press does: it folds a column that is out, and opens the sheet
+                    that holds the list where there is no column. */}
+                {expanded === true ? <PanelLeftClose /> : <PanelLeftOpen />}
             </Button>
             <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
                 {title(name, cwd)}

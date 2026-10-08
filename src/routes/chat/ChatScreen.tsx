@@ -11,12 +11,14 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Window } from "@/components/Window";
 import { useConnection } from "@/hooks/use-connection";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
 import { reasonFor } from "@/lib/failure-text";
+import { CONTENT_COLUMN } from "@/routes/chat/content-column";
 import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN } from "@/lib/motion";
 import * as bridge from "@/lib/bridge";
 import { queuedRows, transcriptRows } from "@/lib/transcript";
@@ -217,7 +219,9 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                     />
                 }
                 // The band is placed against the foot of the body, so the body is what
-                // it is positioned in.
+                // it is positioned in. The body itself is the whole region - the
+                // transcript scrolls it edge to edge, bar and all - and only what is
+                // drawn inside it is capped to the content column.
                 bodyClassName="relative"
             >
                 {content}
@@ -227,7 +231,7 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                     <div
                         id="composer-band"
                         ref={band}
-                        className="absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[64rem] p-2 min-[840px]:px-4"
+                        className={cn("absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
                     >
                         <Composer session={session} machine={machine} />
                     </div>

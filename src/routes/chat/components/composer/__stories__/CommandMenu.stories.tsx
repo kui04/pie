@@ -38,3 +38,19 @@ export const Commands: Story = {};
 
 /** What `/comp` leaves: the two commands of pie whose names start with it. */
 export const Filtered: Story = { args: { rows: commandRows("comp", commands, true), highlighted: "pie-compact" } };
+
+/**
+ * A host that registered more commands than fit: the list scrolls, and it opens on the
+ * row the keyboard is on rather than at the top.
+ */
+export const ManyRows: Story = {
+    args: {
+        rows: Array.from({ length: 30 }, (_, index) => ({
+            id: `row-${index}`,
+            label: `/row-${index}`,
+            description: "A command of a host that registered many",
+            action: { kind: "complete" as const, name: `row-${index}` },
+        })),
+        highlighted: "row-24",
+    },
+};

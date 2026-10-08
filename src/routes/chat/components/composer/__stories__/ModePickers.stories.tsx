@@ -18,6 +18,15 @@ function Seeded({ children }: { children: ReactNode }) {
                 model(),
                 model({ id: "deepseek-flash", name: "DeepSeek Flash", provider: "deepseek" }),
                 model({ id: "gpt-5.5", name: "GPT-5.5", provider: "openai" }),
+                // A host can serve more models than the popup's height holds: the list has
+                // to scroll past them rather than grow or clip.
+                ...Array.from({ length: 21 }, (_, index) =>
+                    model({
+                        id: `model-${index}`,
+                        name: `A-very-long-model-name ${index}`,
+                        provider: "a-local-host",
+                    }),
+                ),
             ],
         });
         client.setQueryData(["session", "main:1", "thinkingLevels"], {

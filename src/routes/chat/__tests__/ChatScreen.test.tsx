@@ -128,7 +128,7 @@ describe("ChatScreen", () => {
 
         expect(container.querySelector("#sidebar")).toBeNull();
         expect(container.querySelectorAll("#window")).toHaveLength(1);
-        expect(container.querySelector("#chat")).not.toBeNull();
+        expect(container.querySelector("#main-content")).not.toBeNull();
         restore();
     });
 

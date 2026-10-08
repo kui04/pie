@@ -60,12 +60,21 @@ describe("SessionHeader", () => {
     });
 
     it("says whether the list is out, where the column is the one it opens", () => {
-        show({ expanded: true });
-        expect(screen.getByRole("button", { name: "Sessions" })).toHaveAttribute("aria-expanded", "true");
+        const { container } = show({ expanded: true });
+
+        const key = screen.getByRole("button", { name: "Sessions" });
+        expect(key).toHaveAttribute("aria-expanded", "true");
+        // The icon says it too, and it says what a press would do: fold the column that
+        // is out.
+        expect(container.querySelector(".lucide-panel-left-close")).not.toBeNull();
+        expect(container.querySelector(".lucide-panel-left-open")).toBeNull();
     });
 
     it("promises no column where the list is a sheet instead", () => {
-        show();
+        const { container } = show();
+
         expect(screen.getByRole("button", { name: "Sessions" })).not.toHaveAttribute("aria-expanded");
+        // The sheet is not out either, so a press opens it.
+        expect(container.querySelector(".lucide-panel-left-open")).not.toBeNull();
     });
 });

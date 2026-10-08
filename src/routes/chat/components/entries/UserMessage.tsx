@@ -24,15 +24,17 @@ export interface UserMessageProps {
 }
 
 /**
- * What the reader asked, on their side of the transcript. A question of one line is
- * a pill and anything longer is a card. The actions are a menu on the bubble itself
- * (a right-click, or the long press a touch screen turns into one), not a key in a
- * corner of the reader's own words.
+ * What the reader asked, on their side of the transcript. Every bubble has the same
+ * corners as a tile, whatever the words inside: only the box follows them, a single
+ * line taking a tighter one than a paragraph. The actions are a menu on the bubble
+ * itself (a right-click, or the long press a touch screen turns into one), not a key
+ * in a corner of the reader's own words.
  */
 export function UserMessage({ id, message, queued, onRetract }: UserMessageProps) {
     const images = imagesOf(message);
     const text = messageText(message.content);
-    // A pill is for a short line: a long one has no line to be a pill around.
+    // A line short enough to be one line sits in a tighter box than a paragraph; a
+    // picture takes the box a paragraph takes.
     const oneLine = images.length === 0 && !text.includes("\n") && text.length <= 60;
 
     const copy = () => {
@@ -51,7 +53,10 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             aria-label="Your message"
             className={cn(
                 "bg-primary text-primary-foreground focus-visible:ring-ring max-w-[80%] min-w-0 space-y-2 break-words outline-none focus-visible:ring-2",
-                oneLine ? "rounded-full px-4 py-2" : "rounded-xl p-3",
+                // One shape for every bubble, and the shape a tile takes: what the line
+                // count changes is the air around the words, never the corner.
+                "rounded-md",
+                oneLine ? "px-4 py-2" : "p-3",
                 // A message that waits is not in the conversation yet: it reads as
                 // quieter than the words around it.
                 queued !== undefined && "opacity-60",
