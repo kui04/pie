@@ -26,6 +26,16 @@ import { useTranscriptStore } from "@/stores/transcript.store";
  */
 const STATS_FALLBACK_MS = 30_000;
 
+/**
+ * The records that arrive many times a second while something streams.
+ *
+ * The log of the frontend is for the shape of a run, not for its bytes: one line
+ * per delta would be a log nobody can read, and it would cost a call into Rust
+ * per delta as well. What they add up to is an entry, and the read at the end of
+ * the run is where that is seen.
+ */
+const STREAMING: ReadonlySet<string> = new Set(["message_update", "tool_execution_update", "bash_execution_update"]);
+
 /** How often to ask again for the usage - never for a read that already failed, whose
  * answer would be the same one, every 30 seconds, for as long as the screen stays open. */
 export function statsRefetchInterval(query: { state: { status: string } }): number | false {
@@ -44,6 +54,7 @@ async function openListeners(
     const events = await bridge.onSessionEvent(session, onRecord);
     try {
         const state = await bridge.onSessionState(session, onStale);
+        bridge.log.debug("the listeners of the session are open", { session });
         return () => {
             events();
             state();
@@ -113,14 +124,26 @@ export function useSession(session: string) {
 
     // What the chart needs from the world: the subscription, the switch, and the reads
     // a record makes stale. A test drives the whole graph with stubs of these.
-    const deps = useMemo<SessionDeps>(
-        () => ({
-            apply: createRecordTable({
-                session,
-                transcript,
-                invalidate: (key) => void queryClient.invalidateQueries({ queryKey: key }),
-                toast,
-            }).apply,
+    const deps = useMemo<SessionDeps>(() => {
+        const records = createRecordTable({
+            session,
+            transcript,
+            invalidate: (key) => void queryClient.invalidateQueries({ queryKey: key }),
+            toast,
+        });
+
+        return {
+            apply: (record, drawing) => {
+                // The records that arrive many times a second while something streams - a
+                // delta of a response, a tool's output, a shell command's - would drown the
+                // log, and the answer of the read at the end of the run tells the same
+                // story once.
+                if (!STREAMING.has(record.type)) {
+                    bridge.log.debug("a record arrived", { session, type: record.type, drawing });
+                }
+
+                records.apply(record, drawing);
+            },
             listen: (onRecord, onStale) => openListeners(session, onRecord, onStale),
             switchSession: (path) => bridge.switchSession(session, path),
             reRead: () => void queryClient.invalidateQueries({ queryKey: ["session", session] }),
@@ -135,9 +158,8 @@ export function useSession(session: string) {
                 void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             },
             opened: dropQueued,
-        }),
-        [session, transcript, clear, dropQueued, queryClient],
-    );
+        };
+    }, [session, transcript, clear, dropQueued, queryClient]);
     // Built once per mounted screen: `ChatScreen` keys the session, so another
     // session is another mount and another chart. `useActorRef` owns the
     // lifecycle, which a hand-written start/stop does not survive: `stop` is

@@ -51,6 +51,7 @@ fn shown(url: &str) -> String {
 /// Async because the opener under it waits for the program it started on macOS,
 /// and a webview that cannot answer its own click is the worse trade.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(chars = url.chars().count()))]
 pub async fn open_url(app: AppHandle, url: String) -> Result<(), PieError> {
     let parsed = openable(&url)?;
     app.opener()

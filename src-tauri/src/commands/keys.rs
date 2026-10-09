@@ -28,6 +28,7 @@ use crate::error::PieError;
 /// for the picker itself: a picker that it cannot show answers as a closed
 /// picker.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn pick_private_key(app: AppHandle) -> Result<Option<String>, PieError> {
     picked_private_key(&app)
 }

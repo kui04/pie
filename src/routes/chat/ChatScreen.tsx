@@ -64,6 +64,13 @@ export function ChatScreen() {
         enabled: stage === "landing" && held !== null,
     });
 
+    // Which stage the window reached, and for which conversation: the shape of a
+    // report about a window that would not open, where nothing else on this side
+    // of the boundary says how far it got.
+    useEffect(() => {
+        bridge.log.info("the window is at a stage", { stage, session });
+    }, [stage, session]);
+
     /**
      * Opens a session from the landing.
      *
@@ -74,11 +81,15 @@ export function ChatScreen() {
     async function open(path: string) {
         setSheet(false);
         if (held === null) return;
+        const heldFile = heldState.data?.sessionFile ?? null;
         try {
-            if (path !== heldState.data?.sessionFile) await bridge.switchSession(held.id, path);
+            bridge.log.info("a conversation was picked from the landing", { path, held: heldFile });
+            if (path !== heldFile) await bridge.switchSession(held.id, path);
             machine.send({ type: "OPEN", session: held.id });
         } catch (thrown) {
-            toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
+            const error = bridge.asPieError(thrown);
+            bridge.log.error("the conversation could not be opened", { path, reason: error.message });
+            toast.error(reasonFor(error, FAILURE_REASON));
         }
     }
 
@@ -261,15 +272,24 @@ function Session({
         // While the feed is opening or has failed there is no conversation to leave:
         // the switch would reach Rust and the chart would drop its answer. The rows of
         // the drawer are disabled for the same reason (`busy` below).
-        if (!listening || working || switching) return;
+        if (!listening || working || switching) {
+            bridge.log.debug("a pick was not taken", { path, listening, working, switching });
+            return;
+        }
         onOpenSheet(false);
         // The conversation that is on screen is not opened a second time: pi reloads
         // the file it is asked for even when it already holds it, and the window
         // would empty itself for the read it did not need (`switchSession`).
-        if (path === state.data?.sessionFile) return;
+        if (path === state.data?.sessionFile) {
+            bridge.log.debug("a pick was already the open conversation", { path });
+            return;
+        }
+        bridge.log.info("a conversation was picked", { path });
         machine.send({ type: "SWITCH" });
         void switchTo(path).catch((thrown: unknown) => {
-            toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
+            const error = bridge.asPieError(thrown);
+            bridge.log.error("the switch failed", { path, reason: error.message });
+            toast.error(reasonFor(error, FAILURE_REASON));
         });
     }
 

@@ -12,16 +12,19 @@
 //! One file for each area of the product: [`composer`] sends what the person
 //! says to a session and reads what its pi can do, [`connect`] opens, reads and
 //! closes the one host, [`files`] reads what is on it, [`keys`] asks the person
-//! for a private key, [`open`] hands a link to the machine, [`pipe`] forwards
-//! what pi says about a session, [`platform`]
-//! says which kind of machine this is, [`session`] reads what a session of pi
-//! holds and moves it to another conversation, and [`state`] holds what they
-//! share.
+//! for a private key, [`logs`] takes what the frontend writes into the log,
+//! [`open`] hands a link to the machine, [`pipe`] forwards what pi says about a
+//! session, [`platform`] says which kind of machine this is, [`session`] reads
+//! what a session of pi holds and moves it to another conversation, and
+//! [`state`] holds what they share.
 //!
 //! `run()` names every command by module; [`pipe`] holds none, because it has no
 //! command: `connect` starts its task. `#[tauri::command]` puts the wrapper that
 //! `generate_handler!` looks for next to the function. A re-export of the
 //! function does not carry it.
+//!
+//! Every command but [`logs`] is instrumented, so one line per call says what it
+//! carried, how it ended and how long it took (see [`crate::logging`]).
 //!
 //! `connect` answers with what it made. A *question* comes the other way, as an
 //! event, because it arrives while the command is still in progress. The
@@ -33,6 +36,7 @@ pub mod connect;
 mod error;
 pub mod files;
 pub mod keys;
+pub mod logs;
 pub mod open;
 pub mod pipe;
 pub mod platform;

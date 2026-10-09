@@ -88,6 +88,7 @@ pub struct PickedImage {
 /// The failure of the read of a selected file. The picker itself reports no
 /// failure: one that cannot be shown answers as a closed picker.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn pick_images(app: AppHandle) -> Result<Option<Vec<PickedImage>>, PieError> {
     picked_images(&app)
 }
@@ -196,6 +197,7 @@ fn mime_of_magic(bytes: &[u8]) -> Option<&'static str> {
 /// connection, and the failure of the protocol — including a refusal of pi
 /// itself: no model, no credentials, or a compaction in progress.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, chars = message.chars().count(), images = images.as_ref().map_or(0, Vec::len), behavior = ?behavior))]
 pub async fn prompt(
     state: State<'_, AppState>,
     session: String,
@@ -218,6 +220,7 @@ pub async fn prompt(
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn abort(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
     named_session(&state, &session, "stopping the run of a session")
         .await?
@@ -234,6 +237,7 @@ pub async fn abort(state: State<'_, AppState>, session: String) -> Result<(), Pi
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn clear_queue(state: State<'_, AppState>, session: String) -> Result<ClearQueueData, PieError> {
     named_session(&state, &session, "clearing the queue of a session")
         .await?
@@ -253,6 +257,7 @@ pub async fn clear_queue(state: State<'_, AppState>, session: String) -> Result<
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, chars = command.chars().count(), excluded = exclude_from_context))]
 pub async fn bash(
     state: State<'_, AppState>,
     session: String,
@@ -271,6 +276,7 @@ pub async fn bash(
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn abort_bash(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
     named_session(&state, &session, "stopping the shell command of a session")
         .await?
@@ -288,6 +294,7 @@ pub async fn abort_bash(state: State<'_, AppState>, session: String) -> Result<(
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_commands(state: State<'_, AppState>, session: String) -> Result<CommandsData, PieError> {
     named_session(&state, &session, "reading the commands of a session")
         .await?
@@ -301,6 +308,7 @@ pub async fn get_commands(state: State<'_, AppState>, session: String) -> Result
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_available_models(
     state: State<'_, AppState>,
     session: String,
@@ -317,6 +325,7 @@ pub async fn get_available_models(
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_available_thinking_levels(
     state: State<'_, AppState>,
     session: String,
@@ -337,6 +346,7 @@ pub async fn get_available_thinking_levels(
 /// The same as [`prompt`], and the failure of the protocol — including a model
 /// that pi does not know.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, provider = %provider, model = %model_id))]
 pub async fn set_model(
     state: State<'_, AppState>,
     session: String,
@@ -356,6 +366,7 @@ pub async fn set_model(
 /// The same as [`prompt`], and the failure of the protocol — including a level
 /// that the session does not support.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, level = ?level))]
 pub async fn set_thinking_level(
     state: State<'_, AppState>,
     session: String,
@@ -376,6 +387,7 @@ pub async fn set_thinking_level(
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, enabled))]
 pub async fn set_auto_compaction(state: State<'_, AppState>, session: String, enabled: bool) -> Result<(), PieError> {
     named_session(&state, &session, "changing automatic compaction of a session")
         .await?
@@ -394,6 +406,7 @@ pub async fn set_auto_compaction(state: State<'_, AppState>, session: String, en
 /// The same as [`prompt`], and the failure of the protocol — including a
 /// compaction that already runs.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, instructed = custom_instructions.is_some()))]
 pub async fn compact(
     state: State<'_, AppState>,
     session: String,
@@ -413,6 +426,7 @@ pub async fn compact(
 ///
 /// The same as [`prompt`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_last_assistant_text(
     state: State<'_, AppState>,
     session: String,
@@ -430,6 +444,7 @@ pub async fn get_last_assistant_text(
 /// The same as [`prompt`], and the failure of the protocol — including an empty
 /// name, which pi refuses.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, chars = name.chars().count()))]
 pub async fn set_session_name(state: State<'_, AppState>, session: String, name: String) -> Result<(), PieError> {
     named_session(&state, &session, "naming a session")
         .await?

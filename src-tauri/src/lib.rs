@@ -45,6 +45,8 @@ pub fn run() {
             commands::files::list_dirs,
             commands::files::list_sessions,
             commands::keys::pick_private_key,
+            commands::logs::log,
+            commands::logs::log_levels,
             commands::open::open_url,
             commands::platform::platform,
             commands::session::get_entries,

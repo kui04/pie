@@ -23,6 +23,7 @@ use super::state::AppState;
 /// [`connection::Error::NotConnected`] if there is no host to list, and the
 /// failure of the host if pie cannot read the sessions directory.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {
@@ -43,6 +44,7 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
 /// [`connection::Error::NotAbsolute`] for a relative path (a mistake of the
 /// frontend), and the failure of the host if pie cannot read the path.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(path = ?path))]
 pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Result<Vec<DirEntryInfo>, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {

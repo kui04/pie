@@ -10,8 +10,9 @@
  * person wants a session to do, [`connect`] is the one host that pie holds,
  * [`session`] is one session of pi (its reads, the switch between its
  * conversations, the sessions of the host, and what it says while it runs),
- * [`open`] / [`pick`] / [`platform`] carry one command each, and [`error`] /
- * [`invoke`] are the machinery of this layer itself. Import from this file.
+ * [`open`] / [`pick`] / [`platform`] carry one command each, [`log`] is where a
+ * line of the frontend goes, and [`error`] / [`invoke`] are the machinery of
+ * this layer itself. Import from this file.
  *
  * The types mirror what `src-tauri/src/commands/` and `src-tauri/src/connection/`
  * accept and return. They are hand-written, so a change on the Rust side has to be
@@ -22,6 +23,7 @@ export * from "./composer";
 export * from "./connect";
 export * from "./error";
 export * from "./invoke";
+export * from "./log";
 export * from "./open";
 export * from "./pick";
 export * from "./platform";

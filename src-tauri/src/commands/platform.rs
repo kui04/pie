@@ -13,6 +13,7 @@ use crate::error::PieError;
 /// The result is the shape of the boundary (`architecture.md`). It is not a
 /// claim about today's code. A compiled-in fact has nothing to fail on yet.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
 pub fn platform() -> Result<&'static str, PieError> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     return Ok("mobile");

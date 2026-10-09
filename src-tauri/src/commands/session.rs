@@ -32,6 +32,7 @@ use super::state::AppState;
 /// [`connection::Error::UnknownSession`] if the id belongs to no session of this
 /// connection. The failure of the read itself is the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_state(state: State<'_, AppState>, session: String) -> Result<SessionState, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {
@@ -54,6 +55,7 @@ pub async fn get_state(state: State<'_, AppState>, session: String) -> Result<Se
 ///
 /// The same as [`get_state`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_entries(state: State<'_, AppState>, session: String) -> Result<EntriesData, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {
@@ -72,6 +74,7 @@ pub async fn get_entries(state: State<'_, AppState>, session: String) -> Result<
 ///
 /// The same as [`get_state`], and the failure of the protocol.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> Result<SessionStats, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {
@@ -105,6 +108,7 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 /// neither a session file whose working directory is gone nor a file of the host
 /// that is not a session is one pi opens.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, path = %path))]
 pub async fn switch_session(
     state: State<'_, AppState>,
     session: String,

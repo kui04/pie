@@ -11,7 +11,7 @@
  * an event says the answer changed.
  */
 
-import { queryOptions, QueryClient } from "@tanstack/react-query";
+import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
 
 /**
@@ -30,8 +30,22 @@ export const queryDefaults = {
     },
 };
 
+/**
+ * Where a failed read is said out loud.
+ *
+ * A read that fails is drawn where it was read - the failure sentence, the alert,
+ * the disabled rows - and nowhere else: a webview is not a terminal, so nothing
+ * of it would reach a log. This is the one place every read of the app passes
+ * through, so one line here covers all of them, whichever screen asked.
+ */
+const queryCache = new QueryCache({
+    onError: (error, query) => {
+        bridge.log.error("a read failed", { key: query.queryHash, reason: bridge.asPieError(error).message });
+    },
+});
+
 /** The client the app mounts with. */
-export const queryClient = new QueryClient(queryDefaults);
+export const queryClient = new QueryClient({ ...queryDefaults, queryCache });
 
 /**
  * The reads of one session, by the name of the session.

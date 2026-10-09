@@ -29,7 +29,16 @@ export interface PieError {
 
 const MODULES: readonly PieErrorModule[] = ["connection", "commands", "rpc", "io"];
 
-function isPieError(thrown: unknown): thrown is PieError {
+/**
+ * Whether a failure already has a name of its own.
+ *
+ * A rejection that is not one of these never reached a command: Rust answered
+ * with a message of Tauri's, or the invocation did not leave the webview at all
+ * (a command that is not registered, a permission that is missing). The one
+ * caller that must tell the difference is `call`, which logs such a failure
+ * because nothing else would ever show it.
+ */
+export function isPieError(thrown: unknown): thrown is PieError {
     if (typeof thrown !== "object" || thrown === null) return false;
     const candidate = thrown as Partial<PieError>;
     if (!MODULES.includes(candidate.type as PieErrorModule)) return false;

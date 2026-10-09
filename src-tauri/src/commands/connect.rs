@@ -109,6 +109,7 @@ fn checked_id(id: &str) -> Result<(), Error> {
 /// [`Error::UnusableName`] if the name cannot go in an event, and the failure of
 /// the reach to the host.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(connection = %id))]
 pub async fn connect(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -185,6 +186,7 @@ pub async fn connect(
 /// The result is the shape of the boundary (`architecture.md`). It is not a
 /// claim about today's code. A read of the slot has nothing to fail on yet.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn get_connection(state: State<'_, AppState>) -> Result<Option<ConnectionInfo>, PieError> {
     Ok(current_connection(&state).await)
 }
@@ -210,6 +212,7 @@ async fn current_connection(state: &AppState) -> Option<ConnectionInfo> {
 /// The result is the shape of the boundary (`architecture.md`). It is not a
 /// claim about today's code. The end of a connection has nothing to fail on yet.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
     // The guard is dropped at the end of this block. Therefore the slot is free
     // before the sessions stop, and the shutdown below does not hold it. The
@@ -241,6 +244,7 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
 /// The result is the shape of the boundary (`architecture.md`). It is not a
 /// claim about today's code. An answer has nothing to fail on yet.
 #[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(connection = %connection, trusted))]
 pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: bool) -> Result<bool, PieError> {
     Ok(state.question.answer(&connection, trusted))
 }
