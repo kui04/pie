@@ -1,6 +1,7 @@
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AnimatePresence, motion } from "motion/react";
 import { UsagePopover } from "@/routes/chat/components/session/UsagePopover";
+import { SidebarToggle } from "@/routes/chat/components/session/SidebarToggle";
+import { STAGE, STAGE_ARRIVE, STAGE_LEAVE, STAGE_SETTLED } from "@/lib/motion";
 import type { SessionStats } from "@/lib/protocol";
 
 /**
@@ -8,7 +9,9 @@ import type { SessionStats } from "@/lib/protocol";
  * session is called, and how full its context is.
  *
  * The bar itself, and the window's own keys at its end, are the window's
- * (`src/components/Window.tsx`); this is what a session puts in it.
+ * (`src/components/Window.tsx`); this is what a session puts in it. While the
+ * conversation is still on its way it has nothing to say about itself, so only
+ * the way to the list stands: its slots arrive with the words.
  */
 export function SessionHeader({
     name,
@@ -17,6 +20,7 @@ export function SessionHeader({
     auto,
     expanded,
     onToggleSessions,
+    ready = true,
 }: {
     name: string | null;
     /** The directory the session runs in, for a session pi has no name for. */
@@ -27,30 +31,30 @@ export function SessionHeader({
     expanded?: boolean;
     /** Folds the column away, or opens the sheet that holds the list. */
     onToggleSessions: () => void;
+    /** Whether the conversation has arrived; its slots wait for it until it has. */
+    ready?: boolean;
 }) {
     return (
         <>
-            <Button
-                id="sidebar_toggle"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Sessions"
-                aria-expanded={expanded}
-                onClick={onToggleSessions}
-                // The icon is what says whether the list is out beside the chat, so the key
-                // does not fill for it: the ghost variant would fill an expanded key.
-                className="aria-expanded:bg-transparent"
-            >
-                {/* What the press does: it folds a column that is out, and opens the sheet
-                    that holds the list where there is no column. */}
-                {expanded === true ? <PanelLeftClose /> : <PanelLeftOpen />}
-            </Button>
-            <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
-                {title(name, cwd)}
-            </h1>
-            <span id="session_controllers" className="flex shrink-0 items-center gap-1">
-                <UsagePopover id="session-usage" stats={stats} auto={auto} />
-            </span>
+            <SidebarToggle expanded={expanded} onToggleSessions={onToggleSessions} />
+            <AnimatePresence initial={false}>
+                {ready && (
+                    <motion.div
+                        initial={STAGE_ARRIVE}
+                        animate={STAGE_SETTLED}
+                        exit={STAGE_LEAVE}
+                        transition={STAGE}
+                        className="flex min-w-0 flex-1 items-center gap-1"
+                    >
+                        <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
+                            {title(name, cwd)}
+                        </h1>
+                        <span id="session_controllers" className="flex shrink-0 items-center gap-1">
+                            <UsagePopover id="session-usage" stats={stats} auto={auto} />
+                        </span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </>
     );
 }

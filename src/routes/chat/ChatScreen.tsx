@@ -8,7 +8,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useSelector, useMachine } from "@xstate/react";
+import type { ActorRefFrom } from "xstate";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -16,35 +18,94 @@ import { Window } from "@/components/Window";
 import { useConnection } from "@/hooks/use-connection";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
+import { chatMachine, sessionOf, stageOf } from "@/machines/chat.machine";
+import { sessionQueries } from "@/lib/query";
 import { reasonFor } from "@/lib/failure-text";
 import { CONTENT_COLUMN } from "@/routes/chat/content-column";
-import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN } from "@/lib/motion";
+import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN, STAGE, STAGE_ARRIVE, STAGE_LEAVE, STAGE_SETTLED } from "@/lib/motion";
 import * as bridge from "@/lib/bridge";
 import { transcriptRows, queuedRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/stream";
 import { withLiveUsage } from "@/routes/chat/components/session/session";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
+import { ChatLanding } from "@/routes/chat/components/ChatLanding";
+import { SessionOpening } from "@/routes/chat/components/SessionOpening";
 import { Composer } from "@/routes/chat/components/composer/Composer";
-import { SessionDrawer } from "@/routes/chat/components/session/SessionDrawer";
+import { SessionDrawer, type SessionDrawerProps } from "@/routes/chat/components/session/SessionDrawer";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
+import { SidebarToggle } from "@/routes/chat/components/session/SidebarToggle";
 import { SessionSheet } from "@/routes/chat/components/session/SessionSheet";
 import { FAILURE_REASON } from "@/routes/chat/failure-reason";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
 export function ChatScreen() {
     const connection = useConnection();
+    const client = useQueryClient();
+    const wide = useWideWindow();
+    const [chat, , machine] = useMachine(chatMachine);
+    const stage = stageOf(chat);
+    const session = sessionOf(chat);
     // A connection holds one session, so the one in the list is the one.
-    const session = connection.data?.sessions[0]?.id ?? null;
-    // A connection with no session of its own is not a disconnected one: the
-    // landing page says so rather than offering a way that leads nowhere.
-    const idle = connection.data !== null && connection.data !== undefined && session === null;
+    const held = connection.data?.sessions[0] ?? null;
+    const endpoint = connection.data?.endpoint ?? "local";
+    const disconnected = connection.isError || connection.data === null || connection.data === undefined;
+
+    // The sheet is a narrow window's way to the list; the column is a wide one's.
+    // Pure UI, so the two live here, above both stages that draw a list.
+    const [sheet, setSheet] = useState(false);
+    const [column, setColumn] = useState(true);
+    const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
+
+    // What the list shows while no conversation is open: the file pi holds, so the
+    // row it belongs to is the one in use, and a pick of it needs no switch (pi
+    // reloads the conversation it is asked for, even when it is already the one).
+    const heldState = useQuery({
+        ...sessionQueries.state(held?.id ?? ""),
+        enabled: stage === "landing" && held !== null,
+    });
+
+    /**
+     * Opens a session from the landing.
+     *
+     * The feed of the screen is not open yet, so the switch is asked for here: the
+     * chart of a session takes a switch only while it lives (`session.machine.ts`),
+     * and nothing lives before a conversation is chosen.
+     */
+    async function open(path: string) {
+        setSheet(false);
+        if (held === null) return;
+        try {
+            if (path !== heldState.data?.sessionFile) await bridge.switchSession(held.id, path);
+            machine.send({ type: "OPEN", session: held.id });
+        } catch (thrown) {
+            toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
+        }
+    }
 
     if (connection.isPending) return <Window />;
-    if (session === null) {
+
+    // The landing: no conversation is open yet, which is where a window starts and
+    // where the list hands the next one over.
+    if (held === null || stage === "landing") {
         return (
-            <Window>
-                <Landing disconnected={connection.isError || connection.data === null} idle={idle} />
-            </Window>
+            <ChatShell
+                list={{
+                    endpoint,
+                    currentSessionId: heldState.data?.sessionId ?? null,
+                    // Nothing is loading and nothing runs: the rows are the way in,
+                    // and every one of them is open to a press.
+                    working: false,
+                    busy: false,
+                    onPick: (path: string) => void open(path),
+                }}
+                wide={wide}
+                column={column}
+                sheet={sheet}
+                onOpenSheet={setSheet}
+                topbar={<SidebarToggle expanded={wide ? column : undefined} onToggleSessions={toggleSessions} />}
+            >
+                <ChatLanding disconnected={disconnected} />
+            </ChatShell>
         );
     }
     return (
@@ -52,22 +113,59 @@ export function ChatScreen() {
             // Another session is another screen: the run state of a session, its queue
             // and its live command are per-session state, and a remount is what gives
             // them to it (`useSession`).
-            key={session}
-            session={session}
-            cwd={connection.data?.sessions[0]?.cwd ?? null}
-            endpoint={connection.data?.endpoint ?? "local"}
+            key={session ?? held.id}
+            machine={machine}
+            session={session ?? held.id}
+            cwd={held.cwd}
+            endpoint={endpoint}
+            wide={wide}
+            column={column}
+            sheet={sheet}
+            onOpenSheet={setSheet}
+            onToggleSessions={toggleSessions}
+            client={client}
         />
     );
 }
 
-function Session({ session, cwd, endpoint }: { session: string; cwd: string | null; endpoint: string }) {
-    const wide = useWideWindow();
-    const still = useReducedMotion();
-    const client = useQueryClient();
+function Session({
+    machine,
+    session,
+    cwd,
+    endpoint,
+    wide,
+    column,
+    sheet,
+    onOpenSheet,
+    onToggleSessions,
+    client,
+}: {
+    /** The chart of the screen: this subtree is what hears its reads answer. */
+    machine: ActorRefFrom<typeof chatMachine>;
+    session: string;
+    cwd: string | null;
+    endpoint: string;
+    wide: boolean;
+    column: boolean;
+    sheet: boolean;
+    onOpenSheet: (open: boolean) => void;
+    onToggleSessions: () => void;
+    client: QueryClient;
+}) {
     const { phase, working, state, snapshot, stats, listening, error, reopen, switchTo, switching } =
         useSession(session);
-    // The failure may be the subscription itself, which no cache holds.
+    const still = useReducedMotion();
+    const stage = useSelector(machine, stageOf);
+    // The conversation has arrived, so the window may draw it: the bar carries its
+    // name and its usage, the body its rows, and the foot its composer. Until then
+    // the window is the one the landing shows, with the shape of what is coming.
+    const loaded = stage === "loaded";
+    // What a read of this session failed with, if it did. The failure of the feed
+    // itself is not here: it reaches the chart of the screen (`error` below).
     const retry = () => {
+        // A subscription is not held in a cache, so the retry has to ask for the
+        // listeners as well as for the reads.
+        machine.send({ type: "RETRY" });
         reopen();
         void client.invalidateQueries({ queryKey: ["connection"] });
         void client.invalidateQueries({ queryKey: ["session", session] });
@@ -102,16 +200,25 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     // the design's own stand-in.
     const band = useRef<HTMLDivElement>(null);
     const [clearance, setClearance] = useState(9 * 16);
-    const composerOn = listening && error === null && !switching;
+    const composerOn = loaded && error === null;
+
+    // The chart of the screen hears two things from here, because only this subtree
+    // holds the reads: the conversation has arrived, or its feed never opened. The
+    // first takes the window out of its loading, and the second says so in the body,
+    // because the list of the next session is where the reader goes from there.
+    const arrived = listening && !switching && !snapshot.isPending;
+    useEffect(() => {
+        if (arrived) machine.send({ type: "ARRIVED" });
+    }, [arrived, machine]);
+    useEffect(() => {
+        if (error === null || stage === "failed") return;
+        machine.send({ type: "FAILED" });
+    }, [error, stage, machine]);
 
     // Two kinds of failure reach this screen: the listeners never opened, which the
     // hook reports, and a read, which the query holds. They are read in that order.
     const failure = error ?? snapshot.error ?? state.error ?? stats.error;
 
-    // The sheet is a narrow window's way to the list; the column is a wide one's.
-    // Pure UI, so the two live here.
-    const [sheet, setSheet] = useState(false);
-    const [column, setColumn] = useState(true);
     const currentSessionId = state.data?.sessionId ?? null;
     useEffect(() => {
         const element = band.current;
@@ -150,50 +257,182 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
         // the switch would reach Rust and the chart would drop its answer. The rows of
         // the drawer are disabled for the same reason (`busy` below).
         if (!listening || working || switching) return;
-        setSheet(false);
+        onOpenSheet(false);
+        machine.send({ type: "SWITCH" });
         void switchTo(path).catch((thrown: unknown) => {
             toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
         });
     }
 
     const drawerProps = { endpoint, currentSessionId, working, busy: !listening || working || switching, onPick: pick };
-    const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
 
-    // What stands under the bar: the transcript, or why there is none. An empty
-    // one is not yet a fact while the listeners are opening or while a switch is
-    // having the next conversation read. `switching`, not `isFetching`: a read that
-    // an event asked for also fetches, and a transcript on screen beats a sentence.
+    // What stands under the bar: the transcript, or why there is none, and the
+    // loading between them. One stage leaves before the next arrives (`mode="wait"`),
+    // and the loading keeps what the reader was looking at under its ring as it fades
+    // in, so a pick changes the stage of the window and not its frame.
+    const transcript = <TranscriptList rows={rows} clearance={clearance} onRetractQueued={retractQueue} />;
+    const leaving = still ? { duration: 0 } : STAGE;
     let content: ReactNode;
-    if (failure !== null) {
+    if (failure !== null && (loaded || stage === "failed")) {
         content = (
-            <div
-                id="chat-failure"
-                role="alert"
-                className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
+            <motion.div
+                key="failure"
+                initial={STAGE_ARRIVE}
+                animate={STAGE_SETTLED}
+                exit={STAGE_LEAVE}
+                transition={leaving}
+                className="flex min-h-0 flex-1"
             >
-                <p>{reasonFor(bridge.asPieError(failure), FAILURE_REASON)}</p>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={retry}>
-                        Try again
-                    </Button>
-                    <Button asChild variant="ghost" size="sm">
-                        <Link to="/">Connect</Link>
-                    </Button>
+                <div
+                    id="chat-failure"
+                    role="alert"
+                    className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
+                >
+                    <p>{reasonFor(bridge.asPieError(failure), FAILURE_REASON)}</p>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={retry}>
+                            Try again
+                        </Button>
+                        <Button asChild variant="ghost" size="sm">
+                            <Link to="/">Connect</Link>
+                        </Button>
+                    </div>
                 </div>
-            </div>
+            </motion.div>
         );
-    } else if (!listening || snapshot.isPending || switching) {
-        content = <p className="text-body-md text-muted-foreground m-auto">Opening the session…</p>;
+    } else if (!loaded) {
+        content = (
+            <motion.div
+                key="opening"
+                initial={false}
+                exit={STAGE_LEAVE}
+                transition={leaving}
+                className="relative flex min-h-0 flex-1"
+            >
+                {/* What the reader was looking at, going quiet under the ring: the
+                    landing they picked from, or the conversation that is being left. */}
+                <motion.div
+                    initial={{ opacity: 1 }}
+                    animate={STAGE_LEAVE}
+                    transition={leaving}
+                    className="absolute inset-0 flex"
+                >
+                    {stage === "switching" ? transcript : <ChatLanding disconnected={false} />}
+                </motion.div>
+                <SessionOpening />
+            </motion.div>
+        );
     } else if (rows.length === 0) {
         // Pi writes a model and a thinking level into a new session before anything
         // is said; nothing of that is a message, so its transcript is empty.
         content = (
-            <p className="text-body-md text-muted-foreground m-auto px-6 text-center">Nothing has been said yet.</p>
+            <motion.p
+                key="empty"
+                initial={STAGE_ARRIVE}
+                animate={STAGE_SETTLED}
+                exit={STAGE_LEAVE}
+                transition={leaving}
+                className="text-body-md text-muted-foreground m-auto px-6 text-center"
+            >
+                Nothing has been said yet.
+            </motion.p>
         );
     } else {
-        content = <TranscriptList rows={rows} clearance={clearance} onRetractQueued={retractQueue} />;
+        content = (
+            <motion.div
+                key="words"
+                initial={STAGE_ARRIVE}
+                animate={STAGE_SETTLED}
+                exit={STAGE_LEAVE}
+                transition={leaving}
+                className="flex min-h-0 flex-1"
+            >
+                {transcript}
+            </motion.div>
+        );
     }
 
+    return (
+        <ChatShell
+            list={drawerProps}
+            wide={wide}
+            column={column}
+            sheet={sheet}
+            onOpenSheet={onOpenSheet}
+            topbar={
+                loaded ? (
+                    <SessionHeader
+                        name={state.data?.sessionName ?? null}
+                        cwd={cwd}
+                        stats={withLiveUsage(stats.data ?? null, liveUsage?.usage ?? null)}
+                        auto={state.data?.autoCompactionEnabled ?? false}
+                        expanded={wide ? column : undefined}
+                        onToggleSessions={onToggleSessions}
+                        ready={loaded}
+                    />
+                ) : (
+                    // A conversation on its way has nothing to say about itself yet, so
+                    // the bar is the landing's own: the way to the list, and the window's
+                    // keys.
+                    <SidebarToggle expanded={wide ? column : undefined} onToggleSessions={onToggleSessions} />
+                )
+            }
+            // The band is placed against the foot of the body, so the body is what
+            // it is positioned in. The body itself is the whole region - the
+            // transcript scrolls it edge to edge, bar and all - and only what is
+            // drawn inside it is capped to the content column.
+            bodyClassName="relative"
+        >
+            <AnimatePresence mode="wait" initial={false}>
+                {content}
+            </AnimatePresence>
+            <AnimatePresence initial={false}>
+                {composerOn && (
+                    // The composer covers the foot of the chat. The transcript keeps room
+                    // for its whole height (measured above), so no row hides behind it.
+                    <motion.div
+                        id="composer-band"
+                        ref={band}
+                        initial={STAGE_ARRIVE}
+                        animate={STAGE_SETTLED}
+                        exit={STAGE_LEAVE}
+                        transition={leaving}
+                        className={cn("absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
+                    >
+                        <Composer session={session} working={working} />
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </ChatShell>
+    );
+}
+
+/**
+ * The window of the chat, in every stage of it: the list, the bar, the body.
+ *
+ * The list is one node in both, so the column and the sheet are drawn from one
+ * description: a stage that re-created it would be a stage that could lose it.
+ */
+function ChatShell({
+    list,
+    wide,
+    column,
+    sheet,
+    onOpenSheet,
+    topbar,
+    bodyClassName,
+    children,
+}: {
+    list: Omit<SessionDrawerProps, "id" | "className">;
+    wide: boolean;
+    column: boolean;
+    sheet: boolean;
+    onOpenSheet: (open: boolean) => void;
+    topbar: ReactNode;
+    bodyClassName?: string;
+    children?: ReactNode;
+}) {
+    const still = useReducedMotion();
     return (
         <>
             <Window
@@ -213,69 +452,19 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                                 exit={UNFOLD_HIDDEN}
                                 transition={still ? { duration: 0 } : UNFOLD}
                             >
-                                <SessionDrawer id="session-drawer" {...drawerProps} className="w-64 flex-1" />
+                                <SessionDrawer id="session-drawer" className="w-64 flex-1" {...list} />
                             </motion.div>
                         )}
                     </AnimatePresence>
                 }
-                topbar={
-                    <SessionHeader
-                        name={state.data?.sessionName ?? null}
-                        cwd={cwd}
-                        stats={withLiveUsage(stats.data ?? null, liveUsage?.usage ?? null)}
-                        auto={state.data?.autoCompactionEnabled ?? false}
-                        expanded={wide ? column : undefined}
-                        onToggleSessions={toggleSessions}
-                    />
-                }
-                // The band is placed against the foot of the body, so the body is what
-                // it is positioned in. The body itself is the whole region - the
-                // transcript scrolls it edge to edge, bar and all - and only what is
-                // drawn inside it is capped to the content column.
-                bodyClassName="relative"
+                topbar={topbar}
+                bodyClassName={bodyClassName}
             >
-                {content}
-                {composerOn && (
-                    // The composer covers the foot of the chat. The transcript keeps room
-                    // for its whole height (measured above), so no row hides behind it.
-                    <div
-                        id="composer-band"
-                        ref={band}
-                        className={cn("absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
-                    >
-                        <Composer session={session} working={working} />
-                    </div>
-                )}
+                {children}
             </Window>
-            <SessionSheet id="session-sheet" open={sheet} onOpenChange={setSheet}>
-                <SessionDrawer id="session-sheet-drawer" {...drawerProps} className="h-full" />
+            <SessionSheet id="session-sheet" open={sheet} onOpenChange={onOpenSheet}>
+                <SessionDrawer id="session-sheet-drawer" className="h-full" {...list} />
             </SessionSheet>
         </>
-    );
-}
-
-/**
- * What the screen shows when there is no session to read.
- *
- * A window may be here with no connection at all, which is what a reload of this
- * route leaves behind. Then the gate is offered, because this route has no way
- * back to it.
- */
-function Landing({ disconnected, idle }: { disconnected: boolean; idle: boolean }) {
-    return (
-        <div id="chat-landing" className="m-auto flex flex-col items-center justify-center gap-3 p-6 text-center">
-            <p className="text-title-lg text-foreground font-medium">pie</p>
-            <p className="text-body-md text-muted-foreground">
-                {idle ? "This connection has no session yet" : "Open a session"}
-            </p>
-            {disconnected && (
-                <>
-                    <p className="text-body-sm text-muted-foreground">This window is not connected to a host.</p>
-                    <Button asChild variant="outline" size="sm">
-                        <Link to="/">Connect</Link>
-                    </Button>
-                </>
-            )}
-        </div>
     );
 }

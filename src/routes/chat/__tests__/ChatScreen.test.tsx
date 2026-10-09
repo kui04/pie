@@ -115,12 +115,36 @@ beforeEach(() => {
     useTranscriptStore.getState().clear();
     bridge.onSessionEvent.mockResolvedValue(() => undefined);
     bridge.onSessionState.mockResolvedValue(() => undefined);
-    bridge.getState.mockResolvedValue({});
+    bridge.getState.mockResolvedValue(sessionState());
+    bridge.switchSession.mockResolvedValue({ cancelled: false });
     bridge.getSessionStats.mockResolvedValue(sessionStats());
     bridge.getEntries.mockResolvedValue({ entries: [], leafId: null });
     bridge.listSessions.mockResolvedValue([]);
     bridge.clearQueue.mockResolvedValue({ steering: [], followUp: [] });
 });
+
+/** The session the connection holds, as the list draws it. */
+const HELD = sessionSummary({ name: "Fix the parser", path: sessionState().sessionFile ?? "" });
+
+/**
+ * The window with a conversation open.
+ *
+ * A window starts on the landing, and the list is the way out of it: this helper
+ * renders the screen with the rows it is given and opens the first of them, so a
+ * test about the transcript says nothing about the landing. The tests of the
+ * landing itself render the screen without it.
+ */
+async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
+    bridge.listSessions.mockResolvedValue(rows);
+    const view = renderScreen();
+    // A narrow window keeps the list in a sheet, and the bar's key opens it; a wide
+    // one shows the list in a column of its own, where the row is already drawn.
+    if (!window.matchMedia("(min-width: 64rem)").matches) {
+        fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
+    }
+    fireEvent.click(await screen.findByRole("button", { name: rows[0].name ?? "" }));
+    return view;
+}
 
 describe("ChatScreen", () => {
     it("offers the way back to the gate when no connection is held", async () => {
@@ -128,9 +152,69 @@ describe("ChatScreen", () => {
 
         renderScreen();
 
-        expect(await screen.findByText("Open a session")).toBeInTheDocument();
+        expect(await screen.findByText(/There are many agent harnesses/)).toBeInTheDocument();
         expect(await screen.findByText("This window is not connected to a host.")).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/");
+    });
+
+    it("lands on the words of pi before a conversation is chosen", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([HELD]);
+
+        const { container } = renderScreen();
+
+        // The window has no conversation, so it has no bar of one: the way to the
+        // list, the window's own keys, and the words of pi with the keys to come.
+        expect(await screen.findByText(/There are many agent harnesses/)).toBeInTheDocument();
+        expect(screen.getAllByText("Ctrl")).toHaveLength(2);
+        expect(container.querySelector("#session_name")).toBeNull();
+        expect(container.querySelector("#composer-band")).toBeNull();
+        expect(container.querySelector("#transcript-list")).toBeNull();
+    });
+
+    it("says it is opening a conversation while it opens", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([HELD]);
+        // The entries of the conversation do not answer yet, so the window is loading.
+        bridge.getEntries.mockReturnValue(new Promise(() => undefined));
+
+        const { container } = renderScreen();
+        fireEvent.click(await screen.findByRole("button", { name: "Fix the parser" }));
+
+        expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
+        expect(container.querySelector("#session-opening")).not.toBeNull();
+        // The ring says the wait is work, and it names itself to a reader that
+        // cannot see it.
+        expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
+        // Nothing of the conversation is known yet: the bar is the landing's, and the
+        // composer waits for the words it would write into.
+        expect(container.querySelector("#session_name")).toBeNull();
+        expect(container.querySelector("#composer-band")).toBeNull();
+    });
+
+    it("puts the conversation in the bar, and the composer under it, once it arrives", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("hello")))));
+
+        const { container } = await renderOpen();
+
+        expect(await screen.findByText("hello")).toBeInTheDocument();
+        expect(container.querySelector("#session_name")).toHaveTextContent("Fix the parser");
+        expect(container.querySelector("#composer-band")).not.toBeNull();
+        expect(container.querySelector("#session-skeleton")).toBeNull();
+    });
+
+    it("switches pi to the conversation that was chosen from the landing", async () => {
+        // The list of the landing holds a session pi does not hold: the file of the
+        // row is handed over before the window opens it.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        const other = sessionSummary({ name: "The other one" });
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
+
+        await renderOpen([other]);
+
+        expect(bridge.switchSession).toHaveBeenCalledWith("main:1", other.path);
+        expect(await screen.findByText("the other conversation")).toBeInTheDocument();
     });
 
     it("gives the whole window to the chat when it is too narrow for a list", async () => {
@@ -138,7 +222,7 @@ describe("ChatScreen", () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries());
 
-        const { container } = renderScreen();
+        const { container } = await renderOpen();
         await screen.findByText("Nothing has been said yet.");
 
         expect(container.querySelector("#sidebar")).toBeNull();
@@ -153,9 +237,8 @@ describe("ChatScreen", () => {
         bridge.getEntries.mockResolvedValue(storeOfEntries());
 
         renderScreen();
-        await screen.findByText("Nothing has been said yet.");
-
-        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+        // The landing carries the same key the session's own bar does.
+        fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
         // The sheet carries the same list the column would.
         expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
         restore();
@@ -166,7 +249,7 @@ describe("ChatScreen", () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries());
 
-        const { container } = renderScreen();
+        const { container } = await renderOpen();
         await screen.findByText("Nothing has been said yet.");
 
         const sidebar = container.querySelector<HTMLElement>("#sidebar");
@@ -183,7 +266,7 @@ describe("ChatScreen", () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries());
 
-        const { container } = renderScreen();
+        const { container } = await renderOpen();
         await screen.findByText("Nothing has been said yet.");
 
         fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
@@ -196,7 +279,7 @@ describe("ChatScreen", () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries());
 
-        const { container } = renderScreen();
+        const { container } = await renderOpen();
 
         expect(await screen.findByText("Nothing has been said yet.")).toBeInTheDocument();
         expect(container.querySelector("#transcript-list")).toBeNull();
@@ -207,7 +290,7 @@ describe("ChatScreen", () => {
         const entries = chain(messageEntry(user("make the parser skip empty lines")));
         bridge.getEntries.mockResolvedValue(storeOfEntries(entries));
 
-        renderScreen();
+        await renderOpen();
 
         // The row itself is what is asserted: a screen that wired the store to a
         // list, and lost the entries between them, would still draw the list.
@@ -222,7 +305,7 @@ describe("ChatScreen", () => {
             error: { kind: "unknown_session" },
         });
 
-        renderScreen();
+        await renderOpen();
 
         await waitFor(() =>
             expect(screen.getByText("That session is gone from this connection. Connect again.")).toBeInTheDocument(),
@@ -237,7 +320,7 @@ describe("ChatScreen", () => {
             error: { kind: "a_kind_of_a_later_pi" },
         });
 
-        renderScreen();
+        await renderOpen();
 
         // The table names the failures of this screen; a name it does not know
         // falls back to the sentence of the module that owned it.
@@ -254,7 +337,7 @@ describe("ChatScreen", () => {
             error: { kind: "unknown_session" },
         });
 
-        renderScreen();
+        await renderOpen();
 
         // A read that failed while the pipe is closed says nothing new: the screen
         // offers the failure that explains the other one.
@@ -266,7 +349,7 @@ describe("ChatScreen", () => {
         bridge.onSessionEvent.mockRejectedValueOnce({ type: "rpc", message: "raw", error: { kind: "closed" } });
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("hello again")))));
 
-        renderScreen();
+        await renderOpen();
 
         const alert = await screen.findByRole("alert");
         fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
@@ -282,7 +365,7 @@ describe("ChatScreen", () => {
         bridge.getEntries.mockResolvedValue(storeOfEntries());
         bridge.clearQueue.mockResolvedValue({ steering: ["run the tests first"], followUp: [] });
 
-        renderScreen();
+        await renderOpen();
         // Wait for the session to be open first: opening one clears the store it reads
         // through, and the queue of a session arrives after that.
         await screen.findByText("Nothing has been said yet.");
@@ -303,8 +386,8 @@ describe("ChatScreen", () => {
         // would drop the events of it while Rust made the switch, and the screen would
         // keep the old conversation. The rows say so, and the pick does not reach Rust.
         bridge.getConnection.mockResolvedValue(CONNECTED);
-        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
-        bridge.switchSession.mockResolvedValue({ cancelled: false });
+        bridge.listSessions.mockResolvedValue([HELD, sessionSummary({ name: "The other one" })]);
+        bridge.switchSession.mockClear();
         // The listeners of this session never open.
         bridge.onSessionEvent.mockReturnValue(new Promise(() => undefined));
 
@@ -312,6 +395,7 @@ describe("ChatScreen", () => {
         // frame: the pick is reachable while the feed is still opening.
         const restore = windowOf("wide");
         renderScreen();
+        fireEvent.click(await screen.findByRole("button", { name: "Fix the parser" }));
         expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
 
         const row = await screen.findByText("The other one");
@@ -328,10 +412,10 @@ describe("ChatScreen", () => {
             .mockResolvedValueOnce(storeOfEntries(chain(messageEntry(user("first words")))))
             .mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
         const target = sessionSummary({ name: "The other one" });
-        bridge.listSessions.mockResolvedValue([target]);
+        bridge.listSessions.mockResolvedValue([HELD, target]);
         bridge.switchSession.mockResolvedValue({ cancelled: false });
 
-        renderScreen();
+        await renderOpen([HELD, target]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
@@ -361,7 +445,7 @@ describe("ChatScreen", () => {
             return () => undefined;
         });
 
-        renderScreen();
+        await renderOpen();
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         // The pi of this session is gone, so the transcript is asked for again. Until
@@ -390,7 +474,7 @@ describe("ChatScreen", () => {
         });
         const called = assistant([toolCall("c1", "bash", { command: "pnpm test" })], { stopReason: "toolUse" });
 
-        renderScreen();
+        await renderOpen();
         await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalled());
 
         act(() => {
@@ -436,7 +520,7 @@ describe("ChatScreen", () => {
             return () => undefined;
         });
 
-        renderScreen();
+        await renderOpen();
         await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalled());
 
         act(() => {
@@ -488,7 +572,7 @@ describe("ChatScreen", () => {
         const command = toolCall("c1", "bash", { command: "pnpm test" });
         const streamed = { ...assistant([command], { stopReason: "pending" as const }), timestamp: 4242 };
 
-        renderScreen();
+        await renderOpen();
         await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalled());
 
         act(() => {
@@ -548,7 +632,7 @@ describe("ChatScreen", () => {
             return () => undefined;
         });
 
-        renderScreen();
+        await renderOpen();
         await waitFor(() => expect(screen.getByLabelText("Context usage 1.0%")).toBeInTheDocument());
 
         act(() => {
@@ -569,7 +653,7 @@ describe("ChatScreen", () => {
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         const first = sessionSummary({ name: "The first one" });
         const second = sessionSummary({ name: "The second one" });
-        bridge.listSessions.mockResolvedValue([first, second]);
+        bridge.listSessions.mockResolvedValue([HELD, first, second]);
         // A host across a network answers when it answers, and until it does the
         // reader can pick another row; pi runs the commands of one session one after
         // another, so two switches would leave the conversation of whichever ends
@@ -577,7 +661,7 @@ describe("ChatScreen", () => {
         let answer: (data: unknown) => void = () => undefined;
         bridge.switchSession.mockReturnValue(new Promise((resolve) => (answer = resolve)));
 
-        renderScreen();
+        await renderOpen([HELD, first, second]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
@@ -596,11 +680,12 @@ describe("ChatScreen", () => {
         const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
-        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
+        const other = sessionSummary({ name: "The other one" });
+        bridge.listSessions.mockResolvedValue([HELD, other]);
         // An extension of pi refused the switch, so the session is what it was.
         bridge.switchSession.mockResolvedValue({ cancelled: true });
 
-        renderScreen();
+        await renderOpen([HELD, other]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
@@ -620,14 +705,15 @@ describe("ChatScreen", () => {
         const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
-        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
+        const other = sessionSummary({ name: "The other one" });
+        bridge.listSessions.mockResolvedValue([HELD, other]);
         bridge.switchSession.mockRejectedValue({
             type: "rpc",
             message: "raw",
             error: { kind: "rpc" },
         });
 
-        renderScreen();
+        await renderOpen([HELD, other]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Sessions" }));

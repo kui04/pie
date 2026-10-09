@@ -194,6 +194,11 @@ components:
   marker:
     textColor: "{colors.muted-foreground}"
     typography: "{typography.body-md}"
+  kbd:
+    backgroundColor: "{colors.muted}"
+    textColor: "{colors.muted-foreground}"
+    typography: "{typography.label-md}"
+    rounded: "{rounded.sm}"
   tool-name:
     textColor: "{colors.primary-text}"
   tool-name-user-run:
@@ -354,7 +359,11 @@ the chat is a column of two: the bar, and the body under it.
 
 The bar is the window's own handle: the window has no decorations, so a press on
 the bar drags it, and the window's three keys sit at its end. Before them are
-the session's slots — the way to the list, the name, the state of the context.
+the session's slots — the way to the list, the name, the state of the context —
+and while no conversation is open the bar carries the way to the list alone: the
+landing has no session to name. A conversation on its way keeps that bar and
+puts the shape of its words in the body; only the read that answers turns the
+bar into the session's own and hands the foot to the composer.
 
 - **Mobile first.** Base styles are the phone's; wider windows layer on with
   Tailwind breakpoints. The column that only exists above `lg` (the session
@@ -430,6 +439,26 @@ A column that opens — the session list above `lg` — is revealed by a clip: i
 wrapper owns the width the transcript gives up (256px), and the column inside it
 keeps its own width, so what moves is the edge and the hairline on it, not the
 rows.
+
+**Landing** (`src/routes/chat/components/ChatLanding.tsx`) — the window with no
+conversation open, which is where it starts and where `Detach` will return it.
+It draws the words of pi and the keys the window will answer to, centred, and
+the bar above it carries only the way to the list and the window's own keys: a
+session's slots (name, context) belong to a conversation, and there is none yet.
+A key is shadcn's **kbd** (`text-body-md` at its side, `muted` under it), and
+its binding is not made yet — the rows are the plan a reader can read
+(`docs/TODO.md`).
+
+**Loading** (`src/routes/chat/components/SessionOpening.tsx`) — a conversation
+is on its way: the window keeps the bar of the landing — a conversation that has
+not arrived has nothing to say about itself — and the body says
+`Opening the session…` beside shadcn's **spinner** (`Loader2`,
+`muted-foreground`), centred. No composer and no session slots until the read
+answers. A stage change is a tween and not a cut: the ring fades in over what
+the reader was looking at (the landing they picked from, or the conversation
+being left) while that layer goes quiet, and the words, the bar's slots and the
+composer arrive as it leaves (`STAGE` of `src/lib/motion.ts`, `mode="wait"`
+between the stages, and nothing moves where a reader asked for less motion).
 
 **Tile** — the transcript's card: a tool call and its result (`ToolResultCard`),
 a thought (`ThinkingCard`), a notice (`NoticeCard`), a fenced code block

@@ -25,6 +25,21 @@ export const SWAPPED_IN = { opacity: 0, scale: 0.9 } as const;
 /** The element an icon swap replaced. */
 export const SWAPPED_OUT = { opacity: 0, scale: 1.1 } as const;
 
+/**
+ * One stage of a window giving way to the next: the landing to a load, a load to
+ * the words. A short tween, no travel through a page that did not move.
+ */
+export const STAGE = { type: "tween", duration: 0.22, ease: [0.2, 0, 0, 1] } as const;
+
+/** How a stage that is leaving stands: quiet, in its own place. */
+export const STAGE_LEAVE = { opacity: 0 } as const;
+
+/** How the stage that takes its place arrives: faintly low, then in place. */
+export const STAGE_ARRIVE = { opacity: 0, y: 8 } as const;
+
+/** Where that stage stands once it is in place. */
+export const STAGE_SETTLED = { opacity: 1, y: 0 } as const;
+
 /** A card's body opening: a short tween of its own height, and no overshoot. */
 export const REVEAL = { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] } as const;
 
