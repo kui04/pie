@@ -10,7 +10,19 @@ import type { Event } from "@/lib/protocol";
 import { MODULE_REASON } from "@/lib/failure-text";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { useTranscriptStore } from "@/stores/transcript.store";
-import { chain, messageEntry, sessionStats, sessionSummary, storeOf, user } from "@/preview/fixtures";
+import {
+    assistant,
+    chain,
+    messageEntry,
+    sessionStats,
+    sessionSummary,
+    sessionState,
+    storeOf,
+    toolCall,
+    toolResult,
+    usage,
+    user,
+} from "@/preview/fixtures";
 
 type Call = () => Promise<unknown>;
 type ListenEvent = (session: string, handler: (payload: Event) => void) => Promise<() => void>;
@@ -335,6 +347,194 @@ describe("ChatScreen", () => {
         await waitFor(() => expect(bridge.getEntries).toHaveBeenCalledTimes(2));
         expect(screen.getByText("first words")).toBeInTheDocument();
         expect(screen.queryByText("Opening the session…")).toBeNull();
+    });
+
+    it("stays at work when a read carries the message the run already wrote", async () => {
+        // The messages of a run are written to the session file as they finish, so a read
+        // that lands while the run goes on takes the row the run drew over with the entry of
+        // that message (a compaction or a command of the reader asks for one). The line under
+        // the transcript belongs to the run, not to the row: it is at work until the run is
+        // over, and it does not go back to waiting for a first output.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries([]));
+        let publish: (event: Event) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
+            publish = onEvent;
+            return () => undefined;
+        });
+        const called = assistant([toolCall("c1", "bash", { command: "pnpm test" })], { stopReason: "toolUse" });
+
+        renderScreen();
+        await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalled());
+
+        act(() => {
+            publish({ type: "agent_start" });
+            publish({ type: "message_start", message: assistant([], { stopReason: "pending" as const }) });
+        });
+        await waitFor(() => expect(screen.getByText("Working…")).toBeInTheDocument());
+
+        act(() => {
+            publish({ type: "message_end", message: called });
+            publish({
+                type: "tool_execution_start",
+                toolCallId: "c1",
+                toolName: "bash",
+                args: { command: "pnpm test" },
+            });
+        });
+
+        // The compaction that just ended asks for a read of the entries, which answers with
+        // the entry of the message the run already wrote.
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(called))));
+        act(() =>
+            publish({ type: "compaction_end", reason: "threshold", result: null, aborted: false, willRetry: false }),
+        );
+
+        await waitFor(() => expect(useTranscriptStore.getState().live.messages).toEqual([]));
+        expect(screen.getByText("Working…")).toBeInTheDocument();
+        expect(screen.queryByText("Waiting…")).not.toBeInTheDocument();
+        // The row stands: the read replaced it with the entry of the same message.
+        expect(screen.getByText("pnpm test")).toBeInTheDocument();
+    });
+
+    it("says what the run waits on, from the send to the model's first output", async () => {
+        // A connection to a machine that may be far away: between what the reader sent and
+        // the model's first output there is a stretch of time with nothing on screen, and it
+        // has a name. Once the model writes, the run is at work - and it stays at work while
+        // it runs what the model called.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries([]));
+        let publish: (event: Event) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
+            publish = onEvent;
+            return () => undefined;
+        });
+
+        renderScreen();
+        await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalled());
+
+        act(() => {
+            publish({ type: "agent_start" });
+            publish({ type: "message_start", message: user("what does the parser do?") });
+        });
+
+        expect(await screen.findByText("Waiting…")).toBeInTheDocument();
+
+        act(() => publish({ type: "message_start", message: assistant([], { stopReason: "pending" as const }) }));
+
+        await waitFor(() => expect(screen.getByText("Working…")).toBeInTheDocument());
+        expect(screen.queryByText("Waiting…")).not.toBeInTheDocument();
+
+        act(() => {
+            publish({
+                type: "message_end",
+                message: assistant([toolCall("c1", "bash", { command: "pnpm test" })], { stopReason: "toolUse" }),
+            });
+            publish({
+                type: "tool_execution_start",
+                toolCallId: "c1",
+                toolName: "bash",
+                args: { command: "pnpm test" },
+            });
+        });
+
+        await waitFor(() => expect(screen.getByLabelText("Running")).toBeInTheDocument());
+        expect(screen.getByText("Working…")).toBeInTheDocument();
+
+        act(() => publish({ type: "agent_settled" }));
+
+        await waitFor(() => expect(screen.queryByText("Working…")).not.toBeInTheDocument());
+    });
+
+    it("draws a call as it runs, and keeps the card when the read replaces the row", async () => {
+        // Pi writes the messages of a run to the session file only at the end of it, so
+        // the live rows are the only thing that shows an answer while it arrives. The
+        // read that follows the run is the authority, and the row it becomes keeps the
+        // name the live row had: without that, the card of a call would start over - its
+        // clock, the body the reader opened - at the moment the run ends.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries([]));
+        let publish: (event: Event) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
+            publish = onEvent;
+            return () => undefined;
+        });
+        const command = toolCall("c1", "bash", { command: "pnpm test" });
+        const streamed = { ...assistant([command], { stopReason: "pending" as const }), timestamp: 4242 };
+
+        renderScreen();
+        await waitFor(() => expect(bridge.onSessionEvent).toHaveBeenCalled());
+
+        act(() => {
+            publish({ type: "message_start", message: streamed });
+            publish({
+                type: "tool_execution_start",
+                toolCallId: "c1",
+                toolName: "bash",
+                args: { command: "pnpm test" },
+            });
+            publish({
+                type: "tool_execution_update",
+                toolCallId: "c1",
+                toolName: "bash",
+                args: { command: "pnpm test" },
+                partialResult: { content: [{ type: "text", text: "PASS so far" }] },
+            });
+        });
+
+        const card = await waitFor(() => {
+            const found = document.querySelector("#live-1-c1");
+            expect(found).not.toBeNull();
+            return found as HTMLElement;
+        });
+        expect(within(card).getByText("PASS so far")).toBeInTheDocument();
+        expect(within(card).getByLabelText("Running")).toBeInTheDocument();
+
+        // The read that the end of the run asks for answers with the entries.
+        bridge.getEntries.mockResolvedValue(
+            storeOfEntries(
+                chain(
+                    messageEntry({ ...assistant([command], { stopReason: "toolUse" }), timestamp: 4242 }),
+                    messageEntry(toolResult("c1", "bash", "PASS 13 tests")),
+                ),
+            ),
+        );
+        act(() => publish({ type: "agent_settled" }));
+
+        await waitFor(() => expect(screen.getByLabelText("Succeeded")).toBeInTheDocument());
+        // The same element: the row kept its name, so the card kept its state.
+        expect(document.querySelector("#live-1-c1")).toBe(card);
+    });
+
+    it("follows the response that streams with the ring of the usage", async () => {
+        // The usage of a response is written to the session file with its message, so the
+        // reads of the usage are behind it until the response is over. The ring follows the
+        // deltas meanwhile, which carry the response's own cumulative usage.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries([]));
+        bridge.getState.mockResolvedValue(sessionState({ isStreaming: true }));
+        bridge.getSessionStats.mockResolvedValue(
+            sessionStats({ contextUsage: { tokens: 1000, contextWindow: 100000, percent: 1 } }),
+        );
+        let publish: (event: Event) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
+            publish = onEvent;
+            return () => undefined;
+        });
+
+        renderScreen();
+        await waitFor(() => expect(screen.getByLabelText("Context usage 1.0%")).toBeInTheDocument());
+
+        act(() => {
+            publish({ type: "message_start", message: assistant([], { stopReason: "pending" as const }) });
+            publish({
+                type: "message_update",
+                usage: usage({ input: 49000, output: 1000, cacheRead: 0, cacheWrite: 0, totalTokens: 50000 }),
+                assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "an answer" },
+            });
+        });
+
+        await waitFor(() => expect(screen.getByLabelText("Context usage 50.0%")).toBeInTheDocument());
     });
 
     it("sends one switch for two rows that are picked at the same instant", async () => {

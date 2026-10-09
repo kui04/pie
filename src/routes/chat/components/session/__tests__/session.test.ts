@@ -12,8 +12,9 @@ import {
     sessionTitle,
     tokenBreakdown,
     usageTone,
+    withLiveUsage,
 } from "@/routes/chat/components/session/session";
-import { sessionSummary } from "@/preview/fixtures";
+import { sessionStats, sessionSummary, usage } from "@/preview/fixtures";
 
 describe("groupSessions", () => {
     it("puts the sessions of one directory together, the newest written first", () => {
@@ -204,5 +205,57 @@ describe("tokenBreakdown", () => {
     it("leaves out a total with nothing behind it", () => {
         expect(tokenBreakdown({ input: 500, output: 0, cacheRead: 0, cacheWrite: 0, total: 500 })).toBe("↑500");
         expect(tokenBreakdown({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 })).toBe("");
+    });
+});
+
+describe("the readings of a session while a response streams", () => {
+    const stats = sessionStats();
+
+    it("stands alone when no response streams", () => {
+        expect(withLiveUsage(stats, null)).toBe(stats);
+        expect(withLiveUsage(null, null)).toBeNull();
+    });
+
+    it("adds the tokens and the cost of the streaming response", () => {
+        const live = usage({ input: 1000, output: 200, cacheRead: 5000, cacheWrite: 100, totalTokens: 6300 });
+
+        const read = withLiveUsage(stats, live)!;
+
+        expect(read.tokens).toEqual({
+            input: 13000,
+            output: 3600,
+            cacheRead: 189000,
+            cacheWrite: 9300,
+            total: 214900,
+        });
+        expect(read.cost).toBeCloseTo(0.45 + live.cost.total, 10);
+    });
+
+    it("reads the context of the running response from its own tokens", () => {
+        // The response that streams has been given the whole context and has written its
+        // answer since: its own count is the context pi will read once the response is
+        // over, and pi trusts that count over its estimate wherever it has one.
+        const live = usage({ input: 100000, output: 5000, cacheRead: 0, cacheWrite: 0, totalTokens: 105000 });
+
+        const read = withLiveUsage(stats, live)!;
+
+        expect(read.contextUsage?.tokens).toBe(105000);
+        expect(read.contextUsage?.percent).toBeCloseTo((105000 / 512000) * 100, 10);
+    });
+
+    it("counts the parts of a usage that names no total", () => {
+        const live = usage({ input: 10, output: 20, cacheRead: 30, cacheWrite: 40, totalTokens: 0 });
+
+        expect(withLiveUsage(stats, live)?.contextUsage?.tokens).toBe(100);
+    });
+
+    it("leaves the context reading alone when pi names no window", () => {
+        const unknown = sessionStats({ contextUsage: null });
+        const live = usage({ totalTokens: 4200 });
+
+        const read = withLiveUsage(unknown, live)!;
+
+        expect(read.contextUsage).toBeNull();
+        expect(read.tokens.total).toBeGreaterThan(unknown.tokens.total);
     });
 });

@@ -49,3 +49,13 @@ export const Compacted: Story = {
 export const Empty: Story = {
     args: { rows: [] },
 };
+
+/** A reader has sent words: the app waits for the model's first output. */
+export const Waiting: Story = {
+    args: { rows: [{ kind: "activity", id: "activity", state: "waiting" }] },
+};
+
+/** The same run once the model writes, or once a call of it runs. */
+export const Working: Story = {
+    args: { rows: [...rows(sampleTranscript()), { kind: "activity", id: "activity", state: "working" }] },
+};

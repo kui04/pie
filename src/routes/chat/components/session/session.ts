@@ -10,7 +10,7 @@
  * without a bridge.
  */
 
-import type { SessionTokens } from "@/lib/protocol";
+import type { SessionStats, SessionTokens, Usage } from "@/lib/protocol";
 import { BREATHE_CYCLE } from "@/lib/motion";
 import type { SessionSummary } from "@/lib/bridge";
 
@@ -191,4 +191,44 @@ export function tokenBreakdown(tokens: SessionTokens): string {
     if (tokens.cacheRead) parts.push(`R${formatTokens(tokens.cacheRead)}`);
     if (tokens.cacheWrite) parts.push(`W${formatTokens(tokens.cacheWrite)}`);
     return parts.join(" ");
+}
+
+/**
+ * The readings of a session with the response that streams added to them.
+ *
+ * A read of the usage sees what pi wrote to the session file, and the message of a run
+ * is written only when its response is over. The deltas of that response carry its own
+ * cumulative usage, so the numbers a reader watches - the share of the window, the
+ * tokens, the cost - can follow the response while it arrives. `live` is `null` the
+ * rest of the time, and the read stands alone.
+ *
+ * The context of the running response is the tokens it has spent so far (what pi reads
+ * as `totalTokens`): the prompt it was given, plus what it has written since. That is
+ * the same reading pi itself trusts over its estimate wherever it has one.
+ */
+export function withLiveUsage(stats: SessionStats | null, live: Usage | null): SessionStats | null {
+    if (stats === null || live === null) return stats;
+
+    const tokens: SessionTokens = {
+        input: stats.tokens.input + live.input,
+        output: stats.tokens.output + live.output,
+        cacheRead: stats.tokens.cacheRead + live.cacheRead,
+        cacheWrite: stats.tokens.cacheWrite + live.cacheWrite,
+        total: stats.tokens.total + contextTokens(live),
+    };
+    const window = stats.contextUsage?.contextWindow ?? 0;
+    const spent = contextTokens(live);
+
+    return {
+        ...stats,
+        tokens,
+        cost: stats.cost + (live.cost?.total ?? 0),
+        contextUsage:
+            window > 0 ? { tokens: spent, contextWindow: window, percent: (spent / window) * 100 } : stats.contextUsage,
+    };
+}
+
+/** The tokens a response spent: pi reads a usage the way `calculateContextTokens` does. */
+function contextTokens(usage: Usage): number {
+    return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 }

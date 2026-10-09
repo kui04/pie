@@ -1,4 +1,5 @@
 import type { TranscriptRow } from "@/lib/transcript";
+import { ActivityLine } from "@/routes/chat/components/entries/ActivityLine";
 import { AssistantMessage } from "@/routes/chat/components/entries/AssistantMessage";
 import { NoticeCard } from "@/routes/chat/components/entries/NoticeCard";
 import { ToolResultCard } from "@/routes/chat/components/entries/ToolResultCard";
@@ -24,7 +25,7 @@ export function EntryRenderer({ row, onRetractQueued }: EntryRendererProps) {
         case "user":
             return <UserMessage id={row.id} message={row.message} />;
         case "assistant":
-            return <AssistantMessage id={row.id} message={row.message} results={row.results} />;
+            return <AssistantMessage id={row.id} message={row.message} results={row.results} live={row.live} />;
         case "bash":
             return <ToolResultCard id={row.id} presentation={presentExecution(row.message)} />;
         case "queued":
@@ -38,6 +39,8 @@ export function EntryRenderer({ row, onRetractQueued }: EntryRendererProps) {
                     onRetract={onRetractQueued}
                 />
             );
+        case "activity":
+            return <ActivityLine state={row.state} />;
         case "notice":
             return <NoticeCard id={row.id} label={row.label} summary={row.summary} body={row.body} />;
         default: {

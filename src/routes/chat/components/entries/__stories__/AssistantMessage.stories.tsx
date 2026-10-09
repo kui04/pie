@@ -45,3 +45,43 @@ export const Settled: Story = {
 export const Working: Story = {
     args: { id: "story-working", message: answer("pending"), results: new Map() },
 };
+
+/**
+ * A turn of a run that goes on right now: the answer is half written, the thought is
+ * still arriving, and the shell command has streamed part of its output - the live
+ * state of the run (`lib/stream.ts`), not a snapshot.
+ */
+export const Streaming: Story = {
+    args: {
+        id: "story-streaming",
+        message: assistant(
+            [
+                thinking("The split leaves empty trailing entries"),
+                text("Filtering the lines after the split"),
+                toolCall("c1", "bash", { command: "pnpm test" }),
+            ],
+            { stopReason: "pending" },
+        ) as AssistantMessageData,
+        results: new Map(),
+        live: {
+            calls: new Map([
+                [
+                    "c1",
+                    {
+                        running: true,
+                        result: {
+                            toolCallId: "c1",
+                            toolName: "bash",
+                            content: [
+                                { type: "text", text: "PASS  src/lib/__tests__/stream.test.ts\nTests  13 passed" },
+                            ],
+                            isError: false,
+                            timestamp: 0,
+                        },
+                    },
+                ],
+            ]),
+            retrying: false,
+        },
+    },
+};

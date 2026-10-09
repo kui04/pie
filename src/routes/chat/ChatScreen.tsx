@@ -21,7 +21,9 @@ import { reasonFor } from "@/lib/failure-text";
 import { CONTENT_COLUMN } from "@/routes/chat/content-column";
 import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN } from "@/lib/motion";
 import * as bridge from "@/lib/bridge";
-import { queuedRows, transcriptRows } from "@/lib/transcript";
+import { transcriptRows, queuedRows } from "@/lib/transcript";
+import { activityRows, liveRows } from "@/lib/stream";
+import { withLiveUsage } from "@/routes/chat/components/session/session";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
 import { Composer } from "@/routes/chat/components/composer/Composer";
 import { SessionDrawer } from "@/routes/chat/components/session/SessionDrawer";
@@ -74,15 +76,27 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const order = useTranscriptStore((state) => state.order);
     const leafId = useTranscriptStore((state) => state.leafId);
     const queued = useTranscriptStore((state) => state.queued);
+    const live = useTranscriptStore((state) => state.live);
+    const liveUsage = useTranscriptStore((state) => state.liveUsage);
+    // The run state comes from the session machine, not from the state read: a read
+    // is a round trip behind, and the composer answers a key with it.
+    const working = useSelector(machine, (snapshot) => snapshot.matches("working"));
+    const rowIds = useTranscriptStore((state) => state.rowIds);
 
     // The fold runs when the entries change, which is once per event and once per
     // read: the store copies its map on every append, so the map's identity is the
     // event's, and a render that changed nothing else pays for neither. The messages
-    // that wait are rows of the same thread: the page hangs them below the working
-    // row, and they scroll with it.
+    // of the run that go on right now follow the entries, and the messages that wait
+    // are rows of the same thread: the page hangs them below the working row, and they
+    // scroll with it.
     const rows = useMemo(
-        () => [...transcriptRows({ entries, order }, leafId), ...queuedRows(queued)],
-        [entries, order, leafId, queued],
+        () => [
+            ...transcriptRows({ entries, order }, leafId, rowIds),
+            ...liveRows(live),
+            ...activityRows(working, live),
+            ...queuedRows(queued),
+        ],
+        [entries, order, leafId, rowIds, live, working, queued],
     );
 
     // The composer band covers the foot of the stage. The pane measures it and the
@@ -102,10 +116,6 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const [sheet, setSheet] = useState(false);
     const [column, setColumn] = useState(true);
     const currentSessionId = state.data?.sessionId ?? null;
-    // The run state comes from the session machine, not from the state read: a read
-    // is a round trip behind, and the composer answers a key with it.
-    const working = useSelector(machine, (snapshot) => snapshot.matches("working"));
-
     useEffect(() => {
         const element = band.current;
         // A pane in a test environment lays nothing out and has no observer; the
@@ -212,7 +222,7 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                     <SessionHeader
                         name={state.data?.sessionName ?? null}
                         cwd={cwd}
-                        stats={stats.data ?? null}
+                        stats={withLiveUsage(stats.data ?? null, liveUsage)}
                         auto={state.data?.autoCompactionEnabled ?? false}
                         expanded={wide ? column : undefined}
                         onToggleSessions={toggleSessions}

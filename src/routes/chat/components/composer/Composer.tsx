@@ -120,15 +120,22 @@ export function Composer({ session, machine }: ComposerProps) {
         setValue("");
         setDismissed(false);
         startBash(shell);
-        void bridge.bash(session, shell.command, shell.excludeFromContext).catch((thrown: unknown) => {
-            toast.error(bridge.asPieError(thrown).message);
-            // The command never ran, so pi records nothing and no entry will take the
-            // card down: it goes here.
-            finishBash();
-            setValue((current) =>
-                current === "" ? `${shell.excludeFromContext ? "!!" : "!"}${shell.command}` : current,
-            );
-        });
+        void bridge
+            .bash(session, shell.command, shell.excludeFromContext)
+            .then(() => {
+                // Pi records the run as an entry, and no event carries it: the read is
+                // what takes the live card down and puts the record in its place.
+                void client.invalidateQueries({ queryKey: sessionQueries.entries(session).queryKey });
+            })
+            .catch((thrown: unknown) => {
+                toast.error(bridge.asPieError(thrown).message);
+                // The command never ran, so pi records nothing and no entry will take the
+                // card down: it goes here.
+                finishBash();
+                setValue((current) =>
+                    current === "" ? `${shell.excludeFromContext ? "!!" : "!"}${shell.command}` : current,
+                );
+            });
     }
 
     /** Stops what runs: the answer of pi first, or the shell command of the reader. */

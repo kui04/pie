@@ -444,6 +444,24 @@ arriving says `Thinking…` in shadcn's **marker** with its **`shimmer`** utilit
 colour, it brightens itself in dark, and it stands still where a reader asked
 for less motion. No icon — the word is the whole signal.
 
+A message of a run is drawn while the run writes it, not when it is over: the
+answer, the call's arguments and the output a call streams all arrive as a row
+that the read at the end of the run then replaces (`lib/stream.ts`). The row
+keeps its name across that replacement, so a card the reader opened stays open
+and the clock of a call runs on into its `Took`. A call whose tool is at work
+shows what it streamed and its status mark turns over when the tool answers.
+
+A run has one line of its own under the transcript, and two words for it:
+`Waiting…` with the hourglass from the moment a reader sends until the model's
+first output arrives — a connection over a network makes that stretch long
+enough to name — and `Working…` with the turning ring from then until the run is
+over, so a call that runs under a finished message is still the same run at
+work.
+
+A run pi takes up again is not a run that failed: the turn says nothing of its
+failure while pi retries, and a toast carries the attempt, which the retry that
+works takes away again.
+
 **Tool body** — a log (plain lines) or a numbered body (a file, a diff: line
 number, mark, text; the two columns scroll as one and only the text column
 scrolls sideways). Closed, a log shows its last five lines and a file or diff

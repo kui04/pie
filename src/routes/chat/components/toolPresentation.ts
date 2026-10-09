@@ -53,6 +53,12 @@ export function presentCall(
     args: Record<string, JsonValue>,
     result: ToolResultMessage | null,
     stillWriting = false,
+    /**
+     * The call runs right now, and `result` is what it streamed so far. It outranks the
+     * result, which is not an answer yet: a call of a message the model already finished
+     * writing runs while it streams.
+     */
+    running = false,
 ): ToolPresentation {
     const output = result ? displayText(resultText(result.content)) : "";
     const lines = linesOf(output);
@@ -72,7 +78,15 @@ export function presentCall(
         title: name,
         detail: callDetail(name, args),
         tone: "model",
-        status: result !== null ? (result.isError ? "failed" : "ok") : stillWriting ? "running" : "waiting",
+        status: running
+            ? "running"
+            : result !== null
+              ? result.isError
+                  ? "failed"
+                  : "ok"
+              : stillWriting
+                ? "running"
+                : "waiting",
         body,
         notes: toolNotes(result),
     };

@@ -12,8 +12,10 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { createActor } from "xstate";
 import * as bridge from "@/lib/bridge";
+import type { AssistantMessageEvent, SummarizationRetrySource, Usage } from "@/lib/protocol";
 import { sessionQueries } from "@/lib/query";
 import { sessionMachine } from "@/machines/session.machine";
 import { useTranscriptStore } from "@/stores/transcript.store";
@@ -25,6 +27,40 @@ import { useTranscriptStore } from "@/stores/transcript.store";
  * this query does not see, so the ring of the header asks again after a while.
  */
 const STATS_FALLBACK_MS = 30_000;
+
+/**
+ * The toast of a retry, so that a second one replaces the first instead of stacking on
+ * it, and so that the retry that succeeded can take it away.
+ */
+const RETRY_TOAST = "session-retry";
+
+/**
+ * The toast of a summarization retry (the one pi runs by itself when a compaction or a
+ * branch summary fails): one id, so that a second attempt replaces the first and the
+ * attempt that works can take it away.
+ */
+const SUMMARY_TOAST = "session-summary-retry";
+
+/** What a summarization retry is working on, and which attempt it is. */
+function summarising(source: SummarizationRetrySource, at: { attempt: number; maxAttempts: number } | null): string {
+    const what = source.source === "branchSummary" ? "Writing a branch summary" : "Compacting the context";
+    return at === null ? what : `${what} - attempt ${at.attempt} of ${at.maxAttempts}`;
+}
+
+/**
+ * The records that write the run's own rows. A switch of the session drops them: the
+ * record that arrives while the switch is on its way may be the tail of the run of the
+ * conversation being left, and the read that follows the switch carries everything the
+ * new one holds.
+ */
+const LIVE_RECORDS = new Set([
+    "message_start",
+    "message_update",
+    "message_end",
+    "tool_execution_start",
+    "tool_execution_update",
+    "tool_execution_end",
+]);
 
 /**
  * When to ask again for the usage of a session.
@@ -65,6 +101,16 @@ export function useSession(session: string) {
     const clear = useTranscriptStore((state) => state.clear);
     const setQueue = useTranscriptStore((state) => state.setQueue);
     const appendBash = useTranscriptStore((state) => state.appendBash);
+    const liveRunStart = useTranscriptStore((state) => state.liveRunStart);
+    const liveStart = useTranscriptStore((state) => state.liveStart);
+    const liveDelta = useTranscriptStore((state) => state.liveDelta);
+    const liveEnd = useTranscriptStore((state) => state.liveEnd);
+    const liveToolStart = useTranscriptStore((state) => state.liveToolStart);
+    const liveToolUpdate = useTranscriptStore((state) => state.liveToolUpdate);
+    const liveToolEnd = useTranscriptStore((state) => state.liveToolEnd);
+    const liveRetrying = useTranscriptStore((state) => state.liveRetrying);
+    const setLiveUsage = useTranscriptStore((state) => state.setLiveUsage);
+    const clearLiveUsage = useTranscriptStore((state) => state.clearLiveUsage);
 
     // The actor lives as long as this hook. A screen that renders another session
     // is keyed by it (`ChatScreen`), so the machine of the one before does not
@@ -83,9 +129,44 @@ export function useSession(session: string) {
         clear();
     }, [session, clear]);
 
+    // The deltas of one frame are applied together and before anything that is not a
+    // delta: the transcript of a streamed answer arrives as tens of records a second,
+    // each of which would fold the rows and parse the markdown again, and a tool call's
+    // arguments must not be read before the text they are part of.
+    const deltas = useRef<{ usage: Usage; event: AssistantMessageEvent }[]>([]);
+    /** The attempt the last scheduled summarization retry named. */
+    const summarisingAt = useRef<{ attempt: number; maxAttempts: number } | null>(null);
+    /** When the last delta of a response arrived, against the reads of the usage. */
+    const lastDelta = useRef(0);
+    const frame = useRef<number | null>(null);
+
     useEffect(() => {
         let alive = true;
         let off: bridge.Unsubscribe[] = [];
+
+        const flushDeltas = () => {
+            if (frame.current !== null) {
+                cancelAnimationFrame(frame.current);
+                frame.current = null;
+            }
+            // The whole batch in one go, so that React renders once for it.
+            const batch = deltas.current;
+            deltas.current = [];
+            for (const delta of batch) {
+                liveDelta(delta.event);
+                setLiveUsage(delta.usage);
+            }
+            if (batch.length > 0) lastDelta.current = Date.now();
+        };
+
+        /** Holds one delta of the streaming answer until the frame it belongs to. */
+        const holdDelta = (usage: Usage, event: AssistantMessageEvent) => {
+            deltas.current.push({ usage, event });
+            frame.current ??= requestAnimationFrame(() => {
+                frame.current = null;
+                flushDeltas();
+            });
+        };
 
         void (async () => {
             // The records of a closed listener are gone: only a read covers the time
@@ -96,7 +177,45 @@ export function useSession(session: string) {
             // that fails drops the first one again.
             try {
                 const events = await bridge.onSessionEvent(session, (event) => {
+                    // Everything but a delta goes after the deltas that came before it.
+                    if (event.type !== "message_update") flushDeltas();
+                    if (inFlight.current && LIVE_RECORDS.has(event.type)) return;
+
                     switch (event.type) {
+                        case "message_start":
+                            liveStart(event.message);
+                            break;
+                        case "message_update":
+                            holdDelta(event.usage, event.assistantMessageEvent);
+                            break;
+                        case "message_end":
+                            // The final message is the authority over what the deltas
+                            // built, and a run reports its cost while it streams.
+                            liveEnd(event.message);
+                            void queryClient.invalidateQueries({ queryKey: sessionQueries.stats(session).queryKey });
+                            break;
+                        case "tool_execution_start":
+                            // A nested call (one that a tool made) is drawn inside its
+                            // parent's card, so the run does not open a call of its own.
+                            if (event.parentToolCallId === undefined) {
+                                liveToolStart({ toolCallId: event.toolCallId, args: event.args });
+                            }
+                            break;
+                        case "tool_execution_update":
+                            liveToolUpdate({
+                                toolCallId: event.toolCallId,
+                                toolName: event.toolName,
+                                partialResult: event.partialResult,
+                            });
+                            break;
+                        case "tool_execution_end":
+                            liveToolEnd({
+                                toolCallId: event.toolCallId,
+                                toolName: event.toolName,
+                                result: event.result,
+                                isError: event.isError,
+                            });
+                            break;
                         case "entry_appended":
                             // While a switch is on its way this entry may be the tail of
                             // the conversation being left (pi aborts a running turn
@@ -111,13 +230,73 @@ export function useSession(session: string) {
                         case "agent_start":
                             // The composer answers this one itself; the state of the
                             // session changes with it, because its `isStreaming` does.
+                            // The run begins from nothing: its first output is what the
+                            // line under the transcript waits for.
+                            liveRunStart();
                             machine.send({ type: "RUN_STARTED" });
                             break;
                         case "agent_end":
+                            // Pi runs the turn again by itself: the failure the run
+                            // just wrote is not the end of it, so nothing says so yet.
+                            if (event.willRetry) liveRetrying();
                             machine.send({ type: "RUN_ENDED", willRetry: event.willRetry });
                             break;
                         case "agent_settled":
                             machine.send({ type: "SETTLED" });
+                            // The run is over and its messages are in the session file
+                            // now: the read that follows replaces the rows the run drew
+                            // with the entries, which are the authority.
+                            void queryClient.invalidateQueries({ queryKey: ["session", session] });
+                            break;
+                        case "compaction_end":
+                            // The summary is an entry like any other, and no event
+                            // carries it: the fold of the snapshot is what shows it.
+                            void queryClient.invalidateQueries({ queryKey: ["session", session] });
+                            break;
+                        case "auto_retry_start":
+                            toast.warning("Pi is retrying the request", {
+                                id: RETRY_TOAST,
+                                description: `${event.errorMessage} - attempt ${event.attempt} of ${event.maxAttempts}`,
+                            });
+                            break;
+                        case "auto_retry_end":
+                            if (event.success) {
+                                toast.dismiss(RETRY_TOAST);
+                            } else {
+                                toast.error("Pi gave up on the request", {
+                                    id: RETRY_TOAST,
+                                    description: event.finalError,
+                                });
+                            }
+                            break;
+                        case "summarization_retry_scheduled":
+                            summarisingAt.current = { attempt: event.attempt, maxAttempts: event.maxAttempts };
+                            toast.warning("Pi is retrying the summary", {
+                                id: SUMMARY_TOAST,
+                                description: `${event.errorMessage} - attempt ${event.attempt} of ${event.maxAttempts}`,
+                            });
+                            break;
+                        case "summarization_retry_attempt_start":
+                            // The attempt that is running now says what pi works on: a
+                            // compaction of the context, or a summary of a branch.
+                            toast.warning("Pi is retrying the summary", {
+                                id: SUMMARY_TOAST,
+                                description: summarising(event, summarisingAt.current),
+                            });
+                            break;
+                        case "summarization_retry_finished":
+                            summarisingAt.current = null;
+                            toast.dismiss(SUMMARY_TOAST);
+                            break;
+                        case "thinking_level_changed":
+                            // The level is part of the state of a session, and the picker
+                            // of the composer reads it from there.
+                            void queryClient.invalidateQueries({ queryKey: sessionQueries.state(session).queryKey });
+                            break;
+                        case "turn_end":
+                            // A run reports its cost while it streams; the usage of
+                            // the session changed with it.
+                            void queryClient.invalidateQueries({ queryKey: sessionQueries.stats(session).queryKey });
                             break;
                         case "queue_update":
                             // Pi reports both queues whole, so the store replaces its
@@ -129,12 +308,7 @@ export function useSession(session: string) {
                             // `entry_appended` is the one that stays.
                             appendBash(event.delta);
                             break;
-                        case "message_end":
-                        case "turn_end":
-                            // A run reports its cost while it streams; the usage of
-                            // the session changed with it.
-                            void queryClient.invalidateQueries({ queryKey: sessionQueries.stats(session).queryKey });
-                            break;
+
                         default:
                             // Everything else belongs to a milestone that shows it:
                             // the queue, the thinking level, the run's own progress.
@@ -178,12 +352,35 @@ export function useSession(session: string) {
 
         return () => {
             alive = false;
+            if (frame.current !== null) {
+                cancelAnimationFrame(frame.current);
+                frame.current = null;
+            }
+            deltas.current = [];
             for (const unsubscribe of off) unsubscribe();
             off = [];
             // A later read of this session may not be taken on the word of this effect.
             setListening(null);
         };
-    }, [session, appendEntry, appendBash, setQueue, clear, machine, queryClient, attempt]);
+    }, [
+        session,
+        appendEntry,
+        appendBash,
+        setQueue,
+        clear,
+        liveRunStart,
+        liveStart,
+        liveDelta,
+        liveEnd,
+        liveToolStart,
+        liveToolUpdate,
+        liveToolEnd,
+        liveRetrying,
+        setLiveUsage,
+        machine,
+        queryClient,
+        attempt,
+    ]);
 
     // The listeners are open, so this session may be read: `enabled` keeps the reads
     // off until then, and the records in between cannot pass unheard.
@@ -198,6 +395,14 @@ export function useSession(session: string) {
     useEffect(() => {
         if (open && state.data) machine.send({ type: "STATE_READ", streaming: state.data.isStreaming });
     }, [open, state.data, machine]);
+
+    // The usage of the streaming response stands until a read of the usage answers that
+    // was asked for after its last delta: that answer holds the response as a message, so
+    // the increment would be the same tokens twice. A response that streams at that moment
+    // keeps its own reading - its deltas write them again anyway.
+    useEffect(() => {
+        if (stats.dataUpdatedAt >= lastDelta.current) clearLiveUsage();
+    }, [stats.dataUpdatedAt, clearLiveUsage]);
 
     // The snapshot is the authority for the transcript; it is not written from a
     // cache the visit before left behind, which the open gate above prevents.

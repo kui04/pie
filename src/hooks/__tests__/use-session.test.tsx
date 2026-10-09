@@ -1,11 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/protocol";
+import { liveRows } from "@/lib/stream";
 import { statsRefetchInterval, useSession } from "@/hooks/use-session";
 import { queryDefaults } from "@/lib/query";
+import { assistant, usage } from "@/preview/fixtures";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
 /**
@@ -310,6 +313,302 @@ describe("the session of the workspace", () => {
         unmount();
 
         await waitFor(() => expect(unlistened).toEqual(["event:main:1", "state:main:1"]));
+    });
+});
+
+describe("the run a session streams", () => {
+    let client: QueryClient;
+    let subscribed: ReturnType<typeof deferred>;
+
+    beforeEach(() => {
+        useTranscriptStore.getState().clear();
+        publish = undefined;
+        listened = [];
+        unlistened = [];
+        subscribed = deferred();
+        toast.dismiss();
+        vi.spyOn(toast, "warning");
+        vi.spyOn(toast, "error");
+        vi.spyOn(toast, "dismiss");
+
+        fake.getState.mockReset().mockResolvedValue({ isStreaming: true } as SessionState);
+        fake.getSessionStats.mockReset().mockResolvedValue({} as SessionStats);
+        fake.getEntries.mockReset().mockResolvedValue(snapshot([], null));
+        fake.onSessionEvent.mockReset().mockImplementation(async (session, onEvent) => {
+            await subscribed.promise;
+            listened.push(`event:${session}`);
+            publish = onEvent;
+            return () => unlistened.push(`event:${session}`);
+        });
+        fake.onSessionState.mockReset().mockImplementation(async (session, onState) => {
+            await subscribed.promise;
+            listened.push(`state:${session}`);
+            ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
+            return () => unlistened.push(`state:${session}`);
+        });
+
+        client = new QueryClient(queryDefaults);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    function render() {
+        const wrapper = ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        );
+        return renderHook(() => useSession("main:1"), { wrapper });
+    }
+
+    /** A run whose listeners are open and whose first read landed. */
+    async function open() {
+        const mounted = render();
+        subscribed.resolve();
+        await waitFor(() => expect(mounted.result.current.listening).toBe(true));
+        return mounted;
+    }
+
+    /** The answer of the model, streaming. */
+    function assistantRun(timestamp: number) {
+        return { ...assistant([], { stopReason: "pending" }), timestamp };
+    }
+
+    it("drews the answer as its deltas arrive", async () => {
+        await open();
+
+        publish?.({ type: "message_start", message: assistantRun(10) });
+        publish?.({
+            type: "message_update",
+            usage: usage(),
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "an ans" },
+        });
+        publish?.({
+            type: "message_update",
+            usage: usage(),
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "wer" },
+        });
+
+        await waitFor(() =>
+            expect(liveRows(useTranscriptStore.getState().live)).toMatchObject([
+                { kind: "assistant", message: { content: [{ type: "text", text: "an answer" }] } },
+            ]),
+        );
+    });
+
+    it("settles the row when the message ends", async () => {
+        await open();
+        publish?.({ type: "message_start", message: assistantRun(10) });
+        publish?.({
+            type: "message_update",
+            usage: usage(),
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "half" },
+        });
+
+        const final = {
+            ...assistantRun(10),
+            content: [{ type: "text" as const, text: "the whole answer" }],
+            stopReason: "stop" as const,
+        };
+        publish?.({ type: "message_end", message: final });
+
+        await waitFor(() =>
+            expect(liveRows(useTranscriptStore.getState().live)).toMatchObject([
+                {
+                    kind: "assistant",
+                    message: { content: [{ type: "text", text: "the whole answer" }], stopReason: "stop" },
+                },
+            ]),
+        );
+    });
+
+    it("runs a tool call and settles it with what it answered", async () => {
+        await open();
+        publish?.({
+            type: "message_start",
+            message: {
+                ...assistantRun(10),
+                content: [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } }],
+            },
+        });
+
+        publish?.({ type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: { command: "ls" } });
+        publish?.({
+            type: "tool_execution_update",
+            toolCallId: "c1",
+            toolName: "bash",
+            args: {},
+            partialResult: { content: [{ type: "text", text: "one\n" }] },
+        });
+
+        await waitFor(() => {
+            const [row] = liveRows(useTranscriptStore.getState().live);
+            const call = (row as Extract<typeof row, { kind: "assistant" }>).live?.calls.get("c1");
+            expect(call).toMatchObject({ running: true });
+            expect(call?.result?.content).toEqual([{ type: "text", text: "one\n" }]);
+        });
+
+        publish?.({
+            type: "tool_execution_end",
+            toolCallId: "c1",
+            toolName: "bash",
+            result: { content: [] },
+            isError: false,
+        });
+
+        await waitFor(() => {
+            const [row] = liveRows(useTranscriptStore.getState().live);
+            expect((row as Extract<typeof row, { kind: "assistant" }>).live?.calls.get("c1")?.running).toBe(false);
+        });
+    });
+
+    it("applies the deltas that came before a tool call first", async () => {
+        // The frame holds the deltas of one answer together; a record that is not a
+        // delta must not read the parts before the text they belong to arrived.
+        await open();
+        publish?.({ type: "message_start", message: assistantRun(10) });
+        publish?.({
+            type: "message_update",
+            usage: usage(),
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "one" },
+        });
+        publish?.({ type: "message_start", message: { role: "user", content: "and now?", timestamp: 11 } });
+
+        await waitFor(() =>
+            expect(liveRows(useTranscriptStore.getState().live)).toMatchObject([
+                { kind: "assistant", message: { content: [{ type: "text", text: "one" }] } },
+                { kind: "user" },
+            ]),
+        );
+    });
+
+    it("holds a failure for the read when pi runs the turn again", async () => {
+        await open();
+        const failed = {
+            ...assistantRun(10),
+            content: [{ type: "text" as const, text: "overloaded" }],
+            stopReason: "error" as const,
+        };
+        publish?.({ type: "message_start", message: assistantRun(10) });
+        publish?.({ type: "message_end", message: failed });
+
+        publish?.({ type: "agent_end", messages: [failed], willRetry: true });
+
+        await waitFor(() =>
+            expect(liveRows(useTranscriptStore.getState().live)[0]).toMatchObject({ live: { retrying: true } }),
+        );
+    });
+
+    it("follows the usage of the response that streams", async () => {
+        await open();
+        publish?.({ type: "message_start", message: assistantRun(10) });
+
+        publish?.({
+            type: "message_update",
+            usage: usage({
+                totalTokens: 4200,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.02 },
+            }),
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "an answer" },
+        });
+
+        await waitFor(() => expect(useTranscriptStore.getState().liveUsage?.totalTokens).toBe(4200));
+
+        // The read of the usage that follows a finished response carries it as a message,
+        // so the increment goes: it would be the same tokens twice.
+        fake.getSessionStats.mockResolvedValue({} as SessionStats);
+        publish?.({ type: "message_end", message: assistantRun(10) });
+
+        await waitFor(() => expect(useTranscriptStore.getState().liveUsage).toBeNull());
+    });
+
+    it("says what a summarization retry is doing, and takes the words back when it works", async () => {
+        await open();
+
+        publish?.({
+            type: "summarization_retry_scheduled",
+            attempt: 1,
+            maxAttempts: 2,
+            delayMs: 100,
+            errorMessage: "timeout",
+        });
+        expect(toast.warning).toHaveBeenCalledWith("Pi is retrying the summary", {
+            id: "session-summary-retry",
+            description: "timeout - attempt 1 of 2",
+        });
+
+        // The attempt itself says what pi works on, and which attempt it is.
+        publish?.({ type: "summarization_retry_attempt_start", source: "compaction", reason: "threshold" });
+        expect(toast.warning).toHaveBeenCalledWith("Pi is retrying the summary", {
+            id: "session-summary-retry",
+            description: "Compacting the context - attempt 1 of 2",
+        });
+
+        publish?.({ type: "summarization_retry_finished" });
+        expect(toast.dismiss).toHaveBeenCalledWith("session-summary-retry");
+    });
+
+    it("names a branch summary as what it retries", async () => {
+        await open();
+
+        publish?.({
+            type: "summarization_retry_scheduled",
+            attempt: 2,
+            maxAttempts: 2,
+            delayMs: 100,
+            errorMessage: "timeout",
+        });
+        publish?.({ type: "summarization_retry_attempt_start", source: "branchSummary" });
+
+        expect(toast.warning).toHaveBeenCalledWith("Pi is retrying the summary", {
+            id: "session-summary-retry",
+            description: "Writing a branch summary - attempt 2 of 2",
+        });
+    });
+
+    it("reads the session again when the run is over", async () => {
+        const mounted = await open();
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledTimes(1));
+
+        publish?.({ type: "agent_settled" });
+
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledTimes(2));
+        expect(mounted.result.current.machine.getSnapshot()?.matches("idle")).toBe(true);
+    });
+
+    it("says what a retry is doing, and takes the words back when the retry works", async () => {
+        await open();
+
+        publish?.({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 500, errorMessage: "overloaded" });
+
+        expect(toast.warning).toHaveBeenCalledWith("Pi is retrying the request", {
+            id: "session-retry",
+            description: "overloaded - attempt 1 of 3",
+        });
+
+        publish?.({ type: "auto_retry_end", success: true, attempt: 1 });
+        expect(toast.dismiss).toHaveBeenCalledWith("session-retry");
+    });
+
+    it("says when pi gave up", async () => {
+        await open();
+
+        publish?.({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 500, errorMessage: "overloaded" });
+        publish?.({ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded" });
+
+        expect(toast.error).toHaveBeenCalledWith("Pi gave up on the request", {
+            id: "session-retry",
+            description: "overloaded",
+        });
+    });
+
+    it("reads the state again when the last record of a compaction lands", async () => {
+        await open();
+        fake.getState.mockClear();
+
+        publish?.({ type: "compaction_end", reason: "threshold", result: null, aborted: false, willRetry: false });
+
+        await waitFor(() => expect(fake.getState).toHaveBeenCalled());
     });
 });
 

@@ -21,6 +21,15 @@ describe("how a tool reads on the card", () => {
         expect(presentCall("bash", { command: "make", timeout: 30 }, result("ok")).detail).toBe("make (timeout 30s)");
     });
 
+    it("keeps a running call running, whatever it streamed so far", () => {
+        // What a call streamed is not an answer: the status of the card says the tool
+        // works, and the body is what arrived until now.
+        const streaming = presentCall("bash", { command: "pnpm test" }, result("half of the output"), false, true);
+
+        expect(streaming.status).toBe("running");
+        expect(streaming.body).toMatchObject({ kind: "log", lines: ["half of the output"] });
+    });
+
     it("falls back to the arguments for a tool it does not know", () => {
         const unknown = presentCall("web_search", { query: "tauri", count: 5 }, result("ok"));
 

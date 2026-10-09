@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { EntriesData, SessionEntry } from "@/lib/protocol";
 import { contextEntries, sessionPath, type TranscriptEntries } from "@/lib/transcript";
+import { liveRows } from "@/lib/stream";
+import { transcriptRows } from "@/lib/transcript";
 import { useTranscriptStore } from "@/stores/transcript.store";
-import { bashExecution, chain, messageEntry } from "@/preview/fixtures";
+import { assistant, bashExecution, chain, messageEntry, usage } from "@/preview/fixtures";
 
 const AT = "2026-10-05T00:00:00.000Z";
 
@@ -314,5 +316,122 @@ describe("the transcript store", () => {
         useTranscriptStore.getState().appendEntry(entry);
 
         expect(useTranscriptStore.getState().runningBash).toMatchObject({ command: "sleep 60" });
+    });
+});
+
+describe("the messages a run writes", () => {
+    beforeEach(() => {
+        useTranscriptStore.getState().clear();
+    });
+
+    /** A message the run began writing, in the shape the wire carries it. */
+    function liveUser(timestamp: number, content: string) {
+        return { role: "user" as const, content, timestamp } as const;
+    }
+
+    function liveAssistant(timestamp: number, content: string) {
+        return { ...assistant([{ type: "text" as const, text: content }], { stopReason: "pending" }), timestamp };
+    }
+
+    it("holds a row for a message that began, and none for one the transcript drops", () => {
+        useTranscriptStore.getState().liveStart(liveUser(10, "hello"));
+        useTranscriptStore.getState().liveStart({ role: "system", content: "rules", timestamp: 11 });
+
+        const rows = liveRows(useTranscriptStore.getState().live);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ kind: "user", id: "live-1" });
+    });
+
+    it("builds the answer from its deltas", () => {
+        useTranscriptStore.getState().liveStart(liveAssistant(20, ""));
+        useTranscriptStore.getState().liveDelta({ type: "text_delta", contentIndex: 0, delta: "half " });
+        useTranscriptStore.getState().liveDelta({ type: "text_delta", contentIndex: 0, delta: "an answer" });
+
+        const [row] = liveRows(useTranscriptStore.getState().live);
+        expect(row).toMatchObject({ kind: "assistant" });
+        expect((row as Extract<typeof row, { kind: "assistant" }>).message.content).toEqual([
+            { type: "text", text: "half an answer" },
+        ]);
+    });
+
+    it("keeps the row the run drew when the snapshot brings the entry", () => {
+        // The entry is the authority from the read on, and the row it becomes is the row
+        // it was: the name of a card mid-flight is what keeps its clock and its body.
+        useTranscriptStore.getState().liveStart(liveAssistant(20, "an answer"));
+        const [row] = liveRows(useTranscriptStore.getState().live);
+        const name = row.id;
+
+        useTranscriptStore.getState().hydrate({
+            entries: [
+                {
+                    type: "message",
+                    id: "e1",
+                    parentId: null,
+                    timestamp: "2026-10-05T00:00:00.000Z",
+                    message: liveAssistant(20, "an answer"),
+                },
+            ],
+            leafId: "e1",
+        });
+
+        const state = useTranscriptStore.getState();
+        expect(state.live.messages).toHaveLength(0);
+        expect(state.rowIds.get("e1")).toBe(name);
+        expect(transcriptRows(state, state.leafId, state.rowIds)[0]).toMatchObject({ id: name });
+    });
+
+    it("keeps a row of the run that the read does not carry", () => {
+        // A read can land while the run goes on: it holds what pi has written so far,
+        // and the message that is still streaming is not part of it.
+        useTranscriptStore.getState().liveStart(liveAssistant(20, "half written"));
+
+        useTranscriptStore.getState().hydrate({
+            entries: [
+                {
+                    type: "message",
+                    id: "e1",
+                    parentId: null,
+                    timestamp: "2026-10-05T00:00:00.000Z",
+                    message: liveUser(10, "hello"),
+                },
+            ],
+            leafId: "e1",
+        });
+
+        // The fold draws the entries, and the run's own rows follow them.
+        const state = useTranscriptStore.getState();
+        expect(transcriptRows(state, state.leafId, state.rowIds).map((row) => row.kind)).toEqual(["user"]);
+        expect(liveRows(state.live)).toMatchObject([
+            { kind: "assistant", message: { content: [{ type: "text", text: "half written" }] } },
+        ]);
+    });
+
+    it("drops the live card of a shell command the snapshot recorded", () => {
+        useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: false });
+
+        const [entry] = chain(messageEntry(bashExecution("ls", "one\n")));
+        useTranscriptStore.getState().hydrate({ entries: [entry], leafId: entry.id });
+
+        expect(useTranscriptStore.getState().runningBash).toBeNull();
+    });
+
+    it("holds the usage of the streaming response until the read carries it", () => {
+        useTranscriptStore.getState().setLiveUsage(usage({ totalTokens: 30 }));
+
+        expect(useTranscriptStore.getState().liveUsage?.totalTokens).toBe(30);
+
+        useTranscriptStore.getState().clearLiveUsage();
+        expect(useTranscriptStore.getState().liveUsage).toBeNull();
+    });
+
+    it("forgets the rows and the names when the session does", () => {
+        useTranscriptStore.getState().liveStart(liveUser(10, "hello"));
+        useTranscriptStore.getState().setLiveUsage(usage({ totalTokens: 7 }));
+        useTranscriptStore.getState().clear();
+
+        const state = useTranscriptStore.getState();
+        expect(state.live.messages).toEqual([]);
+        expect(state.rowIds.size).toBe(0);
+        expect(state.liveUsage).toBeNull();
     });
 });

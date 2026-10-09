@@ -56,7 +56,7 @@ export const REVEAL_SHOWN = { height: "auto", opacity: 1 } as const;
  * The hourglass: one cycle, and the moments in it - the transfer is over, the turn
  * is over. One clock, not two: two made the seam flicker.
  */
-export const HOURGLASS_CYCLE = 5000;
+export const HOURGLASS_CYCLE = 3000;
 
 /** Nothing, the transfer finished, the turn finished, and the end - the beginning. */
 export const HOURGLASS_STEPS = [0, 0.5, 0.72, 1] as const;

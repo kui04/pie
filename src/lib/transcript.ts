@@ -16,6 +16,7 @@ import type {
     ToolResultMessage,
     UserMessage,
 } from "@/lib/protocol";
+import type { LiveCall } from "@/lib/stream";
 import { linesOf, resultText } from "@/lib/text";
 
 /** The entries of a session, in the shape the fold reads. */
@@ -86,6 +87,11 @@ export type TranscriptRow =
           message: AssistantMessage;
           /** What the calls of this message answered, by call id. */
           results: Map<string, ToolResultMessage>;
+          /**
+           * Set while the run still writes this message, with what it streamed for each
+           * call; the read that follows the run replaces the row with the entries.
+           */
+          live?: { calls: Map<string, LiveCall>; retrying: boolean };
       }
     | { kind: "bash"; id: string; message: BashExecutionMessage }
     | {
@@ -95,6 +101,17 @@ export type TranscriptRow =
           text: string;
           /** The queue it waits in. */
           queue: "steer" | "followUp";
+      }
+    | {
+          kind: "activity";
+          /** The row's own name: there is one of them, and it has no entry behind it. */
+          id: "activity";
+          /**
+           * What the run of this session is doing: `waiting` from the moment a reader
+           * sends until the model's first output arrives, `working` from then on - the
+           * model writes, or a call it made runs.
+           */
+          state: "waiting" | "working";
       }
     | {
           kind: "notice";
@@ -107,7 +124,15 @@ export type TranscriptRow =
           body: string | null;
       };
 
-export function transcriptRows(store: TranscriptEntries, leafId: string | null): TranscriptRow[] {
+export function transcriptRows(
+    store: TranscriptEntries,
+    leafId: string | null,
+    /**
+     * The name a row renders under, for an entry that took over a message a run had
+     * already drawn (`stores/transcript.store.ts`).
+     */
+    rowIds?: Map<string, string>,
+): TranscriptRow[] {
     const rows: TranscriptRow[] = [];
     // Pi keeps a call pending until its result arrives, whichever entries come in
     // between, so the map is cleared only at an assistant message.
@@ -118,12 +143,12 @@ export function transcriptRows(store: TranscriptEntries, leafId: string | null):
             case "message": {
                 const message = entry.message;
                 if (message.role === "user") {
-                    rows.push({ kind: "user", id: entry.id, message });
+                    rows.push({ kind: "user", id: rowIds?.get(entry.id) ?? entry.id, message });
                 } else if (message.role === "assistant") {
                     open = new Map();
                     const row: Extract<TranscriptRow, { kind: "assistant" }> = {
                         kind: "assistant",
-                        id: entry.id,
+                        id: rowIds?.get(entry.id) ?? entry.id,
                         message,
                         results: new Map(),
                     };

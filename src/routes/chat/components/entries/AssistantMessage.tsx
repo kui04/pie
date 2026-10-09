@@ -1,8 +1,6 @@
-import { LoaderCircle } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import type { AssistantMessage as AssistantMessageData, ToolResultMessage } from "@/lib/protocol";
-import { SPIN, SPIN_TURN } from "@/lib/motion";
+import type { LiveCall } from "@/lib/stream";
 import { ThinkingCard } from "@/routes/chat/components/entries/ThinkingCard";
 import { ToolResultCard } from "@/routes/chat/components/entries/ToolResultCard";
 import { presentCall } from "@/routes/chat/components/toolPresentation";
@@ -13,6 +11,11 @@ export interface AssistantMessageProps {
     message: AssistantMessageData;
     /** What the calls of this message answered, by call id. */
     results: Map<string, ToolResultMessage>;
+    /**
+     * Set while the run still writes this message, with what it streamed for each call
+     * (`lib/stream.ts`); the read that follows the run drops it.
+     */
+    live?: { calls: Map<string, LiveCall>; retrying: boolean };
 }
 
 /**
@@ -24,10 +27,14 @@ export interface AssistantMessageProps {
  * gets the line, an abort or an error does not when the message called tools - the
  * call that took the failure shows it.
  */
-export function AssistantMessage({ id, message, results }: AssistantMessageProps) {
-    const note = stopNote(message);
+export function AssistantMessage({ id, message, results, live }: AssistantMessageProps) {
+    // A turn pi takes up again is not a turn that failed, so it says nothing yet: the
+    // toast of the retry says what is going on.
+    const note = live?.retrying ? null : stopNote(message);
 
-    // While the turn is unsettled the transcript shows pi's `Working…` line.
+    // A turn that is still being written is the run at work: the marks of that sit on its
+    // parts (the shimmer of the thought, the ring of a call), and the line under the
+    // transcript belongs to the run, not to this message (`ActivityLine`).
     const working = message.stopReason === "pending";
 
     return (
@@ -52,6 +59,7 @@ export function AssistantMessage({ id, message, results }: AssistantMessageProps
                     );
                 }
                 if (part.type === "toolCall") {
+                    const call = live?.calls.get(part.id);
                     return (
                         <ToolResultCard
                             key={`call-${part.id}`}
@@ -59,8 +67,9 @@ export function AssistantMessage({ id, message, results }: AssistantMessageProps
                             presentation={presentCall(
                                 part.name,
                                 part.arguments,
-                                results.get(part.id) ?? failedCall(message, part.id, part.name),
+                                call?.result ?? results.get(part.id) ?? failedCall(message, part.id, part.name),
                                 working,
+                                call?.running ?? false,
                             )}
                         />
                     );
@@ -69,27 +78,7 @@ export function AssistantMessage({ id, message, results }: AssistantMessageProps
                 return null;
             })}
             {note !== null && <p className="text-body-sm text-destructive">{note}</p>}
-            {working && (
-                <p className="text-body-md text-muted-foreground flex items-center gap-2">
-                    <WorkingMark />
-                    Working…
-                </p>
-            )}
         </div>
-    );
-}
-
-/** The ring that says the model is writing; still for a machine that asks for less. */
-function WorkingMark() {
-    const still = useReducedMotion();
-    return (
-        <motion.span
-            className="text-primary-text flex shrink-0"
-            animate={still ? undefined : SPIN_TURN}
-            transition={SPIN}
-        >
-            <LoaderCircle className="size-4" aria-label="Working" />
-        </motion.span>
     );
 }
 
