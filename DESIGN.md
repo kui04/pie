@@ -438,13 +438,12 @@ one region from the window's edge down. Where a phone's OS owns the frame there
 are no keys, and a bar with nothing in it is not drawn at all.
 
 The body under the bar is the chat. It scrolls edge to edge — the transcript's
-scroller is the whole region, so the scrollbar stays on the region's edge —
-while what is drawn inside it is capped: the transcript's rows and the
-composer's band share one content column, 64rem wide at most and centred, so a
-row and the composer start and end on the same two lines. The band gives up the
-pill scrollbar's width on its right for that: the scroller is that much narrower
-than the region, and a band measured against the whole region would put the two
-columns 4px apart.
+scroller is the whole region — while what is drawn inside it is capped: the
+transcript's rows and the composer's band share one content column, 64rem wide
+at most and centred, so a row and the composer start and end on the same two
+lines. The bar costs the columns nothing: it floats over the region's edge (see
+**Scrollbar**), so the band takes the region's whole width. And it shows itself
+only while the list moves, so a reader who is not scrolling sees no bar at all.
 
 A column that opens — the session list above `lg` — is revealed by a clip: its
 wrapper owns the width the transcript gives up (256px), and the column inside it
@@ -562,24 +561,33 @@ bottom sheet shows the drag bar that says it can be swiped away.
 
 **Toast** — sonner, top-centre, over the page, never in the layout.
 
-**Scrollbar** — a rounded, inset pill, 8px wide, that the region pays for:
+**Scrollbar** — a rounded pill that floats over the edge of what it scrolls, is
+visible only while the region moves, and costs the region's width nothing:
 
-- The pill is the engine's own drawing of `::-webkit-scrollbar`: a transparent
-  track, a `{colors.outline}` thumb 4px wide after its transparent border is
-  clipped away, and `{colors.foreground}` under the pointer. Nothing sets
-  `scrollbar-color` or `scrollbar-width` in that path: either one makes both
-  Blink and WebKit drop the pill and go back to the platform's bar.
-- Firefox paints nothing with the pseudo-element, so it is handed the same two
-  colours through the standard properties instead. It shows a thin bar of the
-  platform's shape.
-- The pill is a classic bar, so a region that scrolls is 8px narrower than one
-  that does not - and no lane is reserved ahead of it, so the words move once
-  when a region starts to overflow and not again.
-- Inside a tile the air still does the work: the padding below the last line
-  keeps it off the horizontal bar, and the air above the footer keeps the bar
-  off the footer.
+- Every region pie draws itself — the transcript, the session list, a tool
+  card's log or diff, a code block, a markdown table, the gate's form — scrolls
+  inside a `ScrollArea` (Radix), which hands the region an 8px lane over its
+  content with a 4px `{colors.outline}` thumb inset 2px either side and
+  `{colors.foreground}` under the pointer, sized per orientation (`bars`: a log
+  scrolls sideways, a transcript down). The viewport carries no native bar, so
+  no engine draws its own inside one, and the bar costs the words nothing
+  wherever it appears.
+- Three scrollers are still the engine's own: the composer's two cmdk lists
+  (cmdk owns the element it scrolls) and a `textarea`. There
+  `::-webkit-scrollbar` gives Blink and WebKit the same pill, and Firefox is
+  handed the same two colours through `scrollbar-width` and `scrollbar-color`,
+  where it shows the platform's thin bar — whose lane Blink keeps, so such a
+  region is 8px narrower there than one that does not scroll.
+- A bar shows itself while its region moves, and while the pointer is over the
+  region. The Radix pill fades in and out (`160ms`, and it takes no pointer
+  while it is away, so the pane's edge stays text to select); the engine's bar
+  is simply there or not, and 700ms after the last scroll `is-scrolling` leaves
+  the document, which is what it reads.
 - `no-scrollbar` outranks these rules, so a short list can still scroll in
   silence.
+- Inside a tile the air still does the work: the padding below the last line
+  keeps it off a horizontal bar, and the air above the footer keeps the bar off
+  the footer.
 
 ## Do's and Don'ts
 

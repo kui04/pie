@@ -5,6 +5,7 @@ import App from "./App";
 import { log } from "@/lib/bridge";
 import { loadPlatform } from "@/hooks/use-platform";
 import { queryClient } from "@/lib/query";
+import { watchScrollbars } from "@/lib/scrollbars";
 import "./index.css";
 
 // A failure no code caught reaches a console nobody opens - and on Android there
@@ -24,6 +25,8 @@ window.addEventListener("unhandledrejection", (event) => {
 // Before React mounts, so the shell's boundary has an answer by the time it
 // asks rather than showing a blank frame and then arriving.
 void loadPlatform();
+
+watchScrollbars();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

@@ -1,13 +1,13 @@
 import { useLayoutEffect, type ReactNode, type RefObject } from "react";
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TranscriptRow } from "@/lib/transcript";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
 
 /**
  * The list drives virtua through its handle, hears it through `onScroll`,
- * `onResize` and `onScrollEnd`, and scrolls the element virtua made for it. The
- * mock stands in for all of those, so a test can say where a jump landed, when
+ * `onResize` and `onScrollEnd`, and scrolls the scroll area's own viewport. The
+ * mock stands in for virtua, so a test can say where a jump landed, when
  * virtua learned a new size, and - because the pill's jump is a run of frames and
  * not a cut - where the scroller was part way there.
  *
@@ -36,8 +36,6 @@ const spies: {
     onScroll?: (offset: number) => void;
     onResize?: () => void;
     onScrollEnd?: () => void;
-    onWheel?: () => void;
-    onTouchStart?: () => void;
 } = {};
 
 /** The end of the mock's list, as the list itself computes it. */
@@ -58,55 +56,43 @@ const frame = (ms = 16) => {
 };
 
 vi.mock("virtua", () => ({
-    VList: ({
+    Virtualizer: ({
         children,
         data,
-        id,
+        scrollRef,
         onScroll,
         onResize,
         onScrollEnd,
-        onWheel,
-        onTouchStart,
         ref,
     }: {
         children: (row: TranscriptRow) => ReactNode;
         data: TranscriptRow[];
-        id?: string;
+        scrollRef?: RefObject<HTMLElement | null>;
         onScroll?: (offset: number) => void;
         onResize?: () => void;
         onScrollEnd?: () => void;
-        onWheel?: () => void;
-        onTouchStart?: () => void;
         ref?: RefObject<unknown>;
     }) => {
         spies.onScroll = onScroll;
         spies.onResize = onResize;
         spies.onScrollEnd = onScrollEnd;
-        spies.onWheel = onWheel;
-        spies.onTouchStart = onTouchStart;
         useLayoutEffect(() => {
             if (ref) ref.current = handle;
+            // happy-dom lays nothing out, so the scroller's position is the test's
+            // own; what the list writes there is what it is read back from. The
+            // scroller is the scroll area's viewport, which the list hands virtua.
+            const el = scrollRef?.current ?? null;
+            if (el) {
+                Object.defineProperty(el, "scrollTop", {
+                    get: () => box.top,
+                    set: (value: number) => {
+                        box.top = value;
+                    },
+                    configurable: true,
+                });
+            }
         });
-        return (
-            <div
-                id={id}
-                ref={(el) => {
-                    // happy-dom lays nothing out, so the scroller's position is the
-                    // test's own; what the list writes there is what it is read back from.
-                    if (el) {
-                        Object.defineProperty(el, "scrollTop", {
-                            get: () => box.top,
-                            set: (value: number) => {
-                                box.top = value;
-                            },
-                            configurable: true,
-                        });
-                    }
-                }}
-            >
-                {data.map(children)}
-            </div>
-        );
+        return <div>{data.map(children)}</div>;
     },
 }));
 
@@ -122,7 +108,9 @@ const rows = (count: number): TranscriptRow[] =>
 const land = (offset: number) => act(() => spies.onScroll?.(offset));
 const sized = () => act(() => spies.onResize?.());
 const settled = () => act(() => spies.onScrollEnd?.());
-const wheeled = () => act(() => spies.onWheel?.());
+// The reader's own hand is heard on the region around the scroller, not on the
+// scroller the list hands virtua.
+const wheeled = (container: HTMLElement) => act(() => fireEvent.wheel(container.firstElementChild as HTMLElement));
 
 const show = (overrides: Partial<Parameters<typeof TranscriptList>[0]> = {}) =>
     render(<TranscriptList rows={rows(30)} clearance={144} {...overrides} />);
@@ -150,8 +138,6 @@ beforeEach(() => {
     spies.onScroll = undefined;
     spies.onResize = undefined;
     spies.onScrollEnd = undefined;
-    spies.onWheel = undefined;
-    spies.onTouchStart = undefined;
     box.top = 0;
     frames.clear();
     frameId = 1;
@@ -280,7 +266,7 @@ describe("TranscriptList", () => {
         await act(async () => pill(view.container)?.click());
         frame(100);
         const part = box.top;
-        wheeled();
+        wheeled(view.container);
         frame(200);
         frame(200);
 

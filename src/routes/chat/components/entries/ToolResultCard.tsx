@@ -7,6 +7,7 @@ import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { REVEAL, SPIN, SPIN_TURN } from "@/lib/motion";
 import type { NumberedLine } from "@/lib/text";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ToolNote, ToolPresentation, ToolStatus } from "@/routes/chat/components/toolPresentation";
 
 export interface ToolResultCardProps {
@@ -126,15 +127,15 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                 // air under it is added here; a numbered body brings its own.
                 <div id={`${id}-body`} className={cn(body.kind === "log" && "mt-2 pb-2")}>
                     {body.kind === "log" ? (
-                        <div className="overflow-x-auto">
-                            <div className="text-code px-3 whitespace-pre">
+                        <ScrollArea bars="horizontal" viewportClassName="px-3 pb-2">
+                            <div className="text-code whitespace-pre">
                                 {tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
                                 {(kept as string[]).map((line, index) => (
                                     <div key={index}>{line}</div>
                                 ))}
                                 {!tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
                             </div>
-                        </div>
+                        </ScrollArea>
                     ) : (
                         <NumberedBody
                             id={id}
@@ -256,11 +257,11 @@ function NumberedBody({
                 {gutter(kept)}
                 {!tail && arriving(gutter)}
             </div>
-            <div id={`${id}-lines`} className="min-w-0 flex-1 overflow-x-auto">
+            <ScrollArea id={`${id}-lines`} bars="horizontal" className="min-w-0 flex-1" viewportClassName="pb-2">
                 {tail && arriving(texts)}
                 {texts(kept)}
                 {!tail && arriving(texts)}
-            </div>
+            </ScrollArea>
         </div>
     );
 }

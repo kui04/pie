@@ -2,6 +2,7 @@ import { Copy, Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { copyText } from "@/lib/clipboard";
 
 export interface CodeBlockProps {
@@ -50,9 +51,15 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
                     {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                 </Button>
             </div>
-            <pre className="text-code overflow-x-auto px-3 pb-3 font-mono">
-                <code>{code}</code>
-            </pre>
+            {/* The padding the block used to carry, on the box that scrolls: the
+                last character keeps its air to the side, and the bar floats over the
+                air under the last line - a padding on the frame would not move it,
+                because an absolute child is placed against the padding box. */}
+            <ScrollArea bars="horizontal" viewportClassName="px-3 pb-3">
+                <pre className="text-code font-mono">
+                    <code>{code}</code>
+                </pre>
+            </ScrollArea>
         </div>
     );
 }

@@ -16,6 +16,7 @@ import { motion, useAnimationFrame, useReducedMotion } from "motion/react";
 import { cn } from "cn";
 import { SafeArea } from "@/components/SafeArea";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import * as bridge from "@/lib/bridge";
 import { reasonFor } from "@/lib/failure-text";
@@ -133,57 +134,59 @@ export function SessionDrawer({
                     </motion.span>
                 </Button>
             </div>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-                {sessions.isError ? (
-                    <p id={`${id}-failure`} role="alert" className="text-body-md text-muted-foreground px-1 py-2">
-                        {reasonFor(bridge.asPieError(sessions.error), FAILURE_REASON)}
-                    </p>
-                ) : sessions.isPending ? (
-                    // The host may be a machine across a network: an empty list is
-                    // not yet a fact while the first read is on its way.
-                    <p id={`${id}-pending`} className="text-body-md text-muted-foreground px-1 py-2">
-                        Looking for sessions…
-                    </p>
-                ) : groups.length === 0 ? (
-                    <p id={`${id}-empty`} className="text-body-md text-muted-foreground px-1 py-2">
-                        {search.trim() === "" ? "No sessions yet" : "No session matches"}
-                    </p>
-                ) : (
-                    groups.map((group) => (
-                        <section key={group.cwd} className="space-y-0.5">
-                            <button
-                                type="button"
-                                aria-expanded={!folded.has(group.cwd)}
-                                onClick={() => toggle(group.cwd)}
-                                className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left"
-                            >
-                                <Folder className={ICON_SLOT} aria-hidden />
-                                <span className="text-body-md min-w-0 flex-1 truncate">
-                                    {group.cwd || "No directory"}
-                                </span>
-                                {folded.has(group.cwd) ? (
-                                    <ChevronRight className="size-4 shrink-0" aria-hidden />
-                                ) : (
-                                    <ChevronDown className="size-4 shrink-0" aria-hidden />
-                                )}
-                            </button>
-                            {!folded.has(group.cwd) &&
-                                group.sessions.map((session) => (
-                                    <SessionRow
-                                        key={session.path}
-                                        id={id}
-                                        session={session}
-                                        now={now}
-                                        current={session.id === currentSessionId}
-                                        working={working}
-                                        busy={busy}
-                                        onPick={onPick}
-                                    />
-                                ))}
-                        </section>
-                    ))
-                )}
-            </div>
+            <ScrollArea className="min-h-0 flex-1" viewportClassName="p-2">
+                <div className="space-y-2">
+                    {sessions.isError ? (
+                        <p id={`${id}-failure`} role="alert" className="text-body-md text-muted-foreground px-1 py-2">
+                            {reasonFor(bridge.asPieError(sessions.error), FAILURE_REASON)}
+                        </p>
+                    ) : sessions.isPending ? (
+                        // The host may be a machine across a network: an empty list is
+                        // not yet a fact while the first read is on its way.
+                        <p id={`${id}-pending`} className="text-body-md text-muted-foreground px-1 py-2">
+                            Looking for sessions…
+                        </p>
+                    ) : groups.length === 0 ? (
+                        <p id={`${id}-empty`} className="text-body-md text-muted-foreground px-1 py-2">
+                            {search.trim() === "" ? "No sessions yet" : "No session matches"}
+                        </p>
+                    ) : (
+                        groups.map((group) => (
+                            <section key={group.cwd} className="space-y-0.5">
+                                <button
+                                    type="button"
+                                    aria-expanded={!folded.has(group.cwd)}
+                                    onClick={() => toggle(group.cwd)}
+                                    className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left"
+                                >
+                                    <Folder className={ICON_SLOT} aria-hidden />
+                                    <span className="text-body-md min-w-0 flex-1 truncate">
+                                        {group.cwd || "No directory"}
+                                    </span>
+                                    {folded.has(group.cwd) ? (
+                                        <ChevronRight className="size-4 shrink-0" aria-hidden />
+                                    ) : (
+                                        <ChevronDown className="size-4 shrink-0" aria-hidden />
+                                    )}
+                                </button>
+                                {!folded.has(group.cwd) &&
+                                    group.sessions.map((session) => (
+                                        <SessionRow
+                                            key={session.path}
+                                            id={id}
+                                            session={session}
+                                            now={now}
+                                            current={session.id === currentSessionId}
+                                            working={working}
+                                            busy={busy}
+                                            onPick={onPick}
+                                        />
+                                    ))}
+                            </section>
+                        ))
+                    )}
+                </div>
+            </ScrollArea>
         </SafeArea>
     );
 }

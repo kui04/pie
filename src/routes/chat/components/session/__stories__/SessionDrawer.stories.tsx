@@ -84,6 +84,23 @@ export const Empty: Story = {
 };
 
 /**
+ * A host with a year of work on it: the list is longer than the pane, so this is
+ * the story that shows what happens at the pane's foot - the list scrolls, and the
+ * bar is only there while it moves.
+ */
+export const Many: Story = {
+    parameters: {
+        sessions: Array.from({ length: 30 }, (_, index) =>
+            sessionSummary({
+                cwd: index % 3 === 0 ? "/home/kui/Projects/pie" : "/home/kui/Projects/other",
+                name: `A session name long enough that the row has to truncate it, number ${index + 1}`,
+                path: `/home/kui/.pi/sessions/session-${index + 1}.jsonl`,
+            }),
+        ),
+    },
+};
+
+/**
  * The same list of a narrow window: the sheet arrives from the edge it is anchored
  * to, with the left edge square and the right one round.
  *

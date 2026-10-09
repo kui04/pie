@@ -1,8 +1,9 @@
 import { ArrowDown } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { VList, type VListHandle } from "virtua";
+import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TranscriptRow } from "@/lib/transcript";
 import { EntryRenderer } from "@/routes/chat/components/EntryRenderer";
 import { CONTENT_COLUMN } from "@/routes/chat/content-column";
@@ -61,9 +62,10 @@ const wantsLessMotion = () =>
  * reader was already there, which is what the pill under it is for otherwise.
  */
 export function TranscriptList({ rows, clearance, className, onRetractQueued }: TranscriptListProps) {
-    const list = useRef<VListHandle>(null);
-    // The pane, so the jump can reach the scroller virtua made inside it.
-    const box = useRef<HTMLDivElement>(null);
+    const list = useRef<VirtualizerHandle>(null);
+    // The element that scrolls, which is the scroll area's own viewport: virtua
+    // only virtualizes the rows, and the jump has to reach this element itself.
+    const viewport = useRef<HTMLDivElement>(null);
     const atEnd = useRef(true);
     // A jump of ours whose landing the sizes have not settled under yet, and the run
     // that is still carrying it there.
@@ -136,7 +138,7 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
         setAway(false);
         seeking.current = true;
         if (!handle || count === 0) return;
-        const scroller = box.current?.querySelector<HTMLElement>("#transcript-list") ?? null;
+        const scroller = viewport.current;
         const from = scroller?.scrollTop ?? 0;
         const target = handle.scrollSize - handle.viewportSize;
         const distance = target - from;
@@ -182,54 +184,68 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
     };
 
     return (
-        <div ref={box} className="relative flex min-h-0 flex-1 flex-col">
-            <VList
-                ref={list}
-                data={rows}
-                itemSize={ROW}
-                onScroll={onScroll}
-                // A glide can be stopped short by a row that grows while it runs, and
-                // the reader who asked for the end still has to get there.
-                onScrollEnd={() => {
-                    if (seeking.current && !gliding.current) seekEnd();
-                }}
-                onWheel={takeOver}
-                onTouchStart={takeOver}
-                // Every height virtua learns moves the end, so a jump of ours is
-                // taken again until the sizes settle. This is what the library's own
-                // correction cannot be trusted to finish: it stops after a quiet spell
-                // and the browser may drop the notifications it was waiting for. The
-                // pin waits for the next frame because virtua calls this from its own
-                // ResizeObserver, and a scroll written inside an observer's delivery is
-                // the loop the browser reports as "undelivered notifications".
-                onResize={() => {
-                    if (!atEnd.current || gliding.current || resize.current !== undefined) return;
-                    resize.current = requestAnimationFrame(() => {
-                        resize.current = undefined;
-                        if (atEnd.current && !gliding.current) seekEnd();
-                    });
-                }}
-                // The composer band covers the foot of the pane; the box keeps room
-                // for the whole of it, plus the gap the design leaves above the card
-                // (`clearance` is the band's own height, measured by the pane).
-                style={{ paddingBottom: clearance + BAND_GAP }}
-                // The scroller is the whole region, and only the rows inside it are
-                // capped: a bar at the content's edge would leave the region's own
-                // edge empty beside it.
-                className={cn("min-h-0 flex-1 pt-2", className)}
+        <div
+            className="relative flex min-h-0 flex-1 flex-col"
+            // The reader's own hand ends the jump: where they go next is theirs.
+            onWheel={takeOver}
+            onTouchStart={takeOver}
+        >
+            <ScrollArea
                 id="transcript-list"
+                // The bar floats over the pane and fades in while the list moves: the
+                // whole width stays with the words.
+                viewportRef={viewport}
+                viewportClassName="pt-2"
+                className={cn("min-h-0 flex-1", className)}
             >
-                {(row) => (
-                    // Keyed by the row: virtua draws rows by position, and React would
-                    // otherwise keep a card's state (an open body, a clock) with the
-                    // next row that lands in that position. The row carries the content
-                    // column, so it lines up with the composer band over it, and the air
-                    // under it is what separates one entry from the next.
-                    <div key={row.id} className={cn(CONTENT_COLUMN, "pb-3")}>
-                        <EntryRenderer row={row} onRetractQueued={onRetractQueued} />
-                    </div>
-                )}
-            </VList>
+                {/* The composer band covers the foot of the pane; the content keeps
+                    room for the whole of it, plus the gap the design leaves above
+                    the card (`clearance` is the band's own height, measured by the
+                    pane). The room is content and not the box virtua sizes itself,
+                    because virtua writes that box's height from the rows and a
+                    padding there would come out of them. */}
+                <div style={{ paddingBottom: clearance + BAND_GAP }}>
+                    <Virtualizer
+                        ref={list}
+                        data={rows}
+                        itemSize={ROW}
+                        scrollRef={viewport}
+                        onScroll={onScroll}
+                        // A glide can be stopped short by a row that grows while it runs,
+                        // and the reader who asked for the end still has to get there.
+                        onScrollEnd={() => {
+                            if (seeking.current && !gliding.current) seekEnd();
+                        }}
+                        // Every height virtua learns moves the end, so a jump of ours is
+                        // taken again until the sizes settle. This is what the library's
+                        // own correction cannot be trusted to finish: it stops after a
+                        // quiet spell and the browser may drop the notifications it was
+                        // waiting for. The pin waits for the next frame because virtua
+                        // calls this from its own ResizeObserver, and a scroll written
+                        // inside an observer's delivery is the loop the browser reports
+                        // as "undelivered notifications".
+                        onResize={() => {
+                            if (!atEnd.current || gliding.current || resize.current !== undefined) return;
+                            resize.current = requestAnimationFrame(() => {
+                                resize.current = undefined;
+                                if (atEnd.current && !gliding.current) seekEnd();
+                            });
+                        }}
+                    >
+                        {(row) => (
+                            // Keyed by the row: virtua draws rows by position, and React
+                            // would otherwise keep a card's state (an open body, a clock)
+                            // with the next row that lands in that position. The row
+                            // carries the content column, so it lines up with the composer
+                            // band over it, and the air under it is what separates one
+                            // entry from the next.
+                            <div key={row.id} className={cn(CONTENT_COLUMN, "pb-3")}>
+                                <EntryRenderer row={row} onRetractQueued={onRetractQueued} />
+                            </div>
+                        )}
+                    </Virtualizer>
+                </div>
+            </ScrollArea>
             {away && (
                 <Button
                     id="transcript-jump"

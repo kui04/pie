@@ -422,12 +422,10 @@ function Session({
                         animate={STAGE_SETTLED}
                         exit={STAGE_LEAVE}
                         transition={leaving}
-                        // The pill scrollbar is a classic bar, so the list is
-                        // `--sb-size` narrower than the region. The band gives up the
-                        // same on the right, and the content column is centred in
-                        // what is left, or the words and the composer would sit on
-                        // two centrelines 4px apart.
-                        className={cn(empty ? "m-auto py-2" : "sb-inset absolute bottom-0 left-0 z-10 py-2")}
+                        // The list's bar floats over the region, so the band takes
+                        // the region's whole width and the content column is centred
+                        // in it - the same centreline the rows are centred on.
+                        className={cn(empty ? "m-auto py-2" : "absolute right-0 bottom-0 left-0 z-10 py-2")}
                     >
                         {/* The band's own gap is above and below the composer; the
                             phone's navigation bar is room the content adds on top

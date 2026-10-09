@@ -53,9 +53,12 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
  * reader sees. The rows are drawn here instead, and the list's own behaviour -
  * following the end, the jump pill - is out of scope of this file.
  */
+// The list virtualizes the transcript; here it draws every row it is given, so a
+// test can read them. The element that scrolls is the scroll area's viewport, and
+// the list reaches it through `scrollRef`.
 vi.mock("virtua", () => ({
-    VList: ({ data, children, id }: { data: unknown[]; children: (row: unknown) => ReactNode; id?: string }) => (
-        <div id={id}>{data.map(children)}</div>
+    Virtualizer: ({ data, children }: { data: unknown[]; children: (row: unknown) => ReactNode }) => (
+        <div>{data.map(children)}</div>
     ),
 }));
 
@@ -201,11 +204,10 @@ describe("ChatScreen", () => {
         expect(await screen.findByText("hello")).toBeInTheDocument();
         expect(container.querySelector("#session_name")).toHaveTextContent("Fix the parser");
         // A conversation that has words keeps its composer at the foot, under them.
-        // It gives up the pill scrollbar's width there: the scroller is that much
-        // narrower than the region, so a band across the whole region would put the
-        // two centred columns 4px apart.
+        // The bar floats over the list, so the band takes the region's whole width
+        // and the two centred columns - the rows and the composer - line up.
         expect(container.querySelector("#composer-band")?.className).toContain("absolute");
-        expect(container.querySelector("#composer-band")?.className).toContain("sb-inset");
+        expect(container.querySelector("#composer-band")?.className).toContain("right-0");
         // The band's own gap is above and below; the navigation bar is room the
         // content adds, so the keys never sit under the bar.
         expect(container.querySelector("#composer-band > div")?.className).toContain("pb-safe");
@@ -295,7 +297,7 @@ describe("ChatScreen", () => {
         // says why, in the middle of the window: there are no words to stand under.
         const band = container.querySelector("#composer-band");
         expect(band?.className).toContain("m-auto");
-        expect(band?.className).not.toContain("sb-inset");
+        expect(band?.className).not.toContain("right-0");
         expect(band?.querySelector("p")?.textContent).toBe("Nothing has been said yet.");
     });
 

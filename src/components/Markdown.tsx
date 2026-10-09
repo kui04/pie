@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { openUrl } from "@/lib/bridge";
 import { CodeBlock } from "@/components/CodeBlock";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 /** The schemes pie opens. A link of any other stays the text it is. */
 const OPENABLE = /^(https?|mailto):/i;
@@ -70,9 +71,9 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                         ),
                     hr: () => <hr className="border-divider" />,
                     table: ({ children: content }) => (
-                        <div className="overflow-x-auto">
+                        <ScrollArea bars="horizontal">
                             <table className="text-body-sm w-full border-collapse">{content}</table>
-                        </div>
+                        </ScrollArea>
                     ),
                     th: ({ children: content }) => (
                         <th className="border-divider bg-muted border px-2 py-1 text-left font-medium">{content}</th>

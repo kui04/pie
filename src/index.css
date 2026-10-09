@@ -207,7 +207,11 @@
   }
 
   /*
-   * The scrollbar is a rounded, inset pill, drawn by the engine itself.
+   * The bar is a rounded, inset pill, drawn by the engine itself, and it shows
+   * itself only while a region is moving: `is-scrolling` is put on the document
+   * for as long as that lasts by `src/lib/scrollbars.ts`. The lane it lives in
+   * keeps its width either way, because a bar that resized its region would move
+   * the words the reader was looking at every time it came and went.
    *
    * `::-webkit-scrollbar` is what Blink and WebKit paint, so the pill is theirs;
    * nothing may set `scrollbar-color` or `scrollbar-width` in their path, because
@@ -236,15 +240,22 @@
       background: var(--sb-track);
     }
 
-    /* The transparent border is clipped away and leaves a pill inset in the lane. */
+    /* The transparent border is clipped away and leaves a pill inset in the lane.
+       The transition sits here, where the class is absent too, so the pill fades
+       out as well as in: the fade follows whichever rule the element ends up in. */
     *::-webkit-scrollbar-thumb {
-      background-color: var(--sb-thumb);
+      background-color: transparent;
       border: 2px solid transparent;
       border-radius: 999px;
       background-clip: content-box;
+      transition: background-color 150ms ease-out;
     }
 
-    *::-webkit-scrollbar-thumb:hover {
+    html.is-scrolling *::-webkit-scrollbar-thumb {
+      background-color: var(--sb-thumb);
+    }
+
+    html.is-scrolling *::-webkit-scrollbar-thumb:hover {
       background-color: var(--sb-thumb-hover);
     }
 
@@ -269,12 +280,115 @@
     (-moz-force-broken-image-icon: 1) {
     * {
       scrollbar-width: var(--sb-width);
+      scrollbar-color: transparent var(--sb-track);
+    }
+
+    html.is-scrolling * {
       scrollbar-color: var(--sb-thumb) var(--sb-track);
     }
 
-    *:hover {
+    html.is-scrolling *:hover {
       scrollbar-color: var(--sb-thumb-hover) var(--sb-track);
     }
+  }
+
+  /*
+   * The pill pie draws itself (`src/components/ui/scroll-area.tsx`) shows itself
+   * the way the engine's bar does: while a region is moving, and while the pointer
+   * is over it. It is mounted for good so this can be a fade rather than a blink,
+   * and it takes no pointer while it is away, so the pane's edge stays text to
+   * select and to drag across.
+   */
+  [data-slot="scroll-area-scrollbar"] {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease-out;
+  }
+
+  html.is-scrolling [data-slot="scroll-area-scrollbar"],
+  [data-slot="scroll-area"]:hover [data-slot="scroll-area-scrollbar"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="scroll-area-scrollbar"] {
+      transition: none;
+    }
+  }
+}
+
+/*
+ * The shorthand variants the registry items are written in, vendored from the
+ * same `shadcn` package's `tailwind.css` (4.21.3) as the shimmer below.
+ *
+ * The `radix-nova` style writes `data-open:`, `data-vertical:` and their
+ * neighbours, and those names mean nothing to Tailwind on their own - it
+ * compiles them to `[data-open]` and friends, which no Radix element carries.
+ * Radix writes `data-state` and `data-orientation`, so without this block the
+ * classes in eight of pie's primitives silently do nothing: a separator has no
+ * height, a scroll area's bar has no width.
+ *
+ * Left out of the copy: `no-scrollbar` (pie has its own) and the accordion
+ * keyframes (pie uses no accordion).
+ */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-selected {
+  &:where([data-selected="true"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
   }
 }
 
@@ -387,10 +501,6 @@
  * stay on the same centreline as the rows inside it. Tailwind will not take a
  * value of `var(--sb-size)` here, so the utility keeps the two in step.
  */
-@utility sb-inset {
-  right: var(--sb-size);
-}
-
 /*
  * The room a phone's system bars take, as the engine reports it.
  *

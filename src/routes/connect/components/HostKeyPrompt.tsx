@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useIsMobile } from "@/hooks/use-platform";
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import type { PresentedKey } from "@/lib/bridge";
@@ -18,7 +19,10 @@ const FRAME = "border-border bg-card gap-4 border text-foreground";
 
 /** A prompt's title is body type, not a heading. */
 const TITLE = "text-body-md font-normal";
-const MESSAGE = "max-h-48 overflow-y-auto text-body-md text-muted-foreground";
+const MESSAGE = "text-body-md text-muted-foreground";
+
+/** The longest key a person would paste still has to leave the buttons in reach. */
+const MESSAGE_BOX = "max-h-48";
 
 /** The fingerprint as a person checks it against the host. */
 function hostKeyMessage(key: PresentedKey): string {
@@ -72,9 +76,13 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                     aria-describedby="host-key-sheet-message"
                 >
                     <DrawerTitle className={TITLE}>Trust this host?</DrawerTitle>
-                    <DrawerDescription id="host-key-sheet-message" className={MESSAGE}>
-                        {message}
-                    </DrawerDescription>
+                    {/* The cap belongs to the scroller and not to the words: a
+                        percentage height inside an auto-height box never resolves. */}
+                    <ScrollArea viewportClassName={MESSAGE_BOX}>
+                        <DrawerDescription id="host-key-sheet-message" className={MESSAGE}>
+                            {message}
+                        </DrawerDescription>
+                    </ScrollArea>
                     <Answers id="host-key-sheet" onAnswer={onAnswer} />
                 </DrawerContent>
             </Drawer>
@@ -89,9 +97,11 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                 aria-describedby="host-key-dialog-message"
             >
                 <DialogTitle className={TITLE}>Trust this host?</DialogTitle>
-                <DialogDescription id="host-key-dialog-message" className={MESSAGE}>
-                    {message}
-                </DialogDescription>
+                <ScrollArea viewportClassName={MESSAGE_BOX}>
+                    <DialogDescription id="host-key-dialog-message" className={MESSAGE}>
+                        {message}
+                    </DialogDescription>
+                </ScrollArea>
                 <Answers id="host-key-dialog" onAnswer={onAnswer} />
             </DialogContent>
         </Dialog>
