@@ -433,7 +433,10 @@ The body under the bar is the chat. It scrolls edge to edge — the transcript's
 scroller is the whole region, so the scrollbar stays on the region's edge —
 while what is drawn inside it is capped: the transcript's rows and the
 composer's band share one content column, 64rem wide at most and centred, so a
-row and the composer start and end on the same two lines.
+row and the composer start and end on the same two lines. The band gives up the
+pill scrollbar's width on its right for that: the scroller is that much narrower
+than the region, and a band measured against the whole region would put the two
+columns 4px apart.
 
 A column that opens — the session list above `lg` — is revealed by a clip: its
 wrapper owns the width the transcript gives up (256px), and the column inside it
@@ -525,23 +528,24 @@ bottom sheet shows the drag bar that says it can be swiped away.
 
 **Toast** — sonner, top-centre, over the page, never in the layout.
 
-**Scrollbar** — the engine's own bar, and it floats:
+**Scrollbar** — a rounded, inset pill, 8px wide, that the region pays for:
 
-- The app asks for a thin bar in the theme's own quiet colour
-  (`scrollbar-width`, `scrollbar-color`) and never touches
-  `::-webkit-scrollbar`. Styling that pseudo-element turns the bar into a
-  classic one that the region pays for in its own width; this bar takes no width
-  at all.
-- The bar floats **over** the region. No lane is reserved for it, so the words
-  of a region never move when it arrives, and a bar may run right beside the
-  column's hairline without touching it.
-- A finger gets no bar: a platform whose pointer cannot hover draws none.
-- Inside a tile the air still does the work: the padding above where a
-  horizontal bar floats keeps the last line clear of it, and the air below keeps
-  it off the footer.
-- Where a platform draws no overlay bar at all (a window's WebView2, a desktop
-  Firefox), the bar is that platform's own: thin, and taken out of the pane
-  while it scrolls.
+- The pill is the engine's own drawing of `::-webkit-scrollbar`: a transparent
+  track, a `{colors.outline}` thumb 4px wide after its transparent border is
+  clipped away, and `{colors.foreground}` under the pointer. Nothing sets
+  `scrollbar-color` or `scrollbar-width` in that path: either one makes both
+  Blink and WebKit drop the pill and go back to the platform's bar.
+- Firefox paints nothing with the pseudo-element, so it is handed the same two
+  colours through the standard properties instead. It shows a thin bar of the
+  platform's shape.
+- The pill is a classic bar, so a region that scrolls is 8px narrower than one
+  that does not - and no lane is reserved ahead of it, so the words move once
+  when a region starts to overflow and not again.
+- Inside a tile the air still does the work: the padding below the last line
+  keeps it off the horizontal bar, and the air above the footer keeps the bar
+  off the footer.
+- `no-scrollbar` outranks these rules, so a short list can still scroll in
+  silence.
 
 ## Do's and Don'ts
 
@@ -555,8 +559,7 @@ bottom sheet shows the drag bar that says it can be swiped away.
   indicator; **don't** put `primary` behind white text _or_ in front of a dark
   surface with the same token — that is what `primary-text` is for.
 - **Do** leave air around anything a region holds; **don't** let a divider or a
-  tile touch a neighbour's edge. A scrollbar is no exception: it floats, so it
-  never needs the room anyway.
+  tile touch a neighbour's edge.
 - **Do** write the system's own words at 14/20 and hold bigger sizes for
   headings; **don't** reach for mono outside code.
 - **Do** keep the phone's layout whole: the chat alone, safe areas respected;

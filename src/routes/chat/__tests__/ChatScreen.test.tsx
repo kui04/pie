@@ -201,7 +201,11 @@ describe("ChatScreen", () => {
         expect(await screen.findByText("hello")).toBeInTheDocument();
         expect(container.querySelector("#session_name")).toHaveTextContent("Fix the parser");
         // A conversation that has words keeps its composer at the foot, under them.
+        // It gives up the pill scrollbar's width there: the scroller is that much
+        // narrower than the region, so a band across the whole region would put the
+        // two centred columns 4px apart.
         expect(container.querySelector("#composer-band")?.className).toContain("absolute");
+        expect(container.querySelector("#composer-band")?.className).toContain("sb-inset");
         expect(container.querySelector("#session-opening")).toBeNull();
     });
 
@@ -288,6 +292,7 @@ describe("ChatScreen", () => {
         // says why, in the middle of the window: there are no words to stand under.
         const band = container.querySelector("#composer-band");
         expect(band?.className).toContain("m-auto");
+        expect(band?.className).not.toContain("sb-inset");
         expect(band?.querySelector("p")?.textContent).toBe("Nothing has been said yet.");
     });
 

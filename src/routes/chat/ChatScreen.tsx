@@ -419,14 +419,21 @@ function Session({
                         animate={STAGE_SETTLED}
                         exit={STAGE_LEAVE}
                         transition={leaving}
-                        className={cn(empty ? "m-auto py-2" : "absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
+                        // The pill scrollbar is a classic bar, so the list is
+                        // `--sb-size` narrower than the region. The band gives up the
+                        // same on the right, and the content column is centred in
+                        // what is left, or the words and the composer would sit on
+                        // two centrelines 4px apart.
+                        className={cn(empty ? "m-auto py-2" : "sb-inset absolute bottom-0 left-0 z-10 py-2")}
                     >
-                        {empty && (
-                            <p className="text-body-md text-muted-foreground pb-3 text-center">
-                                Nothing has been said yet.
-                            </p>
-                        )}
-                        <Composer session={session} working={working} />
+                        <div className={CONTENT_COLUMN}>
+                            {empty && (
+                                <p className="text-body-md text-muted-foreground pb-3 text-center">
+                                    Nothing has been said yet.
+                                </p>
+                            )}
+                            <Composer session={session} working={working} />
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>

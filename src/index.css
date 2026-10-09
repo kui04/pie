@@ -207,19 +207,74 @@
   }
 
   /*
-   * The scrollbar is the engine's own, and it floats.
+   * The scrollbar is a rounded, inset pill, drawn by the engine itself.
    *
-   * `scrollbar-width` and `scrollbar-color` ask for a thin bar in the theme's own
-   * quiet colour, and an engine that can draw an overlay bar puts that bar *over*
-   * the pane: it takes no room from the words and no lane is ever reserved for it.
+   * `::-webkit-scrollbar` is what Blink and WebKit paint, so the pill is theirs;
+   * nothing may set `scrollbar-color` or `scrollbar-width` in their path, because
+   * either one makes both engines drop the pill and go back to the platform's own
+   * bar. Firefox paints nothing with the pseudo-element, and the layer below it is
+   * where the standard properties say the same thing in its language.
    *
-   * Nothing here may touch `::-webkit-scrollbar`. Styling that pseudo-element (a
-   * width, a thumb, anything) turns the bar into a classic one that the pane pays
-   * for in its own width - the one thing this bar must not do.
+   * These rules belong to `@layer base`: a utility that wants no bar at all has to
+   * stay able to say so (see `no-scrollbar`).
    */
   :root {
-    scrollbar-width: thin;
-    scrollbar-color: var(--outline) transparent;
+    --sb-size: 8px;
+    --sb-width: thin;
+    --sb-track: transparent;
+    --sb-thumb: var(--outline);
+    --sb-thumb-hover: var(--foreground);
+  }
+
+  @supports selector(::-webkit-scrollbar) {
+    *::-webkit-scrollbar {
+      width: var(--sb-size);
+      height: var(--sb-size);
+    }
+
+    *::-webkit-scrollbar-track {
+      background: var(--sb-track);
+    }
+
+    /* The transparent border is clipped away and leaves a pill inset in the lane. */
+    *::-webkit-scrollbar-thumb {
+      background-color: var(--sb-thumb);
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background-clip: content-box;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background-color: var(--sb-thumb-hover);
+    }
+
+    *::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+  }
+
+  /*
+   * The second term is insurance, not decoration: Firefox can report the
+   * pseudo-element as supported while painting nothing with it - from 151 a
+   * `::-webkit-scrollbar` rule there only switches overlay bars off - and such an
+   * engine would fall through both layers and keep a plain bar.
+   *
+   * The property named there must be one no minifier can un-prefix: Lightning CSS
+   * rewrites `-moz-appearance: none` to `appearance: none`, which Chromium then
+   * answers yes to, handing Blink the standard layer and so taking the pill away
+   * from it. `-moz-force-broken-image-icon` is Gecko's alone and has no standard
+   * form to rewrite it into.
+   */
+  @supports (not selector(::-webkit-scrollbar)) or
+    (-moz-force-broken-image-icon: 1) {
+    * {
+      scrollbar-width: var(--sb-width);
+      scrollbar-color: var(--sb-thumb) var(--sb-track);
+    }
+
+    *:hover {
+      scrollbar-color: var(--sb-thumb-hover) var(--sb-track);
+    }
   }
 }
 
@@ -325,4 +380,13 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/**
+ * The room the pill scrollbar takes out of a region, for a neighbour that has to
+ * stay on the same centreline as the rows inside it. Tailwind will not take a
+ * value of `var(--sb-size)` here, so the utility keeps the two in step.
+ */
+@utility sb-inset {
+  right: var(--sb-size);
 }
