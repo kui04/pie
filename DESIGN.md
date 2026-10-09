@@ -513,6 +513,14 @@ the foot the list pads itself by — for the end of the transcript is wherever
 those sizes put it, and a jump measured against the older ones leaves the last
 rows under the band.
 
+The key's jump is run, not cut: the scroller glides to the end over a length the
+distance decides (a fixed number of pixels a millisecond between two bounds, so
+a long transcript is not proportionally slower), easing out onto it, because the
+rows between are rows the list has never drawn — a jump over them lands on their
+estimated heights, while a run draws every one of them and arrives at the end it
+measured. The reader's own hand ends the run where they take it back, and where
+they asked for less motion the end is taken at once.
+
 **Tool body** — a log (plain lines) or a numbered body (a file, a diff: line
 number, mark, text; the two columns scroll as one and only the text column
 scrolls sideways). Closed, a log shows its last five lines and a file or diff

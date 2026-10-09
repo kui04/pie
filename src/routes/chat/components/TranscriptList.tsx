@@ -36,6 +36,24 @@ const NEAR = 24;
 const BAND_GAP = 8;
 
 /**
+ * The pill's jump runs, in pixels a millisecond. A jump over a long transcript is
+ * not proportionally slower - the rows on the way have to be drawn for the
+ * measurement to follow the scroll - so the speed is fixed and only the length
+ * of the run grows with the distance, between these two bounds.
+ */
+const GLIDE_SPEED = 4;
+const GLIDE_MIN_MS = 160;
+const GLIDE_MAX_MS = 640;
+
+/**
+ * Whether the engine's reader asked for less motion. Asked here and not through
+ * motion's hook because the answer is wanted once, where the pill is pressed, and
+ * not as a value that re-renders the list.
+ */
+const wantsLessMotion = () =>
+    typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
  * The transcript, as a list that draws only what is on screen.
  *
  * A transcript grows without bound, so the list virtualizes it. The reader stays
@@ -44,9 +62,15 @@ const BAND_GAP = 8;
  */
 export function TranscriptList({ rows, clearance, className, onRetractQueued }: TranscriptListProps) {
     const list = useRef<VListHandle>(null);
+    // The pane, so the jump can reach the scroller virtua made inside it.
+    const box = useRef<HTMLDivElement>(null);
     const atEnd = useRef(true);
-    // A jump of ours whose landing the sizes have not settled under yet.
+    // A jump of ours whose landing the sizes have not settled under yet, and the run
+    // that is still carrying it there.
     const seeking = useRef(false);
+    const gliding = useRef(false);
+    const glide = useRef<number | undefined>(undefined);
+    const resize = useRef<number | undefined>(undefined);
     const [away, setAway] = useState(false);
     const count = rows.length;
 
@@ -61,12 +85,26 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
         if (count > 0) list.current?.scrollToIndex(count - 1, { align: "end" });
     }, [count]);
 
+    const stopGlide = useCallback(() => {
+        if (glide.current !== undefined) cancelAnimationFrame(glide.current);
+        glide.current = undefined;
+        gliding.current = false;
+    }, []);
+
+    useEffect(
+        () => () => {
+            stopGlide();
+            if (resize.current !== undefined) cancelAnimationFrame(resize.current);
+        },
+        [stopGlide],
+    );
+
     // Follow the end while the reader is there: when the transcript changes (not only
     // when it grows - a tool result can be folded into a row that is already there,
     // and an appended entry can replace one) and when the band's height moves the foot
     // this list pads itself by, because both move the end.
     useEffect(() => {
-        if (atEnd.current) seekEnd();
+        if (atEnd.current && !gliding.current) seekEnd();
     }, [rows, clearance, seekEnd]);
 
     const onScroll = (offset: number) => {
@@ -79,7 +117,13 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
         // A landing that stops short while a jump of ours is settling is ours, not
         // the reader leaving - and a measurement may have moved the end again. A
         // whole viewport short is the reader: the end is given up and the pill stands.
-        if (seeking.current && (end || offset + handle.viewportSize < handle.scrollSize - handle.viewportSize)) {
+        // Neither reading is taken while a glide runs, because a glide starts a
+        // whole transcript away from the end it is heading for.
+        if (
+            seeking.current &&
+            !gliding.current &&
+            (end || offset + handle.viewportSize < handle.scrollSize - handle.viewportSize)
+        ) {
             seeking.current = false;
         }
         if (!seeking.current) atEnd.current = end;
@@ -87,24 +131,83 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
     };
 
     const toEnd = () => {
+        const handle = list.current;
         atEnd.current = true;
         setAway(false);
-        seekEnd();
+        seeking.current = true;
+        if (!handle || count === 0) return;
+        const scroller = box.current?.querySelector<HTMLElement>("#transcript-list") ?? null;
+        const from = scroller?.scrollTop ?? 0;
+        const target = handle.scrollSize - handle.viewportSize;
+        const distance = target - from;
+        // A jump that is already there, a reader who asked for less motion, or a
+        // scroller this code cannot reach: the library's own jump, at once.
+        if (!scroller || wantsLessMotion() || distance <= NEAR) {
+            seekEnd();
+            return;
+        }
+        // A glide and not a cut, because of the rows on the way: virtua measures a row
+        // only when it draws it, so a jump over the rows in between lands on their
+        // estimated heights and leaves the tail wherever those estimates put it - the
+        // reading the reader fixes by dragging the bar through the list once. Running
+        // the scroll through them draws every one of them, and the end it arrives at
+        // is the end it measured. How long the run takes is its length over the speed,
+        // easing out onto the end.
+        stopGlide();
+        gliding.current = true;
+        const duration = Math.min(GLIDE_MAX_MS, Math.max(GLIDE_MIN_MS, distance / GLIDE_SPEED));
+        let started: number | undefined;
+        const step = (now: number) => {
+            started ??= now;
+            const t = Math.min(1, (now - started) / duration);
+            const rest = 1 - t;
+            const end = list.current ? list.current.scrollSize - list.current.viewportSize : target;
+            scroller.scrollTop = from + (end - from) * (1 - rest * rest * rest);
+            if (t < 1) {
+                glide.current = requestAnimationFrame(step);
+                return;
+            }
+            glide.current = undefined;
+            gliding.current = false;
+            seekEnd();
+        };
+        glide.current = requestAnimationFrame(step);
+    };
+
+    // The reader's own hand ends the jump: where they go next is theirs, and a row
+    // that arrives afterwards must not drag them back to the end they asked for.
+    const takeOver = () => {
+        stopGlide();
+        seeking.current = false;
     };
 
     return (
-        <div className="relative flex min-h-0 flex-1 flex-col">
+        <div ref={box} className="relative flex min-h-0 flex-1 flex-col">
             <VList
                 ref={list}
                 data={rows}
                 itemSize={ROW}
                 onScroll={onScroll}
+                // A glide can be stopped short by a row that grows while it runs, and
+                // the reader who asked for the end still has to get there.
+                onScrollEnd={() => {
+                    if (seeking.current && !gliding.current) seekEnd();
+                }}
+                onWheel={takeOver}
+                onTouchStart={takeOver}
                 // Every height virtua learns moves the end, so a jump of ours is
                 // taken again until the sizes settle. This is what the library's own
                 // correction cannot be trusted to finish: it stops after a quiet spell
-                // and the browser may drop the notifications it was waiting for.
+                // and the browser may drop the notifications it was waiting for. The
+                // pin waits for the next frame because virtua calls this from its own
+                // ResizeObserver, and a scroll written inside an observer's delivery is
+                // the loop the browser reports as "undelivered notifications".
                 onResize={() => {
-                    if (atEnd.current) seekEnd();
+                    if (!atEnd.current || gliding.current || resize.current !== undefined) return;
+                    resize.current = requestAnimationFrame(() => {
+                        resize.current = undefined;
+                        if (atEnd.current && !gliding.current) seekEnd();
+                    });
                 }}
                 // The composer band covers the foot of the pane; the box keeps room
                 // for the whole of it, plus the gap the design leaves above the card
