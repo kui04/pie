@@ -7,7 +7,7 @@
 //! [`Display`](std::fmt::Display).
 //!
 //! This enum holds the host only. A failure of the protocol or of the transport
-//! below it is a named variant of [`pi_rpc::Error`] and reaches the boundary
+//! below it is a named variant of [`pi_rpc::Error`](crate::pi_rpc::Error) and reaches the boundary
 //! without a change. Therefore nothing in this enum wraps it. Every variant is
 //! about the one connection: the reach to a machine, or which state it is in.
 

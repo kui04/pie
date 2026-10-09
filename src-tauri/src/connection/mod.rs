@@ -539,10 +539,8 @@ impl Session {
     /// A read is a command whose answer is data, not an effect: pi answers the
     /// three of them from its own memory, and a failure here is the failure of
     /// the protocol. A write can also be refused by pi itself, and it arrives
-    /// here the same way — [`Response::into_result`] turns a refusal into
-    /// `Error::Rpc` with pi's own message.
-    ///
-    /// [`Response::into_result`]: crate::pi_rpc::protocol::Response::into_result
+    /// here the same way — [`Response::into_result`](crate::pi_rpc::protocol::Response::into_result)
+    /// turns a refusal into `Error::Rpc` with pi's own message.
     async fn ask<T: DeserializeOwned>(&self, command: Command) -> Result<T, PieError> {
         Ok(self.client.request(command).await?.into_result()?.decode::<T>()?)
     }
@@ -824,8 +822,8 @@ impl Session {
     /// Sends one command whose answer carries nothing and waits for it.
     ///
     /// The failure of pi arrives here the same way as the failure of a read:
-    /// [`Response::into_result`] turns a refusal into `Error::Rpc` with pi's own
-    /// message.
+    /// [`Response::into_result`](crate::pi_rpc::protocol::Response::into_result)
+    /// turns a refusal into `Error::Rpc` with pi's own message.
     ///
     /// # Errors
     ///
