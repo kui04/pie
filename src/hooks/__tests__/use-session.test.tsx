@@ -257,6 +257,32 @@ describe("the session of the workspace", () => {
         expect(fake.switchSession).not.toHaveBeenCalled();
     });
 
+    it("replaces the conversation that was left when the answer arrives", async () => {
+        // The store holds the conversation that is leaving until the read of the new one
+        // answers - clearing at the switch would empty the page that is still fading out -
+        // and that answer is written in their place: they are another conversation, and
+        // the entries of one never sit in the transcript of another.
+        const mounted = render("main:1");
+        subscribed.resolve();
+        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+
+        const later = deferred();
+        fake.getEntries.mockImplementation(async () => {
+            await later.promise;
+            return snapshot([userMessage("b", null)], "b");
+        });
+
+        await mounted.result.current.switchTo("/tmp/other.jsonl");
+
+        expect(fake.switchSession).toHaveBeenCalledWith("main:1", "/tmp/other.jsonl");
+        expect(useTranscriptStore.getState().order).toEqual(["a"]);
+
+        later.resolve();
+        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["b"]));
+        expect([...useTranscriptStore.getState().entries.keys()]).toEqual(["b"]);
+        expect(useTranscriptStore.getState().leafId).toBe("b");
+    });
+
     it("does not ask a second time when a read fails", async () => {
         // TanStack retries three times by default, which would report the reason
         // of a dead pi seconds after it is known.

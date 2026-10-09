@@ -11,7 +11,7 @@
 
 import { useActorRef, useSelector } from "@xstate/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import type { Event as SessionRecord } from "@/lib/protocol";
@@ -122,6 +122,13 @@ export function useSession(session: string) {
         ],
     );
 
+    // What the store holds between a switch and the answer of the new conversation is
+    // the conversation that is leaving. That answer does not merge with those entries -
+    // they are another conversation - so it is written in their place, in the frame it
+    // arrives. Clearing at the switch instead would empty the page that is still fading
+    // out, when a fast switch answers before the fade is over.
+    const replacing = useRef(false);
+
     // What the chart needs from the world: the subscription, the switch, and the reads
     // a record makes stale. A test drives the whole graph with stubs of these.
     const deps = useMemo<SessionDeps>(() => {
@@ -148,7 +155,7 @@ export function useSession(session: string) {
             switchSession: (path) => bridge.switchSession(session, path),
             reRead: () => void queryClient.invalidateQueries({ queryKey: ["session", session] }),
             afterSwitch: () => {
-                clear();
+                replacing.current = true;
                 // The answer that is cached under this key describes the conversation
                 // that was left, and the key does not say which conversation it is:
                 // dropping it is what keeps the window loading until the answer of the
@@ -159,7 +166,7 @@ export function useSession(session: string) {
             },
             opened: dropQueued,
         };
-    }, [session, transcript, clear, dropQueued, queryClient]);
+    }, [session, transcript, dropQueued, queryClient]);
     // Built once per mounted screen: `ChatScreen` keys the session, so another
     // session is another mount and another chart. `useActorRef` owns the
     // lifecycle, which a hand-written start/stop does not survive: `stop` is
@@ -210,7 +217,13 @@ export function useSession(session: string) {
     // passive effect would paint one frame of a conversation that is not the one the read
     // just answered about.
     useLayoutEffect(() => {
-        if (open && entries.data) useTranscriptStore.getState().hydrate(entries.data);
+        if (!open || !entries.data) return;
+        if (replacing.current) {
+            replacing.current = false;
+            useTranscriptStore.getState().replace(entries.data);
+            return;
+        }
+        useTranscriptStore.getState().hydrate(entries.data);
     }, [open, entries.data, entries.dataUpdatedAt]);
 
     /**

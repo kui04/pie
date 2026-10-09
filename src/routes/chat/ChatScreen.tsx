@@ -29,7 +29,7 @@ import { activityRows, liveRows } from "@/lib/stream";
 import { withLiveUsage } from "@/routes/chat/components/session/session";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";
 import { ChatLanding } from "@/routes/chat/components/ChatLanding";
-import { SessionOpening } from "@/routes/chat/components/SessionOpening";
+import { SessionLoading } from "@/routes/chat/components/SessionLoading";
 import { Composer } from "@/routes/chat/components/composer/Composer";
 import { SessionDrawer, type SessionDrawerProps } from "@/routes/chat/components/session/SessionDrawer";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
@@ -169,14 +169,15 @@ function Session({
     const stage = useSelector(machine, stageOf);
     // The conversation has arrived, so the window may draw it: the bar carries its
     // name and its usage, the body its rows, and the foot its composer. Until then
-    // the window is the one the landing shows, with the shape of what is coming.
+    // the window is on the page that says a conversation is coming, and the bar is
+    // the landing's own - nothing of a conversation that is not here can be said.
     const loaded = stage === "loaded";
     // What a read of this session failed with, if it did. The failure of the feed
     // itself is not here: it reaches the chart of the screen (`error` below).
     const retry = () => {
         // A subscription is not held in a cache, so the retry has to ask for the
-        // listeners as well as for the reads.
-        machine.send({ type: "RETRY" });
+        // listeners as well as for the reads. The page stays the loading page it is
+        // on: a feed that opens after this brings `ARRIVED` and the words with it.
         reopen();
         void client.invalidateQueries({ queryKey: ["connection"] });
         void client.invalidateQueries({ queryKey: ["session", session] });
@@ -218,18 +219,15 @@ function Session({
     // of the window instead of at the foot.
     const empty = loaded && rows.length === 0;
 
-    // The chart of the screen hears two things from here, because only this subtree
-    // holds the reads: the conversation has arrived, or its feed never opened. The
-    // first takes the window out of its loading, and the second says so in the body,
-    // because the list of the next session is where the reader goes from there.
+    // The chart of the screen hears one thing from here, because only this subtree
+    // holds the reads: the conversation has arrived. A failure is not an event of
+    // that chart - the page the reader is on says what went wrong, and a switch pi
+    // refused or one that failed needs nothing at all, because the conversation
+    // that stayed is still in the reads and answers for itself.
     const arrived = listening && !switching && !snapshot.isPending;
     useEffect(() => {
         if (arrived) machine.send({ type: "ARRIVED" });
     }, [arrived, machine]);
-    useEffect(() => {
-        if (error === null || stage === "failed") return;
-        machine.send({ type: "FAILED" });
-    }, [error, stage, machine]);
 
     // Two kinds of failure reach this screen: the listeners never opened, which the
     // hook reports, and a read, which the query holds. They are read in that order.
@@ -309,14 +307,16 @@ function Session({
 
     const drawerProps = { endpoint, currentSessionId, working, busy: !listening || working || switching, onPick: pick };
 
-    // What stands under the bar: the transcript, or why there is none, and the
-    // loading between them. One stage leaves before the next arrives (`mode="wait"`),
-    // and the loading keeps what the reader was looking at under its ring as it fades
-    // in, so a pick changes the stage of the window and not its frame.
+    // What stands under the bar. Three stages, three pages, and one leaves before the
+    // next arrives (`mode="wait"`): the landing says the window is not connected to a
+    // conversation, the loading page says one is coming, and the words are the
+    // conversation itself. A switch is the same passage - the page of the conversation
+    // that is leaving is given up at once - so nothing of those words can come back
+    // and go again on the way.
     const transcript = <TranscriptList rows={rows} clearance={clearance} onRetractQueued={retractQueue} />;
     const leaving = still ? { duration: 0 } : STAGE;
     let content: ReactNode;
-    if (failure !== null && (loaded || stage === "failed")) {
+    if (failure !== null) {
         content = (
             <motion.div
                 key="failure"
@@ -344,25 +344,17 @@ function Session({
             </motion.div>
         );
     } else if (!loaded) {
+        // The loading page does not keep the landing, the words or anything else under
+        // it: a page of its own, entered and left with the same motion as the others.
         content = (
             <motion.div
-                key="opening"
+                key="loading"
                 initial={false}
                 exit={STAGE_LEAVE}
                 transition={leaving}
                 className="relative flex min-h-0 flex-1"
             >
-                {/* What the reader was looking at, going quiet under the ring: the
-                    landing they picked from, or the conversation that is being left. */}
-                <motion.div
-                    initial={{ opacity: 1 }}
-                    animate={STAGE_LEAVE}
-                    transition={leaving}
-                    className="absolute inset-0 flex"
-                >
-                    {stage === "switching" ? transcript : <ChatLanding disconnected={false} />}
-                </motion.div>
-                <SessionOpening />
+                <SessionLoading />
             </motion.div>
         );
     } else if (rows.length === 0) {
@@ -393,22 +385,19 @@ function Session({
             sheet={sheet}
             onOpenSheet={onOpenSheet}
             topbar={
-                loaded ? (
-                    <SessionHeader
-                        name={state.data?.sessionName ?? null}
-                        cwd={cwd}
-                        stats={withLiveUsage(stats.data ?? null, liveUsage?.usage ?? null)}
-                        auto={state.data?.autoCompactionEnabled ?? false}
-                        expanded={wide ? column : undefined}
-                        onToggleSessions={onToggleSessions}
-                        ready={loaded}
-                    />
-                ) : (
-                    // A conversation on its way has nothing to say about itself yet, so
-                    // the bar is the landing's own: the way to the list, and the window's
-                    // keys.
-                    <SidebarToggle expanded={wide ? column : undefined} onToggleSessions={onToggleSessions} />
-                )
+                // The bar says what the page it stands on can say: the way to the list
+                // always, and the conversation's own slots only once it has arrived. The
+                // header stays mounted so those slots leave as the loaded page does
+                // rather than blinking out with it.
+                <SessionHeader
+                    name={state.data?.sessionName ?? null}
+                    cwd={cwd}
+                    stats={withLiveUsage(stats.data ?? null, liveUsage?.usage ?? null)}
+                    auto={state.data?.autoCompactionEnabled ?? false}
+                    expanded={wide ? column : undefined}
+                    onToggleSessions={onToggleSessions}
+                    ready={loaded}
+                />
             }
             // The band is placed against the foot of the body, so the body is what
             // it is positioned in. The body itself is the whole region - the

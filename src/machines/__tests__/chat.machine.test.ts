@@ -26,7 +26,7 @@ describe("the chat's stages", () => {
 
         actor.send({ type: "OPEN", session: "main:1" });
 
-        expect(stageOf(actor.getSnapshot())).toBe("opening");
+        expect(stageOf(actor.getSnapshot())).toBe("loading");
         expect(sessionOf(actor.getSnapshot())).toBe("main:1");
 
         actor.send({ type: "ARRIVED" });
@@ -35,42 +35,17 @@ describe("the chat's stages", () => {
         expect(sessionOf(actor.getSnapshot())).toBe("main:1");
     });
 
-    it("says a feed never opened, and opens it again on a retry", () => {
-        // Nothing of that session is on screen while its feed cannot open, so the
-        // window says what happened and offers another try rather than guessing.
-        const actor = started();
-        actor.send({ type: "OPEN", session: "main:1" });
-
-        actor.send({ type: "FAILED" });
-
-        expect(stageOf(actor.getSnapshot())).toBe("failed");
-        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
-
-        actor.send({ type: "RETRY" });
-
-        expect(stageOf(actor.getSnapshot())).toBe("opening");
-    });
-
-    it("keeps the conversation on screen when a switch fails", () => {
-        // Pi still holds the conversation that was on screen: a switch that failed
-        // left it alone, so the window stays with it.
+    it("hands the window back to the loading page on a switch", () => {
+        // A switch is the same passage as an open: the loaded page is given up, and
+        // the page that says a conversation is coming stands in its place.
         const actor = started();
         actor.send({ type: "OPEN", session: "main:1" });
         actor.send({ type: "ARRIVED" });
 
         actor.send({ type: "SWITCH" });
-        expect(stageOf(actor.getSnapshot())).toBe("switching");
 
-        actor.send({ type: "FAILED" });
-        expect(stageOf(actor.getSnapshot())).toBe("loaded");
+        expect(stageOf(actor.getSnapshot())).toBe("loading");
         expect(sessionOf(actor.getSnapshot())).toBe("main:1");
-    });
-
-    it("shows the conversation a switch moved to", () => {
-        const actor = started();
-        actor.send({ type: "OPEN", session: "main:1" });
-        actor.send({ type: "ARRIVED" });
-        actor.send({ type: "SWITCH" });
 
         actor.send({ type: "ARRIVED" });
 
@@ -95,7 +70,17 @@ describe("the chat's stages", () => {
 
         actor.send({ type: "OPEN", session: "main:2" });
 
-        expect(stageOf(actor.getSnapshot())).toBe("opening");
+        expect(stageOf(actor.getSnapshot())).toBe("loading");
         expect(sessionOf(actor.getSnapshot())).toBe("main:1");
+    });
+
+    it("does not switch a conversation that has not arrived", () => {
+        const actor = started();
+        actor.send({ type: "OPEN", session: "main:1" });
+
+        actor.send({ type: "SWITCH" });
+
+        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
+        expect(stageOf(actor.getSnapshot())).toBe("loading");
     });
 });

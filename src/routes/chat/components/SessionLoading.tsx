@@ -3,17 +3,17 @@ import { Spinner } from "@/components/ui/spinner";
 import { STAGE, STAGE_ARRIVE, STAGE_SETTLED } from "@/lib/motion";
 
 /**
- * What the body says while a conversation is on its way: a ring and a word.
+ * The page of the window that says a conversation is coming: a ring and a word.
  *
  * The wait is a wait for words, and the ring says it is a wait and not a stall.
- * The layer under it is whatever the reader was looking at - the landing they
- * picked from, or the conversation that is being left - and it goes quiet as this
- * one arrives (`Session`), so the window changes its stage and not its frame.
+ * Nothing of the conversation being left stands under it - a switch gives those
+ * words up when it is taken - so this page is the whole of what the reader sees,
+ * and it leaves as the words of the answer arrive (`Session`).
  */
-export function SessionOpening() {
+export function SessionLoading() {
     return (
         <motion.div
-            id="session-opening"
+            id="session-loading"
             initial={STAGE_ARRIVE}
             animate={STAGE_SETTLED}
             exit={STAGE_ARRIVE}

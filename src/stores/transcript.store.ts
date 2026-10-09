@@ -101,8 +101,16 @@ interface TranscriptStore extends TranscriptEntries {
      * rows - and the read that follows takes over the messages pi has written.
      */
     dropQueued: () => void;
-    /** Forgets the session, so the next one starts empty. */
+    /**
+     * Forgets the session, so the next one starts empty.
+     */
     clear: () => void;
+    /**
+     * Forgets what the store holds and lays a snapshot down in its place, in one
+     * update: another conversation replaces this one, and neither the words of the
+     * one that is gone nor an empty frame in between may be seen.
+     */
+    replace: (snapshot: EntriesData) => void;
 }
 
 const noQueue: QueuedMessages = { steering: [], followUp: [] };
@@ -251,4 +259,12 @@ export const useTranscriptStore = create<TranscriptStore>((set) => ({
             rowIds: new Map(),
             nextLive: 1,
         }),
+
+    // Both halves run before React draws again - the notify of the first is batched
+    // into the same render as the second - so no frame shows the empty store in
+    // between.
+    replace: (snapshot) => {
+        useTranscriptStore.getState().clear();
+        useTranscriptStore.getState().hydrate(snapshot);
+    },
 }));

@@ -182,7 +182,7 @@ describe("ChatScreen", () => {
         fireEvent.click(await screen.findByRole("button", { name: "Fix the parser" }));
 
         expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
-        expect(container.querySelector("#session-opening")).not.toBeNull();
+        expect(container.querySelector("#session-loading")).not.toBeNull();
         // The ring says the wait is work, and it names itself to a reader that
         // cannot see it.
         expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
@@ -206,7 +206,7 @@ describe("ChatScreen", () => {
         // two centred columns 4px apart.
         expect(container.querySelector("#composer-band")?.className).toContain("absolute");
         expect(container.querySelector("#composer-band")?.className).toContain("sb-inset");
-        expect(container.querySelector("#session-opening")).toBeNull();
+        expect(container.querySelector("#session-loading")).toBeNull();
     });
 
     it("switches pi to the conversation that was chosen from the landing", async () => {
@@ -313,10 +313,12 @@ describe("ChatScreen", () => {
         expect(screen.queryByText("Opening the session…")).toBeNull();
     });
 
-    it("keeps the window loading until the answer of the conversation it switched to", async () => {
-        // The reads are keyed by the session, and the session does not change when its
-        // conversation does: the answer of the conversation that was left must not stand
-        // in for the one that is coming, or an empty window would pass as the truth.
+    it("gives up the conversation it is leaving for the loading page", async () => {
+        // A switch is the passage from the loaded page to the loading page and back, so
+        // the page of the conversation that is leaving is given up at once: its words do
+        // not stand under the ring, and nothing of them comes back to go again. The page
+        // that is left is why the reads are keyed so carefully - the answer of the
+        // conversation that was left must not stand in for the one that is coming.
         bridge.getConnection.mockResolvedValue(CONNECTED);
         const other = sessionSummary({ name: "The other one" });
         bridge.getEntries
@@ -324,15 +326,20 @@ describe("ChatScreen", () => {
             .mockReturnValue(new Promise(() => undefined));
         bridge.switchSession.mockResolvedValue({ cancelled: false });
 
-        await renderOpen([HELD, other]);
+        const view = await renderOpen([HELD, other]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "The other one" }));
 
         await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledWith("main:1", other.path));
         expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
-        expect(screen.queryByText("Nothing has been said yet.")).toBeNull();
         expect(screen.queryByText("first words")).toBeNull();
+        expect(view.container.querySelector("#transcript-list")).toBeNull();
+        // The page says nothing about a conversation: no words, no name in the bar, no
+        // composer, and no hint that a conversation with nothing in it was the problem.
+        expect(view.container.querySelector("#session_name")).toBeNull();
+        expect(view.container.querySelector("#composer-band")).toBeNull();
+        expect(screen.queryByText("Nothing has been said yet.")).toBeNull();
     });
 
     it("draws the transcript of the session of the connection", async () => {
