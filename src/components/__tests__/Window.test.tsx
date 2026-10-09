@@ -71,6 +71,18 @@ describe("Window", () => {
         expect(container.querySelector("#topbar")?.getAttribute("data-tauri-drag-region")).toBe("deep");
     });
 
+    it("keeps the bar clear of a phone's status bar", () => {
+        const { container } = show({ topbar: <span id="session_name" /> });
+
+        // A phone draws the status bar over the window, so the bar takes that room
+        // itself and grows by it (`min-h-11`, not a fixed height).
+        const bar = container.querySelector("#topbar");
+        const classes = bar?.className.split(" ") ?? [];
+        expect(classes).toContain("pt-safe");
+        expect(classes).toContain("min-h-11");
+        expect(classes).not.toContain("h-11");
+    });
+
     it("draws no window's keys on a phone, and no empty bar either", () => {
         platform.mobile = true;
 

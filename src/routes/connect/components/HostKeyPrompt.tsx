@@ -66,7 +66,9 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                 <DrawerContent
                     overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40"
                     // No top padding: the grab bar's own `my-4` is the sheet's top gap.
-                    className={cn(FRAME, "px-6 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1rem))] outline-none")}
+                    // The bottom gap is the sheet's own and the navigation bar's on top
+                    // of it, which is why it is written as one sum.
+                    className={cn(FRAME, "px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none")}
                     aria-describedby="host-key-sheet-message"
                 >
                     <DrawerTitle className={TITLE}>Trust this host?</DrawerTitle>

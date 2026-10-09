@@ -429,7 +429,10 @@ function Session({
                         // two centrelines 4px apart.
                         className={cn(empty ? "m-auto py-2" : "sb-inset absolute bottom-0 left-0 z-10 py-2")}
                     >
-                        <div className={CONTENT_COLUMN}>
+                        {/* The band's own gap is above and below the composer; the
+                            phone's navigation bar is room the content adds on top
+                            of it, or the keys would sit under the bar. */}
+                        <div className={cn(CONTENT_COLUMN, "pb-safe")}>
                             {empty && (
                                 <p className="text-body-md text-muted-foreground pb-3 text-center">
                                     Nothing has been said yet.

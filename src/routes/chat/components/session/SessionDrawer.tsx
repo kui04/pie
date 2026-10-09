@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Folder, RefreshCw, Search } from "lucide-react";
 import { motion, useAnimationFrame, useReducedMotion } from "motion/react";
 import { cn } from "cn";
+import { SafeArea } from "@/components/SafeArea";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import * as bridge from "@/lib/bridge";
@@ -81,7 +82,7 @@ export function SessionDrawer({
         });
 
     return (
-        <div id={id} className={cn("bg-surface-dim flex min-h-0 flex-col", className)}>
+        <SafeArea id={id} side="vertical" className={cn("bg-surface-dim flex min-h-0 flex-col", className)}>
             <div className="p-2">
                 <InputGroup>
                     <InputGroupAddon aria-hidden>
@@ -183,7 +184,7 @@ export function SessionDrawer({
                     ))
                 )}
             </div>
-        </div>
+        </SafeArea>
     );
 }
 

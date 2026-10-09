@@ -379,8 +379,15 @@ turns the bar into the session's own and hands the foot to the composer.
   the content demands it (a diff's line column).
 - **Air.** 12px inside a tile, 8px around a tile's body and under its last line,
   24px inside a floating layer, 48px of a control's height on a touch pointer.
-- **Safe areas.** Every overlay and any bar pinned to the window edge respects
-  `env(safe-area-inset-*)`, and the composer stays above the on-screen keyboard.
+- **Safe areas.** A phone draws its status bar and its navigation bar over the
+  window — Android enforces edge to edge from target 35 — and hands the room
+  they take to the page as `safe-area-inset-*` (the viewport says
+  `viewport-fit=cover`; the webview reports the system bars from M144).
+  `src/components/SafeArea.tsx` is where a region takes that room, and the pane
+  behind it keeps painting to the screen's edge: the bar keeps the status bar's
+  height, the list's column and the composer keep the navigation bar's, and the
+  shell keeps the side bars of a landscape window. Every overlay asks for its
+  own side the same way.
 
 ## Elevation & Depth
 

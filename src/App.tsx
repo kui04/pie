@@ -33,12 +33,16 @@ function Shell() {
             // grow to fit a long form and the document would scroll — taking the
             // window's own bar out of a window that has no decorations of its own to
             // drag.
-            className="flex h-svh w-full flex-col overflow-hidden font-sans"
+            // `pl-safe`/`pr-safe` are room the island or the navigation bar takes
+            // in landscape; both are zero in portrait and on a desktop.
+            className="pl-safe pr-safe flex h-svh w-full flex-col overflow-hidden font-sans"
         >
             <AppRoutes />
             {/* The one toast stack the window owns, over every page: the toast
-                component has no corner of its own, so the host places it. */}
-            <Toaster position="top-center" />
+                component has no corner of its own, so the host places it. A phone
+                draws its status bar over the window, so the stack keeps its own gap
+                and adds the bar's room; sonner's own mobile gap is 1rem. */}
+            <Toaster position="top-center" mobileOffset={{ top: "calc(1rem + env(safe-area-inset-top))" }} />
         </motion.div>
     );
 }

@@ -206,6 +206,9 @@ describe("ChatScreen", () => {
         // two centred columns 4px apart.
         expect(container.querySelector("#composer-band")?.className).toContain("absolute");
         expect(container.querySelector("#composer-band")?.className).toContain("sb-inset");
+        // The band's own gap is above and below; the navigation bar is room the
+        // content adds, so the keys never sit under the bar.
+        expect(container.querySelector("#composer-band > div")?.className).toContain("pb-safe");
         expect(container.querySelector("#session-loading")).toBeNull();
     });
 

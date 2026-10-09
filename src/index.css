@@ -390,3 +390,29 @@
 @utility sb-inset {
   right: var(--sb-size);
 }
+
+/*
+ * The room a phone's system bars take, as the engine reports it.
+ *
+ * Android enforces edge to edge from target 35, so the panes paint under the
+ * status and the navigation bar and only what lies in them has to keep out.
+ * The webview hands those bars to the page as `safe-area-inset-*` once the
+ * window is edge to edge and the viewport says `viewport-fit=cover` (M144;
+ * M136 only where the whole window is fullscreen). Everywhere else - a desktop
+ * window - all four are zero, which is what the fallback is for.
+ */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}

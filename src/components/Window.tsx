@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "cn";
+import { SafeArea } from "@/components/SafeArea";
 import { WindowControls } from "@/components/WindowControls";
 import { useIsMobile } from "@/hooks/use-platform";
 
@@ -36,14 +37,17 @@ export function Window({ sidebar, topbar, children, bodyClassName }: WindowProps
                 {/* A bar with nothing in it is not drawn: a phone's gate has no
                     keys, and no slots either. */}
                 {(topbar !== undefined || !isMobile) && (
-                    <div
+                    // A phone draws its status bar over the window, so the bar keeps
+                    // that room and the pane behind it keeps painting to the edge.
+                    <SafeArea
                         id="topbar"
+                        side="top"
                         data-tauri-drag-region={isMobile ? undefined : "deep"}
-                        className="flex h-11 shrink-0 items-center gap-1 px-3"
+                        className="flex min-h-11 shrink-0 items-center gap-1 px-3"
                     >
                         {topbar}
                         {!isMobile && <WindowControls />}
-                    </div>
+                    </SafeArea>
                 )}
                 <div id="transcript" className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", bodyClassName)}>
                     {children}

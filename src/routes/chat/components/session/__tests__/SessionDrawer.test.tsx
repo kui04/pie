@@ -54,6 +54,16 @@ beforeEach(() => {
 });
 
 describe("SessionDrawer", () => {
+    it("keeps the system bars' room, in the column and in the sheet alike", () => {
+        renderDrawer();
+
+        // One root for both shapes, so one place has to know that a phone draws
+        // its status bar over the search row and its navigation bar over the last.
+        const root = document.querySelector("#session-drawer");
+        expect(root?.className).toContain("pt-safe");
+        expect(root?.className).toContain("pb-safe");
+    });
+
     it("groups the rows by the directory their sessions started in", async () => {
         bridge.listSessions.mockResolvedValue([
             sessionSummary({ cwd: "/work/pie", name: "Pie work" }),
