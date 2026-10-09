@@ -55,5 +55,19 @@ opt-level = 3
 panic = "abort"
 strip = true
 
+# The debug build is what sits on disk all day, and its debug info is most of it,
+# so it is kept for this crate only: a backtrace still names file and line, while
+# every dependency under it carries none. No incremental data is written either.
+# The test suite inherits this profile.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = "0.2"
