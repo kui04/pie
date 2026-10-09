@@ -25,6 +25,7 @@
 //! never puts the order wrong.
 
 use std::io::SeekFrom;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;
@@ -33,12 +34,18 @@ use russh_sftp::client::SftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
+use tokio::task::JoinSet;
 
 use crate::connection::Error;
 use crate::error::PieError;
 use crate::pi_rpc::protocol::{AgentMessage, SessionEntry, UserContent, UserContentPart};
 use crate::pi_rpc::transport::{SshSession, SubsystemStream, Termination};
+
+/// The number of session files that one listing reads at the same time. The
+/// drawer of pi reads its own list with the same bound
+/// (`MAX_CONCURRENT_SESSION_INFO_LOADS` of `core/session-manager.ts`, pinned).
+const MAX_CONCURRENT_LOADS: usize = 10;
 
 /// The largest part of the head of a session file that the fallback reads. The
 /// read stops earlier if the first user turn is present. Pi writes its system
@@ -315,42 +322,6 @@ fn rfc3339_of_millis(millis: i64) -> Option<String> {
         when.second(),
         when.millisecond()
     ))
-}
-
-/// Reads a session file in full, as the listing of pi does: line by line.
-/// Therefore the size of the file is never its size in memory.
-///
-/// The function splits lines on bytes and decodes without strict rules. Pi reads
-/// through a decoder that replaces each value that is not UTF-8 with U+FFFD and
-/// continues. Therefore a file with one bad byte still lists. A failure of the
-/// full file for that byte would be stricter than the reader that this function
-/// mirrors.
-async fn read_whole<F>(file: F) -> std::io::Result<Extract>
-where
-    F: AsyncRead + Unpin,
-{
-    let mut lines = BufReader::new(file);
-    let mut buffer = Vec::new();
-    let mut extract = Extract::default();
-    while lines.read_until(b'\n', &mut buffer).await? > 0 {
-        let line = String::from_utf8_lossy(&buffer);
-        let line = line.trim_end_matches(['\n', '\r']);
-        if extract.header.is_none() {
-            extract.header = Some(line.to_string());
-        }
-        if extract.first.is_none()
-            && let Some(text) = first_text(line.as_bytes())
-        {
-            extract.first = Some(text);
-        }
-        // The latest name wins, including a clear. Pi appends a `session_info`
-        // entry at each rename and reads the last one.
-        if let Some(name) = name_in(line.as_bytes()) {
-            extract.name = name;
-        }
-        buffer.clear();
-    }
-    Ok(extract)
 }
 
 /// The shell that extracts the summary lines of one project directory on the
@@ -716,6 +687,7 @@ where
 /// unreadable entries.
 pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, Error> {
     let mut summaries = Vec::new();
+    let mut candidates = Vec::new();
     let mut projects = match tokio::fs::read_dir(root).await {
         Ok(projects) => projects,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(summaries),
@@ -747,27 +719,71 @@ pub(crate) async fn list_local(root: &Path) -> Result<Vec<SessionSummary>, Error
             if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
                 continue;
             }
-            let shown = path.to_string_lossy().into_owned();
-            let modified = file
-                .metadata()
-                .await
-                .ok()
-                .and_then(|stats| rfc3339(stats.modified().ok()?));
-            match tokio::fs::File::open(&path).await {
-                Ok(opened) => match read_whole(opened).await {
-                    Ok(extract) => {
-                        if let Some(summary) = summary_of(&shown, extract, modified) {
-                            summaries.push(summary);
-                        }
-                    }
-                    Err(error) => tracing::warn!(path = %shown, %error, "skipping a session file pie cannot read"),
-                },
-                Err(error) => tracing::warn!(path = %shown, %error, "skipping a session file pie cannot read"),
-            }
+            candidates.push(SessionFile {
+                shown: path.to_string_lossy().into_owned(),
+                path,
+            });
         }
     }
+
+    // The files are read side by side, as the drawer of pi reads its own list: a
+    // session of this machine is a file of a few megabytes, and a machine that
+    // reads them one after the other waits for the sum of them. The bound keeps a
+    // drawer of hundreds of sessions from opening hundreds of files at once.
+    let mut reads = JoinSet::new();
+    let mut pending = candidates.into_iter();
+    loop {
+        while reads.len() < MAX_CONCURRENT_LOADS {
+            let Some(file) = pending.next() else { break };
+            reads.spawn_blocking(move || summary_of_file(file));
+        }
+        let Some(finished) = reads.join_next().await else {
+            break;
+        };
+        match finished {
+            Ok(Some(summary)) => summaries.push(summary),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "a read of the local listing did not finish"),
+        }
+    }
+
     newest_first(&mut summaries);
     Ok(summaries)
+}
+
+/// One file of the list that a walk of the sessions directory found.
+struct SessionFile {
+    /// The path as the host shows it, which is what a row carries (`summary_of`).
+    shown: String,
+    /// The path this machine opens.
+    path: PathBuf,
+}
+
+/// The summary of one session file, or nothing if it is not one.
+///
+/// This runs on a blocking thread of the runtime: a listing reads many files, and
+/// a file of a long conversation is not small. The failure of one file is the
+/// loss of one row, not of the listing (`tracing::warn`).
+fn summary_of_file(file: SessionFile) -> Option<SessionSummary> {
+    let SessionFile { shown, path } = file;
+    let modified = std::fs::metadata(&path)
+        .ok()
+        .and_then(|stats| stats.modified().ok())
+        .and_then(rfc3339);
+    let opened = match std::fs::File::open(&path) {
+        Ok(opened) => opened,
+        Err(error) => {
+            tracing::warn!(path = %shown, %error, "skipping a session file pie cannot read");
+            return None;
+        }
+    };
+    match read_local(opened) {
+        Ok(extract) => summary_of(&shown, extract, modified),
+        Err(error) => {
+            tracing::warn!(path = %shown, %error, "skipping a session file pie cannot read");
+            None
+        }
+    }
 }
 
 /// The same listing over SSH.
@@ -865,6 +881,72 @@ pub(crate) async fn list_remote(session: &SshSession, sftp: &SftpSession) -> Res
     }
     newest_first(&mut summaries);
     Ok(summaries)
+}
+
+/// Reads one session file of this machine for its summary.
+///
+/// The whole file goes through the reader, because the name of a session may be
+/// anywhere in it: a rename that a long conversation followed sits far from the
+/// end, and a listing that shows no name for it would be wrong. What the read
+/// saves is the parse: only the three kinds of line that a summary needs are
+/// parsed as JSON - the header, the first turn of the user, and a rename. Every
+/// other line, which is the bulk of a long transcript, is searched for a
+/// literal and dropped.
+fn read_local(file: impl Read) -> std::io::Result<Extract> {
+    let mut lines = BufReader::with_capacity(READ_CHUNK * 4, file);
+    let mut buffer = Vec::new();
+    let mut extract = Extract::default();
+    loop {
+        buffer.clear();
+        if lines.read_until(b'\n', &mut buffer)? == 0 {
+            break;
+        }
+        let line = buffer.trim_ascii_end();
+        if extract.header.is_none() {
+            extract.header = Some(String::from_utf8_lossy(line).into_owned());
+            continue;
+        }
+        if extract.first.is_none() && holds(line, b"user") {
+            // The line goes to the parser the way the reader of pi sees it: one bad
+            // byte is a replacement character, not a line that says nothing. The
+            // decode costs nothing for a line that is valid UTF-8, which is nearly
+            // every line, and it happens only for a line this filter kept.
+            let line = String::from_utf8_lossy(line);
+            if let Some(text) = first_text(line.as_bytes()) {
+                extract.first = Some(text);
+            }
+        }
+        // The latest name wins, including a clear. Pi appends a `session_info`
+        // entry at each rename, and the scan of pi reads the last one.
+        if holds(line, b"session_info") {
+            let line = String::from_utf8_lossy(line);
+            if let Some(name) = name_in(line.as_bytes()) {
+                extract.name = name;
+            }
+        }
+    }
+    Ok(extract)
+}
+
+/// Whether a line holds a literal. The first byte is what the scan looks for, so
+/// a literal that starts with a rare byte costs one pass over the line. It is a
+/// filter and not a decision: the parse that follows is what reads the line.
+fn holds(line: &[u8], literal: &[u8]) -> bool {
+    let Some((first, rest)) = literal.split_first() else {
+        return true;
+    };
+    let mut at = 0;
+    while let Some(found) = line[at..].iter().position(|byte| byte == first) {
+        let start = at + found;
+        let Some(window) = line.get(start + 1..start + literal.len()) else {
+            return false;
+        };
+        if window == rest {
+            return true;
+        }
+        at = start + 1;
+    }
+    false
 }
 
 /// One directory level on the local filesystem, for the directory picker.
@@ -1148,8 +1230,8 @@ mod tests {
     }
 
     async fn extracted(path: &std::path::Path) -> Extract {
-        let opened = tokio::fs::File::open(path).await.expect("the file");
-        read_whole(opened).await.expect("the read")
+        let opened = std::fs::File::open(path).expect("the file");
+        read_local(opened).expect("the read")
     }
 
     #[test]
@@ -1226,6 +1308,30 @@ mod tests {
             "a leading ~ is the home, as pi expands it"
         );
         assert_eq!(sessions_root_from(None, None, None), None, "no home, no default");
+    }
+
+    #[tokio::test]
+    async fn a_name_far_from_the_end_still_lists_on_this_machine() {
+        // The listing of this machine reads the whole file for this reason: a rename
+        // that a long conversation followed sits far from the end of the file, and the
+        // name is what tells one session of the drawer from another. The fallback of a
+        // host over the network reports no name there, because it cannot afford that
+        // read (`the_fallback_never_shows_a_name_the_file_does_not_hold_latest`).
+        let mut content = format!(
+            "{HEADER}\n{}\n{}\n",
+            name_line("n1", "Far away"),
+            user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "hi")
+        );
+        while content.len() < NAME_SCAN_BYTES as usize + NAME_BLOCK * 2 {
+            content.push_str(&user_line("m2", "2026-10-02T13:45:14.000Z", 1790948714000, "later"));
+            content.push('\n');
+        }
+        let (_keep, path) = on_disk(&content).await;
+
+        let extract = extracted(&path).await;
+
+        assert_eq!(extract.name.as_deref(), Some("Far away"));
+        assert_eq!(extract.first.as_deref(), Some("hi"));
     }
 
     #[tokio::test]
