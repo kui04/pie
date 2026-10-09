@@ -126,6 +126,11 @@ export function useSession(session: string) {
             reRead: () => void queryClient.invalidateQueries({ queryKey: ["session", session] }),
             afterSwitch: () => {
                 clear();
+                // The answer that is cached under this key describes the conversation
+                // that was left, and the key does not say which conversation it is:
+                // dropping it is what keeps the window loading until the answer of the
+                // new one arrives, instead of drawing its own emptiness as a fact.
+                queryClient.removeQueries({ queryKey: ["session", session, "entries"] });
                 void queryClient.invalidateQueries({ queryKey: ["session", session] });
                 void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             },
@@ -178,8 +183,11 @@ export function useSession(session: string) {
     // The snapshot is the authority for the transcript, and the open gate above keeps a
     // cache of an earlier visit out of it. A read that brings the same entries back still
     // writes them - after a switch the answer may compare equal to the one before (the same
-    // session file) - so this runs on the answer, not on its shape.
-    useEffect(() => {
+    // session file) - so this runs on the answer, not on its shape. It is a layout effect
+    // for the same reason the clear above is: a reader draws what the store holds, and a
+    // passive effect would paint one frame of a conversation that is not the one the read
+    // just answered about.
+    useLayoutEffect(() => {
         if (open && entries.data) useTranscriptStore.getState().hydrate(entries.data);
     }, [open, entries.data, entries.dataUpdatedAt]);
 

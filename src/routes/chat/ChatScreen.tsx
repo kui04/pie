@@ -201,6 +201,11 @@ function Session({
     const band = useRef<HTMLDivElement>(null);
     const [clearance, setClearance] = useState(9 * 16);
     const composerOn = loaded && error === null;
+    // Pi writes a model and a thinking level into a new session before anything is
+    // said; nothing of that is a message, so its transcript is empty. Such a
+    // conversation has no words to stand under, so its composer waits in the middle
+    // of the window instead of at the foot.
+    const empty = loaded && rows.length === 0;
 
     // The chart of the screen hears two things from here, because only this subtree
     // holds the reads: the conversation has arrived, or its feed never opened. The
@@ -258,6 +263,10 @@ function Session({
         // the drawer are disabled for the same reason (`busy` below).
         if (!listening || working || switching) return;
         onOpenSheet(false);
+        // The conversation that is on screen is not opened a second time: pi reloads
+        // the file it is asked for even when it already holds it, and the window
+        // would empty itself for the read it did not need (`switchSession`).
+        if (path === state.data?.sessionFile) return;
         machine.send({ type: "SWITCH" });
         void switchTo(path).catch((thrown: unknown) => {
             toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
@@ -323,20 +332,10 @@ function Session({
             </motion.div>
         );
     } else if (rows.length === 0) {
-        // Pi writes a model and a thinking level into a new session before anything
-        // is said; nothing of that is a message, so its transcript is empty.
-        content = (
-            <motion.p
-                key="empty"
-                initial={STAGE_ARRIVE}
-                animate={STAGE_SETTLED}
-                exit={STAGE_LEAVE}
-                transition={leaving}
-                className="text-body-md text-muted-foreground m-auto px-6 text-center"
-            >
-                Nothing has been said yet.
-            </motion.p>
-        );
+        // The words of an empty conversation stand in its composer's band, in the
+        // middle of the window (`composerOn` below): a body with nothing in it has
+        // nothing to draw.
+        content = null;
     } else {
         content = (
             <motion.div
@@ -388,8 +387,11 @@ function Session({
             </AnimatePresence>
             <AnimatePresence initial={false}>
                 {composerOn && (
-                    // The composer covers the foot of the chat. The transcript keeps room
-                    // for its whole height (measured above), so no row hides behind it.
+                    // The composer covers the foot of a conversation that has words:
+                    // the transcript keeps room for its whole height (measured above),
+                    // so no row hides behind it. A conversation with nothing in it
+                    // holds the composer — and the sentence that says so — in the middle
+                    // of the window, where the reader is looking.
                     <motion.div
                         id="composer-band"
                         ref={band}
@@ -397,8 +399,13 @@ function Session({
                         animate={STAGE_SETTLED}
                         exit={STAGE_LEAVE}
                         transition={leaving}
-                        className={cn("absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
+                        className={cn(empty ? "m-auto py-2" : "absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
                     >
+                        {empty && (
+                            <p className="text-body-md text-muted-foreground pb-3 text-center">
+                                Nothing has been said yet.
+                            </p>
+                        )}
                         <Composer session={session} working={working} />
                     </motion.div>
                 )}

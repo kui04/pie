@@ -200,8 +200,9 @@ describe("ChatScreen", () => {
 
         expect(await screen.findByText("hello")).toBeInTheDocument();
         expect(container.querySelector("#session_name")).toHaveTextContent("Fix the parser");
-        expect(container.querySelector("#composer-band")).not.toBeNull();
-        expect(container.querySelector("#session-skeleton")).toBeNull();
+        // A conversation that has words keeps its composer at the foot, under them.
+        expect(container.querySelector("#composer-band")?.className).toContain("absolute");
+        expect(container.querySelector("#session-opening")).toBeNull();
     });
 
     it("switches pi to the conversation that was chosen from the landing", async () => {
@@ -283,6 +284,50 @@ describe("ChatScreen", () => {
 
         expect(await screen.findByText("Nothing has been said yet.")).toBeInTheDocument();
         expect(container.querySelector("#transcript-list")).toBeNull();
+        // A conversation with nothing in it holds its composer, and the sentence that
+        // says why, in the middle of the window: there are no words to stand under.
+        const band = container.querySelector("#composer-band");
+        expect(band?.className).toContain("m-auto");
+        expect(band?.querySelector("p")?.textContent).toBe("Nothing has been said yet.");
+    });
+
+    it("does not open the conversation that is already open", async () => {
+        // Pi reloads the file it is asked for even when it already holds it, so a press
+        // on the row of the conversation on screen must not reach it: the window would
+        // empty itself for a read it did not need.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
+
+        await renderOpen();
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Fix the parser" }));
+
+        expect(bridge.switchSession).not.toHaveBeenCalled();
+        expect(screen.getByText("first words")).toBeInTheDocument();
+        expect(screen.queryByText("Opening the session…")).toBeNull();
+    });
+
+    it("keeps the window loading until the answer of the conversation it switched to", async () => {
+        // The reads are keyed by the session, and the session does not change when its
+        // conversation does: the answer of the conversation that was left must not stand
+        // in for the one that is coming, or an empty window would pass as the truth.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        const other = sessionSummary({ name: "The other one" });
+        bridge.getEntries
+            .mockResolvedValueOnce(storeOfEntries(chain(messageEntry(user("first words")))))
+            .mockReturnValue(new Promise(() => undefined));
+        bridge.switchSession.mockResolvedValue({ cancelled: false });
+
+        await renderOpen([HELD, other]);
+        expect(await screen.findByText("first words")).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "The other one" }));
+
+        await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledWith("main:1", other.path));
+        expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
+        expect(screen.queryByText("Nothing has been said yet.")).toBeNull();
+        expect(screen.queryByText("first words")).toBeNull();
     });
 
     it("draws the transcript of the session of the connection", async () => {
