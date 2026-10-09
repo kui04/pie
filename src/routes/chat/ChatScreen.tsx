@@ -241,14 +241,28 @@ function Session({
         // A pane in a test environment lays nothing out and has no observer; the
         // stand-in of the first frame stays, which is the design's own fallback.
         if (!element || typeof ResizeObserver === "undefined") return;
+        let frame: number | null = null;
+        // The height is written a frame later, and only when it moved: a state that
+        // sizes the transcript is a layout change, and one made inside the observer's
+        // own delivery is a resize loop - the browser then reports the loop and leaves
+        // the notifications it had queued undelivered, so the rows drawn in that same
+        // delivery keep the height they were estimated with, and a jump to the end of
+        // the transcript lands where the sizes used to be.
         const measure = () => {
-            const height = element.getBoundingClientRect().height;
-            if (height > 0) setClearance(height);
+            const height = Math.round(element.getBoundingClientRect().height);
+            if (frame !== null || height <= 0) return;
+            frame = requestAnimationFrame(() => {
+                frame = null;
+                setClearance(height);
+            });
         };
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(element);
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            if (frame !== null) cancelAnimationFrame(frame);
+        };
     }, [composerOn]);
 
     /** Drops every queued message, and says how many went: pi cannot take back one. */

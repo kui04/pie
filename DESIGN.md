@@ -494,6 +494,14 @@ A run pi takes up again is not a run that failed: the turn says nothing of its
 failure while pi retries, and a toast carries the attempt, which the retry that
 works takes away again.
 
+The list keeps the reader where they are: it follows the end only while they are
+at it, and the key below takes them back when they are not. A jump to the end is
+taken again while the sizes settle under it — a row is measured when it is first
+drawn, a row whose words rewrapped changes height, and the composer's band moves
+the foot the list pads itself by — for the end of the transcript is wherever
+those sizes put it, and a jump measured against the older ones leaves the last
+rows under the band.
+
 **Tool body** — a log (plain lines) or a numbered body (a file, a diff: line
 number, mark, text; the two columns scroll as one and only the text column
 scrolls sideways). Closed, a log shows its last five lines and a file or diff

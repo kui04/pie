@@ -1,5 +1,5 @@
 import { ArrowDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { VList, type VListHandle } from "virtua";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -45,15 +45,29 @@ const BAND_GAP = 8;
 export function TranscriptList({ rows, clearance, className, onRetractQueued }: TranscriptListProps) {
     const list = useRef<VListHandle>(null);
     const atEnd = useRef(true);
+    // A jump of ours whose landing the sizes have not settled under yet.
+    const seeking = useRef(false);
     const [away, setAway] = useState(false);
     const count = rows.length;
 
-    // Follow the end when the transcript changes, not when it grows: a tool result
-    // can be folded into a row that is already there, and an appended entry can
-    // replace one, and both leave the count as it was.
+    /**
+     * Send the list to its end, and remember that the end it lands on is only ever as
+     * right as the sizes virtua knows. Virtua measures a row when it draws it, so the
+     * height of a row drawn for the first time - or of one whose words rewrapped -
+     * reaches its arithmetic only after that measurement.
+     */
+    const seekEnd = useCallback(() => {
+        seeking.current = true;
+        if (count > 0) list.current?.scrollToIndex(count - 1, { align: "end" });
+    }, [count]);
+
+    // Follow the end while the reader is there: when the transcript changes (not only
+    // when it grows - a tool result can be folded into a row that is already there,
+    // and an appended entry can replace one) and when the band's height moves the foot
+    // this list pads itself by, because both move the end.
     useEffect(() => {
-        if (atEnd.current && count > 0) list.current?.scrollToIndex(count - 1, { align: "end" });
-    }, [rows, count]);
+        if (atEnd.current) seekEnd();
+    }, [rows, clearance, seekEnd]);
 
     const onScroll = (offset: number) => {
         const handle = list.current;
@@ -62,14 +76,20 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
         // on screen now, which is what makes this the place to read them: by the
         // time rows are added, the list is already a row longer.
         const end = offset + handle.viewportSize >= handle.scrollSize - NEAR;
-        atEnd.current = end;
+        // A landing that stops short while a jump of ours is settling is ours, not
+        // the reader leaving - and a measurement may have moved the end again. A
+        // whole viewport short is the reader: the end is given up and the pill stands.
+        if (seeking.current && (end || offset + handle.viewportSize < handle.scrollSize - handle.viewportSize)) {
+            seeking.current = false;
+        }
+        if (!seeking.current) atEnd.current = end;
         setAway(!end);
     };
 
     const toEnd = () => {
         atEnd.current = true;
         setAway(false);
-        if (count > 0) list.current?.scrollToIndex(count - 1, { align: "end" });
+        seekEnd();
     };
 
     return (
@@ -79,6 +99,13 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
                 data={rows}
                 itemSize={ROW}
                 onScroll={onScroll}
+                // Every height virtua learns moves the end, so a jump of ours is
+                // taken again until the sizes settle. This is what the library's own
+                // correction cannot be trusted to finish: it stops after a quiet spell
+                // and the browser may drop the notifications it was waiting for.
+                onResize={() => {
+                    if (atEnd.current) seekEnd();
+                }}
                 // The composer band covers the foot of the pane; the box keeps room
                 // for the whole of it, plus the gap the design leaves above the card
                 // (`clearance` is the band's own height, measured by the pane).
