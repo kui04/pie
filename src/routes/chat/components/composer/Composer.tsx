@@ -13,7 +13,8 @@
  * streams, Enter steers it and Alt+Enter queues a follow-up; when nothing streams,
  * the message starts a run. Pi decides the same way from its own state — a behavior
  * without a stream is ignored — so this side only has to name the key that the
- * person pressed (`machines/session.machine.ts` holds the run state).
+ * person pressed (`machines/session.machine.ts` holds the run state, and this box
+ * reads it as one boolean).
  *
  * The first character of the line chooses the mode, and the mode is data, not a
  * state of its own: `/` opens the command menu, `!` and `!!` run a shell command of
@@ -23,9 +24,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
-import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
-import type { ActorRefFrom } from "xstate";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,7 +33,6 @@ import * as bridge from "@/lib/bridge";
 import { copyText } from "@/lib/clipboard";
 import type { ImageContent, StreamingBehavior } from "@/lib/protocol";
 import { sessionQueries } from "@/lib/query";
-import { sessionMachine } from "@/machines/session.machine";
 import { CommandMenu } from "@/routes/chat/components/composer/CommandMenu";
 import { ModePickers } from "@/routes/chat/components/composer/ModePickers";
 import {
@@ -51,8 +49,11 @@ import { useTranscriptStore } from "@/stores/transcript.store";
 export interface ComposerProps {
     /** The session that this box sends to. */
     session: string;
-    /** The run state of that session, from `useSession`. */
-    machine: ActorRefFrom<typeof sessionMachine>;
+    /**
+     * Whether a run of that session is in flight, from `useSession`. It decides what a
+     * key means: Enter steers a run, and starts the next turn when none goes on.
+     */
+    working: boolean;
 }
 
 /** One picture the reader staged, with the name of the file it came from. */
@@ -62,7 +63,7 @@ interface Staged {
     image: ImageContent;
 }
 
-export function Composer({ session, machine }: ComposerProps) {
+export function Composer({ session, working }: ComposerProps) {
     const client = useQueryClient();
     const isMobile = useIsMobile();
     const [value, setValue] = useState("");
@@ -73,7 +74,6 @@ export function Composer({ session, machine }: ComposerProps) {
     const input = useRef<HTMLTextAreaElement>(null);
     const attachment = useRef(0);
 
-    const working = useSelector(machine, (snapshot) => snapshot.matches("working"));
     const state = useQuery(sessionQueries.state(session));
     const commands = useQuery(sessionQueries.commands(session));
     const runningBash = useTranscriptStore((store) => store.runningBash);

@@ -1,10 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createActor, type ActorRefFrom } from "xstate";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
-import { sessionMachine } from "@/machines/session.machine";
 import { Composer } from "@/routes/chat/components/composer/Composer";
 import { useTranscriptStore } from "@/stores/transcript.store";
 import { bashExecution, chain, messageEntry, slashCommand } from "@/preview/fixtures";
@@ -42,22 +40,19 @@ function refusal(message: string) {
 }
 
 /**
- * The composer with a client above it and a session machine in hand, as the
- * workspace mounts it. Nothing here starts pi: the bridge is what a test tells it
- * to be.
+ * The composer with a client above it and the run phase the workspace hands it.
+ * Nothing here starts pi: the bridge is what a test tells it to be.
  */
-function renderComposer(width: "idle" | "working" = "idle") {
-    const machine: ActorRefFrom<typeof sessionMachine> = createActor(sessionMachine).start();
-    if (width === "working") machine.send({ type: "RUN_STARTED" });
+function renderComposer(phase: "idle" | "working" = "idle") {
     const client = new QueryClient(queryDefaults);
     const view = render(
         <QueryClientProvider client={client}>
             <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
-                <Composer session="main:1" machine={machine} />
+                <Composer session="main:1" working={phase !== "idle"} />
             </div>
         </QueryClientProvider>,
     );
-    return { ...view, machine, client };
+    return { ...view, client };
 }
 
 /** The box of the composer, which is where a person types. */
@@ -152,13 +147,16 @@ describe("the composer sends what was typed", () => {
     });
 
     it("stops the run while one streams, and the shell command while one runs", async () => {
-        const { machine } = renderComposer("working");
+        renderComposer("working");
 
         fireEvent.click(screen.getByRole("button", { name: "Stop" }));
         await waitFor(() => expect(bridge.abort).toHaveBeenCalledWith("main:1"));
 
-        machine.send({ type: "SETTLED" });
+        // The run is over (the chart said so) and a shell command of the reader runs:
+        // the key stops that one now.
+        cleanup();
         useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: false });
+        renderComposer("idle");
         fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
 
         await waitFor(() => expect(bridge.abortBash).toHaveBeenCalledWith("main:1"));

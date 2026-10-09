@@ -23,14 +23,19 @@ export async function watchWindow(check: (maximized: boolean) => void): Promise<
     const appWindow = getCurrentWindow();
     const report = async () => check(await appWindow.isMaximized());
 
-    const [stopResized, stopMoved] = await Promise.all([
-        appWindow.onResized(() => void report()),
-        appWindow.onMoved(() => void report()),
-    ]);
-    await report();
+    // One at a time, and released again if the next one fails: a listener that arrived
+    // before the failure would otherwise stay on the window with nobody holding its
+    // release.
+    let off: Unsubscribe[] = [];
+    try {
+        off = [await appWindow.onResized(() => void report()), await appWindow.onMoved(() => void report())];
+        await report();
+    } catch (thrown) {
+        for (const stop of off) stop();
+        throw thrown;
+    }
 
     return () => {
-        stopResized();
-        stopMoved();
+        for (const stop of off) stop();
     };
 }

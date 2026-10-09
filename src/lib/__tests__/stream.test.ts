@@ -4,7 +4,6 @@ import {
     activityRows,
     applyDelta,
     beginMessage,
-    beginRun,
     endCall,
     endMessage,
     liveRows,
@@ -155,44 +154,20 @@ describe("a message a run is writing", () => {
 });
 
 describe("the line under the run", () => {
-    it("says nothing while no run goes on", () => {
-        expect(activityRows(false, noRun)).toEqual([]);
-        expect(activityRows(false, started())).toEqual([]);
+    it("says nothing while the run is idle", () => {
+        // What the run is doing is its own phase, held by the chart of the session
+        // (`machines/session.machine.ts`); this function only turns it into a row.
+        expect(activityRows("idle")).toEqual([]);
     });
 
     it("waits for the model's first output", () => {
-        // A reader has sent words; the answer is on its way over a connection that may be
-        // far away. Nothing of the model is on screen yet.
-        const run = beginMessage(noRun, "live-1", { role: "user", content: "and now?", timestamp: 1 });
-
-        expect(activityRows(true, run)).toEqual([{ kind: "activity", id: "activity", state: "waiting" }]);
+        // A reader has sent words and nothing of the model is on screen yet: the
+        // answer is on its way over a connection that may be far away.
+        expect(activityRows("waiting")).toEqual([{ kind: "activity", id: "activity", state: "waiting" }]);
     });
 
     it("is at work once the model writes, and stays there for what it called", () => {
-        const writing = started();
-        expect(activityRows(true, writing)).toEqual([{ kind: "activity", id: "activity", state: "working" }]);
-
-        // The message is over and its call runs: the same run, still at work.
-        const called = endMessage(writing, assistant([{ type: "text", text: "let me look" }], "toolUse"));
-        expect(activityRows(true, called)).toEqual([{ kind: "activity", id: "activity", state: "working" }]);
-    });
-
-    it("keeps the run at work when the rows it wrote are gone", () => {
-        // A read that lands while the run goes on carries the messages it has written, so
-        // the rows the run drew are taken over (the store does that). The run is the same
-        // run: it is at work until it is over, and not waiting for a first output again.
-        const writing = started();
-        const replaced = { messages: [], working: writing.working };
-
-        expect(activityRows(true, replaced)).toEqual([{ kind: "activity", id: "activity", state: "working" }]);
-    });
-
-    it("waits again when another run begins", () => {
-        const writing = started();
-        expect(activityRows(true, writing)).toEqual([{ kind: "activity", id: "activity", state: "working" }]);
-
-        // A new run has written nothing of its own yet, whatever stands above it.
-        expect(activityRows(true, beginRun(writing))).toEqual([{ kind: "activity", id: "activity", state: "waiting" }]);
+        expect(activityRows("working")).toEqual([{ kind: "activity", id: "activity", state: "working" }]);
     });
 });
 

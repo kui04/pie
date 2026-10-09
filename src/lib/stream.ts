@@ -57,30 +57,34 @@ export interface LiveMessage {
     retrying: boolean;
 }
 
-/** The live part of the transcript: the messages of the run, in the order they began. */
+/**
+ * The messages of the run, in the order they began. Only the bytes: the phase of the run
+ * is the chart's, because a read that lands mid-run takes these rows over and the phase
+ * must not go with them (`.agents/rules/state.md`).
+ */
 export interface LiveRun {
     messages: LiveMessage[];
-    /**
-     * The run has begun to write. It is not a question about the rows above - a read that
-     * lands mid-run takes them over - but about the run: the line under the transcript
-     * says `Working…` from the model's first output until the run is over.
-     */
-    working: boolean;
+}
+
+/** The phase of a run, as the chart of the session holds it and the line under it says. */
+export type RunPhase = "idle" | "waiting" | "working";
+
+/** The messages that wait for a run, as `queue_update` reports them. */
+export interface QueuedMessages {
+    /** Messages that interrupt the run at its next step. */
+    steering: string[];
+    /** Messages that wait for the run to settle. */
+    followUp: string[];
 }
 
 /** A run that has written nothing yet. */
-export const noRun: LiveRun = { messages: [], working: false };
-
-/** A run that begins now: what it writes is not on screen yet, so the app waits on it. */
-export function beginRun(run: LiveRun): LiveRun {
-    return { ...run, working: false };
-}
+export const noRun: LiveRun = { messages: [] };
 
 /** A message that a run began writing. A role the transcript does not draw is no row. */
 export function beginMessage(run: LiveRun, id: string, message: AgentMessage): LiveRun {
     if (message.role !== "user" && message.role !== "assistant") return run;
     const live: LiveMessage = { id, message, args: new Map(), calls: new Map(), retrying: false };
-    return { messages: [...run.messages, live], working: run.working || message.role === "assistant" };
+    return { messages: [...run.messages, live] };
 }
 
 /**
@@ -236,17 +240,12 @@ function withMessage(live: LiveMessage, message: AgentMessage): LiveMessage {
 }
 
 /**
- * The line under the run, when the run goes on: nothing writes it as a message, because
- * it is not the model's - it is the app waiting on a machine that may be far away.
- *
- * The two states are the whole of it. `waiting` is the gap between what a reader sent
- * and the model's first output, which a connection over a network makes long enough to
- * name; `working` begins with the message the model starts writing and holds until the
- * run is over, so a call that runs under it is the same run at work.
+ * The line under the run, when the run goes on: it is not the model's, it is the app
+ * waiting on a machine that may be far away, so no message writes it.
  */
-export function activityRows(active: boolean, run: LiveRun): TranscriptRow[] {
-    if (!active) return [];
-    return [{ kind: "activity", id: "activity", state: run.working ? "working" : "waiting" }];
+export function activityRows(phase: RunPhase): TranscriptRow[] {
+    if (phase === "idle") return [];
+    return [{ kind: "activity", id: "activity", state: phase }];
 }
 
 /** The last message of one role, with `update` applied to it. */
@@ -255,7 +254,7 @@ function mapLast(run: LiveRun, role: AgentMessage["role"], update: (live: LiveMe
         if (run.messages[index].message.role !== role) continue;
         const messages = [...run.messages];
         messages[index] = update(messages[index]);
-        return { messages, working: run.working };
+        return { messages };
     }
     return run;
 }
@@ -267,7 +266,7 @@ function mapOwner(run: LiveRun, toolCallId: string, update: (live: LiveMessage) 
         if (!live.calls.has(toolCallId) && !hasCall(live.message, toolCallId)) continue;
         const messages = [...run.messages];
         messages[index] = update(live);
-        return { messages, working: run.working };
+        return { messages };
     }
     return run;
 }

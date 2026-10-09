@@ -26,6 +26,7 @@ const fake = vi.hoisted(() => ({
     onSessionEvent: vi.fn<(session: string, onEvent: (event: Event) => void) => Promise<Bridge.Unsubscribe>>(),
     onSessionState:
         vi.fn<(session: string, onState: (state: Bridge.SessionLifecycle) => void) => Promise<Bridge.Unsubscribe>>(),
+    switchSession: vi.fn<(session: string, path: string) => Promise<{ cancelled: boolean }>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -75,6 +76,7 @@ describe("the session of the workspace", () => {
         subscribed = deferred();
 
         fake.getState.mockReset().mockResolvedValue({} as SessionState);
+        fake.switchSession.mockReset().mockResolvedValue({ cancelled: false });
         fake.getSessionStats.mockReset().mockResolvedValue({} as SessionStats);
         fake.getEntries.mockReset().mockResolvedValue(snapshot([userMessage("a", null)], "a"));
         fake.onSessionEvent.mockReset().mockImplementation(async (session, onEvent) => {
@@ -194,6 +196,54 @@ describe("the session of the workspace", () => {
 
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
         expect(mounted.result.current.error).toBeNull();
+    });
+
+    it("drops the queue when the listeners open again, and keeps the run on screen", async () => {
+        // A reopen covers a time when nothing listened. The reads that follow carry the
+        // entries, and no read carries the queue - so the queue goes. What the run drew
+        // and the phase it is in stay: those rows are still the run's, the deltas that
+        // keep arriving land in them, and the read of the state settles the phase.
+        // The pi of this session is still streaming, which is what the read after the
+        // reopen answers with.
+        fake.getState.mockResolvedValue({ isStreaming: true } as SessionState);
+        const mounted = render("main:1");
+        subscribed.resolve();
+        await waitFor(() => expect(fake.onSessionEvent).toHaveBeenCalled());
+
+        publish?.({ type: "queue_update", steering: ["go on"], followUp: [] });
+        publish?.({ type: "agent_start" });
+        publish?.({ type: "message_start", message: assistant([], { stopReason: "pending" as const }) });
+        await waitFor(() => expect(useTranscriptStore.getState().queued.steering).toEqual(["go on"]));
+        publish?.({
+            type: "message_start",
+            message: { ...assistant([], { stopReason: "pending" as const }), timestamp: 11 },
+        });
+        await waitFor(() => expect(mounted.result.current.phase).toBe("working"));
+
+        subscribed = deferred();
+        mounted.result.current.reopen();
+        subscribed.resolve();
+
+        await waitFor(() => expect(useTranscriptStore.getState().queued.steering).toEqual([]));
+        // The rows of the run and its phase are the run's still: the deltas that keep
+        // arriving land in them, and the read that follows agrees that it streams.
+        expect(useTranscriptStore.getState().live.messages).toHaveLength(2);
+        await waitFor(() => expect(mounted.result.current.phase).toBe("working"));
+    });
+
+    it("refuses a switch while the feed is not live, and says so instead of asking", async () => {
+        // The chart accepts a switch only from a live feed: a screen that never attached
+        // has no conversation to leave. Asking Rust anyway would switch the session behind
+        // the chart's back and leave the store with the old one.
+        fake.onSessionEvent.mockImplementation(async () => {
+            await subscribed.promise;
+            return () => undefined;
+        });
+        const mounted = render("main:1");
+        expect(mounted.result.current.listening).toBe(false);
+
+        await mounted.result.current.switchTo("/tmp/other.jsonl");
+        expect(fake.switchSession).not.toHaveBeenCalled();
     });
 
     it("does not ask a second time when a read fails", async () => {
@@ -512,7 +562,7 @@ describe("the run a session streams", () => {
             assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "an answer" },
         });
 
-        await waitFor(() => expect(useTranscriptStore.getState().liveUsage?.totalTokens).toBe(4200));
+        await waitFor(() => expect(useTranscriptStore.getState().liveUsage?.usage.totalTokens).toBe(4200));
 
         // The read of the usage that follows a finished response carries it as a message,
         // so the increment goes: it would be the same tokens twice.
@@ -573,7 +623,7 @@ describe("the run a session streams", () => {
         publish?.({ type: "agent_settled" });
 
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledTimes(2));
-        expect(mounted.result.current.machine.getSnapshot()?.matches("idle")).toBe(true);
+        expect(mounted.result.current.phase).toBe("idle");
     });
 
     it("says what a retry is doing, and takes the words back when the retry works", async () => {

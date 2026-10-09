@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { act, type ReactNode } from "react";
+import { queryDefaults } from "@/lib/query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,7 +93,9 @@ function windowOf(width: "narrow" | "wide"): () => void {
  * two things the app's own mounting gives it.
  */
 function renderScreen() {
-    const client = new QueryClient();
+    // The client of the app, not a fresh one: a warm cache is what a second visit
+    // to a read depends on (`queryDefaults`).
+    const client = new QueryClient(queryDefaults);
     return render(
         <QueryClientProvider client={client}>
             <MemoryRouter>
@@ -293,6 +296,29 @@ describe("ChatScreen", () => {
         fireEvent.click(await screen.findByText("Retract queued message"));
 
         await waitFor(() => expect(bridge.clearQueue).toHaveBeenCalledWith("main:1"));
+    });
+
+    it("refuses a pick while the feed of the session is not open", async () => {
+        // A switch is not something a screen that never attached can ask for: the chart
+        // would drop the events of it while Rust made the switch, and the screen would
+        // keep the old conversation. The rows say so, and the pick does not reach Rust.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "The other one" })]);
+        bridge.switchSession.mockResolvedValue({ cancelled: false });
+        // The listeners of this session never open.
+        bridge.onSessionEvent.mockReturnValue(new Promise(() => undefined));
+
+        // A wide window keeps the list as a column, which is mounted from the first
+        // frame: the pick is reachable while the feed is still opening.
+        const restore = windowOf("wide");
+        renderScreen();
+        expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
+
+        const row = await screen.findByText("The other one");
+        expect(row.closest("button")).toBeDisabled();
+        fireEvent.click(row);
+        expect(bridge.switchSession).not.toHaveBeenCalled();
+        restore();
     });
 
     it("moves the session to the conversation that was picked, and reads it again", async () => {

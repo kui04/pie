@@ -2,9 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createActor } from "xstate";
 import { queryDefaults } from "@/lib/query";
-import { sessionMachine } from "@/machines/session.machine";
 import { Composer } from "@/routes/chat/components/composer/Composer";
 import { sessionState, slashCommand } from "@/preview/fixtures";
 
@@ -29,14 +27,6 @@ function Seeded({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-/** The run state of a story. A story is one frame: no event moves the actor on. */
-function run(working: boolean) {
-    const machine = createActor(sessionMachine);
-    machine.start();
-    if (working) machine.send({ type: "RUN_STARTED" });
-    return machine;
-}
-
 const meta = {
     title: "Chat/Composer",
     component: Composer,
@@ -54,7 +44,7 @@ const meta = {
     ],
     args: {
         session: "main:1",
-        machine: run(false),
+        working: false,
     },
 } satisfies Meta<typeof Composer>;
 
@@ -65,4 +55,4 @@ type Story = StoryObj<typeof meta>;
 export const Idle: Story = {};
 
 /** An answer streams: the key stops the run, and Enter steers it. */
-export const Working: Story = { args: { machine: run(true) } };
+export const Working: Story = { args: { working: true } };

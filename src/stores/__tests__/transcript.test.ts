@@ -415,12 +415,16 @@ describe("the messages a run writes", () => {
         expect(useTranscriptStore.getState().runningBash).toBeNull();
     });
 
-    it("holds the usage of the streaming response until the read carries it", () => {
+    it("holds the usage of the streaming response until a read that is younger than it answers", () => {
         useTranscriptStore.getState().setLiveUsage(usage({ totalTokens: 30 }));
+        expect(useTranscriptStore.getState().liveUsage?.usage.totalTokens).toBe(30);
 
-        expect(useTranscriptStore.getState().liveUsage?.totalTokens).toBe(30);
+        // A read that answered before the last delta does not hold this response yet.
+        useTranscriptStore.getState().settleLiveUsage(0);
+        expect(useTranscriptStore.getState().liveUsage?.usage.totalTokens).toBe(30);
 
-        useTranscriptStore.getState().clearLiveUsage();
+        // One that answered after it carries the response as a message.
+        useTranscriptStore.getState().settleLiveUsage(Date.now());
         expect(useTranscriptStore.getState().liveUsage).toBeNull();
     });
 
@@ -433,5 +437,24 @@ describe("the messages a run writes", () => {
         expect(state.live.messages).toEqual([]);
         expect(state.rowIds.size).toBe(0);
         expect(state.liveUsage).toBeNull();
+    });
+
+    it("forgets the queue when the listeners open again, and keeps what the run drew", () => {
+        // A reopen covers a time when nothing listened. The queue is written by records
+        // alone, so no read brings it back: it goes. The rows of the run stay - the deltas
+        // that keep arriving land in them - and the read that follows takes over the
+        // messages pi wrote, so nothing here is a lie about the session.
+        useTranscriptStore.getState().appendEntry(userMessage("a", null));
+        useTranscriptStore.getState().setQueue({ steering: ["go on"], followUp: ["then this"] });
+        useTranscriptStore.getState().liveStart(liveUser(10, "hello"));
+        useTranscriptStore.getState().setLiveUsage(usage({ totalTokens: 900 }));
+
+        useTranscriptStore.getState().dropQueued();
+
+        const state = useTranscriptStore.getState();
+        expect(state.queued).toEqual({ steering: [], followUp: [] });
+        expect(state.live.messages).toHaveLength(1);
+        expect(state.liveUsage?.usage.totalTokens).toBe(900);
+        expect(state.order).toEqual(["a"]);
     });
 });

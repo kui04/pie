@@ -9,7 +9,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -65,7 +64,8 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const wide = useWideWindow();
     const still = useReducedMotion();
     const client = useQueryClient();
-    const { machine, state, snapshot, stats, listening, error, reopen, switchTo, switching } = useSession(session);
+    const { phase, working, state, snapshot, stats, listening, error, reopen, switchTo, switching } =
+        useSession(session);
     // The failure may be the subscription itself, which no cache holds.
     const retry = () => {
         reopen();
@@ -78,9 +78,6 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
     const queued = useTranscriptStore((state) => state.queued);
     const live = useTranscriptStore((state) => state.live);
     const liveUsage = useTranscriptStore((state) => state.liveUsage);
-    // The run state comes from the session machine, not from the state read: a read
-    // is a round trip behind, and the composer answers a key with it.
-    const working = useSelector(machine, (snapshot) => snapshot.matches("working"));
     const rowIds = useTranscriptStore((state) => state.rowIds);
 
     // The fold runs when the entries change, which is once per event and once per
@@ -93,10 +90,10 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
         () => [
             ...transcriptRows({ entries, order }, leafId, rowIds),
             ...liveRows(live),
-            ...activityRows(working, live),
+            ...activityRows(phase),
             ...queuedRows(queued),
         ],
-        [entries, order, leafId, rowIds, live, working, queued],
+        [entries, order, leafId, rowIds, live, phase, queued],
     );
 
     // The composer band covers the foot of the stage. The pane measures it and the
@@ -149,14 +146,17 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
      * a moment, and meanwhile the transcript says that it is opening the session.
      */
     function pick(path: string) {
-        if (working || switching) return;
+        // While the feed is opening or has failed there is no conversation to leave:
+        // the switch would reach Rust and the chart would drop its answer. The rows of
+        // the drawer are disabled for the same reason (`busy` below).
+        if (!listening || working || switching) return;
         setSheet(false);
         void switchTo(path).catch((thrown: unknown) => {
             toast.error(reasonFor(bridge.asPieError(thrown), FAILURE_REASON));
         });
     }
 
-    const drawerProps = { endpoint, currentSessionId, working, busy: working || switching, onPick: pick };
+    const drawerProps = { endpoint, currentSessionId, working, busy: !listening || working || switching, onPick: pick };
     const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
 
     // What stands under the bar: the transcript, or why there is none. An empty
@@ -222,7 +222,7 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                     <SessionHeader
                         name={state.data?.sessionName ?? null}
                         cwd={cwd}
-                        stats={withLiveUsage(stats.data ?? null, liveUsage)}
+                        stats={withLiveUsage(stats.data ?? null, liveUsage?.usage ?? null)}
                         auto={state.data?.autoCompactionEnabled ?? false}
                         expanded={wide ? column : undefined}
                         onToggleSessions={toggleSessions}
@@ -243,7 +243,7 @@ function Session({ session, cwd, endpoint }: { session: string; cwd: string | nu
                         ref={band}
                         className={cn("absolute inset-x-0 bottom-0 z-10 py-2", CONTENT_COLUMN)}
                     >
-                        <Composer session={session} machine={machine} />
+                        <Composer session={session} working={working} />
                     </div>
                 )}
             </Window>

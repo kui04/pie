@@ -7,11 +7,11 @@
  * name.
  */
 
-import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { cn } from "cn";
 import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
-import { windowControls, watchWindow } from "@/lib/bridge";
+import { useMaximized } from "@/hooks/use-maximized";
+import { windowControls } from "@/lib/bridge";
 import { SWAP, SWAPPED_IN, SWAPPED_OUT } from "@/lib/motion";
 
 /** A 24px hit area, the WCAG 2.5.8 minimum. */
@@ -23,26 +23,7 @@ const KEY =
  * they ask for that end themselves: on the gate they are all that is in it.
  */
 export function WindowControls() {
-    const [maximized, setMaximized] = useState(false);
-
-    // The window maximizes itself as readily as the key does — a double-click,
-    // a drag to the top edge — so it is asked rather than assumed. Where there
-    // is no window manager to ask — a story, a test, a browser preview — the
-    // keys stay as they are: an absent answer is not a failure to report.
-    useEffect(() => {
-        let stop: (() => void) | undefined;
-        let cancelled = false;
-        watchWindow(setMaximized)
-            .then((unsubscribe) => {
-                if (cancelled) unsubscribe();
-                else stop = unsubscribe;
-            })
-            .catch(() => undefined);
-        return () => {
-            cancelled = true;
-            stop?.();
-        };
-    }, []);
+    const maximized = useMaximized();
 
     return (
         <span id="window_controllers" className="ms-auto flex shrink-0 items-center gap-1">

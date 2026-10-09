@@ -1,17 +1,12 @@
 /**
- * The entries of one session, as the events and the snapshot bring them: append-only,
- * except that a hydrate lays a snapshot under what it already holds (the snapshot of
- * `get_entries` is the authority).
+ * The entries of one session, as the records and the snapshot bring them: append-only,
+ * except that a hydrate lays a snapshot under what it already holds (`get_entries` is
+ * the authority). It holds **one session**, and nothing of the view: the leaf path and
+ * the compaction fold are pure functions in `@/lib/transcript`.
  *
- * The store holds what pi wrote and nothing of the view: the path to the leaf and
- * the compaction fold are pure functions, and live in `@/lib/transcript`. It holds
- * **one session**; a second one at the same time needs a store per session.
- *
- * Two of its parts are not entries. `queue_update` reports the messages that wait
- * whole, so the store replaces its lists instead of appending to them, and the
- * shell command of the reader that still runs is a row of the transcript before pi
- * records it as an entry. Both belong to this session and end with it, which is why
- * they are here and not beside the screen.
+ * Three of its parts are not entries - the messages that wait for a run, the command
+ * of the reader that still runs, and the run's own rows - because each is written by
+ * records alone. They belong to the session and end with it.
  */
 
 import { create } from "zustand";
@@ -20,7 +15,6 @@ import type { JsonValue } from "@/lib/protocol/serde_json/JsonValue";
 import {
     applyDelta,
     beginMessage,
-    beginRun,
     endCall,
     endMessage,
     markRetrying,
@@ -28,6 +22,7 @@ import {
     startCall,
     updateCall,
     type LiveRun,
+    type QueuedMessages,
 } from "@/lib/stream";
 import type { TranscriptEntries } from "@/lib/transcript";
 
@@ -41,14 +36,6 @@ export interface BashRun {
     excludeFromContext: boolean;
 }
 
-/** The messages that wait for a run, as `queue_update` reports them. */
-export interface QueuedMessages {
-    /** Messages that interrupt the run at its next step. */
-    steering: string[];
-    /** Messages that wait for the run to settle. */
-    followUp: string[];
-}
-
 interface TranscriptStore extends TranscriptEntries {
     /** The leaf the session points at; `null` in a session without entries. */
     leafId: string | null;
@@ -57,11 +44,11 @@ interface TranscriptStore extends TranscriptEntries {
     /** The shell command of the reader that runs right now, if one runs. */
     runningBash: BashRun | null;
     /**
-     * What the response that streams right now has spent. The usage of a response is
-     * written to the session file with its message, so the reads of a session are behind
-     * it until the response is over; this is what the ring and the cost follow meanwhile.
+     * What the response that streams right now has spent, and when it was read: the
+     * response reaches the session file only when it is over, so the reads of a session
+     * are behind it, and this is what the ring follows meanwhile.
      */
-    liveUsage: Usage | null;
+    liveUsage: { usage: Usage; at: number } | null;
     /**
      * The messages the run writes right now. A message reaches the transcript file only
      * after the run, so this is the only thing that shows an answer while it arrives.
@@ -83,16 +70,17 @@ interface TranscriptStore extends TranscriptEntries {
     setQueue: (queued: QueuedMessages) => void;
     /** Takes the usage of the streaming response, which pi reports cumulatively. */
     setLiveUsage: (usage: Usage) => void;
-    /** Forgets it: the read that has it in a message carries it from here. */
-    clearLiveUsage: () => void;
+    /**
+     * Drops the live reading once a read of the usage answers that was asked for after it
+     * (`readAt`): that answer holds the response as a message.
+     */
+    settleLiveUsage: (readAt: number) => void;
     /** Opens the live row of a shell command that the reader just started. */
     startBash: (run: { command: string; excludeFromContext: boolean }) => void;
     /** Adds a piece of the output of the running command. */
     appendBash: (delta: string) => void;
     /** Drops the live row; the entry pi recorded carries it from here. */
     finishBash: () => void;
-    /** A run of this session began: it has written nothing yet. */
-    liveRunStart: () => void;
     /** A message of the run began. */
     liveStart: (message: AgentMessage) => void;
     /** A delta of the message that streams. */
@@ -107,6 +95,12 @@ interface TranscriptStore extends TranscriptEntries {
     liveToolEnd: (call: { toolCallId: string; toolName: string; result: JsonValue; isError: boolean }) => void;
     /** Pi takes the turn up again: its failure is not the end of the run. */
     liveRetrying: () => void;
+    /**
+     * Forgets the queue: a listener that opens again missed its records, and no read
+     * carries the queue. What the run drew stays - the deltas that follow land in those
+     * rows - and the read that follows takes over the messages pi has written.
+     */
+    dropQueued: () => void;
     /** Forgets the session, so the next one starts empty. */
     clear: () => void;
 }
@@ -183,16 +177,7 @@ export const useTranscriptStore = create<TranscriptStore>((set) => ({
             let runningBash = state.runningBash;
             for (const entry of entries.values()) runningBash = supersededRun(runningBash, entry);
 
-            // The run keeps the flag it had: the row it just lost is in the read, and the
-            // run that wrote it is still the same one.
-            return {
-                entries,
-                order,
-                leafId,
-                live: { messages: live, working: state.live.working },
-                rowIds,
-                runningBash,
-            };
+            return { entries, order, leafId, live: { messages: live }, rowIds, runningBash };
         }),
 
     // Pi advances its leaf to every entry it appends (`_appendEntry` of
@@ -216,9 +201,10 @@ export const useTranscriptStore = create<TranscriptStore>((set) => ({
     // The arrays are copied: the payload belongs to the event that carried it.
     setQueue: (queued) => set({ queued: { steering: [...queued.steering], followUp: [...queued.followUp] } }),
 
-    setLiveUsage: (usage) => set({ liveUsage: usage }),
+    setLiveUsage: (usage) => set({ liveUsage: { usage, at: Date.now() } }),
 
-    clearLiveUsage: () => set({ liveUsage: null }),
+    settleLiveUsage: (readAt) =>
+        set((state) => (state.liveUsage !== null && readAt >= state.liveUsage.at ? { liveUsage: null } : {})),
 
     startBash: (run) => set({ runningBash: { ...run, output: "" } }),
 
@@ -232,8 +218,6 @@ export const useTranscriptStore = create<TranscriptStore>((set) => ({
         ),
 
     finishBash: () => set({ runningBash: null }),
-
-    liveRunStart: () => set((state) => ({ live: beginRun(state.live) })),
 
     liveStart: (message) =>
         set((state) => ({
@@ -252,6 +236,8 @@ export const useTranscriptStore = create<TranscriptStore>((set) => ({
     liveToolEnd: (call) => set((state) => ({ live: endCall(state.live, call) })),
 
     liveRetrying: () => set((state) => ({ live: markRetrying(state.live) })),
+
+    dropQueued: () => set({ queued: noQueue }),
 
     clear: () =>
         set({
