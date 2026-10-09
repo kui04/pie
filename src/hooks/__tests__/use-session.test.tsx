@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { renderHook, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/protocol";
@@ -142,17 +142,20 @@ describe("the session of the workspace", () => {
         expect(useTranscriptStore.getState().leafId).toBe("b");
     });
 
-    it("starts from nothing when the session changes", async () => {
-        const mounted = render("main:1");
+    it("starts from nothing when the mount is another session", async () => {
+        // The entries of the last session are not the entries of this one, and a
+        // reader must not see them for a frame: another session is another mount
+        // (`ChatScreen` keys it), and the store is cleared before it draws.
+        const first = render("main:1");
         subscribed.resolve();
         await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+        first.unmount();
 
-        const second = deferred();
-        subscribed = second;
-        mounted.rerender({ id: "main:2" });
+        subscribed = deferred();
+        render("main:2");
 
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual([]));
-        second.resolve();
+        expect(useTranscriptStore.getState().order).toEqual([]);
+        subscribed.resolve();
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:2"));
     });
 
@@ -175,27 +178,35 @@ describe("the session of the workspace", () => {
 
     it("forgets the failure of a session that opens on a later visit", async () => {
         // A session that could not be read once may be readable later. The
-        // failure belongs to that attempt, not to the name of the session.
+        // failure belongs to that attempt, not to the name of the session - and
+        // the later visit is a later mount of its own, which is how a screen
+        // shows a session a second time.
         fake.onSessionEvent.mockImplementationOnce(async () => {
             throw { type: "rpc", message: "the bus refused the listener", error: { kind: "closed" } };
         });
-        const mounted = render("main:1");
+        const first = render("main:1");
         subscribed.resolve();
-        await waitFor(() => expect(mounted.result.current.error?.message).toBe("the bus refused the listener"));
+        await waitFor(() => expect(first.result.current.error?.message).toBe("the bus refused the listener"));
+        first.unmount();
 
-        const away = deferred();
-        subscribed = away;
-        mounted.rerender({ id: "main:2" });
-        away.resolve();
-        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:2"));
-
-        const back = deferred();
-        subscribed = back;
-        mounted.rerender({ id: "main:1" });
-        back.resolve();
+        subscribed = deferred();
+        const again = render("main:1");
+        subscribed.resolve();
 
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
-        expect(mounted.result.current.error).toBeNull();
+        expect(again.result.current.error).toBeNull();
+    });
+
+    it("refuses a session that arrives in the mount of another", async () => {
+        // The chart of a session is built once for the mount, so a screen that
+        // changes the name under it would read the new session while it listens
+        // to the one before. That is a screen that lost its `key`, and it is a
+        // mistake worth hearing about.
+        subscribed.resolve();
+        const mounted = render("main:1");
+        await waitFor(() => expect(mounted.result.current.listening).toBe(true));
+
+        expect(() => mounted.rerender({ id: "main:2" })).toThrow(/one session/);
     });
 
     it("drops the queue when the listeners open again, and keeps the run on screen", async () => {
@@ -310,33 +321,18 @@ describe("the session of the workspace", () => {
         await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
     });
 
-    it("waits for the listeners of its own visit before it reads", async () => {
-        // The listeners of the visit before are gone, and the reads cannot be
-        // taken on their word. This hook is one component throughout: a session
-        // change is not a new component, so nothing else resets what it remembers
-        // as listening. The visit away is still in flight when this session comes
-        // back, so what it remembers is this session, wrongly.
+    it("reads nothing while the listeners of its mount are still opening", async () => {
+        // The listeners of this mount are the only ones this actor has: the read
+        // waits for them, and no read of another mount can answer for them, because
+        // another mount is another actor.
         const mounted = render("main:1");
-        subscribed.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
-
-        const away = deferred();
-        subscribed = away;
-        mounted.rerender({ id: "main:2" });
-
-        const back = deferred();
-        subscribed = back;
-        fake.getEntries.mockClear();
-        // A cold cache sends a read at once, so one that starts too early cannot
-        // hide behind an answer that already landed.
-        client.clear();
-        mounted.rerender({ id: "main:1" });
-
-        await vi.waitFor(() => expect(fake.onSessionEvent).toHaveBeenCalledTimes(3));
+        await vi.waitFor(() => expect(fake.onSessionEvent).toHaveBeenCalledTimes(1));
         expect(fake.getEntries).not.toHaveBeenCalled();
 
-        back.resolve();
-        await waitFor(() => expect(fake.getEntries).toHaveBeenCalled());
+        subscribed.resolve();
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
+        expect(useTranscriptStore.getState().order).toEqual(["a"]);
+        expect(mounted.result.current.listening).toBe(true);
     });
 
     it("drops the first listener when the second one cannot be opened", async () => {
@@ -659,6 +655,23 @@ describe("the run a session streams", () => {
         publish?.({ type: "compaction_end", reason: "threshold", result: null, aborted: false, willRetry: false });
 
         await waitFor(() => expect(fake.getState).toHaveBeenCalled());
+    });
+
+    it("opens the feed when React mounts the screen twice over", async () => {
+        // StrictMode starts an effect, stops it and starts it again. The chart is
+        // what the whole screen waits on, so an actor that a second start leaves
+        // closed is a screen that never opens a session (`useActorRef` owns the
+        // lifecycle for this reason).
+        subscribed.resolve();
+        const wrapper = ({ children }: { children: ReactNode }) => (
+            <StrictMode>
+                <QueryClientProvider client={client}>{children}</QueryClientProvider>
+            </StrictMode>
+        );
+        const mounted = renderHook(() => useSession("main:1"), { wrapper });
+
+        await waitFor(() => expect(mounted.result.current.listening).toBe(true));
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalled());
     });
 });
 

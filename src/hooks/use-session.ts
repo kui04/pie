@@ -9,11 +9,10 @@
  * the records in between.
  */
 
-import { useSelector } from "@xstate/react";
+import { useActorRef, useSelector } from "@xstate/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { createActor } from "xstate";
 import * as bridge from "@/lib/bridge";
 import type { Event as SessionRecord } from "@/lib/protocol";
 import { sessionQueries } from "@/lib/query";
@@ -56,6 +55,16 @@ async function openListeners(
 }
 
 export function useSession(session: string) {
+    // One session for one mount. A screen that shows another session is another
+    // screen (`ChatScreen` renders the session as its `key`), and the chart below
+    // cannot be rebuilt for a name that arrives later. A different name here is a
+    // screen that lost its key: it would read one session while it listens to
+    // another, so it says so instead.
+    const [named] = useState(session);
+    if (named !== session) {
+        throw new Error(`useSession holds one session (${named}) for its mount, not ${session}`);
+    }
+
     const queryClient = useQueryClient();
     const appendEntry = useTranscriptStore((state) => state.appendEntry);
     const clear = useTranscriptStore((state) => state.clear);
@@ -124,20 +133,13 @@ export function useSession(session: string) {
         }),
         [session, transcript, clear, dropQueued, queryClient],
     );
-    // Built once per session: `deps` is memorized on the session and its other members are
-    // stable by construction, so a re-render never builds a second chart - which would
-    // drop the phase of a run that is streaming.
-    const machine = useMemo(() => createActor(sessionMachine, { input: deps }), [deps]);
-
-    // The chart lives as long as this hook's session. A screen that renders another
-    // session is keyed by it (`ChatScreen`), so the chart of the one before does not
-    // answer for the one now.
-    useEffect(() => {
-        machine.start();
-        return () => {
-            machine.stop();
-        };
-    }, [machine]);
+    // Built once per mounted screen: `ChatScreen` keys the session, so another
+    // session is another mount and another chart. `useActorRef` owns the
+    // lifecycle, which a hand-written start/stop does not survive: `stop` is
+    // final for an actor, and Strict Effects (and a hot reload) reconnect an
+    // effect over the actor the memo already holds, so the second start would
+    // be the silent no-op that leaves the feed closed forever.
+    const machine = useActorRef(sessionMachine, { input: deps });
 
     // A different session starts from nothing: a consumer reads the store while it
     // renders, so clearing after a passive effect would paint one frame of the last
