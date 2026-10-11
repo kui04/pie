@@ -1,6 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { SafeArea } from "@/components/SafeArea";
+import { SafeArea } from "@/components/layout/SafeArea";
 
 /**
  * The system bars are an environment fact the stylesheet resolves, so what is

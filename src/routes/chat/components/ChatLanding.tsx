@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { Button } from "@/components/ui/button";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { Button, Kbd, KbdGroup } from "@/components/ui";
 
 /**
  * What the window shows while no conversation is open.

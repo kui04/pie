@@ -13,8 +13,8 @@ import { useSelector, useMachine } from "@xstate/react";
 import type { ActorRefFrom } from "xstate";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
-import { Window } from "@/components/Window";
+import { Button } from "@/components/ui";
+import { Window } from "@/components";
 import { useConnection } from "@/hooks/use-connection";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
@@ -26,15 +26,18 @@ import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN, STAGE, STAGE_ARRIVE, STAGE_LEAVE, 
 import * as bridge from "@/lib/bridge";
 import { transcriptRows, queuedRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/stream";
-import { withLiveUsage } from "@/routes/chat/components/session/session";
-import { TranscriptList } from "@/routes/chat/components/TranscriptList";
-import { ChatLanding } from "@/routes/chat/components/ChatLanding";
-import { SessionLoading } from "@/routes/chat/components/SessionLoading";
-import { Composer } from "@/routes/chat/components/composer/Composer";
-import { SessionDrawer, type SessionDrawerProps } from "@/routes/chat/components/session/SessionDrawer";
-import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
-import { SidebarToggle } from "@/routes/chat/components/session/SidebarToggle";
-import { SessionSheet } from "@/routes/chat/components/session/SessionSheet";
+import {
+    ChatLanding,
+    Composer,
+    SessionDrawer,
+    type SessionDrawerProps,
+    SessionHeader,
+    SessionLoading,
+    SessionSheet,
+    SidebarToggle,
+    TranscriptList,
+    withLiveUsage,
+} from "@/routes/chat/components";
 import { FAILURE_REASON } from "@/routes/chat/failure-reason";
 import { useTranscriptStore } from "@/stores/transcript.store";
 

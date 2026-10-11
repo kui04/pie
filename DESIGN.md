@@ -424,10 +424,10 @@ never grows with the size of the surface it is on.
 
 ## Components
 
-**Window** (`src/components/Window.tsx`) — the window itself: the list's column,
-where there is one, and the chat beside it. Two regions, edge to edge, told
-apart by the one hairline the column carries; no margins and no corners, because
-the window's own edge is not a shape to round.
+**Window** (`src/components/layout/Window.tsx`) — the window itself: the list's
+column, where there is one, and the chat beside it. Two regions, edge to edge,
+told apart by the one hairline the column carries; no margins and no corners,
+because the window's own edge is not a shape to round.
 
 The chat is a column of two. Its bar (`#topbar`) is the window's handle — a
 press on it drags a window that has no decorations — and it carries the
@@ -555,9 +555,9 @@ key in a bar), and link (`primary-text`, underlined on hover).
 
 **Overlay** — a popover, a menu, a dialog or a sheet: `popover` fill, 8px (12px
 over a dialog or a sheet), and the edge and the shadow its layer names. One
-overlay at a time; the sheet — shadcn's `drawer`, over vaul, taken into
-`src/components/ui/drawer.tsx` — is what a dialog becomes on a phone, and a
-bottom sheet shows the drag bar that says it can be swiped away.
+overlay at a time; the sheet — shadcn's drawer over vaul, kept as pie's own
+`src/components/Sheet.tsx` — is what a dialog becomes on a phone, and a bottom
+sheet shows the drag bar that says it can be swiped away.
 
 **Toast** — sonner, top-centre, over the page, never in the layout.
 
@@ -566,7 +566,7 @@ visible only while the region moves, and costs the region's width nothing:
 
 - Every region pie draws itself — the transcript, the session list, a tool
   card's log or diff, a code block, a markdown table, the gate's form — scrolls
-  inside a `ScrollArea` (Radix), which hands the region an 8px lane over its
+  inside a `ScrollPane` (Radix), which hands the region an 8px lane over its
   content with a 4px `{colors.outline}` thumb inset 2px either side and
   `{colors.foreground}` under the pointer, sized per orientation (`bars`: a log
   scrolls sideways, a transcript down). The viewport carries no native bar, so

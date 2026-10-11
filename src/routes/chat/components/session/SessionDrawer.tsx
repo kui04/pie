@@ -14,10 +14,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Folder, RefreshCw, Search } from "lucide-react";
 import { motion, useAnimationFrame, useReducedMotion } from "motion/react";
 import { cn } from "cn";
-import { SafeArea } from "@/components/SafeArea";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { SafeArea } from "@/components";
+import { Button, InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui";
+import { ScrollPane } from "@/components";
 import * as bridge from "@/lib/bridge";
 import { reasonFor } from "@/lib/failure-text";
 import { REFRESH_TURN } from "@/lib/motion";
@@ -94,7 +93,7 @@ export function SessionDrawer({
                         // The primitive carries a size of its own (`text-base`,
                         // `text-sm` on a wide window); this panel is body-md
                         // throughout, so the size is forced here.
-                        className="text-body-md!"
+                        className="placeholder:text-outline text-body-md!"
                         // The placeholder is not a name: a screen reader reads the
                         // label for the field.
                         aria-label="Search sessions"
@@ -134,7 +133,7 @@ export function SessionDrawer({
                     </motion.span>
                 </Button>
             </div>
-            <ScrollArea className="min-h-0 flex-1" viewportClassName="p-2">
+            <ScrollPane className="min-h-0 flex-1" viewportClassName="p-2">
                 <div className="space-y-2">
                     {sessions.isError ? (
                         <p id={`${id}-failure`} role="alert" className="text-body-md text-muted-foreground px-1 py-2">
@@ -186,7 +185,7 @@ export function SessionDrawer({
                         ))
                     )}
                 </div>
-            </ScrollArea>
+            </ScrollPane>
         </SafeArea>
     );
 }

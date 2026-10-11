@@ -2,12 +2,12 @@ import { Check, ChevronDown, LoaderCircle, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion, type Transition } from "motion/react";
 import { cn } from "cn";
-import { Hourglass } from "@/components/Hourglass";
-import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Hourglass } from "@/components";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui";
 import { REVEAL, SPIN, SPIN_TURN } from "@/lib/motion";
 import type { NumberedLine } from "@/lib/text";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollPane } from "@/components";
 import type { ToolNote, ToolPresentation, ToolStatus } from "@/routes/chat/components/toolPresentation";
 
 export interface ToolResultCardProps {
@@ -127,7 +127,7 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                 // air under it is added here; a numbered body brings its own.
                 <div id={`${id}-body`} className={cn(body.kind === "log" && "mt-2 pb-2")}>
                     {body.kind === "log" ? (
-                        <ScrollArea bars="horizontal" viewportClassName="px-3 pb-2">
+                        <ScrollPane bars="horizontal" viewportClassName="px-3 pb-2">
                             <div className="text-code whitespace-pre">
                                 {tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
                                 {(kept as string[]).map((line, index) => (
@@ -135,7 +135,7 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                                 ))}
                                 {!tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
                             </div>
-                        </ScrollArea>
+                        </ScrollPane>
                     ) : (
                         <NumberedBody
                             id={id}
@@ -257,11 +257,11 @@ function NumberedBody({
                 {gutter(kept)}
                 {!tail && arriving(gutter)}
             </div>
-            <ScrollArea id={`${id}-lines`} bars="horizontal" className="min-w-0 flex-1" viewportClassName="pb-2">
+            <ScrollPane id={`${id}-lines`} bars="horizontal" className="min-w-0 flex-1" viewportClassName="pb-2">
                 {tail && arriving(texts)}
                 {texts(kept)}
                 {!tail && arriving(texts)}
-            </ScrollArea>
+            </ScrollPane>
         </div>
     );
 }

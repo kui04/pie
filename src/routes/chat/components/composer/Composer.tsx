@@ -26,8 +26,7 @@ import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Button, Textarea } from "@/components/ui";
 import { useIsMobile } from "@/hooks/use-platform";
 import * as bridge from "@/lib/bridge";
 import { copyText } from "@/lib/clipboard";
@@ -357,7 +356,7 @@ export function Composer({ session, working }: ComposerProps) {
                                 variant="ghost"
                                 size="icon"
                                 aria-label={`Remove ${name}`}
-                                className="text-muted-foreground hover:bg-surface-bright hover:text-foreground size-5 shrink-0 rounded-full p-0"
+                                className="text-muted-foreground hover:bg-surface-bright hover:text-foreground dark:hover:bg-surface-bright size-5 shrink-0 rounded-full p-0"
                                 onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
                             >
                                 <X className="size-3" />
@@ -445,7 +444,7 @@ function ComposerKey({ className, ...props }: ComponentProps<typeof Button>) {
             variant="ghost"
             size="icon"
             className={cn(
-                "border-border-strong bg-surface-container-highest text-foreground hover:bg-surface-bright hover:text-foreground size-8 shrink-0 rounded-full border p-0",
+                "border-border-strong bg-surface-container-highest text-foreground hover:bg-surface-bright hover:text-foreground dark:hover:bg-surface-bright size-8 shrink-0 rounded-full border p-0",
                 className,
             )}
             {...props}

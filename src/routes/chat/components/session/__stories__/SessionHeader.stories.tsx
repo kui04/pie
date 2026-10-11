@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Window } from "@/components/Window";
+import { Window } from "@/components";
 import { SessionHeader } from "@/routes/chat/components/session/SessionHeader";
 import { sessionStats } from "@/preview/fixtures";
 

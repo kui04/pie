@@ -1,4 +1,4 @@
-import { Markdown } from "@/components/Markdown";
+import { Markdown } from "@/components";
 import type { AssistantMessage as AssistantMessageData, ToolResultMessage } from "@/lib/rpc-protocol";
 import type { LiveCall } from "@/lib/stream";
 import { ThinkingCard } from "@/routes/chat/components/entries/ThinkingCard";

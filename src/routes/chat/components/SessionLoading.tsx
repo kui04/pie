@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Spinner } from "@/components/ui/spinner";
+import { Spinner } from "@/components/ui";
 import { STAGE, STAGE_ARRIVE, STAGE_SETTLED } from "@/lib/motion";
 
 /**

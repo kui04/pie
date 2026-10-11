@@ -2,8 +2,8 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { cn } from "cn";
-import { Markdown } from "@/components/Markdown";
-import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Markdown } from "@/components";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui";
 import { REVEAL } from "@/lib/motion";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
 

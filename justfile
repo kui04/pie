@@ -66,3 +66,8 @@ test:
 # run all git hooks on all files
 hooks:
     prek run --all-files
+
+# the primitives under src/components/ui/ against a fresh install of the same
+# components: a file there is never hand-edited (needs the network)
+ui-check:
+    bash scripts/ui-check.sh

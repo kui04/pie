@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { motion } from "motion/react";
 import { AppRoutes } from "@/routes/AppRoutes";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui";
 import { usePlatformResource } from "@/hooks/use-platform";
 import { SWAP } from "@/lib/motion";
 
@@ -41,8 +41,22 @@ function Shell() {
             {/* The one toast stack the window owns, over every page: the toast
                 component has no corner of its own, so the host places it. A phone
                 draws its status bar over the window, so the stack keeps its own gap
-                and adds the bar's room; sonner's own mobile gap is 1rem. */}
-            <Toaster position="top-center" mobileOffset={{ top: "calc(1rem + env(safe-area-inset-top))" }} />
+                and adds the bar's room; sonner's own mobile gap is 1rem.
+
+                The colours are the design's, not the registry's `popover` default:
+                the registry's `Toaster` spreads a call site's `style` over its own,
+                which is the one seam these three have. */}
+            <Toaster
+                position="top-center"
+                mobileOffset={{ top: "calc(1rem + env(safe-area-inset-top))" }}
+                style={
+                    {
+                        "--normal-bg": "var(--surface-container-highest)",
+                        "--normal-text": "var(--foreground)",
+                        "--border-radius": "0.375rem",
+                    } as React.CSSProperties
+                }
+            />
         </motion.div>
     );
 }

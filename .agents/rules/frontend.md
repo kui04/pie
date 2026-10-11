@@ -34,10 +34,26 @@ forked layout.
 
 ## Components
 
-- shadcn-ui (Radix + Tailwind) is the base; add via `shadcn add`. Generated
-  components are ours to adapt deliberately — mobile tuning goes in the CVA
-  variants — but never hand-write a primitive shadcn already provides; pull
-  upstream fixes with `shadcn add <name> --diff`. Icons: lucide-react.
+- shadcn-ui (Radix + Tailwind) is the base; add via `shadcn add` into
+  `src/components/ui/`. Those files stay the registry's own — never hand-edit
+  one, so re-running `shadcn add <name> --overwrite` is the whole upgrade, and
+  `just ui-check` fails when one has drifted. A difference belongs in a call
+  site's `className` through `cn` (a size that fights the app's own ramp is
+  written `text-[length:var(--text-body-md)]`, because `cn` reads `text-body-md`
+  as a colour and would leave the primitive's own size standing beside it), in
+  the theme in `src/index.css`, or in pie's own component beside `ui/`
+  (`ScrollPane`, `Sheet`, `OptionRow`) when the difference is structural — a
+  prop the caller needs, markup the primitive keeps to itself. Icons:
+  lucide-react.
+- Every directory called `components/` has an `index.ts`, and that barrel is the
+  only door a caller outside it uses: a primitive from `@/components/ui`, pie's
+  own from `@/components`, a route's own from `@/routes/<screen>/components`
+  (pie's components live under `src/components/`, in `layout/` when they are the
+  window's frame). A file inside a folder imports its neighbours by path, never
+  from a barrel: a barrel must never be imported by a file it re-exports.
+- A primitive nothing in the app imports is not vendored: `scroll-area`,
+  `drawer` and `dropdown-menu` were removed once pie's own components took their
+  job.
 - Transcript rendering: react-markdown + remark-gfm, virtualized (virtua), no
   heavy highlighters (shiki) in the initial bundle; diffs get a dedicated
   renderer.

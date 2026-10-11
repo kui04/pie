@@ -9,10 +9,9 @@
 import { useMachine } from "@xstate/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { ConnectionCard, type ConnectionForm } from "@/routes/connect/components/ConnectionCard";
-import { HostKeyPrompt } from "@/routes/connect/components/HostKeyPrompt";
+import { ConnectionCard, type ConnectionForm, HostKeyPrompt } from "@/routes/connect/components";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
-import { Window } from "@/components/Window";
+import { Window } from "@/components";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { reasonFor, type FailureText } from "@/lib/failure-text";

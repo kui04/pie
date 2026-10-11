@@ -2,26 +2,29 @@ import * as React from "react";
 import { cn } from "cn";
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 
-/*
- * The registry's file with five deliberate changes:
+/**
+ * The pane pie scrolls: one Radix scroll area, plus the two things this app needs
+ * from it that a call site cannot reach.
  *
- * 1. `viewportRef` and `viewportClassName`: the viewport is inside Radix's own
- *    Root, and pie needs both from outside - the transcript hands the element to
- *    virtua's `scrollRef`, and a call site pads it;
- * 2. the bar is mounted for good (pie's default is `type="always"`, not the
- *    registry's caller-chosen `hover`) so it can fade in and out rather than
- *    appear and vanish - how it fades is `src/index.css`'s business, beside the
- *    engine's own bar, so both read the same in one place;
- * 3. the bar is the design's 8px lane with a 4px pill inset 2px either side, sized
- *    per orientation - which the vendored `data-vertical:`/`data-horizontal:`
- *    variants make possible;
- * 4. the thumb is the design's `outline` grey, brighter under the pointer, rather
- *    than the registry's `border`, which is the tiles' own colour and invisible
- *    over these panes;
- * 5. the layer Radix scrolls through is forced back to `block` (see the comment at
- *    the viewport), or a row meant to truncate a long name would widen the pane.
+ * The registry's `ui/scroll-area.tsx` is the primitive for a pane that only
+ * scrolls, and it stays untouched. This one exists because the viewport is inside
+ * Radix's own Root: `viewportRef` (the transcript hands the element to virtua's
+ * `scrollRef`) and `viewportClassName` (a call site pads it) can only come out
+ * through props, and the bar has to be mounted for good (`type="always"`) because
+ * pie shows it by fading it in, not by mounting it under the pointer - so a
+ * call site gets no vote on either.
+ *
+ * The rest is the design's own: an 8px lane holding a 4px pill inset 2px either
+ * side, `bars` for the areas that scroll one way only, and the thumb in the
+ * theme's `outline` grey, brighter under the pointer rather than the registry's
+ * `border`, which is the tiles' own colour and invisible over these panes. How
+ * the pill fades is `src/index.css`'s business, beside the engine's own bar, so
+ * both read the same in one place.
+ *
+ * The `data-slot` names stay the registry's: the stylesheet above is written
+ * against them, and a pane is a pane whichever component drew it.
  */
-function ScrollArea({
+function ScrollPane({
     className,
     viewportRef,
     viewportClassName,
@@ -87,4 +90,4 @@ function ScrollBar({
     );
 }
 
-export { ScrollArea, ScrollBar };
+export { ScrollPane };

@@ -293,7 +293,7 @@
   }
 
   /*
-   * The pill pie draws itself (`src/components/ui/scroll-area.tsx`) shows itself
+   * The pill pie draws itself (`src/components/ScrollPane.tsx`) shows itself
    * the way the engine's bar does: while a region is moving, and while the pointer
    * is over it. It is mounted for good so this can be a fade rather than a blink,
    * and it takes no pointer while it is away, so the pane's edge stays text to

@@ -4,7 +4,7 @@ import { queryDefaults } from "@/lib/query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
 import type { Event } from "@/lib/rpc-protocol";

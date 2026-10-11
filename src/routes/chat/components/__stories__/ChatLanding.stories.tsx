@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ChatLanding } from "@/routes/chat/components/ChatLanding";
 import { SidebarToggle } from "@/routes/chat/components/session/SidebarToggle";
-import { Window } from "@/components/Window";
+import { Window } from "@/components";
 
 /**
  * The landing of the chat: the words of pi and the keys of the window.

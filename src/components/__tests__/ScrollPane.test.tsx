@@ -1,22 +1,28 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { ScrollArea } from "@/components/ui/scroll-area";
-
 /**
- * The places this file departs from what the registry ships, pinned so an
- * upstream re-merge has to argue with a test rather than slip through: pie draws
- * one bar, and it is the design's own pill rather than the registry's.
+ * The pane, and what makes it pie's rather than the registry's: one bar, mounted
+ * for good, in the design's own lane, scrollable through a viewport a caller can
+ * name.
+ *
+ * A pane *is* its contract, so the contract is what these pin. The screens that
+ * use it - the transcript, the drawers, the code blocks - are tested by their
+ * behaviour instead, so that a change here fails here and not in them.
  *
  * The colour of the pill itself is a style of the thumb, which the engine draws
  * only when a region really overflows - so it is checked where it can be seen
  * (WebKitGTK measures `--outline`) and pinned in DESIGN.md, not here.
  */
 
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { ScrollPane } from "@/components/ScrollPane";
+
+afterEach(cleanup);
+
 const bar = (container: HTMLElement) => container.querySelector("[data-slot=scroll-area-scrollbar]");
 
-describe("ScrollArea", () => {
+describe("ScrollPane", () => {
     it("keeps the design's 8px lane, holding a 4px pill", () => {
-        const { container } = render(<ScrollArea type="always">a row</ScrollArea>);
+        const { container } = render(<ScrollPane>a row</ScrollPane>);
 
         // One lane, one pill, one inset - named per orientation, because a log
         // scrolls sideways and a transcript down and both bars are this design.
@@ -27,12 +33,17 @@ describe("ScrollArea", () => {
         expect(classes).toContain("data-horizontal:py-0.5");
     });
 
+    it("mounts the bar before anyone points at the pane", () => {
+        // The stylesheet fades this bar in and out, and a bar Radix only mounts on
+        // hover could not be faded: it would appear. `type="always"` is the default
+        // here for that reason, and not the registry's `hover`.
+        const { container } = render(<ScrollPane>a row</ScrollPane>);
+
+        expect(bar(container)).not.toBeNull();
+    });
+
     it("draws only the bars an area can need", () => {
-        const sideways = render(
-            <ScrollArea bars="horizontal" type="always">
-                a row
-            </ScrollArea>,
-        );
+        const sideways = render(<ScrollPane bars="horizontal">a row</ScrollPane>);
         const bars = [...sideways.container.querySelectorAll("[data-slot=scroll-area-scrollbar]")];
 
         // A table needs the sideways one and nothing to stand in its own column.
@@ -40,7 +51,7 @@ describe("ScrollArea", () => {
     });
 
     it("scrolls the viewport, and lets the caller name it", () => {
-        const { container } = render(<ScrollArea viewportClassName="pt-2">a row</ScrollArea>);
+        const { container } = render(<ScrollPane viewportClassName="pt-2">a row</ScrollPane>);
 
         // The viewport is inside Radix's own Root, so a class from the call site
         // can only reach it through this prop.

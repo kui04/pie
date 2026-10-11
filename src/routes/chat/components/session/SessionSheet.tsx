@@ -9,7 +9,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { cn } from "cn";
-import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import { Sheet, SheetContent, SheetTitle } from "@/components";
 import { useWideWindow } from "@/hooks/use-wide-window";
 
 export interface SessionSheetProps {
@@ -32,8 +32,8 @@ export function SessionSheet({ id, open, onOpenChange, children, className }: Se
     return (
         // Vaul assumes the bottom of the screen unless it is told: a drawer anchored
         // to the left edge has to arrive from the left and be dragged sideways.
-        <Drawer open={open} onOpenChange={onOpenChange} direction="left">
-            <DrawerContent
+        <Sheet open={open} onOpenChange={onOpenChange} direction="left">
+            <SheetContent
                 id={id}
                 overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40 lg:hidden"
                 className={cn(
@@ -46,9 +46,9 @@ export function SessionSheet({ id, open, onOpenChange, children, className }: Se
                     className,
                 )}
             >
-                <DrawerTitle className="sr-only">Sessions</DrawerTitle>
+                <SheetTitle className="sr-only">Sessions</SheetTitle>
                 {children}
-            </DrawerContent>
-        </Drawer>
+            </SheetContent>
+        </Sheet>
     );
 }

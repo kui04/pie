@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui";
 
 /**
  * The way to the session list: the leading key of the bar.

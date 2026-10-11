@@ -20,7 +20,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Brain } from "lucide-react";
 import { toast } from "sonner";
-import { SelectWithSearch } from "@/components/SelectWithSearch";
+import { SelectWithSearch } from "@/components";
 import * as bridge from "@/lib/bridge";
 import type { Model, ModelThinkingLevel } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";

@@ -2,7 +2,7 @@ import { Copy, Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollPane } from "@/components/ScrollPane";
 import { copyText } from "@/lib/clipboard";
 
 export interface CodeBlockProps {
@@ -55,11 +55,11 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
                 last character keeps its air to the side, and the bar floats over the
                 air under the last line - a padding on the frame would not move it,
                 because an absolute child is placed against the padding box. */}
-            <ScrollArea bars="horizontal" viewportClassName="px-3 pb-3">
+            <ScrollPane bars="horizontal" viewportClassName="px-3 pb-3">
                 <pre className="text-code font-mono">
                     <code>{code}</code>
                 </pre>
-            </ScrollArea>
+            </ScrollPane>
         </div>
     );
 }

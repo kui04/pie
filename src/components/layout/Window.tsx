@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "cn";
-import { SafeArea } from "@/components/SafeArea";
-import { WindowControls } from "@/components/WindowControls";
+import { SafeArea } from "@/components/layout/SafeArea";
+import { WindowControls } from "@/components/layout/WindowControls";
 import { useIsMobile } from "@/hooks/use-platform";
 
 /**

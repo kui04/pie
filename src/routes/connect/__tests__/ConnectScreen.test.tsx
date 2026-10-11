@@ -8,7 +8,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui";
 import { ConnectScreen, type ConnectScreenDeps } from "@/routes/connect/ConnectScreen";
 import type { ConnectionInfo, PieError, PresentedKey } from "@/lib/bridge";
 

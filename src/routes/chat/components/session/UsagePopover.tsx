@@ -1,13 +1,13 @@
-import { Button } from "@/components/ui/button";
 import {
+    Button,
     Popover,
     PopoverContent,
     PopoverDescription,
     PopoverHeader,
     PopoverTitle,
     PopoverTrigger,
-} from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
+    Separator,
+} from "@/components/ui";
 import type { SessionStats } from "@/lib/rpc-protocol";
 import {
     costText,
@@ -72,7 +72,7 @@ export function UsagePopover({
                 )}
                 {stats !== null && (
                     <>
-                        <Separator />
+                        <Separator className="bg-divider" />
                         {breakdown !== "" && (
                             <p className="text-body-sm text-muted-foreground tabular-nums">{breakdown}</p>
                         )}
@@ -81,7 +81,7 @@ export function UsagePopover({
                                 Session cost {costText(stats.cost)}
                             </PopoverDescription>
                         )}
-                        <Separator />
+                        <Separator className="bg-divider" />
                         <dl className="text-body-sm text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 tabular-nums">
                             <dt>Messages</dt>
                             <dd>{stats.totalMessages}</dd>

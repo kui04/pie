@@ -1,23 +1,9 @@
-/**
- * The connect form: pick a transport, enter the address and the credential,
- * connect — and while the dial is in flight none of that can be changed.
- *
- * Which transport and which credential is picked is plain form state: every
- * combination of it is reachable and none is a step in a sequence. Whether a
- * dial is running is the connection machine's business. Nothing here holds a
- * connection, and nothing here reports a failure.
- */
-
 import { cn } from "cn";
 import { AnimatePresence, motion } from "motion/react";
 import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
+import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
+import { OptionRow } from "@/components";
+import { ScrollPane } from "@/components";
 import { SWAP } from "@/lib/motion";
 
 export type Transport = "local" | "ssh";
@@ -48,10 +34,10 @@ export interface ConnectionCardProps {
 }
 
 const INPUT_CLASS =
-    "border-border-strong bg-surface-container-highest focus-visible:ring-0! h-12 w-full px-3 font-sans text-code";
+    "border-border-strong bg-surface-container-highest placeholder:text-outline focus-visible:ring-0! h-12 w-full px-3 font-sans text-code";
 
 const TEXTAREA_CLASS =
-    "border-border-strong bg-surface-container-highest focus-visible:ring-0! field-sizing-fixed min-w-0 w-full resize-none px-3 py-2 font-mono text-code";
+    "border-border-strong bg-surface-container-highest placeholder:text-outline focus-visible:ring-0! field-sizing-fixed min-w-0 w-full resize-none px-3 py-2 font-mono text-code";
 
 export function ConnectionCard({ form, connecting, canConnect, onChange, onConnect, onPickKey }: ConnectionCardProps) {
     const ssh = form.transport === "ssh";
@@ -63,12 +49,12 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
             // panel and scrolls its own contents, so the frame the person is
             // looking at never slides away and the action row stays put. The panel
             // itself does not scroll at all.
-            className="bg-card flex max-h-full min-h-0 w-full max-w-104 flex-col overflow-hidden rounded-xl shadow-sm"
+            className="bg-card flex max-h-full min-h-0 w-full max-w-104 flex-col overflow-hidden rounded-xl shadow-sm ring-0"
         >
             {/* Plain elements rather than `CardHeader`/`CardDescription`: those
                 exist to sit inside a card that has its own chrome, and this card
                 has none of its own to give away. */}
-            <ScrollArea id="connection-card-scroll" className="min-h-0 flex-1">
+            <ScrollPane id="connection-card-scroll" className="min-h-0 flex-1">
                 {/* The column is named here, one layer inside the scroll area: Radix
                     scrolls through a layer of its own, so a flex container put on the
                     viewport would never see the header and the form as its children
@@ -102,7 +88,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                             onValueChange={(value) => onChange({ transport: value as Transport })}
                             className="flex flex-col gap-2"
                         >
-                            <RadioGroupItem id="connection-card-transport-local" value="local">
+                            <OptionRow id="connection-card-transport-local" value="local">
                                 <HardDrive
                                     id="connection-card-transport-local-icon"
                                     className="text-muted-foreground size-4"
@@ -124,9 +110,9 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                         Spawn pi here
                                     </span>
                                 </span>
-                            </RadioGroupItem>
+                            </OptionRow>
 
-                            <RadioGroupItem id="connection-card-transport-ssh" value="ssh">
+                            <OptionRow id="connection-card-transport-ssh" value="ssh">
                                 <Server
                                     id="connection-card-transport-ssh-icon"
                                     className="text-muted-foreground size-4"
@@ -148,7 +134,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                         User at host
                                     </span>
                                 </span>
-                            </RadioGroupItem>
+                            </OptionRow>
                         </RadioGroup>
 
                         <AnimatePresence initial={false}>
@@ -195,7 +181,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                 onValueChange={(value) => onChange({ auth: value as AuthMethod })}
                                                 className="flex gap-2"
                                             >
-                                                <RadioGroupItem
+                                                <OptionRow
                                                     id="connection-card-auth-password"
                                                     value="password"
                                                     variant="pill"
@@ -206,19 +192,15 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                     >
                                                         Password
                                                     </span>
-                                                </RadioGroupItem>
-                                                <RadioGroupItem
-                                                    id="connection-card-auth-key"
-                                                    value="key"
-                                                    variant="pill"
-                                                >
+                                                </OptionRow>
+                                                <OptionRow id="connection-card-auth-key" value="key" variant="pill">
                                                     <span
                                                         id="connection-card-auth-key-label"
                                                         className="text-label-lg font-medium whitespace-nowrap"
                                                     >
                                                         Private key
                                                     </span>
-                                                </RadioGroupItem>
+                                                </OptionRow>
                                             </RadioGroup>
                                         </div>
 
@@ -330,7 +312,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                         </AnimatePresence>
                     </fieldset>
                 </div>
-            </ScrollArea>
+            </ScrollPane>
 
             <div id="connection-card-action" className="shrink-0 px-6 pt-6 pb-6">
                 <Button

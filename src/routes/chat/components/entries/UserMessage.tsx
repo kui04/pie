@@ -1,8 +1,8 @@
 import { Clock, Copy, Undo2 } from "lucide-react";
 import { cn } from "cn";
 import { toast } from "sonner";
-import { Markdown } from "@/components/Markdown";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Markdown } from "@/components";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { messageText } from "@/lib/text";
 import type { UserMessage as UserMessageData } from "@/lib/rpc-protocol";

@@ -1,9 +1,8 @@
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui";
+import { ScrollPane } from "@/components";
 import { useIsMobile } from "@/hooks/use-platform";
-import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components";
 import type { PresentedKey } from "@/lib/bridge";
 
 export interface HostKeyPromptProps {
@@ -66,8 +65,8 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
 
     if (isMobile ?? mobile) {
         return (
-            <Drawer open={open} onOpenChange={refuseOnClose} direction="bottom">
-                <DrawerContent
+            <Sheet open={open} onOpenChange={refuseOnClose} direction="bottom">
+                <SheetContent
                     overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40"
                     // No top padding: the grab bar's own `my-4` is the sheet's top gap.
                     // The bottom gap is the sheet's own and the navigation bar's on top
@@ -75,17 +74,17 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                     className={cn(FRAME, "px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none")}
                     aria-describedby="host-key-sheet-message"
                 >
-                    <DrawerTitle className={TITLE}>Trust this host?</DrawerTitle>
+                    <SheetTitle className={TITLE}>Trust this host?</SheetTitle>
                     {/* The cap belongs to the scroller and not to the words: a
                         percentage height inside an auto-height box never resolves. */}
-                    <ScrollArea viewportClassName={MESSAGE_BOX}>
-                        <DrawerDescription id="host-key-sheet-message" className={MESSAGE}>
+                    <ScrollPane viewportClassName={MESSAGE_BOX}>
+                        <SheetDescription id="host-key-sheet-message" className={MESSAGE}>
                             {message}
-                        </DrawerDescription>
-                    </ScrollArea>
+                        </SheetDescription>
+                    </ScrollPane>
                     <Answers id="host-key-sheet" onAnswer={onAnswer} />
-                </DrawerContent>
-            </Drawer>
+                </SheetContent>
+            </Sheet>
         );
     }
 
@@ -97,11 +96,11 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                 aria-describedby="host-key-dialog-message"
             >
                 <DialogTitle className={TITLE}>Trust this host?</DialogTitle>
-                <ScrollArea viewportClassName={MESSAGE_BOX}>
+                <ScrollPane viewportClassName={MESSAGE_BOX}>
                     <DialogDescription id="host-key-dialog-message" className={MESSAGE}>
                         {message}
                     </DialogDescription>
-                </ScrollArea>
+                </ScrollPane>
                 <Answers id="host-key-dialog" onAnswer={onAnswer} />
             </DialogContent>
         </Dialog>

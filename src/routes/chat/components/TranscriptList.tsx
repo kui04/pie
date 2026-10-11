@@ -2,8 +2,8 @@ import { ArrowDown } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui";
+import { ScrollPane } from "@/components";
 import type { TranscriptRow } from "@/lib/transcript";
 import { EntryRenderer } from "@/routes/chat/components/EntryRenderer";
 import { CONTENT_COLUMN } from "@/routes/chat/content-column";
@@ -190,7 +190,7 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
             onWheel={takeOver}
             onTouchStart={takeOver}
         >
-            <ScrollArea
+            <ScrollPane
                 id="transcript-list"
                 // The bar floats over the pane and fades in while the list moves: the
                 // whole width stays with the words.
@@ -245,7 +245,7 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
                         )}
                     </Virtualizer>
                 </div>
-            </ScrollArea>
+            </ScrollPane>
             {away && (
                 <Button
                     id="transcript-jump"

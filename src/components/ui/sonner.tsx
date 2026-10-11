@@ -1,3 +1,5 @@
+"use client";
+
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react";
@@ -18,12 +20,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
             }}
             style={
                 {
-                    // Two steps above the thread cards, so a toast reads off both
-                    // the workspace and the cards in it.
-                    "--normal-bg": "var(--surface-container-highest)",
-                    "--normal-text": "var(--foreground)",
+                    "--normal-bg": "var(--popover)",
+                    "--normal-text": "var(--popover-foreground)",
                     "--normal-border": "var(--border)",
-                    "--border-radius": "0.375rem",
+                    "--border-radius": "var(--radius)",
                 } as React.CSSProperties
             }
             toastOptions={{

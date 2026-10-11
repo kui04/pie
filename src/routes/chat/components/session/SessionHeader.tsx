@@ -9,7 +9,7 @@ import type { SessionStats } from "@/lib/rpc-protocol";
  * session is called, and how full its context is.
  *
  * The bar itself, and the window's own keys at its end, are the window's
- * (`src/components/Window.tsx`); this is what a session puts in it. While the
+ * (`src/components/layout/Window.tsx`); this is what a session puts in it. While the
  * conversation is still on its way it has nothing to say about itself, so only
  * the way to the list stands: its slots arrive with the words.
  */

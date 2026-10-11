@@ -1,6 +1,6 @@
 import { LoaderCircle } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { Hourglass } from "@/components/Hourglass";
+import { Hourglass } from "@/components";
 import { SPIN, SPIN_TURN } from "@/lib/motion";
 
 /** What a run is doing while the app waits on it (`lib/stream.ts`). */
