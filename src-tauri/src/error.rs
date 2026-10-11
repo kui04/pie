@@ -15,7 +15,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{commands, connection, transport};
+use crate::{channel, commands, host, session};
 
 /// A failure that the frontend must handle.
 ///
@@ -27,15 +27,34 @@ use crate::{commands, connection, transport};
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PieError {
-    /// The connect to a host, the read of what is on it, or the state of the one
-    /// connection that pie keeps.
+    /// The bytes of a program pie started, or the start of it.
     #[error("{message}")]
-    Connection {
+    Channel {
         /// What a person reads.
         message: String,
         /// The failure underneath, named.
         #[source]
-        error: Box<connection::Error>,
+        error: Box<channel::Error>,
+    },
+
+    /// The reach to a machine, and what pie does on it outside pi.
+    #[error("{message}")]
+    Host {
+        /// What a person reads.
+        message: String,
+        /// The failure underneath, named.
+        #[source]
+        error: Box<host::Error>,
+    },
+
+    /// The sessions of a machine: which one was asked for, and how it is named.
+    #[error("{message}")]
+    Session {
+        /// What a person reads.
+        message: String,
+        /// The failure underneath, named.
+        #[source]
+        error: Box<session::Error>,
     },
 
     /// The IPC layer could not do what it was asked.
@@ -48,28 +67,13 @@ pub enum PieError {
         error: Box<commands::Error>,
     },
 
-    /// The reach to a host, or the process that runs pi, failed.
-    ///
-    /// This is the layer below the protocol: a `pi` that cannot be started, a
-    /// handshake that was refused, a host key nobody accepted. Which host to
-    /// reach and which key to trust are decisions of the app; this variant is
-    /// what the path itself reported.
-    #[error("{message}")]
-    Transport {
-        /// What a person reads.
-        message: String,
-        /// The failure underneath, named.
-        #[source]
-        error: Box<transport::Error>,
-    },
-
-    /// The talk to pi, or to the transport below it, failed.
+    /// The talk to pi failed.
     ///
     /// The protocol layer names five kinds of failure and nothing finer: a
     /// broken byte path, a record it could not read, a command pi refused, a
     /// deadline, and a stream that ended. Which of them a person meets is what
-    /// the sentence says; the record underneath carries the detail, and stays
-    /// on this side of the boundary.
+    /// the sentence says; the record underneath carries the detail, and stays on
+    /// this side of the boundary.
     #[error("{message}")]
     Rpc {
         /// What a person reads.
@@ -86,9 +90,9 @@ pub enum PieError {
     },
 
     /// Pie cannot read a file: wrong permissions, a directory, or a URI that the
-    /// platform will not hand over. The person selected it. Another file can
-    /// read correctly. Therefore this failure is not a bug of pie and not a
-    /// refusal of the host.
+    /// platform will not hand over. The person selected it. Another file can read
+    /// correctly. Therefore this failure is not a bug of pie and not a refusal of
+    /// the machine.
     #[error("{message}")]
     Io {
         /// What a person reads.
@@ -120,9 +124,27 @@ impl PieError {
     }
 }
 
-impl From<connection::Error> for PieError {
-    fn from(error: connection::Error) -> Self {
-        Self::Connection {
+impl From<channel::Error> for PieError {
+    fn from(error: channel::Error) -> Self {
+        Self::Channel {
+            message: error.to_string(),
+            error: Box::new(error),
+        }
+    }
+}
+
+impl From<host::Error> for PieError {
+    fn from(error: host::Error) -> Self {
+        Self::Host {
+            message: error.to_string(),
+            error: Box::new(error),
+        }
+    }
+}
+
+impl From<session::Error> for PieError {
+    fn from(error: session::Error) -> Self {
+        Self::Session {
             message: error.to_string(),
             error: Box::new(error),
         }
@@ -132,15 +154,6 @@ impl From<connection::Error> for PieError {
 impl From<commands::Error> for PieError {
     fn from(error: commands::Error) -> Self {
         Self::Commands {
-            message: error.to_string(),
-            error: Box::new(error),
-        }
-    }
-}
-
-impl From<transport::Error> for PieError {
-    fn from(error: transport::Error) -> Self {
-        Self::Transport {
             message: error.to_string(),
             error: Box::new(error),
         }
@@ -207,31 +220,31 @@ mod tests {
 
     #[test]
     fn a_failure_carries_its_module_and_the_name_underneath() {
-        let crossing = crossing(PieError::from(connection::Error::NotConnected {
+        let crossing = crossing(PieError::from(commands::Error::NotConnected {
             doing: "listing its sessions".to_string(),
         }));
 
-        assert_eq!(crossing["type"], "connection");
+        assert_eq!(crossing["type"], "commands");
         assert_eq!(crossing["error"]["kind"], "not_connected");
         assert_eq!(crossing["message"], "connect to a host before listing its sessions");
     }
 
     #[test]
     fn a_protocol_failure_keeps_the_name_that_reports_it() {
-        let crossing = crossing(PieError::from(transport::Error::Auth {
+        let crossing = crossing(PieError::from(host::Error::Auth {
             endpoint: "pi@host:22".to_string(),
         }));
 
-        assert_eq!(crossing["type"], "transport");
+        assert_eq!(crossing["type"], "host");
         assert_eq!(crossing["error"]["kind"], "auth");
         assert_eq!(crossing["message"], "the host refused the credentials for pi@host:22");
     }
 
     #[test]
-    fn an_argument_the_ipc_layer_cannot_use_is_named_as_its_own() {
-        let crossing = crossing(PieError::from(commands::Error::UnusableName { id: "a/b".to_string() }));
+    fn a_name_that_cannot_go_in_an_event_is_named_as_its_own() {
+        let crossing = crossing(PieError::from(session::Error::UnusableName { id: "a/b".to_string() }));
 
-        assert_eq!(crossing["type"], "commands");
+        assert_eq!(crossing["type"], "session");
         assert_eq!(crossing["error"]["kind"], "unusable_name");
         assert_eq!(crossing["error"]["id"], "a/b");
     }
@@ -251,15 +264,15 @@ mod tests {
     #[test]
     fn every_failure_carries_a_message_a_person_can_read() {
         for error in [
-            PieError::from(connection::Error::AlreadyConnected {
+            PieError::from(commands::Error::AlreadyConnected {
                 endpoint: "local".to_string(),
             }),
-            PieError::from(connection::Error::NoHomeDirectory),
+            PieError::from(host::Error::NoHomeDirectory),
             PieError::from(pi_rpc::error::Error::new(
                 pi_rpc::error::ErrorKind::Closed,
                 "transport ended",
             )),
-            PieError::from(commands::Error::UnusableName { id: "".to_string() }),
+            PieError::from(session::Error::UnusableName { id: "".to_string() }),
             PieError::file(std::io::Error::other("denied")),
         ] {
             let crossing = crossing(error);
@@ -276,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_failure_keeps_the_error_underneath_it_for_a_log_line() {
-        let error = PieError::from(transport::Error::Connect {
+        let error = PieError::from(host::Error::Connect {
             endpoint: "pi@host:22".to_string(),
             source: std::io::Error::other("connection refused"),
         });
@@ -295,18 +308,18 @@ mod tests {
         // count in the text shows this. Parsing into a map keeps one `kind`
         // without a warning.
         for error in [
-            PieError::from(transport::Error::Auth {
+            PieError::from(host::Error::Auth {
                 endpoint: "pi@host:22".to_string(),
             }),
-            PieError::from(transport::Error::Io(std::io::Error::other("refused"))),
+            PieError::from(host::Error::NotAbsolute { path: "x".to_string() }),
             PieError::from(pi_rpc::error::Error::new(
                 pi_rpc::error::ErrorKind::Command,
                 "no such model",
             )),
-            PieError::from(connection::Error::AlreadyConnected {
+            PieError::from(commands::Error::AlreadyConnected {
                 endpoint: "local".to_string(),
             }),
-            PieError::from(connection::Error::UnreadableLocal {
+            PieError::from(host::Error::UnreadableLocal {
                 path: "/home/pie".to_string(),
                 source: std::io::Error::other("denied"),
             }),

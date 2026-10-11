@@ -1,11 +1,12 @@
-# pi_rpc rules — apply to src-tauri/src/transport/** and to the `pi_rpc` crate
+# pi_rpc rules — apply to src-tauri/src/channel/**, src-tauri/src/host/** and the `pi_rpc` crate
 
 `pi_rpc` implements Pi's `--mode rpc` JSONL protocol, mirrored from the pinned
 Pi checkout. Fidelity over elegance: that crate is Pi's protocol wearing Rust
 types, nothing more. It is a dependency of this app
 (`pi_rpc = { git = "https://github.com/kui04/pi_rpc" }`), not a module of it, so
 a rule about the protocol is a rule for that repository, and a rule about the
-bytes is a rule for `src-tauri/src/transport/`.
+bytes is a rule for `src-tauri/src/channel/`, and a rule about how a machine is
+reached is a rule for `src-tauri/src/host/`.
 
 ## Sources of truth, in order
 
@@ -42,9 +43,9 @@ Pi's fields, or "improve" wire shapes.
   detail on its own side of the boundary, in the log.
 - Lifecycle: closing stdin is the graceful shutdown path; handle SIGTERM and
   channel EOF; the SSH case follows the same rules over the russh channel.
-- Check `pi --version` against the pin (`transport::probe_version` and
-  `transport::check_version`); a mismatch is surfaced as
-  `transport::Error::VersionMismatch`, not a silent continue.
+- Check `pi --version` against the pin (`host::check_version` and
+  `host::probe_version`); a mismatch is surfaced as
+  `host::Error::VersionMismatch`, not a silent continue.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is ours to implement (TOFU + known_hosts); private keys
   cross the boundary as text, never as a path to a file — pie copies no secret

@@ -9,12 +9,17 @@ only the presentation.
 ## Layers
 
 ```
-src/                    React: UI + UI state only
-src-tauri/              Rust app: connection lifecycle, supervision, IPC bridge
-src-tauri/src/transport/  Where pi runs: local process or SSH channel, framing,
-                          version probe, lifecycle
+src/                     React: UI + UI state only, and the IPC surface it calls
+src-tauri/src/channel/   One started program: its bytes, and its life
+src-tauri/src/host/      A machine: the reach to it, what runs on it, its files
+src-tauri/src/session/   The sessions of that machine, and their conversations
+src-tauri/src/commands/  The IPC surface: one file per area, mirrored by
+                         src/lib/bridge/ one to one
 pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
 ```
+
+The dependency direction is `commands -> session -> host -> channel -> pi_rpc`,
+and `tests/layering.rs` is what holds it.
 
 ## Hard boundaries
 
@@ -25,22 +30,22 @@ pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
   the machine through permissions the capability file grants, and the frontend
   reaching one directly puts a second, unpoliced way out beside the command
   boundary. The Rust side registers the plugin it wants and exports a command
-  (`commands::keys::pick_private_key` over `tauri-plugin-dialog` +
+  (`commands::pick::pick_private_key` over `tauri-plugin-dialog` +
   `tauri-plugin-fs`); drop the npm package and the capability permission with
   it. `@tauri-apps/api` is not a plugin: `invoke`, the event bus and the window
   live in `src/lib/bridge/` and are the bridge itself.
-- Rust (`src-tauri`) owns ALL logic: process supervision, connection lifecycle,
-  retries and backoff, host-key verification, protocol normalization, error
-  mapping.
+- Rust (`src-tauri`) owns ALL logic: process supervision, the reach to a
+  machine, retries and backoff, host-key verification, protocol normalization,
+  error mapping.
 - The `pi_rpc` crate MUST stay protocol-only: it knows JSONL, types, framing and
   a client, and it owns no socket, process or TLS — a caller hands it a
   `Transport`. It has no `tauri` dependency and no connection policy. The
   boundary is the crate edge, so the compiler holds it; do not add app concerns
-  to it, and put them in `src-tauri/src/transport/` or above.
-- Local and SSH connections MUST share one protocol layer — only the transport
-  differs (`tokio::process::Child` stdin/stdout vs a `russh` exec channel), and
-  both are `Peer` values in `src-tauri/src/transport/`. No PTY anywhere: Pi rpc
-  is stdio.
+  to it, and put them in `src-tauri/src/channel/` or `src-tauri/src/host/`.
+- A local program and an SSH one MUST share one protocol layer — only the
+  channel differs (`tokio::process::Child` pipes vs a `russh` exec channel), and
+  both are `channel::Channel` values in `src-tauri/src/channel/`. No PTY
+  anywhere: Pi rpc is stdio.
 
 ## IPC contract
 
@@ -51,14 +56,15 @@ pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
   values are snake_case (`host_key`); field names are camelCase, matching the
   fields the frontend already reads off Pi's own records.
 - Every layer names its own failures as a `thiserror` enum whose variants are
-  what a caller matches on: `transport::Error` for a reach for a machine and the
-  run of pi on it, `connection::Error` for pie's own reach for a machine (which
-  state the connection is in included), `commands::Error` for the IPC layer. No
-  layer wraps another's error — a `pi` that is not installed is
-  `transport::Error::Spawn`, not a variant invented by the layer above it. The
-  protocol crate names its five kinds (`pi_rpc::error::ErrorKind`).
+  what a caller matches on: `channel::Error` for the bytes of a program and the
+  start of it, `host::Error` for the reach to a machine and what pie does on it,
+  `session::Error` for which session was asked for, `commands::Error` for the
+  IPC layer and the state of its one-connection slot. No layer wraps another's
+  error — a `pi` that is not installed is `channel::Error::Spawn`, not a variant
+  invented by the layer above it. The protocol crate names its five kinds
+  (`pi_rpc::error::ErrorKind`).
 - The boundary type is an aggregation, not a taxonomy:
-  `PieError::{Connection, Commands, Rpc, Transport, Io}`
+  `PieError::{Channel, Host, Session, Commands, Rpc, Io}`
   (`src-tauri/src/error.rs`), one variant per module, each holding that module's
   error whole. It serializes as `type` (the module), `message` (what a person
   reads), and `error` — the named variant underneath, tagged on `kind`. The

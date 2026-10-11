@@ -1,11 +1,15 @@
-//! What the IPC layer cannot do, with or without a connection.
+//! What the IPC layer cannot do: the state of its own one-connection slot, and
+//! the two things it can be asked that have nothing to do with pi.
 //!
-//! These failures are not about a host: an argument that pie cannot use, and a
-//! directory that the platform will not name. A failure of the reach to a host
-//! or of the read of a host belongs to
-//! [`connection::Error`](crate::connection::Error), including the presence or
-//! the absence of a connection. This module adds no wrapper. Therefore the
-//! failure of a command crosses the boundary without a change.
+//! The slot belongs to this layer, so the failures of holding one do too: no
+//! connection is [`Error::NotConnected`], and a second connect onto a live one is
+//! [`Error::AlreadyConnected`]. They are not failures of a machine - the machine
+//! is fine - which is why they are named here and not in
+//! [`host::Error`](crate::host::Error).
+//!
+//! An argument that pie cannot use is here for the same reason. A failure of a
+//! reach or of a session belongs to the layer that owns it, and this module adds no
+//! wrapper: the failure of a command crosses the boundary without a change.
 
 use serde::Serialize;
 use thiserror::Error;
@@ -15,11 +19,18 @@ use thiserror::Error;
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Error {
-    /// The frontend gave a name that cannot go in an event.
-    #[error("`{id}` cannot name a connection: use up to 64 letters, digits, `-` and `_`")]
-    UnusableName {
-        /// The name from the frontend.
-        id: String,
+    /// A live connection is present, and the product keeps one at a time.
+    #[error("pie is already connected to {endpoint}")]
+    AlreadyConnected {
+        /// The machine of the live connection, `local` or `user@host:port`.
+        endpoint: String,
+    },
+
+    /// The command needs a connection. No connection is present.
+    #[error("connect to a host before {doing}")]
+    NotConnected {
+        /// What the person tried to do. The sentence above uses it.
+        doing: String,
     },
 
     /// A link pie will not open: not a link, or a scheme it does not trust.
@@ -34,8 +45,8 @@ pub enum Error {
     OpenFailed {
         /// The address, as short as a sentence can hold it.
         url: String,
-        /// What the opener said, boxed: the whole error would make every
-        /// `Result` of this module pay for the one failure that carries it.
+        /// What the opener said, boxed: the whole error would make every `Result`
+        /// of this module pay for the one failure that carries it.
         #[serde(skip)]
         #[source]
         source: Box<tauri_plugin_opener::Error>,
@@ -57,12 +68,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_name_pie_cannot_use_says_what_one_can() {
-        let error = Error::UnusableName { id: "a/b".to_string() };
-
+    fn the_state_of_the_one_connection_is_named_here() {
         assert_eq!(
-            error.to_string(),
-            "`a/b` cannot name a connection: use up to 64 letters, digits, `-` and `_`"
+            Error::AlreadyConnected {
+                endpoint: "local".to_string()
+            }
+            .to_string(),
+            "pie is already connected to local"
         );
+        assert_eq!(
+            Error::NotConnected {
+                doing: "listing its sessions".to_string()
+            }
+            .to_string(),
+            "connect to a host before listing its sessions"
+        );
+    }
+
+    #[test]
+    fn a_link_pie_refuses_says_which_one() {
+        let error = Error::UnopenableUrl {
+            url: "javascript:alert(1)".to_string(),
+        };
+
+        assert_eq!(error.to_string(), "`javascript:alert(1)` is not a link pie opens");
     }
 }

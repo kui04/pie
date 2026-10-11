@@ -1,47 +1,40 @@
 //! What the frontend can ask pie to do, and what it hears back.
 //!
 //! Every command is `snake_case`. Every command returns
-//! `Result<T, `[`PieError`](crate::error::PieError)>`. Therefore a failure
-//! arrives as a named variant of the layer that owns it, not as a string.
+//! `Result<T, `[`PieError`](crate::error::PieError)>`. Therefore a failure arrives
+//! as a named variant of the layer that owns it, not as a string.
 //!
-//! A command fails as its own layer's error: [`Error`] for the IPC layer, and
-//! `connection::Error` for the reach of pie to the host. `crate::error`
-//! aggregates these errors. It does not decide their meaning. The rules of the
-//! boundary are in `.agents/rules/architecture.md`.
+//! The files here are the areas of the product, and each one is the area
+//! responsible for its answers: [`host`] opens, reads and closes the one machine,
+//! [`session`] is everything a pi session is asked to do, [`app`] is the app
+//! itself, [`pick`] is what a person selects with a system dialog, and [`log`] is
+//! where a line of the frontend goes. [`pipe`] forwards what pi says about a
+//! session, and holds no command of its own: `connect` starts its task. [`Error`]
+//! names what this layer itself cannot do. What the commands share - the one
+//! connection, the one question, the count that names a pi process - lives at the
+//! crate root ([`crate::state`]), because it is the state of the run and not of
+//! this boundary.
 //!
-//! One file for each area of the product: [`composer`] sends what the person
-//! says to a session and reads what its pi can do, [`connect`] opens, reads and
-//! closes the one host, [`files`] reads what is on it, [`keys`] asks the person
-//! for a private key, [`logs`] takes what the frontend writes into the log,
-//! [`open`] hands a link to the machine, [`pipe`] forwards what pi says about a
-//! session, [`platform`] says which kind of machine this is, [`session`] reads
-//! what a session of pi holds and moves it to another conversation, and
-//! [`state`] holds what they share.
+//! `src/lib/bridge/` in the frontend mirrors this list one file to one file.
 //!
-//! `run()` names every command by module; [`pipe`] holds none, because it has no
-//! command: `connect` starts its task. `#[tauri::command]` puts the wrapper that
-//! `generate_handler!` looks for next to the function. A re-export of the
+//! `run()` names every command by module. `#[tauri::command]` puts the wrapper
+//! that `generate_handler!` looks for next to the function. A re-export of the
 //! function does not carry it.
 //!
-//! Every command but [`logs`] is instrumented, so one line per call says what it
-//! carried, how it ended and how long it took (see [`crate::logging`]).
+//! Every command but [`log`] is instrumented, so one line per call says what it
+//! carried, how it ended and how long it took (see [`crate::log`]).
 //!
 //! `connect` answers with what it made. A *question* comes the other way, as an
-//! event, because it arrives while the command is still in progress. The
-//! frontend names the connection that it opens (`connect` takes that name) and
-//! listens on `pi://connection/{id}/state` before it calls.
+//! event, because it arrives while the command is still in progress. The frontend
+//! names the connection that it opens (`connect` takes that name) and listens on
+//! `pi://connection/{id}/state` before it calls.
 
-pub mod composer;
-pub mod connect;
+pub mod app;
 mod error;
-pub mod files;
-pub mod keys;
-pub mod logs;
-pub mod open;
+pub mod host;
+pub mod log;
+pub mod pick;
 pub mod pipe;
-pub mod platform;
 pub mod session;
-pub mod state;
 
 pub use error::Error;
-pub use state::AppState;

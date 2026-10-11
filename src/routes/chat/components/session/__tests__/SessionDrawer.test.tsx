@@ -218,7 +218,7 @@ describe("SessionDrawer", () => {
 
     it("says why the listing failed, in the words of the screen", async () => {
         bridge.listSessions.mockRejectedValue({
-            type: "connection",
+            type: "session",
             message: "raw",
             error: { kind: "not_connected" },
         });

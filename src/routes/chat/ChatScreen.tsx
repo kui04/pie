@@ -18,7 +18,7 @@ import { Window } from "@/components/Window";
 import { useConnection } from "@/hooks/use-connection";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
-import { chatMachine, sessionOf, stageOf } from "@/machines/chat.machine";
+import { chatMachine, errorOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import { sessionQueries } from "@/lib/query";
 import { reasonFor } from "@/lib/failure-text";
 import { CONTENT_COLUMN } from "@/routes/chat/content-column";
@@ -42,13 +42,35 @@ export function ChatScreen() {
     const connection = useConnection();
     const client = useQueryClient();
     const wide = useWideWindow();
-    const [chat, , machine] = useMachine(chatMachine);
+    // What the chart reaches outside for: starting a pi is a command, and the read
+    // of the connection is what has to be asked again once it answers.
+    const deps = useMemo<ChatDeps>(
+        () => ({
+            attach: async () => {
+                await bridge.attachSession();
+                await client.invalidateQueries({ queryKey: ["connection"] });
+            },
+        }),
+        [client],
+    );
+    const [chat, , machine] = useMachine(chatMachine, { input: deps });
     const stage = stageOf(chat);
     const session = sessionOf(chat);
+    const detached = errorOf(chat);
     // A connection holds one session, so the one in the list is the one.
     const held = connection.data?.sessions[0] ?? null;
     const endpoint = connection.data?.endpoint ?? "local";
     const disconnected = connection.isError || connection.data === null || connection.data === undefined;
+
+    // Whether the workspace has to start pi is Rust's answer, not this screen's
+    // guess: the read of the connection shows the session of a pi that is already
+    // speaking (a reload of the webview), and no session when the machine was only
+    // reached. The chart ignores a second ATTACH, so a pass of this effect over a
+    // stage that is already starting one costs nothing.
+    useEffect(() => {
+        if (connection.data === null || connection.data === undefined) return;
+        machine.send(held === null ? { type: "ATTACH" } : { type: "HELD" });
+    }, [connection.data, held, machine]);
 
     // The sheet is a narrow window's way to the list; the column is a wide one's.
     // Pure UI, so the two live here, above both stages that draw a list.
@@ -94,6 +116,40 @@ export function ChatScreen() {
     }
 
     if (connection.isPending) return <Window />;
+
+    // Pi is on its way: every page below names a session, and none exists yet.
+    if (stage === "attaching") {
+        return (
+            <Window bodyClassName="items-center justify-center">
+                <SessionLoading label="Starting pi…" />
+            </Window>
+        );
+    }
+
+    // The machine is reached, and no pi speaks on it: the attempt failed, and the
+    // page says why. A reload is not an answer - Rust holds the failure of that
+    // attempt nowhere - so the way on is the attempt again, or another machine.
+    if (stage === "unattached" && detached !== null) {
+        return (
+            <Window bodyClassName="items-center justify-center">
+                <div
+                    id="chat-unattached"
+                    role="alert"
+                    className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
+                >
+                    <p>{reasonFor(detached, FAILURE_REASON)}</p>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
+                            Try again
+                        </Button>
+                        <Button asChild variant="ghost" size="sm">
+                            <Link to="/">Connect</Link>
+                        </Button>
+                    </div>
+                </div>
+            </Window>
+        );
+    }
 
     // The landing: no conversation is open yet, which is where a window starts and
     // where the list hands the next one over.

@@ -5,7 +5,7 @@ const table: FailureText = { unknown_session: "That session is gone." };
 
 describe("the words a failure gets", () => {
     it("uses the sentence of the screen for a failure it names", () => {
-        const failure = { type: "connection" as const, message: "raw", error: { kind: "unknown_session" } };
+        const failure = { type: "session" as const, message: "raw", error: { kind: "unknown_session" } };
 
         expect(reasonFor(failure, table)).toBe("That session is gone.");
     });

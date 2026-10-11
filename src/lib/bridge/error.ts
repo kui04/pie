@@ -1,5 +1,5 @@
 /** The module of the failure. Rust has one variant for each module. */
-export type PieErrorModule = "connection" | "commands" | "rpc" | "transport" | "io";
+export type PieErrorModule = "channel" | "host" | "session" | "commands" | "rpc" | "io";
 
 /**
  * The name of the failure, as the layer of the failure writes it. Examples are
@@ -27,7 +27,7 @@ export interface PieError {
     error?: PieErrorCause;
 }
 
-const MODULES: readonly PieErrorModule[] = ["connection", "commands", "rpc", "transport", "io"];
+const MODULES: readonly PieErrorModule[] = ["channel", "host", "session", "commands", "rpc", "io"];
 
 /**
  * Whether a failure already has a name of its own.

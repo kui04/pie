@@ -1,4 +1,4 @@
-//! [`SshSession`](pie_lib::transport::SshSession) against a real sshd.
+//! [`SshSession`](pie_lib::host::SshSession) against a real sshd.
 //!
 //! Ignored by default: the tests need the container from
 //! `tests/scripts/ssh-fixture.sh`, which serves password and key
@@ -20,14 +20,15 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 
 use pi_rpc::client::Client;
 use pi_rpc::error::ErrorKind;
 use pi_rpc::event::Event;
 use pi_rpc::response::SessionState;
-use pie_lib::transport::{Error, HostKey, PI_VERSION, Peer, PublicKey, SshAuth, SshSession, SshTarget, Termination};
+use pie_lib::channel::{Handle, Termination};
+use pie_lib::host::{Error, HostKey, PI_VERSION, SshAuth, SshSession, SshTarget, Trust};
+use russh::keys::PublicKeyOrCertificate;
 use russh_sftp::client::SftpSession;
 
 /// What `ssh-fixture.sh start` prints, as the tests need it.
@@ -83,8 +84,8 @@ impl HostKey for Verdict {
         &self,
         host: &str,
         port: u16,
-        _key: &PublicKey,
-    ) -> Pin<Box<dyn Future<Output = pie_lib::transport::Result<()>> + Send + '_>> {
+        _key: &PublicKeyOrCertificate,
+    ) -> Pin<Box<dyn Future<Output = pie_lib::host::Result<()>> + Send + '_>> {
         // Owned before the future moves in: the boxed future borrows nothing
         // that outlives this call.
         let endpoint = format!("{host}:{port}");
@@ -101,10 +102,11 @@ impl HostKey for Verdict {
     }
 }
 
-/// One exec channel of the fixture, as the app takes a peer apart.
-fn start(transport: pie_lib::transport::SshTransport) -> (Client, pie_lib::transport::PeerHandle) {
-    let (wire, handle) = Peer::Ssh(transport).split().expect("the channel hands its bytes over");
-    (Client::new(wire), handle)
+/// One exec channel of the fixture, as the app takes a channel apart.
+fn start(exec: pie_lib::channel::Exec) -> (Client, Handle) {
+    let channel = exec.into_channel();
+    let handle = channel.handle();
+    (Client::new(channel), handle)
 }
 
 /// Sockets the fixture's sshd currently has, on a TCP connection to it.
@@ -154,7 +156,7 @@ async fn a_failed_connection_does_not_leave_the_session_running() {
         let error = SshSession::open(
             fixture.target(),
             SshAuth::Password("definitely not the password".to_string()),
-            Arc::new(Verdict(None)),
+            Trust::new(Verdict(None)),
         )
         .await
         .expect_err("a wrong password cannot authenticate");
@@ -213,7 +215,7 @@ fn the_test_host_runs_the_pinned_pi_version() {
 #[ignore = "requires the ssh fixture"]
 async fn terminate_stops_a_command_that_never_stops() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
     let transport = session.exec("yes").await.expect("the command starts");
@@ -257,7 +259,7 @@ async fn terminate_stops_a_command_that_never_stops() {
 #[ignore = "requires the ssh fixture"]
 async fn terminate_kills_a_command_that_ignores_its_streams() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
     let transport = session
@@ -306,15 +308,16 @@ async fn a_flood_of_stderr_does_not_stall_stdout_or_the_exit_status() {
 
     let fixture = Fixture::from_env();
     // Well past the pipe's capacity, then the output that has to get through.
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
     let transport = session
         .exec("sh -c 'head -c 2000000 /dev/zero 1>&2; echo done; exit 3'")
         .await
         .expect("the command starts");
-    let (wire, handle) = Peer::Ssh(transport).split().expect("the channel hands its bytes over");
-    let (tx, mut rx) = wire.split();
+    let channel = transport.into_channel();
+    let handle = channel.handle();
+    let (tx, mut rx) = channel.split();
     drop(tx);
 
     let mut records = Vec::new();
@@ -346,15 +349,16 @@ async fn carries_stdout_and_the_exit_status_of_a_one_shot_command() {
     use pi_rpc::transport::{Transport, TransportRecv};
 
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
     let transport = session
         .exec("sh -c 'echo out; echo err >&2; exit 7'")
         .await
         .expect("the command starts");
-    let (wire, handle) = Peer::Ssh(transport).split().expect("the channel hands its bytes over");
-    let (tx, mut rx) = wire.split();
+    let channel = transport.into_channel();
+    let handle = channel.handle();
+    let (tx, mut rx) = channel.split();
     drop(tx);
 
     // The diagnostics of this channel are drained by the transport rather than
@@ -383,7 +387,7 @@ async fn carries_stdout_and_the_exit_status_of_a_one_shot_command() {
 #[ignore = "requires the ssh fixture"]
 async fn one_session_serves_one_shot_commands_exec_channels_and_the_sftp_subsystem() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
 
@@ -429,7 +433,7 @@ async fn one_session_serves_one_shot_commands_exec_channels_and_the_sftp_subsyst
 #[ignore = "requires the ssh fixture"]
 async fn a_one_shot_capture_past_the_cap_returns_the_prefix_promptly() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
 
@@ -467,7 +471,7 @@ async fn a_one_shot_capture_past_the_cap_returns_the_prefix_promptly() {
 #[ignore = "requires the ssh fixture"]
 async fn a_one_shot_capture_of_a_flooding_stderr_is_bounded_too() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
 
@@ -505,7 +509,7 @@ async fn reports_refused_credentials() {
     let error = SshSession::open(
         fixture.target(),
         SshAuth::Password("definitely not the password".to_string()),
-        Arc::new(Verdict(None)),
+        Trust::new(Verdict(None)),
     )
     .await
     .expect_err("a wrong password cannot authenticate");
@@ -523,7 +527,7 @@ async fn a_refused_host_key_aborts_the_handshake() {
     let error = SshSession::open(
         fixture.target(),
         fixture.password_auth(),
-        Arc::new(Verdict(Some("the test refuses every key"))),
+        Trust::new(Verdict(Some("the test refuses every key"))),
     )
     .await
     .expect_err("the handshake must not continue");
@@ -548,7 +552,7 @@ async fn reports_an_undecodable_private_key() {
             key: "this is not a private key".to_string(),
             passphrase: None,
         },
-        Arc::new(Verdict(None)),
+        Trust::new(Verdict(None)),
     )
     .await
     .expect_err("text that is not a key cannot authenticate");
@@ -563,7 +567,7 @@ async fn reports_an_undecodable_private_key() {
 #[ignore = "requires the ssh fixture"]
 async fn reports_the_shell_status_of_a_missing_command() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.password_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.password_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the shell itself starts");
     let transport = session
@@ -586,7 +590,7 @@ async fn reports_the_shell_status_of_a_missing_command() {
 #[ignore = "requires the ssh fixture"]
 async fn drives_real_pi_over_ssh_with_a_key() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
     let transport = session.exec(Fixture::PI).await.expect("the ssh channel starts pi");
@@ -623,7 +627,7 @@ async fn drives_real_pi_over_ssh_with_a_key() {
 #[ignore = "requires the ssh fixture"]
 async fn drives_real_pi_over_ssh_with_a_password() {
     let fixture = Fixture::from_env();
-    let session = SshSession::open(fixture.target(), fixture.password_auth(), Arc::new(Verdict(None)))
+    let session = SshSession::open(fixture.target(), fixture.password_auth(), Trust::new(Verdict(None)))
         .await
         .expect("password authentication reaches the host");
     let transport = session.exec(Fixture::PI).await.expect("the ssh channel starts pi");

@@ -31,6 +31,7 @@ type ListenState = (session: string, handler: (payload: SessionLifecycle) => voi
 
 const bridge = vi.hoisted(() => ({
     getConnection: vi.fn<Call>(),
+    attachSession: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getEntries: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
@@ -173,6 +174,48 @@ describe("ChatScreen", () => {
         expect(container.querySelector("#session_name")).toBeNull();
         expect(container.querySelector("#composer-band")).toBeNull();
         expect(container.querySelector("#transcript-list")).toBeNull();
+    });
+
+    it("starts pi when the connection holds no session yet", async () => {
+        // The connection is the machine, and pi is a process that the workspace
+        // starts when it appears. The read is what says which of the two cases
+        // this is, so the second answer is the one the attach produced in Rust.
+        bridge.getConnection.mockResolvedValueOnce({ ...CONNECTED, sessions: [] });
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.attachSession.mockResolvedValue({ id: "main:1", cwd: "/home/kui04/work" });
+        bridge.listSessions.mockResolvedValue([HELD]);
+
+        renderScreen();
+
+        expect(await screen.findByText(/There are many agent harnesses/)).toBeInTheDocument();
+        expect(bridge.attachSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("says it is starting pi while it starts", async () => {
+        bridge.getConnection.mockResolvedValue({ ...CONNECTED, sessions: [] });
+        // The attach does not answer yet, so the window is on the page that says
+        // the workspace is getting itself a pi.
+        bridge.attachSession.mockReturnValue(new Promise(() => undefined));
+
+        renderScreen();
+
+        expect(await screen.findByText("Starting pi…")).toBeInTheDocument();
+    });
+
+    it("says why pi could not be started, and starts it again on Try again", async () => {
+        bridge.getConnection.mockResolvedValue({ ...CONNECTED, sessions: [] });
+        bridge.attachSession.mockRejectedValueOnce(new Error("pi is not on PATH"));
+        bridge.attachSession.mockReturnValue(new Promise(() => undefined));
+
+        renderScreen();
+
+        // A failure of pie's own side of the boundary: the module sentence, since
+        // no table names this kind for this screen.
+        expect(await screen.findByText("Something on pie's own side went wrong.")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+        expect(await screen.findByText("Starting pi…")).toBeInTheDocument();
+        expect(bridge.attachSession).toHaveBeenCalledTimes(2);
     });
 
     it("says it is opening a conversation while it opens", async () => {
@@ -362,7 +405,7 @@ describe("ChatScreen", () => {
     it("says which failure stopped the read", async () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockRejectedValue({
-            type: "connection",
+            type: "session",
             message: "this connection has no session `main:1`",
             error: { kind: "unknown_session" },
         });
@@ -394,7 +437,7 @@ describe("ChatScreen", () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.onSessionEvent.mockRejectedValue({ type: "rpc", message: "raw", error: { kind: "closed" } });
         bridge.getEntries.mockRejectedValue({
-            type: "connection",
+            type: "session",
             message: "raw",
             error: { kind: "unknown_session" },
         });

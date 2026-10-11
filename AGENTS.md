@@ -25,7 +25,8 @@ Read and strictly follow the matching rule file BEFORE writing code — they are
 contracts, not suggestions. Deviations require explicit user approval.
 
 - Anything: `.agents/rules/architecture.md`
-- `src-tauri/src/transport/**` or the `pi_rpc` crate: `.agents/rules/pi-rpc.md`
+- `src-tauri/src/channel/**`, `src-tauri/src/host/**` or the `pi_rpc` crate:
+  `.agents/rules/pi-rpc.md`
 - `src/**` (React): `.agents/rules/frontend.md` and `.agents/rules/state.md`
 
 ## Setup
@@ -54,9 +55,9 @@ are the source of truth for the commands themselves.
   private item fails instead of going unnoticed) — all inside `src-tauri`, where
   the app lives. Ignored tests start a real `pi`: run them with
   `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
-  `just ssh-test` for the SSH paths (transport and the app's connection layer),
-  which brings up its own sshd in a container (`just ssh-fixture` to keep one
-  running).
+  `just ssh-test` for the SSH paths (the reach to a machine and the sessions of
+  that machine over it), which brings up its own sshd in a container
+  (`just ssh-fixture` to keep one running).
 - JS: `just lint`, `just format`, `just test` — none of them typechecks; only
   `pnpm build` runs `tsc`.
 - Frontend types of the protocol: `src/lib/rpc-protocol.ts` names them by
@@ -93,23 +94,26 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   never hand-write a primitive shadcn already provides, and merge upstream
   updates with `shadcn add <name> --diff`.
 - The app layer keeps its own shape: `src-tauri/src/error.rs` is the boundary
-  aggregation (`PieError`, holding the `pi_rpc` crate's error,
-  `transport::Error`, `connection::Error` and `commands::Error` of the layer
-  that failed, one `From` for each), `src-tauri/src/connection/` holds the one
-  host pie talks to (and stays free of Tauri, so it can be tested against a real
-  host), and `src-tauri/src/commands/` is the IPC surface — commands return
-  `Result<T, PieError>`, events are `pi://<area>/{id}`, and each area has its
-  own file.
+  aggregation (`PieError`, holding the `pi_rpc` crate's error, `channel::Error`,
+  `host::Error`, `session::Error` and `commands::Error` of the layer that
+  failed, one `From` for each), `src-tauri/src/channel/` is one started program,
+  `src-tauri/src/host/` is the machine pie reaches, `src-tauri/src/session/`
+  holds its sessions (and stays free of Tauri, so it can be tested against a
+  real machine), and `src-tauri/src/commands/` is the IPC surface — commands
+  return `Result<T, PieError>`, events are `pi://<area>/{id}`, and each area has
+  its own file, mirrored one to one by `src/lib/bridge/`.
 - Errors: every layer names its own failures as a `thiserror` enum whose
-  variants are what a caller matches on (`transport::Error` for the reach to a
-  machine and the run of pi on it, `connection::Error`, `commands::Error`), and
-  no layer wraps another's. `PieError` is the aggregation of them —
-  `PieError::{Connection, Commands, Rpc, Transport, Io}`, one variant per module
-  — carrying the module, the message the frontend reads, and the named variant
-  underneath, so a new way to fail belongs in the layer that owns it and nothing
-  is flattened on the way through. The protocol crate's own failures cross as
-  one of its five kinds (`RpcFailure` in `src-tauri/src/error.rs`), because it
-  is not serializable and its detail belongs in the log rather than on a screen.
+  variants are what a caller matches on (`channel::Error` for the bytes of a
+  program and the start of it, `host::Error` for the reach to a machine and what
+  pie does on it, `session::Error`, `commands::Error`), and no layer wraps
+  another's. `PieError` is the aggregation of them —
+  `PieError::{Channel, Host, Session, Commands, Rpc, Io}`, one variant per
+  module — carrying the module, the message the frontend reads, and the named
+  variant underneath, so a new way to fail belongs in the layer that owns it and
+  nothing is flattened on the way through. The protocol crate's own failures
+  cross as one of its five kinds (`RpcFailure` in `src-tauri/src/error.rs`),
+  because it is not serializable and its detail belongs in the log rather than
+  on a screen.
 - The frontend reaches no `@tauri-apps/plugin-*` npm package: Rust registers the
   plugin and exports a command, and the capability permission goes with the npm
   package. `no-restricted-imports` in `eslint.config.js` enforces it;
@@ -156,7 +160,7 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 - pnpm 11 keeps build-script approvals in `pnpm-workspace.yaml`; esbuild is
   deliberately `false`, and a `set this to true or false` stub fails every
   `pnpm <script>`.
-- Logs go through `tracing` + `tracing-subscriber` (`src-tauri/src/logging.rs`):
+- Logs go through `tracing` + `tracing-subscriber` (`src-tauri/src/log.rs`):
   stderr on desktop, logcat on Android, because a device shows neither stdout
   nor stderr. `RUST_LOG` _replaces_ the default `info` level rather than adding
   to it — use `RUST_LOG=info,pi_rpc=debug` to keep app logs while raising one

@@ -1,31 +1,59 @@
 /**
- * A session of pi: the sessions of the host, what one holds, and what it says while
- * it runs.
+ * A session of pi: the conversations of the machine, what one session holds, and
+ * what it says while it runs.
  *
- * A session is named by the id that `connect` answered with
- * (`ConnectionInfo.sessions[].id`) — pie's id for the process, which is the id its
- * events arrive under. That is not the id of pi's session file: the same process
- * moves between those (see `switchSession`).
+ * The mirror of `src-tauri/src/commands/session.rs` — one session is asked to
+ * read, to switch, and to speak — plus the events of `commands/pipe.rs`, which
+ * carry what pi says.
  *
- * A dialog of an extension and a failure of an extension have channels of their own,
- * and nothing consumes them yet (that belongs to the extension milestone). A record
- * that Rust cannot describe is not forwarded at all.
+ * A session is named by the id that `attachSession` answered with — pie's id for
+ * the process, which is the id its events arrive under. That is not the id of
+ * pi's session file: the same process moves between those (see `switchSession`).
  *
- * A listener must exist before the records it wants: the event bus has no replay, and
- * Rust sends an event only to a window that already listens for its name. Therefore a
- * caller subscribes first and reads afterwards (see `hooks/use-session.ts`), which is
- * what makes a missed record a record that the snapshot covers.
+ * A dialog of an extension and a failure of an extension have channels of their
+ * own, and nothing consumes them yet (that belongs to the extension milestone). A
+ * record that Rust cannot describe is not forwarded at all.
  *
- * The types here are hand-written mirrors: `SessionSummary` of
- * `connection::SessionSummary`, the lifecycle of `commands/pipe.rs`, and the payloads
- * of the commands below of `commands/session.rs` — except `listSessions`, whose rows
- * are assembled in `commands/files.rs`. Rust is the authority.
+ * A listener must exist before the records it wants: the event bus has no replay,
+ * and Rust sends an event only to a window that already listens for its name.
+ * Therefore a caller subscribes first and reads afterwards (see
+ * `hooks/use-session.ts`), which is what makes a missed record a record that the
+ * snapshot covers.
+ *
+ * A command here ends in one of three ways, and none of them needs a report
+ * through this layer: pi answers with a disposition, a queue, a result, or
+ * nothing, and every lasting change reports itself as an event of the session.
+ * A caller that wants the effect of a model change or a compaction watches the
+ * events, not the answer of the call.
+ *
+ * The types are hand-written mirrors of Rust: `SessionSummary` of
+ * `session::SessionSummary`, the lifecycle of `commands/pipe.rs`, the payloads of
+ * the commands below of the session layer, and the aliases of pi's own published
+ * types from `@/lib/rpc-protocol`. Rust is the authority.
  */
 
 import { listen } from "@tauri-apps/api/event";
-import type { EntriesData, Event, SessionState, SessionStats, SwitchSessionData } from "@/lib/rpc-protocol";
+import type {
+    AvailableModelsData,
+    AvailableThinkingLevelsData,
+    BashResult,
+    ClearQueueData,
+    CommandsData,
+    CompactionResult,
+    EntriesData,
+    Event,
+    ImageContent,
+    LastAssistantTextData,
+    Model,
+    ModelThinkingLevel,
+    PromptData,
+    SessionState,
+    SessionStats,
+    StreamingBehavior,
+    SwitchSessionData,
+} from "@/lib/rpc-protocol";
 import { call, type Unsubscribe } from "./invoke";
-
+import type { SessionInfo } from "./host";
 // The sessions of the host. These are files, not protocol: pie scans the sessions
 // directory itself, on this machine or over sftp, because pi has no command that
 // lists its sessions.
@@ -58,6 +86,32 @@ export interface SessionSummary {
  */
 export function listSessions(): Promise<SessionSummary[]> {
     return call<SessionSummary[]>("list_sessions");
+}
+
+/**
+ * Starts a pi on the connected machine, and answers with the session it speaks
+ * through.
+ *
+ * The connection itself runs no pi: reaching the machine and speaking on it are
+ * two different things, and only the second one needs a process. The id of the
+ * answer is pie's own for that process (`main:1`), and it is what every other
+ * function here names, and what the events arrive under.
+ */
+export function attachSession(): Promise<SessionInfo> {
+    return call<SessionInfo>("attach_session");
+}
+
+/**
+ * Ends one pi. The machine stays reached, and the conversation file stays where
+ * pi wrote it.
+ *
+ * Pi winds down: pie closes its standard input, waits for the process to stop,
+ * and kills it only when it does not. A session that is gone is a failure
+ * (`unknown_session`), because a caller that asks to end something twice holds a
+ * stale id.
+ */
+export function detachSession(session: string): Promise<void> {
+    return call<void>("detach_session", { session });
 }
 
 // One session, by the name of it.
@@ -123,4 +177,124 @@ export function onSessionEvent(session: string, onEvent: (event: Event) => void)
 /** The end of a session. No record of that session follows. */
 export function onSessionState(session: string, onState: (state: SessionLifecycle) => void): Promise<Unsubscribe> {
     return listen<SessionLifecycle>(`pi://session/${session}/state`, (event) => onState(event.payload));
+}
+
+/**
+ * Sends a message to one session.
+ *
+ * `behavior` names how the message joins a run that streams: `steer` interrupts
+ * the run at its next step, and `followUp` waits for the run to settle. While
+ * nothing streams, pi ignores the behavior and the message starts a run.
+ * Therefore a caller does not have to be right about the stream: it names the key
+ * that the person pressed, and pi does the rest.
+ *
+ * The answer says what happened: `started`, `queued`, or `handled` for a message
+ * that a command of an extension took without a run.
+ *
+ * `images` are the pictures of the message, as `pick.ts` answered them; pi
+ * processes them itself.
+ */
+export function prompt(
+    session: string,
+    message: string,
+    behavior?: StreamingBehavior,
+    images?: ImageContent[],
+): Promise<PromptData> {
+    return call<PromptData>("prompt", { session, message, behavior, images });
+}
+
+/** Stops the run of one session, and a compaction in progress with it. */
+export function abort(session: string): Promise<void> {
+    return call<void>("abort", { session });
+}
+
+/**
+ * Drops every queued message of one session.
+ *
+ * The protocol has no way to take back a single message: this drops the steering
+ * queue and the follow-up queue together (G7 of the plan). The answer names what
+ * went, so a screen can say it.
+ */
+export function clearQueue(session: string): Promise<ClearQueueData> {
+    return call<ClearQueueData>("clear_queue", { session });
+}
+
+/**
+ * Runs a shell command on the host of one session, in the directory of that
+ * session.
+ *
+ * The command runs through pi, so its result enters the transcript like the
+ * result of a tool. While it runs, `bash_execution_update` events stream what it
+ * prints. `excludeFromContext` keeps the command and its output out of the
+ * context of the model — the `!!` form of the composer.
+ */
+export function bash(session: string, command: string, excludeFromContext: boolean): Promise<BashResult> {
+    return call<BashResult>("bash", { session, command, excludeFromContext });
+}
+
+/** Stops the shell command of one session, if one runs. */
+export function abortBash(session: string): Promise<void> {
+    return call<void>("abort_bash", { session });
+}
+
+/**
+ * The commands that a prompt of one session can invoke.
+ *
+ * The answer holds the commands of the extensions, the prompt templates and the
+ * skills of pi. The built-in commands of pi are not in it: the frontend answers
+ * those itself.
+ */
+export function getCommands(session: string): Promise<CommandsData> {
+    return call<CommandsData>("get_commands", { session });
+}
+
+/** The models that one session can use. */
+export function getAvailableModels(session: string): Promise<AvailableModelsData> {
+    return call<AvailableModelsData>("get_available_models", { session });
+}
+
+/** The thinking levels that one session accepts. */
+export function getAvailableThinkingLevels(session: string): Promise<AvailableThinkingLevelsData> {
+    return call<AvailableThinkingLevelsData>("get_available_thinking_levels", { session });
+}
+
+/**
+ * Selects the model of one session and answers the one that is now active.
+ *
+ * The session reports the change as a `model_change` entry and as the model of
+ * its state; the caller reads those rather than this answer.
+ */
+export function setModel(session: string, provider: string, modelId: string): Promise<Model> {
+    return call<Model>("set_model", { session, provider, modelId });
+}
+
+/** Sets the thinking level of one session. */
+export function setThinkingLevel(session: string, level: ModelThinkingLevel): Promise<void> {
+    return call<void>("set_thinking_level", { session, level });
+}
+
+/** Turns automatic compaction of one session on or off. */
+export function setAutoCompaction(session: string, enabled: boolean): Promise<void> {
+    return call<void>("set_auto_compaction", { session, enabled });
+}
+
+/**
+ * Compacts the conversation of one session into a summary, now.
+ *
+ * `customInstructions` steers the summary. Compaction reports itself on the event
+ * channel of the session, so the transcript hears of it whether or not this call
+ * is the one that asked.
+ */
+export function compact(session: string, customInstructions?: string): Promise<CompactionResult> {
+    return call<CompactionResult>("compact", { session, customInstructions });
+}
+
+/** The text of the last assistant message of one session, when there is one. */
+export function getLastAssistantText(session: string): Promise<LastAssistantTextData> {
+    return call<LastAssistantTextData>("get_last_assistant_text", { session });
+}
+
+/** Names one session. */
+export function setSessionName(session: string, name: string): Promise<void> {
+    return call<void>("set_session_name", { session, name });
 }

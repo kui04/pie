@@ -8,7 +8,7 @@
  * of a module that no table names still says something true about where it came
  * from.
  *
- * A test in Rust reads these tables beside the variants of the three error enums
+ * A test in Rust reads these tables beside the variants of the error enums
  * (`tests/failure_kinds.rs`), so a variant that no screen gives words to fails
  * the build instead of reaching a person as a blank.
  */
@@ -24,10 +24,11 @@ export type FailureText = Partial<Record<bridge.PieErrorKind, string>>;
 
 /** What a failure of a module says, when no table names the failure itself. */
 export const MODULE_REASON: Record<bridge.PieErrorModule, string> = {
-    connection: "Something went wrong reaching the host.",
+    channel: "Something went wrong in the program pie started.",
+    host: "Something went wrong reaching the machine that runs pi.",
+    session: "Something went wrong in the session.",
     commands: "Something on pie's own side went wrong.",
     rpc: "Something went wrong talking to pi.",
-    transport: "Something went wrong reaching the machine that runs pi.",
     io: "That file could not be read. Another one may work.",
 };
 

@@ -3,7 +3,7 @@
  *
  * The webview has no log anybody can read: the desktop one is behind a
  * developer tool nobody opens, and on Android there is nothing to open at all.
- * So a line goes to Rust (`log` of `src-tauri/src/commands/logs.rs`) and leaves
+ * So a line goes to Rust (`log` of `src-tauri/src/commands/log.rs`) and leaves
  * through the same subscriber as everything else - stderr on the desktop,
  * logcat on Android - under the one target `pie_ui`.
  *

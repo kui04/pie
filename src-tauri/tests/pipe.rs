@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pi_rpc::client::{BashReq, Client};
+use pie_lib::channel::{Channel, Handle, Program, Termination};
 use pie_lib::commands::pipe::{SessionLifecycle, Sink, forward_loop};
-use pie_lib::transport::{LocalTransport, Peer, PeerHandle, Termination};
 use serde::Serialize;
 
 /// Absolute path of a script under `tests/scripts`.
@@ -19,16 +19,14 @@ fn script(name: &str) -> PathBuf {
     [env!("CARGO_MANIFEST_DIR"), "tests", "scripts", name].iter().collect()
 }
 
-/// A client over the scripted peer, and the watch of that peer.
-fn fake_pi() -> (Client, PeerHandle) {
-    let peer = Peer::Local(
-        LocalTransport::new("bash")
-            .arg(script("fake-pi.sh"))
-            .spawn()
-            .expect("the scripted pi starts"),
-    );
-    let (wire, handle) = peer.split().expect("the peer hands its bytes over");
-    (Client::new(wire), handle)
+/// A client over the scripted program, and the watch of that program.
+fn fake_pi() -> (Client, Handle) {
+    let channel: Channel = Program::new("bash")
+        .arg(script("fake-pi.sh"))
+        .spawn()
+        .expect("the scripted pi starts");
+    let handle = channel.handle();
+    (Client::new(channel), handle)
 }
 
 /// A sink that keeps what it heard, in order.

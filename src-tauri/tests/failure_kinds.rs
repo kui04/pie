@@ -26,14 +26,16 @@ const FRONTEND: [&str; 2] = [
 /// Every error enum whose variant names reach the frontend as a `kind`, beside
 /// the name of the enum itself.
 ///
-/// The transport's own failures, the state of a connection, and what the IPC
-/// layer cannot do are named by their variants. What the protocol layer fails on
-/// is that layer's five kinds, which reach the frontend through
+/// The channel's own failures, the reach to a machine and what pie does on it,
+/// the sessions of that machine, and what the IPC layer cannot do are named by
+/// their variants. What the protocol layer fails on is that layer's five kinds,
+/// which reach the frontend through
 /// [`RpcFailure`](pie_lib::error::RpcFailure) - the protocol crate names them and
 /// is not serializable itself, so this app names them once, for both sides.
-const ENUMS: [(&str, &str); 4] = [
-    ("src/transport/error.rs", "Error"),
-    ("src/connection/error.rs", "Error"),
+const ENUMS: [(&str, &str); 5] = [
+    ("src/channel/error.rs", "Error"),
+    ("src/host/error.rs", "Error"),
+    ("src/session/error.rs", "Error"),
     ("src/commands/error.rs", "Error"),
     ("src/error.rs", "RpcFailure"),
 ];

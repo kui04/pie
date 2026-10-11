@@ -1,9 +1,10 @@
 //! The pipe of one session.
 //!
 //! Pi writes records to the process that runs one session: the events of the
-//! session, the answers to commands, and the dialogs of an extension. `connect`
-//! starts one task of this module for each session, and the task tells the
-//! frontend what pi said until the pi of that session ends.
+//! session, the answers to commands, and the dialogs of an extension.
+//! `commands::session::attach_session` starts one task of this module for each
+//! session, and the task tells the frontend what pi said until the pi of that
+//! session ends.
 //!
 //! The channels are `pi://session/{id}/event` and `.../state`. An event travels
 //! as the record pi wrote, re-encoded by the protocol layer's faithful path - a
@@ -14,8 +15,8 @@
 //! An answer to a command never arrives here: the protocol layer hands it to
 //! whoever sent it, and only an answer nobody waits for reaches a subscriber.
 //! The end of a session arrives on its own channel, and the frontend may not
-//! hear it: it reads the id of a session from the answer of `connect`, so its
-//! listener can only start after that. A read of such a session fails with the
+//! hear it: it reads the id of a session from the answer of `attach_session`, so
+//! its listener can only start after that. A read of such a session fails with the
 //! protocol layer's own closed error instead, so the frontend still learns the
 //! truth from the command that reads.
 //!
@@ -33,8 +34,8 @@ use std::future::Future;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::connection::Session;
-use crate::transport::Termination;
+use crate::channel::Termination;
+use crate::session::Session;
 
 use pi_rpc::client::EventStream;
 use pi_rpc::error::ErrorKind;
@@ -47,7 +48,7 @@ use pi_rpc::extui::{ConfirmDialog, EditorDialog, InputDialog, Notice, SelectDial
 /// `SessionState` of the protocol - that one is the answer of the `get_state`
 /// command, and the frontend takes it from the generated types. The channel is
 /// named `state` for the same reason as
-/// [`ConnectionState`](crate::connection::ConnectionState) on the channel of a
+/// [`ConnectionState`](crate::host::ConnectionState) on the channel of a
 /// connection.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -67,7 +68,7 @@ pub enum SessionLifecycle {
 /// The app itself is one of these: it hands the payload to the frontend. A test
 /// is another, so that the order of the records and of the end can be held
 /// without a window: the shape follows
-/// [`AskHostKey`](crate::connection::AskHostKey), a seam that the app fills in,
+/// [`AskHostKey`](crate::host::AskHostKey), a seam that the app fills in,
 /// and a test fills in differently.
 pub trait Sink {
     /// Delivers one payload on one channel.
@@ -118,7 +119,7 @@ fn spread<S: Sink>(sink: &S, session: &str, event: &Event) {
 /// Forwards the records of one session until the pi of that session ends.
 ///
 /// `ended` is the future of the end, which the caller builds from
-/// [`Session::peer`](crate::connection::Session::peer). It is a parameter so that a
+/// [`Session::handle`](crate::session::Session::handle). It is a parameter so that a
 /// test can drive this function with its own stream and its own end.
 ///
 /// # Panics
@@ -177,9 +178,9 @@ pub async fn forward_loop<S: Sink, E: Future<Output = Termination>>(
 /// window in which pi writes into no listener at all.
 pub fn forward(app: AppHandle, session: &Session, records: EventStream) {
     let id = session.id().to_string();
-    let peer = session.peer().clone();
+    let handle = session.handle().clone();
     tauri::async_runtime::spawn(async move {
-        forward_loop(app, &id, records, peer.wait()).await;
+        forward_loop(app, &id, records, handle.wait()).await;
     });
 }
 
