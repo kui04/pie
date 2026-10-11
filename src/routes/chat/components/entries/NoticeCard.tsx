@@ -4,7 +4,6 @@ import { useReducedMotion } from "motion/react";
 import { cn } from "cn";
 import { Markdown } from "@/components";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui";
-import { REVEAL } from "@/lib/motion";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
 
 export interface NoticeCardProps {
@@ -35,16 +34,12 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
             <span className="text-body-md text-muted-foreground min-w-0 flex-1 truncate">{summary}</span>
         </>
     );
-    // One face for every card of the transcript: the design had this one tinted,
-    // and a notice is a card like the rest - the label says what kind it is.
-    const frame = "bg-card rounded-md";
-
     if (body === null) {
-        return <div className={cn(frame, "flex items-baseline gap-2 px-3 py-2")}>{header}</div>;
+        return <div className="bg-card flex items-baseline gap-2 rounded-md px-3 py-2">{header}</div>;
     }
 
     return (
-        <Collapsible open={open} onOpenChange={setOpen} className={frame}>
+        <Collapsible open={open} onOpenChange={setOpen} className="bg-card rounded-md">
             <CollapsibleTrigger asChild>
                 <button
                     id={`${id}-notice`}
@@ -54,7 +49,11 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
                     {header}
                 </button>
             </CollapsibleTrigger>
-            <CardBody id={`${id}-body`} open={open} transition={still ? { duration: 0 } : REVEAL}>
+            <CardBody
+                id={`${id}-body`}
+                open={open}
+                transition={still ? { duration: 0 } : { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] }}
+            >
                 <div className="mt-2 px-3 pb-2">
                     <Markdown id={`${id}-text`} className="text-body-md">
                         {body}

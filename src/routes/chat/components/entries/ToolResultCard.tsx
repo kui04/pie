@@ -4,7 +4,6 @@ import { motion, useReducedMotion, type Transition } from "motion/react";
 import { cn } from "cn";
 import { Hourglass } from "@/components";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui";
-import { REVEAL, SPIN, SPIN_TURN } from "@/lib/motion";
 import type { NumberedLine } from "@/lib/text";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
 import { ScrollPane } from "@/components";
@@ -33,7 +32,6 @@ const CLOSED_LINES = { log: 5, file: 3, diff: 3, none: 0 } as const;
 export function ToolResultCard({ id, presentation, className }: ToolResultCardProps) {
     const { title, detail, tone, status, body, notes } = presentation;
     const [open, setOpen] = useState(false);
-    const still = useReducedMotion();
     const [duration, setDuration] = useState<string | null>(null);
     const seen = useRef<{ id: string; startedAt: number | null; endedAt: number | null; running: boolean }>({
         id,
@@ -83,7 +81,7 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
     const keptCount = Math.min(lines.length, closed);
     const kept = tail ? lines.slice(lines.length - keptCount) : lines.slice(0, keptCount);
     const rest = tail ? lines.slice(0, lines.length - keptCount) : lines.slice(keptCount);
-    const grow = still ? { duration: 0 } : REVEAL;
+    const grow = { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] } as const;
 
     // The status mark is at the end of the header and is centered on the whole
     // of it, and it is for the calls of the model alone: a command the reader ran
@@ -123,8 +121,6 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                 </div>
             )}
             {lines.length > 0 && (
-                // The horizontal bar of a log body sits at the body's own foot, so the
-                // air under it is added here; a numbered body brings its own.
                 <div id={`${id}-body`} className={cn(body.kind === "log" && "mt-2 pb-2")}>
                     {body.kind === "log" ? (
                         <ScrollPane bars="horizontal" viewportClassName="px-3 pb-2">
@@ -181,8 +177,8 @@ function StatusMark({ status }: { status: ToolStatus }) {
         return (
             <motion.span
                 className="text-primary-text flex shrink-0"
-                animate={still ? undefined : SPIN_TURN}
-                transition={SPIN}
+                animate={still ? undefined : { rotate: 360 }}
+                transition={{ type: "tween", duration: 1, ease: "linear", repeat: Infinity }}
             >
                 <LoaderCircle className="size-4" aria-label="Running" />
             </motion.span>
@@ -220,10 +216,6 @@ function NumberedBody({
     open: boolean;
     transition: Transition;
 }) {
-    // The numbers are centered in a column as wide as the widest of them, so that
-    // they line up whether the file has nine lines or ten thousand - and the
-    // column does not move when the rest of the lines arrive. A loop, not
-    // `Math.max(...)`: a nine-thousand-line output must not build an argument list.
     let digits = 1;
     for (const line of [...kept, ...rest]) digits = Math.max(digits, (line.number ?? "").length);
 
@@ -266,7 +258,6 @@ function NumberedBody({
     );
 }
 
-/** The lines that arrive when a card opens, in one column. */
 function Arriving({ open, transition, lines }: { open: boolean; transition: Transition; lines: string[] }) {
     return (
         <CardBody open={open} transition={transition}>
@@ -277,17 +268,12 @@ function Arriving({ open, transition, lines }: { open: boolean; transition: Tran
     );
 }
 
-/**
- * The colour of the mark pi put in front of a line. The text keeps the ordinary
- * colour, so that the diff of a large file still reads.
- */
 function markTone(mark: string): string {
     if (mark === "+") return "text-success";
     if (mark === "-") return "text-destructive";
     return "text-muted-foreground";
 }
 
-/** A duration the way pi writes one: `3.2s`, `2m 5s`, `1h 3m`. */
 function formatDuration(ms: number): string {
     const seconds = ms / 1000;
     if (seconds < 60) return `${seconds.toFixed(1)}s`;
@@ -297,7 +283,6 @@ function formatDuration(ms: number): string {
     return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** The same mark as a background, as a diff of a real change paints its lines. */
 function markRowTone(mark: string): string {
     if (mark === "+") return "bg-success/10";
     if (mark === "-") return "bg-destructive/10";

@@ -2,8 +2,8 @@
 //!
 //! The variants report what happened. [`PieError`](crate::error::PieError)
 //! carries this enum whole. Serde sends the name of the variant that failed as
-//! `kind`, and the frontend branches on that name. The sentence for a person is
-//! the task of [`Display`](std::fmt::Display). Therefore a failure has a name in
+//! `kind`, and the frontend shows the sentence [`Display`](std::fmt::Display)
+//! wrote. The name travels beside it, for logs and for matching. Therefore a failure has a name in
 //! one place here, not in every place that reports it.
 //!
 //! What the reach to a machine fails on is not here: that is

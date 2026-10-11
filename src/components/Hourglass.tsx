@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { animate, useReducedMotion } from "motion/react";
-import { HOURGLASS_CYCLE, HOURGLASS_STEPS } from "@/lib/motion";
 
 /**
  * One clock for every hourglass on screen: one Motion animation drives the cycle
@@ -12,7 +11,7 @@ let stop: (() => void) | null = null;
 function subscribe(listener: (progress: number) => void): () => void {
     if (listeners.size === 0) {
         const cycle = animate(0, 1, {
-            duration: HOURGLASS_CYCLE / 1000,
+            duration: 3,
             ease: "linear",
             repeat: Infinity,
             onUpdate: (progress) => {
@@ -39,7 +38,7 @@ const LEFT = 5;
 const RIGHT = 19;
 /** A bulb's half-width over its height: 7 across 10. */
 const SLOPE = 0.7;
-const [DRAIN_END, TURN_END] = [HOURGLASS_STEPS[1], HOURGLASS_STEPS[2]];
+const [DRAIN_END, TURN_END] = [0.5, 0.72];
 
 /**
  * The sand above, at `full` 1 through 0: the surface is horizontal and its ends

@@ -172,10 +172,10 @@ impl From<pi_rpc::error::Error> for PieError {
 
 /// The name of a failure of the protocol layer, as the frontend reads it.
 ///
-/// [`pi_rpc::ErrorKind`](pi_rpc::error::ErrorKind) names five, and the frontend
-/// holds one sentence for each. Its own enum is not serializable, so the name
-/// crosses as this one: the same names, under the `kind` key the frontend reads
-/// a failure name from.
+/// [`pi_rpc::ErrorKind`](pi_rpc::error::ErrorKind) names five. Its own enum is
+/// not serializable, so the name crosses as this one: the same names, under
+/// the `kind` key. The frontend shows the `message` Rust wrote; the name stays
+/// beside it, for logs and for matching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]

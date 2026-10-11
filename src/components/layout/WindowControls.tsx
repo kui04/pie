@@ -8,15 +8,9 @@
  */
 
 import { AnimatePresence, motion } from "motion/react";
-import { cn } from "cn";
 import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
 import { useMaximized } from "@/hooks/use-maximized";
 import { windowControls } from "@/lib/bridge";
-import { SWAP, SWAPPED_IN, SWAPPED_OUT } from "@/lib/motion";
-
-/** A 24px hit area, the WCAG 2.5.8 minimum. */
-const KEY =
-    "hover:bg-muted focus-visible:outline-primary size-6 p-1 rounded-sm shrink-0 bg-transparent transition-colors duration-50 ease-in-out";
 
 /**
  * The keys sit at the end of the bar whatever the bar carries on the left, so
@@ -32,7 +26,7 @@ export function WindowControls() {
                 type="button"
                 aria-label="Minimize"
                 onClick={() => void windowControls.minimize()}
-                className={cn(KEY, "text-foreground")}
+                className="hover:bg-muted focus-visible:outline-primary text-foreground size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out"
             >
                 <Minus id="window-minimize-icon" className="size-4" aria-hidden />
             </button>
@@ -41,17 +35,17 @@ export function WindowControls() {
                 type="button"
                 aria-label={maximized ? "Restore" : "Maximize"}
                 onClick={() => void windowControls.toggleMaximize()}
-                className={cn(KEY, "text-foreground")}
+                className="hover:bg-muted focus-visible:outline-primary text-foreground size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out"
             >
                 <AnimatePresence initial={false} mode="wait">
                     <motion.span
                         key={maximized ? "maximized" : "restored"}
                         id="window-maximize-icon"
                         className="flex"
-                        initial={SWAPPED_IN}
+                        initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        exit={SWAPPED_OUT}
-                        transition={SWAP}
+                        exit={{ opacity: 0, scale: 1.1 }}
+                        transition={{ type: "tween", duration: 0.15 }}
                     >
                         {maximized ? (
                             <Copy className="size-4" aria-hidden />
@@ -67,7 +61,7 @@ export function WindowControls() {
                 type="button"
                 aria-label="Close"
                 onClick={() => void windowControls.close()}
-                className={cn(KEY, "hover:bg-destructive hover:text-destructive-foreground")}
+                className="focus-visible:outline-primary hover:bg-destructive hover:text-destructive-foreground size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out"
             >
                 <X id="window-close-icon" className="size-4" aria-hidden />
             </button>

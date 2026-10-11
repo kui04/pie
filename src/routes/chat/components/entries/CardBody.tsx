@@ -1,5 +1,4 @@
 import { AnimatePresence, motion, type Transition } from "motion/react";
-import { REVEAL_HIDDEN, REVEAL_SHOWN } from "@/lib/motion";
 
 export interface CardBodyProps {
     /** Whether the card is open. */
@@ -25,9 +24,9 @@ export function CardBody({ open, id, transition, children }: CardBodyProps) {
                 <motion.div
                     id={id}
                     className="overflow-hidden"
-                    initial={REVEAL_HIDDEN}
-                    animate={REVEAL_SHOWN}
-                    exit={REVEAL_HIDDEN}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
                     transition={transition}
                 >
                     {children}

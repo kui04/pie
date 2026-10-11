@@ -18,12 +18,6 @@ export interface MarkdownProps {
     className?: string;
 }
 
-/**
- * The app's single markdown renderer (react-markdown + remark-gfm).
- *
- * Memoized: react-markdown parses its source on every render, and a transcript
- * re-renders once per event.
- */
 export const Markdown = memo(MarkdownInner);
 
 function MarkdownInner({ children, id, className }: MarkdownProps) {

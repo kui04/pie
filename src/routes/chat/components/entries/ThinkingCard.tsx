@@ -1,10 +1,8 @@
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { useReducedMotion } from "motion/react";
 import { cn } from "cn";
 import { Markdown } from "@/components";
 import { Collapsible, CollapsibleTrigger, Marker, MarkerContent } from "@/components/ui";
-import { REVEAL } from "@/lib/motion";
 import { CardBody } from "@/routes/chat/components/entries/CardBody";
 
 export interface ThinkingCardProps {
@@ -29,7 +27,6 @@ export interface ThinkingCardProps {
  */
 export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCardProps) {
     const [open, setOpen] = useState(false);
-    const still = useReducedMotion();
 
     return (
         <Collapsible open={open} onOpenChange={setOpen} className="bg-card overflow-hidden rounded-md">
@@ -50,7 +47,7 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
                     )}
                 </button>
             </CollapsibleTrigger>
-            <CardBody id={`${id}-body`} open={open} transition={still ? { duration: 0 } : REVEAL}>
+            <CardBody id={`${id}-body`} open={open} transition={{ type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] }}>
                 <div className="mt-2 px-3 pb-2">
                     <Markdown id={`${id}-reasoning`} className="text-body-md text-muted-foreground">
                         {thinking}

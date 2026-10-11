@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { BREATHE_CYCLE } from "@/lib/motion";
 import {
     breatheAt,
     costText,
@@ -139,14 +138,14 @@ describe("pathKey", () => {
 describe("breatheAt", () => {
     it("starts dim, is brightest in the middle of the cycle, and comes back", () => {
         expect(breatheAt(0)).toBeCloseTo(0.35, 3);
-        expect(breatheAt(BREATHE_CYCLE / 2)).toBeCloseTo(1, 3);
-        expect(breatheAt(BREATHE_CYCLE)).toBeCloseTo(0.35, 3);
+        expect(breatheAt(1200)).toBeCloseTo(1, 3);
+        expect(breatheAt(2400)).toBeCloseTo(0.35, 3);
     });
 
     it("has no seam: the cycle starts where the one before it ended", () => {
         // The value just before a cycle ends is the value just after one starts, so
         // the light does not jump when the count wraps.
-        expect(breatheAt(BREATHE_CYCLE - 1)).toBeCloseTo(breatheAt(0), 3);
+        expect(breatheAt(2399)).toBeCloseTo(breatheAt(0), 3);
     });
 });
 

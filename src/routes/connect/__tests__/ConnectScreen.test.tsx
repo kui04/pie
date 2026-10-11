@@ -354,11 +354,10 @@ describe("ConnectScreen", () => {
 
         await user.click(CONNECT());
 
-        // The toast carries the message from Rust and the meaning of the named
-        // variant. Each one alone does not tell the person the next step.
+        // The toast carries the message from Rust, with no table of its own.
         const announced = await screen.findByText("pi is not on PATH");
         expect(announced).toBeInTheDocument();
-        expect(screen.getByText("pi is not there, or could not be started.")).toBeInTheDocument();
+        expect(screen.queryByText("pi is not there, or could not be started.")).not.toBeInTheDocument();
 
         // The form did not change. Therefore it is ready for another attempt.
         expect(CONNECT()).toBeEnabled();
@@ -377,9 +376,8 @@ describe("ConnectScreen", () => {
 
         await user.click(CONNECT());
         await screen.findByText("connection refused");
-        // A connect failure reads as a connect failure. The named kind has its
-        // own text, not the wider text of the module.
-        expect(screen.getByText("The host could not be reached.")).toBeInTheDocument();
+        // A connect failure reads as the message Rust sent, with no extra text.
+        expect(screen.queryByText("The host could not be reached.")).not.toBeInTheDocument();
         unmount();
 
         // A new mount starts with no failure. Therefore there is no announcement.

@@ -1,26 +1,3 @@
-/**
- * The message box of a session: the words of the person, the pictures they attach,
- * the commands they type, and the run they steer or stop.
- *
- * The layout is the one of `.ui-design/components/composer`: one card of a prompt
- * field over a control row, the two keys of the app ([+] attach, [/] commands) at
- * its start and the settings (model, thinking level, send) at its end. The panels
- * that belong to a key — the command panel, the model and thinking popups — float
- * above the card; a shell run of the reader that pi has not recorded yet waits in
- * the same place, because the reader's own run is not part of the thread.
- *
- * One key does the sending, and what it does follows the run: while an answer
- * streams, Enter steers it and Alt+Enter queues a follow-up; when nothing streams,
- * the message starts a run. Pi decides the same way from its own state — a behavior
- * without a stream is ignored — so this side only has to name the key that the
- * person pressed (`machines/session.machine.ts` holds the run state, and this box
- * reads it as one boolean).
- *
- * The first character of the line chooses the mode, and the mode is data, not a
- * state of its own: `/` opens the command menu, `!` and `!!` run a shell command of
- * the reader, and everything else is a message.
- */
-
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
@@ -313,7 +290,7 @@ export function Composer({ session, working }: ComposerProps) {
     const shellMode = bashCommandOf(value) !== null;
 
     return (
-        <div id="composer" className="bg-card relative flex flex-col gap-3 rounded-md p-4">
+        <div id="composer" className="bg-card relative flex flex-col gap-3 rounded-2xl p-4">
             {menuOpen && highlightedRow !== null && (
                 <CommandMenu
                     id="composer-command-menu"
@@ -381,7 +358,7 @@ export function Composer({ session, working }: ComposerProps) {
                         : "What would you like to change or create? · Enter steers · Alt+Enter queues a follow-up"
                 }
                 aria-label="Your message"
-                className="text-body-md placeholder:text-outline max-h-[6.25rem] min-h-[3.75rem] resize-none border-0 bg-transparent p-0 focus-visible:ring-0 dark:bg-transparent"
+                className="text-body-md block max-h-25 min-h-15 resize-none rounded-none border-0 bg-transparent p-0 focus-visible:ring-0 dark:bg-transparent"
             />
             <div id="composer-controls" className="flex items-center justify-between gap-2">
                 <div id="composer-actions" className="flex items-center gap-2">

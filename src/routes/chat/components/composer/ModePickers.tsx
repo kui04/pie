@@ -105,7 +105,7 @@ function ModelPicker({
             search="Search models"
             // The draft's model popup is a fixed 240px (its own max-height), so the popup
             // is the same shape whether a host offers three models or thirty.
-            className="h-60 w-[17rem]"
+            className="h-60 w-68"
         />
     );
 }

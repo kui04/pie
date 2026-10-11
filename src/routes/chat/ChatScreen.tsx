@@ -20,9 +20,6 @@ import { useWideWindow } from "@/hooks/use-wide-window";
 import { useSession } from "@/hooks/use-session";
 import { chatMachine, errorOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import { sessionQueries } from "@/lib/query";
-import { reasonFor } from "@/lib/failure-text";
-import { CONTENT_COLUMN } from "@/routes/chat/content-column";
-import { UNFOLD, UNFOLD_HIDDEN, UNFOLD_SHOWN, STAGE, STAGE_ARRIVE, STAGE_LEAVE, STAGE_SETTLED } from "@/lib/motion";
 import * as bridge from "@/lib/bridge";
 import { transcriptRows, queuedRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/stream";
@@ -38,7 +35,6 @@ import {
     TranscriptList,
     withLiveUsage,
 } from "@/routes/chat/components";
-import { FAILURE_REASON } from "@/routes/chat/failure-reason";
 import { useTranscriptStore } from "@/stores/transcript.store";
 
 export function ChatScreen() {
@@ -114,7 +110,7 @@ export function ChatScreen() {
         } catch (thrown) {
             const error = bridge.asPieError(thrown);
             bridge.log.error("the conversation could not be opened", { path, reason: error.message });
-            toast.error(reasonFor(error, FAILURE_REASON));
+            toast.error(error.message);
         }
     }
 
@@ -140,7 +136,7 @@ export function ChatScreen() {
                     role="alert"
                     className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
                 >
-                    <p>{reasonFor(detached, FAILURE_REASON)}</p>
+                    <p>{detached.message}</p>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
                             Try again
@@ -360,7 +356,7 @@ function Session({
         void switchTo(path).catch((thrown: unknown) => {
             const error = bridge.asPieError(thrown);
             bridge.log.error("the switch failed", { path, reason: error.message });
-            toast.error(reasonFor(error, FAILURE_REASON));
+            toast.error(error.message);
         });
     }
 
@@ -373,15 +369,15 @@ function Session({
     // that is leaving is given up at once - so nothing of those words can come back
     // and go again on the way.
     const transcript = <TranscriptList rows={rows} clearance={clearance} onRetractQueued={retractQueue} />;
-    const leaving = still ? { duration: 0 } : STAGE;
+    const leaving = still ? { duration: 0 } : ({ type: "tween", duration: 0.22, ease: [0.2, 0, 0, 1] } as const);
     let content: ReactNode;
     if (failure !== null) {
         content = (
             <motion.div
                 key="failure"
-                initial={STAGE_ARRIVE}
-                animate={STAGE_SETTLED}
-                exit={STAGE_LEAVE}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
                 transition={leaving}
                 className="flex min-h-0 flex-1"
             >
@@ -390,7 +386,7 @@ function Session({
                     role="alert"
                     className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
                 >
-                    <p>{reasonFor(bridge.asPieError(failure), FAILURE_REASON)}</p>
+                    <p>{bridge.asPieError(failure).message}</p>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={retry}>
                             Try again
@@ -409,7 +405,7 @@ function Session({
             <motion.div
                 key="loading"
                 initial={false}
-                exit={STAGE_LEAVE}
+                exit={{ opacity: 0 }}
                 transition={leaving}
                 className="relative flex min-h-0 flex-1"
             >
@@ -425,9 +421,9 @@ function Session({
         content = (
             <motion.div
                 key="words"
-                initial={STAGE_ARRIVE}
-                animate={STAGE_SETTLED}
-                exit={STAGE_LEAVE}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
                 transition={leaving}
                 className="flex min-h-0 flex-1"
             >
@@ -477,9 +473,9 @@ function Session({
                     <motion.div
                         id="composer-band"
                         ref={band}
-                        initial={STAGE_ARRIVE}
-                        animate={STAGE_SETTLED}
-                        exit={STAGE_LEAVE}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
                         transition={leaving}
                         // The list's bar floats over the region, so the band takes
                         // the region's whole width and the content column is centred
@@ -489,7 +485,7 @@ function Session({
                         {/* The band's own gap is above and below the composer; the
                             phone's navigation bar is room the content adds on top
                             of it, or the keys would sit under the bar. */}
-                        <div className={cn(CONTENT_COLUMN, "pb-safe")}>
+                        <div className="pb-safe mx-auto w-full max-w-5xl px-2 min-[840px]:px-4">
                             {empty && (
                                 <p className="text-body-md text-muted-foreground pb-3 text-center">
                                     Nothing has been said yet.
@@ -544,10 +540,12 @@ function ChatShell({
                                 id="sidebar"
                                 key="session-list"
                                 className="bg-surface-dim border-border flex min-h-0 flex-none flex-col overflow-hidden border-r"
-                                initial={UNFOLD_HIDDEN}
-                                animate={UNFOLD_SHOWN}
-                                exit={UNFOLD_HIDDEN}
-                                transition={still ? { duration: 0 } : UNFOLD}
+                                initial={{ width: 0 }}
+                                animate={{ width: 256 }}
+                                exit={{ width: 0 }}
+                                transition={
+                                    still ? { duration: 0 } : { type: "tween", duration: 0.28, ease: [0.2, 0, 0, 1] }
+                                }
                             >
                                 <SessionDrawer id="session-drawer" className="w-64 flex-1" {...list} />
                             </motion.div>

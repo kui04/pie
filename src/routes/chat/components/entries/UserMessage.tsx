@@ -33,12 +33,9 @@ export interface UserMessageProps {
 export function UserMessage({ id, message, queued, onRetract }: UserMessageProps) {
     const images = imagesOf(message);
     const text = messageText(message.content);
-    // A line short enough to be one line sits in a tighter box than a paragraph; a
-    // picture takes the box a paragraph takes.
     const oneLine = images.length === 0 && !text.includes("\n") && text.length <= 60;
 
     const copy = () => {
-        // The menu closes as it fires, so the word comes back as the toast.
         void copyText(text).then((copied) => {
             if (copied) toast.success("Copied.");
         });
@@ -47,18 +44,11 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
     const bubble = (
         <div
             id={id}
-            // Focusable, so the menu of the bubble can be opened from a keyboard
-            // (the ContextMenu key or Shift+F10 raises the event Radix listens for).
             tabIndex={0}
             aria-label="Your message"
             className={cn(
-                "bg-primary text-primary-foreground focus-visible:ring-ring max-w-[80%] min-w-0 space-y-2 break-words outline-none focus-visible:ring-2",
-                // One shape for every bubble, and the shape a tile takes: what the line
-                // count changes is the air around the words, never the corner.
-                "rounded-md",
+                "bg-primary text-primary-foreground focus-visible:ring-ring max-w-[80%] min-w-0 space-y-2 rounded-md wrap-break-word outline-none focus-visible:ring-2",
                 oneLine ? "px-4 py-2" : "p-3",
-                // A message that waits is not in the conversation yet: it reads as
-                // quieter than the words around it.
                 queued !== undefined && "opacity-60",
             )}
         >
@@ -73,8 +63,6 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             {text !== "" && (
                 <Markdown
                     id={`${id}-text`}
-                    // On this bubble the page is the colour of the bubble, so a link and
-                    // a code pill are repainted for the one place they sit on.
                     className="text-body-md text-primary-foreground [&_a]:text-primary-foreground [&_code]:bg-primary-foreground/20 space-y-2 [&_a]:underline"
                 >
                     {text}
@@ -84,15 +72,11 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
     );
 
     return (
-        // `relative` holds the caption, which hangs below the bubble's own box; the
-        // room under it (24px, the design's space-xl) is what keeps the next row clear.
         <div className={cn("relative flex flex-col items-end", queued !== undefined && "pb-6")}>
             {text === "" ? (
                 bubble
             ) : (
                 <ContextMenu>
-                    {/* The trigger is `select-none` by default; the reader's own words
-                        are worth being able to select. */}
                     <ContextMenuTrigger asChild className="select-text">
                         {bubble}
                     </ContextMenuTrigger>

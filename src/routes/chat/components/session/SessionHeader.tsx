@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { UsagePopover } from "@/routes/chat/components/session/UsagePopover";
 import { SidebarToggle } from "@/routes/chat/components/session/SidebarToggle";
-import { STAGE, STAGE_ARRIVE, STAGE_LEAVE, STAGE_SETTLED } from "@/lib/motion";
 import type { SessionStats } from "@/lib/rpc-protocol";
 
 /**
@@ -40,10 +39,10 @@ export function SessionHeader({
             <AnimatePresence initial={false}>
                 {ready && (
                     <motion.div
-                        initial={STAGE_ARRIVE}
-                        animate={STAGE_SETTLED}
-                        exit={STAGE_LEAVE}
-                        transition={STAGE}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ type: "tween", duration: 0.22, ease: [0.2, 0, 0, 1] }}
                         className="flex min-w-0 flex-1 items-center gap-1"
                     >
                         <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">

@@ -1,11 +1,3 @@
-/**
- * The startup gate. This screen connects pie to a host. Then the screen is
- * removed.
- *
- * A successful connection is not a state of this screen. The screen goes away.
- * Therefore a successful connection causes a route change only.
- */
-
 import { useMachine } from "@xstate/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
@@ -14,7 +6,6 @@ import { connectionMachine, type ConnectionDeps } from "@/machines/connection.ma
 import { Window } from "@/components";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
-import { reasonFor, type FailureText } from "@/lib/failure-text";
 
 /** The first contents of the card: this machine, no data typed. */
 const EMPTY_FORM: ConnectionForm = {
@@ -143,66 +134,6 @@ const REAL_DEPS: ConnectScreenDeps = {
 };
 
 /**
- * The meaning of each named failure for the person.
- *
- * The message from Rust tells what went wrong. This table tells what to do. A
- * message such as "authentication failed" does not tell what to do.
- *
- * The keys are the variant names of the error enums of Rust. These names are
- * the values of `PieError.error.kind`. A failure this screen has no words for
- * falls back to the text of its module (`@/lib/failure-text`).
- */
-const FAILURE_REASON: FailureText = {
-    // `transport::Error`: the connect to the host, and the run of pi on the host.
-    connect: "The host could not be reached.",
-    connect_timeout: "The host did not answer in time.",
-    ssh: "The SSH handshake with the host failed.",
-    auth: "The host would not accept who pie said it was.",
-    auth_timeout: "The host never answered about who pie said it was.",
-    ssh_key: "That private key could not be read.",
-    host_key_rejected: "This host is not the machine you meant to reach.",
-    spawn: "pi is not there, or could not be started.",
-    exec: "The host would not run pi.",
-    exec_timeout: "The host never answered about running pi.",
-    subsystem: "The host would not open a channel to read files through.",
-    subsystem_timeout: "The host never answered about a file channel.",
-    version_probe: "pi would not say which release it is.",
-    version_mismatch: "pi is not the release pie speaks.",
-    // The protocol layer's five kinds: what pie could not do with pi itself.
-    transport: "The connection to pi failed.",
-    protocol: "pi answered in a way pie does not know.",
-    command: "pi refused the command.",
-    timeout: "pi did not answer in time.",
-    closed: "The connection to pi ended.",
-    // `transport::Error`: the byte path below the protocol.
-    io: "The connection to pi failed.",
-    // `connection::Error`: the connect of pie to the machine, and the state of
-    // that connection.
-    already_connected: "pie is already connected to a host.",
-    not_connected: "There is no connection.",
-    remote_version: "pi on the host would not say which release it is.",
-    unreadable_local: "That file could not be read. Another one may work.",
-    unreadable_remote: "That file could not be read on the host. Another one may work.",
-    sftp_unanswered: "The host would not open a channel to read files through.",
-    not_absolute: "That path is not a path on the host.",
-    no_home_directory: "This machine has no home directory to browse.",
-    // `commands::Error`: what the IPC layer itself cannot do.
-    unusable_name: "That name cannot be used for a connection.",
-    no_host_key_store: "Pie cannot find where to keep host keys.",
-};
-
-/**
- * The action for a failure, in the words of the named variant.
- *
- * The two tables are a lookup. They do not decide the meaning of a failure. A
- * new variant of Rust without text uses the text of its module. The toast is
- * never empty.
- */
-function reasonForFailure(failure: bridge.PieError): string {
-    return reasonFor(failure, FAILURE_REASON);
-}
-
-/**
  * The needs of the screen: the needs of the machine, and the one call that only
  * the screen makes. The picker is not the business of the machine. Therefore it
  * is not in {@link ConnectionDeps}. In that type, each test of the machine would
@@ -231,11 +162,10 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
 
     // A failed connect is announced, not shown on the form. The form did not
     // change. An inline line would be the only text about the attempt, not about
-    // the connection. The toast also carries the name of the failure, which the
-    // message from Rust does not carry.
+    // the connection.
     const failure = state.context.error;
     useEffect(() => {
-        if (failure) toast.error(failure.message, { description: reasonForFailure(failure) });
+        if (failure) toast.error(failure.message);
     }, [failure]);
 
     const spec = useMemo(() => connectSpec(form), [form]);
@@ -254,7 +184,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
             if (key !== null) setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
         } catch (thrown) {
             const failure = bridge.asPieError(thrown);
-            toast.error(failure.message, { description: reasonForFailure(failure) });
+            toast.error(failure.message);
         }
     }, [pickPrivateKey]);
 

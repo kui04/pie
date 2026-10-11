@@ -4,7 +4,7 @@
 //! module can reach any other: Rust has no visibility that says "the bytes must
 //! not know which machine they run on". What a reader would otherwise keep in
 //! their head, this test keeps instead. It reads the sources, as
-//! `failure_kinds.rs` and `manifest.rs` read the sources they check.
+//! `manifest.rs` reads the sources it checks.
 //!
 //! The rule is the dependency direction of the app:
 //!

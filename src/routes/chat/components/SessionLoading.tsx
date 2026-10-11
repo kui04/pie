@@ -1,6 +1,5 @@
 import { motion } from "motion/react";
 import { Spinner } from "@/components/ui";
-import { STAGE, STAGE_ARRIVE, STAGE_SETTLED } from "@/lib/motion";
 
 /**
  * The page of the window that says a session is coming: a ring and a word.
@@ -17,10 +16,10 @@ export function SessionLoading({ label = "Opening the session…" }: { label?: s
     return (
         <motion.div
             id="session-loading"
-            initial={STAGE_ARRIVE}
-            animate={STAGE_SETTLED}
-            exit={STAGE_ARRIVE}
-            transition={STAGE}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ type: "tween", duration: 0.22, ease: [0.2, 0, 0, 1] }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-3"
         >
             <Spinner className="text-muted-foreground size-5" />

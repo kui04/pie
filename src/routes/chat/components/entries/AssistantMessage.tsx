@@ -28,13 +28,7 @@ export interface AssistantMessageProps {
  * call that took the failure shows it.
  */
 export function AssistantMessage({ id, message, results, live }: AssistantMessageProps) {
-    // A turn pi takes up again is not a turn that failed, so it says nothing yet: the
-    // toast of the retry says what is going on.
     const note = live?.retrying ? null : stopNote(message);
-
-    // A turn that is still being written is the run at work: the marks of that sit on its
-    // parts (the shimmer of the thought, the ring of a call), and the line under the
-    // transcript belongs to the run, not to this message (`ActivityLine`).
     const working = message.stopReason === "pending";
 
     return (
@@ -74,7 +68,6 @@ export function AssistantMessage({ id, message, results, live }: AssistantMessag
                         />
                     );
                 }
-                // A block kind this build does not know: nothing to draw, nothing cast.
                 return null;
             })}
             {note !== null && <p className="text-body-sm text-destructive">{note}</p>}
@@ -82,10 +75,6 @@ export function AssistantMessage({ id, message, results, live }: AssistantMessag
     );
 }
 
-/**
- * What the line under the answer says when the turn ended badly: pi shows it only
- * when the message called no tools, whose cards carry the failure instead.
- */
 function stopNote(message: AssistantMessageData): string | null {
     if (message.stopReason === "length") return "Response was truncated before completion.";
     if (message.content.some((part) => part.type === "toolCall")) return null;
@@ -94,9 +83,6 @@ function stopNote(message: AssistantMessageData): string | null {
     return message.stopReason === "error" ? `Error: ${reason}` : reason;
 }
 
-/**
- * The failure of a turn, for the line under it and for the cards it left waiting.
- */
 function failureText(message: AssistantMessageData): string | null {
     if (message.stopReason === "aborted") {
         const said = message.errorMessage;
@@ -108,10 +94,6 @@ function failureText(message: AssistantMessageData): string | null {
     return null;
 }
 
-/**
- * A result for a call the turn never answered, as pi's rebuild does: a call of an
- * aborted or errored turn must not wait for an answer that is not coming.
- */
 function failedCall(message: AssistantMessageData, toolCallId: string, toolName: string): ToolResultMessage | null {
     const text = failureText(message);
     if (text === null) return null;

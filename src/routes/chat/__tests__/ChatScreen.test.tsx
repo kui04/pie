@@ -8,7 +8,6 @@ import { Toaster } from "@/components/ui";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
 import type { Event } from "@/lib/rpc-protocol";
-import { MODULE_REASON } from "@/lib/failure-text";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { useTranscriptStore } from "@/stores/transcript.store";
 import {
@@ -209,9 +208,8 @@ describe("ChatScreen", () => {
 
         renderScreen();
 
-        // A failure of pie's own side of the boundary: the module sentence, since
-        // no table names this kind for this screen.
-        expect(await screen.findByText("Something on pie's own side went wrong.")).toBeInTheDocument();
+        // The screen shows the message Rust sent, with no table of its own.
+        expect(await screen.findByText("pi is not on PATH")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
         expect(await screen.findByText("Starting pi…")).toBeInTheDocument();
@@ -412,33 +410,33 @@ describe("ChatScreen", () => {
 
         await renderOpen();
 
-        await waitFor(() =>
-            expect(screen.getByText("That session is gone from this connection. Connect again.")).toBeInTheDocument(),
-        );
+        // The screen shows the message Rust sent, with no table of its own.
+        await waitFor(() => expect(screen.getByText("this connection has no session `main:1`")).toBeInTheDocument());
     });
 
-    it("has something to say about a failure it cannot name", async () => {
+    it("shows the message Rust sent for a failure it has never seen", async () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockRejectedValue({
             type: "rpc",
-            message: "raw",
+            message: "a_kind_of_a_later_pi",
             error: { kind: "a_kind_of_a_later_pi" },
         });
 
         await renderOpen();
 
-        // The table names the failures of this screen; a name it does not know
-        // falls back to the sentence of the module that owned it.
-        await waitFor(() => expect(screen.getByRole("alert")).not.toHaveTextContent("a_kind_of_a_later_pi"));
-        expect(screen.getByRole("alert")).toHaveTextContent(MODULE_REASON.rpc);
+        await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("a_kind_of_a_later_pi"));
     });
 
     it("blames the listeners before the reads when both failed", async () => {
         bridge.getConnection.mockResolvedValue(CONNECTED);
-        bridge.onSessionEvent.mockRejectedValue({ type: "rpc", message: "raw", error: { kind: "closed" } });
+        bridge.onSessionEvent.mockRejectedValue({
+            type: "rpc",
+            message: "the feed failed",
+            error: { kind: "closed" },
+        });
         bridge.getEntries.mockRejectedValue({
             type: "session",
-            message: "raw",
+            message: "a read failed",
             error: { kind: "unknown_session" },
         });
 
@@ -446,7 +444,8 @@ describe("ChatScreen", () => {
 
         // A read that failed while the pipe is closed says nothing new: the screen
         // offers the failure that explains the other one.
-        await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The connection to pi ended."));
+        await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("the feed failed"));
+        expect(screen.getByRole("alert")).not.toHaveTextContent("a read failed");
     });
 
     it("opens the listeners again when the reader asks for another try", async () => {
@@ -820,7 +819,7 @@ describe("ChatScreen", () => {
         bridge.listSessions.mockResolvedValue([HELD, other]);
         bridge.switchSession.mockRejectedValue({
             type: "rpc",
-            message: "raw",
+            message: "pi refused the switch",
             error: { kind: "command" },
         });
 
@@ -834,7 +833,7 @@ describe("ChatScreen", () => {
         // The sheet reads the list when it opens, so the row arrives with that read.
         fireEvent.click(await within(sheet).findByText("The other one"));
 
-        expect(await screen.findByText("pi refused the command.")).toBeInTheDocument();
+        expect(await screen.findByText("pi refused the switch")).toBeInTheDocument();
         expect(screen.getByText("first words")).toBeInTheDocument();
         restore();
     });

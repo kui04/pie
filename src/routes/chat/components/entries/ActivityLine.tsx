@@ -1,7 +1,6 @@
 import { LoaderCircle } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Hourglass } from "@/components";
-import { SPIN, SPIN_TURN } from "@/lib/motion";
 
 /** What a run is doing while the app waits on it (`lib/stream.ts`). */
 export type ActivityState = "waiting" | "working";
@@ -41,8 +40,8 @@ function Mark({ state }: { state: ActivityState }) {
     return (
         <motion.span
             className="text-primary-text flex shrink-0"
-            animate={still ? undefined : SPIN_TURN}
-            transition={SPIN}
+            animate={still ? undefined : { rotate: 360 }}
+            transition={{ type: "tween", duration: 1, ease: "linear", repeat: Infinity }}
         >
             <LoaderCircle className="size-4" aria-label="Working" />
         </motion.span>

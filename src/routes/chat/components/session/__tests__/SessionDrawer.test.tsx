@@ -216,10 +216,10 @@ describe("SessionDrawer", () => {
         expect(picked).not.toHaveBeenCalled();
     });
 
-    it("says why the listing failed, in the words of the screen", async () => {
+    it("shows the message Rust sent when the listing failed", async () => {
         bridge.listSessions.mockRejectedValue({
             type: "session",
-            message: "raw",
+            message: "There is no connection.",
             error: { kind: "not_connected" },
         });
 

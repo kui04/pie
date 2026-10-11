@@ -6,7 +6,6 @@ import { Button } from "@/components/ui";
 import { ScrollPane } from "@/components";
 import type { TranscriptRow } from "@/lib/transcript";
 import { EntryRenderer } from "@/routes/chat/components/EntryRenderer";
-import { CONTENT_COLUMN } from "@/routes/chat/content-column";
 
 export interface TranscriptListProps {
     /** The transcript, as the store and the fold read it. */
@@ -239,7 +238,7 @@ export function TranscriptList({ rows, clearance, className, onRetractQueued }: 
                             // carries the content column, so it lines up with the composer
                             // band over it, and the air under it is what separates one
                             // entry from the next.
-                            <div key={row.id} className={cn(CONTENT_COLUMN, "pb-3")}>
+                            <div key={row.id} className="mx-auto w-full max-w-5xl px-2 pb-3 min-[840px]:px-4">
                                 <EntryRenderer row={row} onRetractQueued={onRetractQueued} />
                             </div>
                         )}
