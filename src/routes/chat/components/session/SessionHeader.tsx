@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { UsagePopover } from "@/routes/chat/components/session/UsagePopover";
 import { SidebarToggle } from "@/routes/chat/components/session/SidebarToggle";
 import { STAGE, STAGE_ARRIVE, STAGE_LEAVE, STAGE_SETTLED } from "@/lib/motion";
-import type { SessionStats } from "@/lib/protocol";
+import type { SessionStats } from "@/lib/rpc-protocol";
 
 /**
  * The session's slots of the window's bar: the way to the session list, what the

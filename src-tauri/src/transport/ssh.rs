@@ -5,7 +5,8 @@
 //! nothing more - it connects, authenticates, starts commands and subsystems,
 //! and hands back byte streams. Which command to run, which sessions exist on
 //! the host, and the sftp channel that scans them are app concerns and live
-//! outside `pi_rpc`, whose boundary `tests/purity.rs` enforces.
+//! outside this module, which knows how to reach a host and how to copy the
+//! bytes it hands back, and nothing about what those bytes say.
 //!
 //! One [`SshSession`] is one SSH connection, and it serves every channel pie
 //! needs on that host: an exec channel per pi process, a subsystem channel for
@@ -15,9 +16,9 @@
 //! ```no_run
 //! use std::sync::Arc;
 //!
-//! use pie_lib::pi_rpc::transport::{HostKey, PublicKey, RemoteCommand, SshAuth, SshSession, SshTarget};
+//! use pie_lib::transport::{HostKey, PublicKey, RemoteCommand, SshAuth, SshSession, SshTarget};
 //!
-//! # async fn example() -> pie_lib::pi_rpc::Result<()> {
+//! # async fn example() -> pie_lib::transport::Result<()> {
 //! struct Trust; // an app's TOFU policy, told what the host presented
 //!
 //! impl HostKey for Trust {
@@ -26,7 +27,7 @@
 //!         _host: &str,
 //!         _port: u16,
 //!         key: &PublicKey,
-//!     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = pie_lib::pi_rpc::Result<()>> + Send + '_>> {
+//!     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = pie_lib::transport::Result<()>> + Send + '_>> {
 //!         let certified = key.certificate().is_some();
 //!         Box::pin(async move {
 //!             println!("certified: {certified}");
@@ -63,8 +64,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream
 use tokio::net::TcpStream;
 use tokio::sync::{Notify, watch};
 
-use super::{Control, Termination, Transport, TransportParts};
-use crate::pi_rpc::error::{Error, Result};
+use super::{Lifecycle, Result, Termination, Wire, error::Error};
 
 /// Reserved for callers that want to name the key type without pulling in
 /// `russh` themselves: this is what a [`HostKey`] verifier is handed.
@@ -377,7 +377,7 @@ impl SshSession {
     ///
     /// [`SshSession::exec`]'s errors, and [`Error::ExecTimeout`] when the
     /// command does not finish in time. On expiry the command is sent the
-    /// signal request [`Control::terminate`] sends - SIGKILL - and reading
+    /// signal request [`Lifecycle::terminate`] sends - SIGKILL - and reading
     /// stops, so on any host that answers it the command does not outlive the
     /// call. A host that takes no signal request leaves the command running;
     /// nothing else pie can do about that without closing the channel, which
@@ -386,12 +386,17 @@ impl SshSession {
         let command = command.into();
         let command_line = command.command_line();
         let transport = self.exec(command).await?;
-        let TransportParts {
-            mut reader,
-            mut writer,
+        let (
+            Pipes {
+                stdout: mut reader,
+                stdin: mut writer,
+                stderr,
+            },
             mut control,
-            mut diagnostics,
-        } = transport.split()?;
+        ) = transport.into_pipes();
+        // Held as an option so the cap below can drop it: a stream nobody reads
+        // is a stream the command blocks on writing.
+        let mut diagnostics = Some(stderr);
 
         // The command is not reading anything pie has to say; its stdin ends
         // now, so a command that waits for input fails fast instead of holding
@@ -418,7 +423,7 @@ impl SshSession {
                 stdout.truncate(OUTPUT_BYTES as usize);
                 drop(reader);
                 diagnostics = None;
-                tracing::debug!(target: "pi_rpc::ssh", "the command printed past the capture cap; its output was cut there");
+                tracing::debug!(target: "transport::ssh", "the command printed past the capture cap; its output was cut there");
             }
             let err = async {
                 if let Some(diagnostics) = diagnostics.as_mut() {
@@ -451,7 +456,7 @@ impl SshSession {
         // is reported rather than swallowed.
         for (what, result) in [("stdout", out), ("stderr", err)] {
             if let Err(error) = result {
-                tracing::warn!(target: "pi_rpc::ssh", %error, what, "could not read the command's output to its end");
+                tracing::warn!(target: "transport::ssh", %error, what, "could not read the command's output to its end");
             }
         }
         // A capped command is still running: end it the way `head` ends a
@@ -479,7 +484,7 @@ impl SshSession {
     /// Opens `name` as a subsystem channel of this session, like `sftp`.
     ///
     /// The returned stream is what a subsystem client reads and writes; pie's
-    /// own file scans hand it to an sftp client outside `pi_rpc`.
+    /// own file scans hand it to an sftp client outside this module.
     ///
     /// # Errors
     ///
@@ -595,13 +600,23 @@ impl std::fmt::Debug for SshTransport {
     }
 }
 
-/// The streams of an SSH exec channel.
-impl Transport for SshTransport {
-    type Reader = DuplexStream;
-    type Writer = Box<dyn AsyncWrite + Unpin + Send + 'static>;
-    type Control = SshControl;
+/// The copying pipes of an SSH exec channel.
+///
+/// Named rather than a tuple so the reading side of [`SshSession::output`] and
+/// the record side of [`SshTransport::split`] take them the same way.
+struct Pipes {
+    /// The command's standard output, copied out of the channel.
+    stdout: DuplexStream,
+    /// The command's standard input: russh's opaque writer, whose
+    /// `poll_shutdown` sends the channel EOF.
+    stdin: Box<dyn AsyncWrite + Unpin + Send + 'static>,
+    /// The command's standard error, copied out of the channel.
+    stderr: DuplexStream,
+}
 
-    fn split(self) -> Result<TransportParts<Self::Reader, Self::Writer, Self::Control>> {
+impl SshTransport {
+    /// Takes the channel apart: the copying pipes, and the lifecycle behind them.
+    fn into_pipes(self) -> (Pipes, SshControl) {
         let Self {
             channel,
             endpoint,
@@ -616,20 +631,32 @@ impl Transport for SshTransport {
         let stop = Arc::new(Notify::new());
         tokio::spawn(pump(read_half, stdout_tx, stderr_tx, early, exit_tx, Arc::clone(&stop)));
 
-        Ok(TransportParts {
-            reader: stdout_rx,
-            // russh's opaque writer: its `poll_shutdown` sends the channel EOF
-            // that gives the remote pi EOF on stdin.
-            writer: Box::new(write_half.make_writer()),
-            control: SshControl {
+        (
+            Pipes {
+                stdout: stdout_rx,
+                stdin: Box::new(write_half.make_writer()),
+                stderr: stderr_rx,
+            },
+            SshControl {
                 endpoint,
                 write_half,
                 exit: exit_rx,
                 stop,
                 killed: false,
             },
-            diagnostics: Some(Box::new(stderr_rx)),
-        })
+        )
+    }
+
+    /// The channel's bytes, as the records the protocol client reads, and the
+    /// lifecycle of the command behind them.
+    ///
+    /// # Errors
+    ///
+    /// Never today: the copy pipes are made here rather than asked of the host.
+    /// The signature keeps room for the day one of them is not.
+    pub fn split(self) -> Result<(Wire, SshControl)> {
+        let (pipes, control) = self.into_pipes();
+        Ok((Wire::of_channel(pipes.stdout, pipes.stdin, Some(pipes.stderr)), control))
     }
 }
 
@@ -655,7 +682,7 @@ impl std::fmt::Debug for SshControl {
     }
 }
 
-impl Control for SshControl {
+impl Lifecycle for SshControl {
     async fn terminate(&mut self) -> Result<()> {
         // The kill is sshd's `signal` channel request (session_input_channel_req
         // routes it to session_signal_req, which does the killpg): neither
@@ -895,7 +922,7 @@ async fn pump(
     drop(stderr);
     if dropped_stderr > 0 {
         tracing::debug!(
-            target: "pi_rpc::ssh",
+            target: "transport::ssh",
             bytes = dropped_stderr,
             "dropped pi stderr nobody was reading"
         );

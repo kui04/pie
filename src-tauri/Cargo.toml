@@ -1,6 +1,6 @@
 [package]
 name = "pie"
-version = "0.99.2"
+version = "1.1.0"
 description = "A cross-platform GUI for Pi, mobile first"
 authors = ["kui04"]
 edition = "2024"
@@ -22,6 +22,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.23"
 dirs = "7"
+# The wire protocol, mirrored from the pinned Pi release. The crate carries that
+# release's commit in its own `[package.metadata.pi_rpc] pi_rev`, and
+# `Cargo.lock` holds the crate revision this app resolved.
+pi_rpc = { git = "https://github.com/kui04/pi_rpc" }
 russh = { version = "0.63.3", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3.0.1"
 serde = { version = "1", features = ["derive"] }
@@ -35,13 +39,6 @@ time = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# `no-serde-warnings`: ts-rs cannot read `deserialize_with`, which
-# `crate::pi_rpc::protocol::model::ThinkingLevelMap` uses on seven fields to keep
-# "absent" apart from `null`. It changes no shape here, and the generated type of
-# that struct is pinned by `tests/types.rs`, test
-# `a_key_that_is_absent_apart_from_null_stays_both`. Without the feature, every
-# build prints seven warnings about an attribute that is deliberate.
-ts-rs = { version = "12", features = ["no-serde-warnings", "serde-json-impl"] }
 
 # Alphabetical, like `[dependencies]` above.
 [dev-dependencies]

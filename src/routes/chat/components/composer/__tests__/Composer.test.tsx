@@ -36,7 +36,7 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
 
 /** A refused call, in the shape the boundary sends. */
 function refusal(message: string) {
-    return { type: "rpc", message, error: { kind: "rpc" } };
+    return { type: "rpc", message, error: { kind: "command" } };
 }
 
 /**

@@ -15,7 +15,7 @@ import type {
     SessionEntry,
     ToolResultMessage,
     UserMessage,
-} from "@/lib/protocol";
+} from "@/lib/rpc-protocol";
 import type { LiveCall } from "@/lib/stream";
 import { linesOf, resultText } from "@/lib/text";
 

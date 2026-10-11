@@ -10,8 +10,14 @@
  */
 
 import { create } from "zustand";
-import type { AgentMessage, AssistantMessageEvent, EntriesData, SessionEntry, Usage } from "@/lib/protocol";
-import type { JsonValue } from "@/lib/protocol/serde_json/JsonValue";
+import type {
+    AgentMessage,
+    AssistantMessageEvent,
+    EntriesData,
+    JsonValue,
+    SessionEntry,
+    Usage,
+} from "@/lib/rpc-protocol";
 import {
     applyDelta,
     beginMessage,

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { user as userMessage } from "@/preview/fixtures";
 import { UserMessage } from "@/routes/chat/components/entries/UserMessage";
-import type { UserMessage as UserMessageData } from "@/lib/protocol";
+import type { UserMessage as UserMessageData } from "@/lib/rpc-protocol";
 
 const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
 

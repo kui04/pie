@@ -46,21 +46,6 @@ doc:
 rust-test:
     cd src-tauri && cargo test
 
-# regenerate the frontend's protocol types (src/lib/protocol) from the Rust mirror
-types:
-    rm -rf src/lib/protocol
-    cd src-tauri && cargo test --lib export_bindings
-
-# The generated types are what the protocol generates, and nothing generated is
-# untracked. Green means the next commit carries the types the protocol produces:
-# the check compares the worktree (regenerated) with the index, so a staged update
-# passes, and a copy that only HEAD is missing is reported instead of failed.
-types-check:
-    just types
-    @test -z "$(git diff --name-only -- src/lib/protocol)" || { echo "the staged copy is not what the protocol generates:"; git diff --stat -- src/lib/protocol; echo "stage the regenerated files"; exit 1; }
-    @test -z "$(git ls-files --others --exclude-standard -- src/lib/protocol)" || { echo "generated files are not under version control:"; git ls-files --others --exclude-standard -- src/lib/protocol; exit 1; }
-    @if ! git diff --quiet HEAD -- src/lib/protocol; then echo "note: the generated types differ from the last commit - include them in this one"; fi
-
 # the sshd the SSH transport tests talk to (builds tests/pi-host, prints exports)
 ssh-fixture:
     bash src-tauri/tests/scripts/ssh-fixture.sh start

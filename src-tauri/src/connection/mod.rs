@@ -16,36 +16,49 @@
 mod error;
 mod files;
 mod host_key;
+mod wire;
 
 pub use error::Error;
 pub use files::{DirEntryInfo, SessionSummary};
 pub use host_key::{AskHostKey, KnownHosts, PresentedKey};
+pub use wire::{
+    AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData, QueuedInputData,
+};
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use russh_sftp::client::SftpSession;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::PieError;
-use crate::pi_rpc::Client;
-use crate::pi_rpc::protocol::{
-    AvailableModelsData, AvailableThinkingLevelsData, BashResult, ClearQueueData, Command, CommandKind, CommandsData,
-    CompactionResult, EntriesData, ImageContent, LastAssistantTextData, Model, ModelThinkingLevel, PromptData,
-    SessionState, SessionStats, StreamingBehavior, SwitchSessionData,
+use crate::transport::{
+    ExecOutput, HostKey, LocalTransport, Peer, PeerHandle, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
 };
-use crate::pi_rpc::transport::{
-    ExecOutput, HostKey, LocalTransport, RemoteCommand, SshAuth, SshSession, SshTarget, Termination,
+use pi_rpc::client::{BashReq, Client, Config, PromptReq};
+use pi_rpc::response::{
+    BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats, SessionSwitch,
 };
+use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
 /// The time for pi to stop before pie kills it.
 ///
 /// Pi disposes its session when its stdin closes. Pie waits for that. A kill
 /// leaves a half-written session file. Five seconds is longer than this step
-/// needs, and short enough to look like an operation, not a hang.
+/// needs, and short enough to look like an operation, not a hang. It is also the
+/// client's own close deadline, so a close that runs out is one the kill below
+/// ends.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+/// How long one request to pi may take before pie calls it lost.
+///
+/// Most commands answer from pi's own memory. Three of them run as long as the
+/// work does: a prompt waits for its turn, a compaction for the summary, a shell
+/// command for the command. Pie puts no timer on those - a person stops them
+/// with `abort` or `abort_bash` - so this bound is a backstop for a wedged pi
+/// rather than a deadline for the work, and it is a day.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// What the frontend asks pie to connect to.
 #[derive(Debug, Clone, Deserialize)]
@@ -195,10 +208,43 @@ impl Media {
     }
 }
 
+/// A peer and the client that speaks to it: what one session is made of.
+///
+/// The two travel together because neither is useful alone - the client owns the
+/// records, the handle owns the process - and because the client's own deadline
+/// for a close is the grace this app gives pi before it kills it.
+struct Speaking {
+    client: Client,
+    peer: PeerHandle,
+}
+
+impl Speaking {
+    /// Splits a started peer and starts the client over it.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the peer to hand its bytes over, as [`PieError`].
+    ///
+    /// # Panics
+    ///
+    /// Without a Tokio runtime, like the client's own start: the read loop and
+    /// the watch of the peer both run in tasks.
+    fn of(peer: Peer) -> Result<Self, PieError> {
+        let (wire, peer) = peer.split()?;
+        let config = Config::default()
+            .with_request_timeout(REQUEST_TIMEOUT)
+            .with_close_timeout(SHUTDOWN_GRACE);
+        Ok(Self {
+            client: Client::with_config(wire, config),
+            peer,
+        })
+    }
+}
+
 /// One `pi --mode rpc` process and the client that speaks to it.
 ///
-/// A clone is another handle to the same process: the id, the directory and the
-/// client inside are all values a second hand can hold.
+/// A clone is another handle to the same process: the id, the directory, the
+/// client and the watch of its end are all values a second hand can hold.
 #[derive(Debug, Clone)]
 pub struct Session {
     id: String,
@@ -206,6 +252,9 @@ pub struct Session {
     /// login shell decided.
     cwd: Option<PathBuf>,
     client: Client,
+    /// The process or channel behind the client: whether it still runs, how to
+    /// end it, and how to wait for its end.
+    peer: PeerHandle,
 }
 
 /// What the frontend receives after a connection is ready.
@@ -264,12 +313,12 @@ impl Connection {
         options: &ConnectOptions,
     ) -> Result<Self, PieError> {
         let id = id.into();
-        let (endpoint, cwd, client, media) = match spec {
+        let (endpoint, cwd, speaking, media) = match spec {
             ConnectSpec::Local => {
                 // A pi that is not the release of this build speaks a protocol
                 // that pie does not know. Without the check, the mismatch looks
                 // like a fault of pi, not like the wrong pi.
-                crate::pi_rpc::check_version(crate::pi_rpc::probe_version("pi").await?)?;
+                crate::transport::check_version(crate::transport::probe_version("pi").await?)?;
                 let mut transport = LocalTransport::pi();
                 if let Some(home) = &options.home {
                     transport = transport.cwd(home);
@@ -277,7 +326,7 @@ impl Connection {
                 (
                     LOCAL_ENDPOINT.to_string(),
                     options.home.clone(),
-                    Client::start(transport.spawn()?)?,
+                    Speaking::of(Peer::Local(transport.spawn()?))?,
                     Media::Local {
                         sessions_root: files::local_sessions_root(),
                         home: options.home.clone().or_else(dirs::home_dir),
@@ -303,7 +352,7 @@ impl Connection {
                 (
                     endpoint,
                     None,
-                    Client::start(transport)?,
+                    Speaking::of(Peer::Ssh(transport))?,
                     Media::Ssh {
                         session,
                         sftp: Mutex::new(None),
@@ -317,7 +366,8 @@ impl Connection {
             sessions: vec![Session {
                 id: session_id(&id, options.session_number),
                 cwd,
-                client,
+                client: speaking.client,
+                peer: speaking.peer,
             }],
             id,
             endpoint,
@@ -355,7 +405,7 @@ impl Connection {
     /// event yet. Therefore the app tells a live connection from a connection
     /// with a dead host here.
     pub fn is_alive(&self) -> bool {
-        self.sessions.iter().any(|session| !session.client.is_closed())
+        self.sessions.iter().any(|session| session.peer.is_alive())
     }
 
     /// What the frontend is told about this connection.
@@ -442,13 +492,15 @@ impl Connection {
     /// listing in progress meets a host that is already gone.
     pub async fn disconnect(&self) {
         for session in &self.sessions {
-            if tokio::time::timeout(SHUTDOWN_GRACE, session.client.shutdown())
-                .await
-                .is_err()
-            {
+            // Closing says "wind down": pi's stdin ends, it disposes the session,
+            // and the client keeps reading until its stdout does. The deadline is
+            // the client's own (`SHUTDOWN_GRACE`), so a close that reports a
+            // failure is a pi that did not go - and a kill is what is left.
+            if session.client.close().await.is_err() {
                 tracing::warn!(session = %session.id, "pi did not exit in time; killing it");
-                session.client.terminate().await;
+                session.peer.terminate().await;
             }
+            session.peer.wait().await;
         }
         self.media.close().await;
         tracing::info!(connection = %self.id, "disconnected");
@@ -457,22 +509,22 @@ impl Connection {
 
 /// Reads the version that `pi --version` printed on the host.
 ///
-/// This is the same check as [`probe_version`](crate::pi_rpc::probe_version) and
-/// [`check_version`](crate::pi_rpc::check_version) on this machine. This run
+/// This is the same check as [`probe_version`](crate::transport::probe_version) and
+/// [`check_version`](crate::transport::check_version) on this machine. This run
 /// happened on the host. Therefore its failures name the endpoint, and the
 /// output of a wrapped pi is the reason to pass on.
 ///
 /// The failure of either module, because either event can occur here. A `pi`
-/// that printed a version that pie does not speak is the failure of the protocol
-/// layer. A probe with no answer is the failure of the reach of this side to the
-/// machine.
+/// that printed a version that pie does not speak is the failure of the reach to
+/// the host, which names it. A probe with no answer is the failure of the
+/// connection of pie to the machine.
 fn checked_remote_version(endpoint: &str, output: ExecOutput) -> Result<(), PieError> {
     let printed = String::from_utf8_lossy(&output.stdout);
     let printed = printed.trim();
     if let Termination::Exited { success: true, .. } = output.termination
         && !printed.is_empty()
     {
-        crate::pi_rpc::check_version(printed)?;
+        crate::transport::check_version(printed)?;
         return Ok(());
     }
 
@@ -534,15 +586,9 @@ impl Session {
         &self.client
     }
 
-    /// Sends one command and decodes the answer into its mirrored type.
-    ///
-    /// A read is a command whose answer is data, not an effect: pi answers the
-    /// three of them from its own memory, and a failure here is the failure of
-    /// the protocol. A write can also be refused by pi itself, and it arrives
-    /// here the same way — [`Response::into_result`](crate::pi_rpc::protocol::Response::into_result)
-    /// turns a refusal into `Error::Rpc` with pi's own message.
-    async fn ask<T: DeserializeOwned>(&self, command: Command) -> Result<T, PieError> {
-        Ok(self.client.request(command).await?.into_result()?.decode::<T>()?)
+    /// The watch of the process or channel behind this session.
+    pub fn peer(&self) -> &PeerHandle {
+        &self.peer
     }
 
     /// The state of this session: its model, its run, its name, its counts.
@@ -552,10 +598,10 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// The failure of the protocol: pi refuses the command, the payload has a
-    /// shape this mirror does not know, or the pi of this session is gone.
+    /// The failure of the protocol: pi refuses the command, or its answer does
+    /// not match the mirrored type, or the pi of this session is gone.
     pub async fn state(&self) -> Result<SessionState, PieError> {
-        self.ask(Command::new(CommandKind::GetState)).await
+        Ok(self.client.get_state().await?)
     }
 
     /// Every entry of this session, and the leaf the session points at.
@@ -568,8 +614,8 @@ impl Session {
     /// # Errors
     ///
     /// The same as [`Session::state`].
-    pub async fn entries(&self) -> Result<EntriesData, PieError> {
-        self.ask(Command::new(CommandKind::GetEntries { since: None })).await
+    pub async fn entries(&self) -> Result<EntryList, PieError> {
+        Ok(self.client.get_entries(None).await?)
     }
 
     /// The usage of this session: its counts, its tokens, its cost.
@@ -578,7 +624,7 @@ impl Session {
     ///
     /// The same as [`Session::state`].
     pub async fn stats(&self) -> Result<SessionStats, PieError> {
-        self.ask(Command::new(CommandKind::GetSessionStats)).await
+        Ok(self.client.get_session_stats().await?)
     }
 
     /// Makes this session continue the conversation in another session file.
@@ -609,12 +655,9 @@ impl Session {
     /// including a refusal of pi itself: neither a session file whose working
     /// directory is gone nor a file of the host that is not a session is one pi
     /// opens.
-    pub async fn switch_session(&self, session_path: &str) -> Result<SwitchSessionData, PieError> {
+    pub async fn switch_session(&self, session_path: &str) -> Result<SessionSwitch, PieError> {
         let path = files::checked_session_path(session_path)?;
-        self.ask(Command::new(CommandKind::SwitchSession {
-            session_path: path.to_string(),
-        }))
-        .await
+        Ok(self.client.switch_session(path).await?)
     }
 
     /// What the frontend is told about this session.
@@ -652,12 +695,15 @@ impl Session {
         images: Option<Vec<ImageContent>>,
         behavior: Option<StreamingBehavior>,
     ) -> Result<PromptData, PieError> {
-        self.ask(Command::new(CommandKind::Prompt {
-            message: message.to_string(),
-            images,
-            streaming_behavior: behavior,
-        }))
-        .await
+        let disposition = self
+            .client
+            .prompt_with(PromptReq {
+                message: message.to_string(),
+                images,
+                streaming_behavior: behavior,
+            })
+            .await?;
+        Ok(PromptData { disposition })
     }
 
     /// Stops the run of this session, and a compaction or branch summary in
@@ -672,7 +718,7 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn abort(&self) -> Result<(), PieError> {
-        self.act(Command::new(CommandKind::Abort)).await
+        Ok(self.client.abort().await?)
     }
 
     /// Drops every queued message of this session and answers which ones they were.
@@ -685,7 +731,7 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn clear_queue(&self) -> Result<ClearQueueData, PieError> {
-        self.ask(Command::new(CommandKind::ClearQueue)).await
+        Ok(self.client.clear_queue().await?)
     }
 
     /// Runs a shell command on the host of pi, in the directory of this session.
@@ -703,11 +749,13 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn bash(&self, command: &str, exclude_from_context: bool) -> Result<BashResult, PieError> {
-        self.ask(Command::new(CommandKind::Bash {
-            command: command.to_string(),
-            exclude_from_context: Some(exclude_from_context),
-        }))
-        .await
+        Ok(self
+            .client
+            .bash_with(BashReq {
+                command: command.to_string(),
+                exclude_from_context: Some(exclude_from_context),
+            })
+            .await?)
     }
 
     /// Stops the shell command of this session, if one runs.
@@ -716,7 +764,7 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn abort_bash(&self) -> Result<(), PieError> {
-        self.act(Command::new(CommandKind::AbortBash)).await
+        Ok(self.client.abort_bash().await?)
     }
 
     /// The commands that a prompt of this session can invoke.
@@ -729,7 +777,9 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn commands(&self) -> Result<CommandsData, PieError> {
-        self.ask(Command::new(CommandKind::GetCommands)).await
+        Ok(CommandsData {
+            commands: self.client.get_commands().await?,
+        })
     }
 
     /// The models that this session can use.
@@ -738,7 +788,9 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn available_models(&self) -> Result<AvailableModelsData, PieError> {
-        self.ask(Command::new(CommandKind::GetAvailableModels)).await
+        Ok(AvailableModelsData {
+            models: self.client.get_available_models().await?,
+        })
     }
 
     /// The thinking levels that this session accepts.
@@ -747,7 +799,9 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn available_thinking_levels(&self) -> Result<AvailableThinkingLevelsData, PieError> {
-        self.ask(Command::new(CommandKind::GetAvailableThinkingLevels)).await
+        Ok(AvailableThinkingLevelsData {
+            levels: self.client.get_available_thinking_levels().await?,
+        })
     }
 
     /// Selects the model of this session and answers the one that is now active.
@@ -756,11 +810,7 @@ impl Session {
     ///
     /// The failure of the protocol, including a model that pi does not know.
     pub async fn set_model(&self, provider: &str, model_id: &str) -> Result<Model, PieError> {
-        self.ask(Command::new(CommandKind::SetModel {
-            provider: provider.to_string(),
-            model_id: model_id.to_string(),
-        }))
-        .await
+        Ok(self.client.set_model(provider, model_id).await?)
     }
 
     /// Sets the thinking level of this session.
@@ -768,8 +818,8 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol, including a level that the session does not support.
-    pub async fn set_thinking_level(&self, level: ModelThinkingLevel) -> Result<(), PieError> {
-        self.act(Command::new(CommandKind::SetThinkingLevel { level })).await
+    pub async fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), PieError> {
+        Ok(self.client.set_thinking_level(level).await?)
     }
 
     /// Turns automatic compaction of this session on or off.
@@ -778,7 +828,7 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn set_auto_compaction(&self, enabled: bool) -> Result<(), PieError> {
-        self.act(Command::new(CommandKind::SetAutoCompaction { enabled })).await
+        Ok(self.client.set_auto_compaction(enabled).await?)
     }
 
     /// Compacts the conversation of this session into a summary, now.
@@ -792,10 +842,7 @@ impl Session {
     ///
     /// The failure of the protocol, including a compaction that already runs.
     pub async fn compact(&self, custom_instructions: Option<&str>) -> Result<CompactionResult, PieError> {
-        self.ask(Command::new(CommandKind::Compact {
-            custom_instructions: custom_instructions.map(str::to_string),
-        }))
-        .await
+        Ok(self.client.compact(custom_instructions).await?)
     }
 
     /// The text of the last assistant message of this session.
@@ -806,7 +853,9 @@ impl Session {
     ///
     /// The failure of the protocol.
     pub async fn last_assistant_text(&self) -> Result<LastAssistantTextData, PieError> {
-        self.ask(Command::new(CommandKind::GetLastAssistantText)).await
+        Ok(LastAssistantTextData {
+            text: self.client.get_last_assistant_text().await?,
+        })
     }
 
     /// Names this session.
@@ -815,22 +864,7 @@ impl Session {
     ///
     /// The failure of the protocol, including an empty name, which pi refuses.
     pub async fn set_session_name(&self, name: &str) -> Result<(), PieError> {
-        self.act(Command::new(CommandKind::SetSessionName { name: name.to_string() }))
-            .await
-    }
-
-    /// Sends one command whose answer carries nothing and waits for it.
-    ///
-    /// The failure of pi arrives here the same way as the failure of a read:
-    /// [`Response::into_result`](crate::pi_rpc::protocol::Response::into_result)
-    /// turns a refusal into `Error::Rpc` with pi's own message.
-    ///
-    /// # Errors
-    ///
-    /// The failure of the protocol.
-    async fn act(&self, command: Command) -> Result<(), PieError> {
-        self.client.request(command).await?.into_result()?;
-        Ok(())
+        Ok(self.client.set_session_name(name).await?)
     }
 }
 
@@ -905,11 +939,12 @@ mod tests {
             termination: Termination::Exited { code: 0, success: true },
         };
 
-        checked_remote_version("pi@host:22", printed(crate::pi_rpc::PI_VERSION.as_bytes())).expect("the pin matches");
+        checked_remote_version("pi@host:22", printed(crate::transport::PI_VERSION.as_bytes()))
+            .expect("the pin matches");
 
         match checked_remote_version("pi@host:22", printed(b"0.84.2")).unwrap_err() {
-            PieError::Rpc { error: box_error, .. } => match *box_error {
-                crate::pi_rpc::Error::VersionMismatch { found, .. } => assert_eq!(found, "0.84.2"),
+            PieError::Transport { error: box_error, .. } => match *box_error {
+                crate::transport::Error::VersionMismatch { found, .. } => assert_eq!(found, "0.84.2"),
                 ref other => panic!("unexpected error: {other:?}"),
             },
             other => panic!("unexpected error: {other:?}"),

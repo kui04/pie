@@ -25,6 +25,18 @@ const args = ["--mode", "rpc"];
 if (scenario === "tour" || scenario === "session")
   args.push("--session-dir", "/tmp/pie-recording-sessions");
 else args.push("--no-session");
+// A recording must not depend on the model a machine defaults to, so the model
+// that produced a fixture is given here and reaches every model call of the
+// run. PI_RECORD_PROVIDER, PI_RECORD_MODEL and PI_RECORD_THINKING are optional:
+// without them pi uses its own default.
+for (const [flag, name] of [
+  ["--provider", "PI_RECORD_PROVIDER"],
+  ["--model", "PI_RECORD_MODEL"],
+  ["--thinking", "PI_RECORD_THINKING"],
+]) {
+  const value = process.env[name];
+  if (value) args.push(flag, value);
+}
 
 const out = createWriteStream(outFile, { flags: "w" });
 const pi = spawn("pi", args, { stdio: ["pipe", "pipe", "inherit"] });
@@ -79,9 +91,15 @@ pi.on("exit", (code) => {
 async function reasoning() {
   let phase = "turn-1";
   send({ type: "set_thinking_level", level: "max" });
+  // A manual `compact` only does work when the conversation exceeds the
+  // `keepRecentTokens` window pi keeps verbatim (20000 tokens by default), so
+  // each turn here reads a large file: two bash results of this size are what
+  // puts the run over that window and gives the compaction something to
+  // summarize.
   send({
     type: "prompt",
-    message: "Read package.json and reply with only its version.",
+    message:
+      "Use the bash tool to print the first 1000 lines of pnpm-lock.yaml, then reply with only the number of lines you saw.",
   });
 
   // Runs are driven by `agent_end` (a turn settled) and by responses (a command
@@ -89,7 +107,11 @@ async function reasoning() {
   onEvent.agent_end = () => {
     if (phase === "turn-1") {
       phase = "turn-2";
-      send({ type: "prompt", message: "Reply with only: second turn" });
+      send({
+        type: "prompt",
+        message:
+          "Use the bash tool to print lines 1001-2000 of pnpm-lock.yaml, then reply with only the number of lines you saw.",
+      });
     } else if (phase === "turn-2") {
       phase = "compacting";
       setTimeout(() => send({ type: "compact" }), 1500);
@@ -124,8 +146,10 @@ async function reasoning() {
     send({ type: "export_html", outputPath: "/tmp/pie-export.html" });
     setTimeout(stop, 6000);
   };
-  await sleep(300000);
-  stop();
+  // The recording ends when pi exits, which the settled handler above sets in
+  // motion. A fixed sleep here held the whole script open long after the file
+  // was complete.
+  await new Promise((resolve) => pi.once("exit", resolve));
 }
 
 /// Session commands that need no model at all: file-backed sessions, switching,

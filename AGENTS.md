@@ -5,9 +5,9 @@
 Pie is a cross-platform GUI for [Pi](https://github.com/earendil-works/pi),
 mobile first. Tauri 2: React 19 + TypeScript + Vite 8 frontend in `src/`, Rust
 backend in `src-tauri/`, committed Android Gradle project in
-`src-tauri/gen/android/` (only `gen/schemas` is ignored). Pi's wire protocol is
-`src-tauri/src/pi_rpc/`, a module of the app crate whose boundary the tests
-enforce (`src-tauri/tests/purity.rs`); the version tracks the Pi release.
+`src-tauri/gen/android/` (only `gen/schemas` is ignored). Pi's wire protocol
+lives in `pi_rpc` (https://github.com/kui04/pi_rpc), a crate of its own that
+this app takes as a git dependency; the version tracks the Pi release.
 
 Architecture: React does UI + UI state only; Rust owns all logic; Pi is driven
 as `pi --mode rpc` (JSONL over stdio), local spawn or SSH exec — the machine
@@ -25,7 +25,7 @@ Read and strictly follow the matching rule file BEFORE writing code — they are
 contracts, not suggestions. Deviations require explicit user approval.
 
 - Anything: `.agents/rules/architecture.md`
-- `src-tauri/src/pi_rpc/**` or any transport code: `.agents/rules/pi-rpc.md`
+- `src-tauri/src/transport/**` or the `pi_rpc` crate: `.agents/rules/pi-rpc.md`
 - `src/**` (React): `.agents/rules/frontend.md` and `.agents/rules/state.md`
 
 ## Setup
@@ -52,18 +52,18 @@ are the source of truth for the commands themselves.
 - Rust: `just check`, `just clippy` (warnings are errors, all targets),
   `just rust-test`, `just doc` (rustdoc with warnings as errors, so a link to a
   private item fails instead of going unnoticed) — all inside `src-tauri`, where
-  the app and the `pi_rpc` module live. Ignored tests start a real `pi`: run
-  them with `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
+  the app lives. Ignored tests start a real `pi`: run them with
+  `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
   `just ssh-test` for the SSH paths (transport and the app's connection layer),
   which brings up its own sshd in a container (`just ssh-fixture` to keep one
   running).
 - JS: `just lint`, `just format`, `just test` — none of them typechecks; only
   `pnpm build` runs `tsc`.
-- Frontend types of the protocol: `just types` writes them (`src/lib/protocol`,
-  one generated `index.ts`), and `just types-check` regenerates and reports when
-  the worktree does not hold what the protocol produces. Run it before pushing,
-  like `just clippy` — nothing else runs it, and a filtered `cargo test` leaves
-  the generated file truncated (see `src-tauri/.cargo/config.toml`).
+- Frontend types of the protocol: `src/lib/rpc-protocol.ts` names them by
+  aliasing pi's own published types (`@earendil-works/pi-coding-agent` and
+  `@earendil-works/pi-ai`, both dev dependencies). It is hand-written and
+  reviewed with the `pi_rpc` crate it describes — a protocol change touches
+  both, and `pnpm build` is what proves the alias still resolves.
 
 Stories sit in their component's `__stories__/` folder
 (`src/**/__stories__/*.stories.tsx`) and render from static args; the recorded
@@ -93,19 +93,23 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   never hand-write a primitive shadcn already provides, and merge upstream
   updates with `shadcn add <name> --diff`.
 - The app layer keeps its own shape: `src-tauri/src/error.rs` is the boundary
-  aggregation (`PieError`, holding the `pi_rpc::Error`, `connection::Error` and
-  `commands::Error` of the layer that failed, one `From` each),
-  `src-tauri/src/connection/` holds the one host pie talks to (and stays free of
-  Tauri, so it can be tested against a real host), and `src-tauri/src/commands/`
-  is the IPC surface — commands return `Result<T, PieError>`, events are
-  `pi://<area>/{id}`, and each area has its own file.
+  aggregation (`PieError`, holding the `pi_rpc` crate's error,
+  `transport::Error`, `connection::Error` and `commands::Error` of the layer
+  that failed, one `From` for each), `src-tauri/src/connection/` holds the one
+  host pie talks to (and stays free of Tauri, so it can be tested against a real
+  host), and `src-tauri/src/commands/` is the IPC surface — commands return
+  `Result<T, PieError>`, events are `pi://<area>/{id}`, and each area has its
+  own file.
 - Errors: every layer names its own failures as a `thiserror` enum whose
-  variants are what a caller matches on (`pi_rpc::Error`, `connection::Error`,
-  `commands::Error`), and no layer wraps another's. `PieError` is the
-  aggregation of them — `PieError::{Connection, Commands, Rpc, Io}`, one variant
-  per module — carrying the module, the message the frontend reads, and the
-  named variant underneath, so a new way to fail belongs in the layer that owns
-  it and nothing is flattened on the way through.
+  variants are what a caller matches on (`transport::Error` for the reach to a
+  machine and the run of pi on it, `connection::Error`, `commands::Error`), and
+  no layer wraps another's. `PieError` is the aggregation of them —
+  `PieError::{Connection, Commands, Rpc, Transport, Io}`, one variant per module
+  — carrying the module, the message the frontend reads, and the named variant
+  underneath, so a new way to fail belongs in the layer that owns it and nothing
+  is flattened on the way through. The protocol crate's own failures cross as
+  one of its five kinds (`RpcFailure` in `src-tauri/src/error.rs`), because it
+  is not serializable and its detail belongs in the log rather than on a screen.
 - The frontend reaches no `@tauri-apps/plugin-*` npm package: Rust registers the
   plugin and exports a command, and the capability permission goes with the npm
   package. `no-restricted-imports` in `eslint.config.js` enforces it;
@@ -119,16 +123,20 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   point into it — a comment that needs backing names the source and the fact it
   establishes, never a path that resolves only here.
 - Version tracks the latest
-  [Pi release](https://github.com/earendil-works/pi/releases) (currently
-  0.99.2). When bumping: edit `package.json`, `src-tauri/tauri.conf.json` and
+  [Pi release](https://github.com/earendil-works/pi/releases) (currently 1.1.0).
+  When bumping: edit `package.json`, `src-tauri/tauri.conf.json` and
   `src-tauri/Cargo.toml`; run `just check` (refreshes `Cargo.lock`); move the
   `.codegraph/.references/pi` checkout to the release commit, re-run
   `codegraph index`, and re-record `src-tauri/tests/fixtures` against the new
   binary (`src-tauri/tests/scripts/README.md`). The SSH test host follows the
   pin too: `PI_VERSION` and `PI_SHA256` in `src-tauri/tests/pi-host/Dockerfile`,
   where the hash is the one from the release's `SHA256SUMS`; a test compares
-  that argument against the crate version, so a stale one fails
-  `just rust-test`.
+  that argument against this crate's version, so a stale one fails
+  `just rust-test`. The protocol crate moves with the same release: its
+  `[package.metadata.pi_rpc] pi_rev` names the release commit, and this app then
+  updates the dependency (`cargo update -p pi_rpc`) so `Cargo.lock` records the
+  revision - `src-tauri/tests/conformance.rs` reads the recorded corpus through
+  that crate.
 - `devenv.nix` is formatted by nixfmt — keep its multi-line style.
 - prettier/eslint hooks deliberately use `node_modules/.bin` binaries (version
   parity with local dev) — don't point them at nixpkgs versions.
@@ -137,13 +145,14 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 
 ## Gotchas
 
-- React never interprets the wire: `src/lib/protocol/` holds types only, and it
-  is generated — `just types` writes it from the Rust protocol types
-  (`cargo test` does too), so never edit it by hand; parsing, framing and
-  degradation stay in Rust.
-- `src-tauri/src/pi_rpc` mirrors Pi's wire protocol, not Tauri's needs: it holds
-  no connection policy, and an unmapped record must degrade to
-  `ServerMessage::Unknown` instead of failing the connection.
+- React never interprets the wire: `src/lib/rpc-protocol.ts` holds types only,
+  and they come from pi's own packages — parsing, framing and degradation stay
+  in Rust.
+- The `pi_rpc` crate (https://github.com/kui04/pi_rpc) mirrors Pi's wire
+  protocol, not Tauri's needs: it holds no connection policy, and an unmapped
+  record must degrade to that crate's `Unknown` instead of failing the
+  connection. Its pi pin is its own `[package.metadata.pi_rpc]`, and the
+  revision this app builds against is the one in `Cargo.lock`.
 - pnpm 11 keeps build-script approvals in `pnpm-workspace.yaml`; esbuild is
   deliberately `false`, and a `set this to true or false` stub fails every
   `pnpm <script>`.

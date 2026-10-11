@@ -31,7 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-platform";
 import * as bridge from "@/lib/bridge";
 import { copyText } from "@/lib/clipboard";
-import type { ImageContent, StreamingBehavior } from "@/lib/protocol";
+import type { ImageContent, StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 import { CommandMenu } from "@/routes/chat/components/composer/CommandMenu";
 import { ModePickers } from "@/routes/chat/components/composer/ModePickers";

@@ -15,7 +15,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{commands, connection, pi_rpc};
+use crate::{commands, connection, transport};
 
 /// A failure that the frontend must handle.
 ///
@@ -48,14 +48,41 @@ pub enum PieError {
         error: Box<commands::Error>,
     },
 
-    /// The talk to pi, or to the transport below it, failed.
+    /// The reach to a host, or the process that runs pi, failed.
+    ///
+    /// This is the layer below the protocol: a `pi` that cannot be started, a
+    /// handshake that was refused, a host key nobody accepted. Which host to
+    /// reach and which key to trust are decisions of the app; this variant is
+    /// what the path itself reported.
     #[error("{message}")]
-    Rpc {
+    Transport {
         /// What a person reads.
         message: String,
         /// The failure underneath, named.
         #[source]
-        error: Box<pi_rpc::Error>,
+        error: Box<transport::Error>,
+    },
+
+    /// The talk to pi, or to the transport below it, failed.
+    ///
+    /// The protocol layer names five kinds of failure and nothing finer: a
+    /// broken byte path, a record it could not read, a command pi refused, a
+    /// deadline, and a stream that ended. Which of them a person meets is what
+    /// the sentence says; the record underneath carries the detail, and stays
+    /// on this side of the boundary.
+    #[error("{message}")]
+    Rpc {
+        /// What a person reads.
+        message: String,
+        /// The name the protocol layer gave the failure.
+        #[serde(rename = "error")]
+        error: RpcFailure,
+        /// The failure underneath, kept whole for a log line. The protocol
+        /// layer's own enum carries no serde shape of its own, so it does not
+        /// travel.
+        #[serde(skip)]
+        #[source]
+        source: Box<pi_rpc::error::Error>,
     },
 
     /// Pie cannot read a file: wrong permissions, a directory, or a URI that the
@@ -111,11 +138,60 @@ impl From<commands::Error> for PieError {
     }
 }
 
-impl From<pi_rpc::Error> for PieError {
-    fn from(error: pi_rpc::Error) -> Self {
-        Self::Rpc {
+impl From<transport::Error> for PieError {
+    fn from(error: transport::Error) -> Self {
+        Self::Transport {
             message: error.to_string(),
             error: Box::new(error),
+        }
+    }
+}
+
+impl From<pi_rpc::error::Error> for PieError {
+    fn from(error: pi_rpc::error::Error) -> Self {
+        Self::Rpc {
+            message: error.to_string(),
+            error: RpcFailure::from(error.kind()),
+            source: Box::new(error),
+        }
+    }
+}
+
+/// The name of a failure of the protocol layer, as the frontend reads it.
+///
+/// [`pi_rpc::ErrorKind`](pi_rpc::error::ErrorKind) names five, and the frontend
+/// holds one sentence for each. Its own enum is not serializable, so the name
+/// crosses as this one: the same names, under the `kind` key the frontend reads
+/// a failure name from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RpcFailure {
+    /// The byte path failed: a write error, a read error, a peer that is gone.
+    Transport,
+    /// A record was not valid protocol: bad UTF-8, bad JSON, over the cap.
+    Protocol,
+    /// pi refused the command, such as an unknown model.
+    Command,
+    /// A deadline passed before the answer arrived.
+    Timeout,
+    /// The peer closed cleanly while work was still pending.
+    Closed,
+}
+
+impl From<pi_rpc::error::ErrorKind> for RpcFailure {
+    fn from(kind: pi_rpc::error::ErrorKind) -> Self {
+        use pi_rpc::error::ErrorKind;
+        match kind {
+            ErrorKind::Transport => Self::Transport,
+            ErrorKind::Protocol => Self::Protocol,
+            ErrorKind::Command => Self::Command,
+            ErrorKind::Timeout => Self::Timeout,
+            ErrorKind::Closed => Self::Closed,
+            // The protocol layer may name a kind this build does not know. A
+            // record pie cannot classify is one it could not read, which is
+            // what `Protocol` says.
+            _ => Self::Protocol,
         }
     }
 }
@@ -142,11 +218,11 @@ mod tests {
 
     #[test]
     fn a_protocol_failure_keeps_the_name_that_reports_it() {
-        let crossing = crossing(PieError::from(pi_rpc::Error::Auth {
+        let crossing = crossing(PieError::from(transport::Error::Auth {
             endpoint: "pi@host:22".to_string(),
         }));
 
-        assert_eq!(crossing["type"], "rpc");
+        assert_eq!(crossing["type"], "transport");
         assert_eq!(crossing["error"]["kind"], "auth");
         assert_eq!(crossing["message"], "the host refused the credentials for pi@host:22");
     }
@@ -179,7 +255,10 @@ mod tests {
                 endpoint: "local".to_string(),
             }),
             PieError::from(connection::Error::NoHomeDirectory),
-            PieError::from(pi_rpc::Error::Closed),
+            PieError::from(pi_rpc::error::Error::new(
+                pi_rpc::error::ErrorKind::Closed,
+                "transport ended",
+            )),
             PieError::from(commands::Error::UnusableName { id: "".to_string() }),
             PieError::file(std::io::Error::other("denied")),
         ] {
@@ -197,7 +276,7 @@ mod tests {
 
     #[test]
     fn a_failure_keeps_the_error_underneath_it_for_a_log_line() {
-        let error = PieError::from(pi_rpc::Error::Connect {
+        let error = PieError::from(transport::Error::Connect {
             endpoint: "pi@host:22".to_string(),
             source: std::io::Error::other("connection refused"),
         });
@@ -216,10 +295,14 @@ mod tests {
         // count in the text shows this. Parsing into a map keeps one `kind`
         // without a warning.
         for error in [
-            PieError::from(pi_rpc::Error::Auth {
+            PieError::from(transport::Error::Auth {
                 endpoint: "pi@host:22".to_string(),
             }),
-            PieError::from(pi_rpc::Error::Io(std::io::Error::other("refused"))),
+            PieError::from(transport::Error::Io(std::io::Error::other("refused"))),
+            PieError::from(pi_rpc::error::Error::new(
+                pi_rpc::error::ErrorKind::Command,
+                "no such model",
+            )),
             PieError::from(connection::Error::AlreadyConnected {
                 endpoint: "local".to_string(),
             }),
@@ -234,6 +317,25 @@ mod tests {
                 text.matches("\"kind\":").count() <= 1,
                 "the name underneath is written twice: {text}"
             );
+        }
+    }
+
+    /// The frontend branches on the name of a protocol failure, so the name a
+    /// `pi_rpc` kind crosses as is part of the boundary's contract.
+    #[test]
+    fn a_protocol_failure_crosses_as_the_kind_the_layer_named() {
+        for (kind, name) in [
+            (pi_rpc::error::ErrorKind::Transport, "transport"),
+            (pi_rpc::error::ErrorKind::Protocol, "protocol"),
+            (pi_rpc::error::ErrorKind::Command, "command"),
+            (pi_rpc::error::ErrorKind::Timeout, "timeout"),
+            (pi_rpc::error::ErrorKind::Closed, "closed"),
+        ] {
+            let crossing = crossing(PieError::from(pi_rpc::error::Error::new(kind, "the detail")));
+
+            assert_eq!(crossing["type"], "rpc");
+            assert_eq!(crossing["error"]["kind"], name);
+            assert_eq!(crossing["message"], format!("{}: the detail", kind));
         }
     }
 }

@@ -39,8 +39,10 @@ use tokio::task::JoinSet;
 
 use crate::connection::Error;
 use crate::error::PieError;
-use crate::pi_rpc::protocol::{AgentMessage, SessionEntry, UserContent, UserContentPart};
-use crate::pi_rpc::transport::{SshSession, SubsystemStream, Termination};
+use crate::transport::{SshSession, SubsystemStream, Termination};
+
+use pi_rpc::entry::Entry;
+use pi_rpc::message::{Message, UserBlock, UserContent};
 
 /// The number of session files that one listing reads at the same time. The
 /// drawer of pi reads its own list with the same bound
@@ -257,8 +259,8 @@ fn cleaned_name(name: Option<&str>) -> Option<String> {
 /// `Some(None)` is a clear. Pi removes a name with a rename to nothing. A scan
 /// stops there and does not read an older name.
 fn name_in(line: &[u8]) -> Option<Option<String>> {
-    let entry: SessionEntry = serde_json::from_slice(line).ok()?;
-    let SessionEntry::SessionInfo(info) = entry else {
+    let entry: Entry = serde_json::from_slice(line).ok()?;
+    let Entry::SessionInfo(info) = entry else {
         return None;
     };
     Some(cleaned_name(info.name.as_deref()))
@@ -275,11 +277,11 @@ fn name_in(line: &[u8]) -> Option<Option<String>> {
 /// session drawer for a session that started with one space. The skip of that
 /// turn is the correct result.
 fn first_text(line: &[u8]) -> Option<String> {
-    let entry: SessionEntry = serde_json::from_slice(line).ok()?;
-    let SessionEntry::Message(message) = entry else {
+    let entry: Entry = serde_json::from_slice(line).ok()?;
+    let Entry::Message(message) = entry else {
         return None;
     };
-    let AgentMessage::User(user) = message.message else {
+    let Message::User(user) = message.message else {
         return None;
     };
     let text = text_of(&user.content);
@@ -287,15 +289,15 @@ fn first_text(line: &[u8]) -> Option<String> {
 }
 
 /// The text of the content of a message: a plain string as it is, or the text
-/// parts joined with one space, as pi reads them.
+/// blocks joined with one space, as pi reads them.
 fn text_of(content: &UserContent) -> String {
     match content {
         UserContent::Text(text) => text.clone(),
-        UserContent::Parts(parts) => parts
+        UserContent::Blocks(blocks) => blocks
             .iter()
-            .filter_map(|part| match part {
-                UserContentPart::Text(text) => Some(text.text.as_str()),
-                UserContentPart::Image(_) => None,
+            .filter_map(|block| match block {
+                UserBlock::Text(text) => Some(text.text.as_str()),
+                UserBlock::Image(_) | UserBlock::Other(_) => None,
             })
             .collect::<Vec<_>>()
             .join(" "),
@@ -1188,7 +1190,7 @@ async fn next_entry(entries: &mut tokio::fs::ReadDir, shown: &str) -> Result<Opt
 /// Quotes `text` for a POSIX shell, so that it reaches the remote command without
 /// a change.
 ///
-/// The same quoting is in the transport of `pi_rpc`, which cannot share it across
+/// The same quoting is in the transport, which cannot share it across
 /// the module boundary. The two encode different values: a directory that the user
 /// selected here, and a remote command there. Therefore a change to one is a change
 /// to both.

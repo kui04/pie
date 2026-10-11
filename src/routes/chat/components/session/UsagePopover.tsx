@@ -8,7 +8,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import type { SessionStats } from "@/lib/protocol";
+import type { SessionStats } from "@/lib/rpc-protocol";
 import {
     costText,
     formatTokens,

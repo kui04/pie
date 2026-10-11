@@ -1,61 +1,45 @@
 //! The pipe of one session.
 //!
-//! Pi writes four kinds of record to the process that runs one session: the
-//! events of the session, the dialogs of an extension, the failures of an
-//! extension, and the answers to commands. `connect` starts one task of this
-//! module for each session, and the task tells the frontend what pi said until
-//! the pi of that session ends.
+//! Pi writes records to the process that runs one session: the events of the
+//! session, the answers to commands, and the dialogs of an extension. `connect`
+//! starts one task of this module for each session, and the task tells the
+//! frontend what pi said until the pi of that session ends.
 //!
-//! The channels are `pi://session/{id}/event`, `.../state`, `.../prompt` and
-//! `.../error`. An event travels as itself, and the end travels as
-//! [`SessionLifecycle`]. Only the event channel is consumed today: the dialogs
-//! and the failures of an extension arrive on their channels and wait for the
-//! milestone that answers and reports them.
+//! The channels are `pi://session/{id}/event` and `.../state`. An event travels
+//! as the record pi wrote, re-encoded by the protocol layer's faithful path - a
+//! record of a kind this build does not mirror replays verbatim - so a protocol
+//! addition reaches the frontend as pi wrote it instead of being dropped. The
+//! end travels as [`SessionLifecycle`].
 //!
-//! An event travels as the mirror type, not as the line pi wrote: a field that
-//! this pin does not know is not in the type, and serde drops what it does not
-//! know, so such a field does not reach the frontend. The connect refuses a pi of
-//! another release (`pi_rpc::check_version`), which bounds that to a pi that
-//! reports this release and writes something else.
-//!
-//! Three kinds of record are not forwarded. A `Response` arrives here only when
-//! nobody waits for it, because the client hands an answer to its waiter and
-//! broadcasts the rest. `Unknown` and `Unparseable` say that pi moved ahead of
-//! this mirror. All three are a line in the log and nothing else: the frontend
-//! must not hear a record that this build cannot describe.
-//!
+//! An answer to a command never arrives here: the protocol layer hands it to
+//! whoever sent it, and only an answer nobody waits for reaches a subscriber.
 //! The end of a session arrives on its own channel, and the frontend may not
 //! hear it: it reads the id of a session from the answer of `connect`, so its
-//! listener can only start after that. A read of such a session fails with
-//! `pi_rpc::Error::Closed` instead, so the frontend still learns the truth from
-//! the command that reads.
+//! listener can only start after that. A read of such a session fails with the
+//! protocol layer's own closed error instead, so the frontend still learns the
+//! truth from the command that reads.
 //!
 //! What a listener that does not exist yet costs is silence. Tauri sends an
 //! event to a webview only when that webview already listens for the name, and
 //! its `emit` answers `Ok(())` when none does (`src/event/listener.rs` and
 //! `src/manager/mod.rs` of tauri 2.12.1). Nothing in this module can tell the
-//! difference: [`Sink`] for an `AppHandle` sees only a serialization failure or a
-//! name that the platform refuses. Therefore the pipe is not the last word on
+//! difference: [`Sink`] for an `AppHandle` sees only a serialization failure or
+//! a name that the platform refuses. Therefore the pipe is not the last word on
 //! what the frontend hears, and a record that no listener can take is gone
 //! without a line in the log.
-//!
-//! A dialog of an extension is the loss that hurts: pi waits for an answer until
-//! a response, an abort, or the timeout of the request, and only `select`,
-//! `confirm` and `input` may carry a timeout - the `editor` shape has no such
-//! field at all. A dialog without one that never reaches pie waits forever. The
-//! milestone that answers dialogs must therefore start from a channel the
-//! frontend can take before it knows the id, or from a record that Rust keeps
-//! for it. Neither exists yet.
 
 use std::future::Future;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::broadcast;
 
 use crate::connection::Session;
-use crate::pi_rpc::protocol::ServerMessage;
-use crate::pi_rpc::transport::Termination;
+use crate::transport::Termination;
+
+use pi_rpc::client::EventStream;
+use pi_rpc::error::ErrorKind;
+use pi_rpc::event::{Event, encode_event_value};
+use pi_rpc::extui::{ConfirmDialog, EditorDialog, InputDialog, Notice, SelectDialog, UiHandler, UiOutcome};
 
 /// What the frontend hears about the life of a session.
 ///
@@ -71,7 +55,7 @@ pub enum SessionLifecycle {
     /// The pi of this session ended. No record of this session follows.
     ///
     /// The termination separates the end that a person asked for from a pi that
-    /// died: `disconnect` closes pi's stdin, so its pi exits with success.
+    /// died: a disconnect closes pi's stdin, so its pi exits with success.
     Ended {
         /// How the process ended.
         termination: Termination,
@@ -115,37 +99,18 @@ fn state_channel(session: &str) -> String {
     format!("pi://session/{session}/state")
 }
 
-/// The channel that carries a dialog of an extension.
-fn prompt_channel(session: &str) -> String {
-    format!("pi://session/{session}/prompt")
-}
-
-/// The channel that carries a failure of an extension.
-fn error_channel(session: &str) -> String {
-    format!("pi://session/{session}/error")
-}
-
-/// Sends one record of pi on the channel of its kind.
+/// Sends one event of pi on the channel of its kind.
 ///
-/// A record that this pipe does not forward is dropped here, with the line in
-/// the log that says which kind it was. There is no routing value in between:
-/// the payloads of pi are large (an `Event` is over half a kilobyte), and a
-/// value that carried one would copy it.
-fn spread<S: Sink>(sink: &S, session: &str, record: ServerMessage) {
-    match record {
-        ServerMessage::Event(event) => sink.send(&event_channel(session), event),
-        ServerMessage::ExtensionUiRequest(request) => sink.send(&prompt_channel(session), request),
-        ServerMessage::ExtensionError(error) => sink.send(&error_channel(session), error),
-        // Nobody waits for this answer: the client gives a response to its
-        // waiter, and only an answer with no waiter reaches a subscriber.
-        ServerMessage::Response(response) => {
-            tracing::debug!(id = ?response.id, command = %response.command, "a response with no waiter is not forwarded");
-        }
-        ServerMessage::Unknown { raw } => {
-            tracing::debug!(record = %raw, "a record this mirror does not know is not forwarded");
-        }
-        ServerMessage::Unparseable { line, error } => {
-            tracing::warn!(%error, line = %line, "a line pi wrote is not JSON");
+/// The record is re-encoded through the protocol layer's faithful path rather
+/// than serialized from the mirrored type: a kind this build does not know
+/// replays verbatim, so a newer pi reaches the frontend as it wrote it. A
+/// record that will not encode is a line in the log: the frontend must not hear
+/// a record that this build cannot describe.
+fn spread<S: Sink>(sink: &S, session: &str, event: &Event) {
+    match encode_event_value(event) {
+        Ok(value) => sink.send(&event_channel(session), value),
+        Err(error) => {
+            tracing::warn!(%error, session, kind = event.tag(), "an event of pi could not be written down");
         }
     }
 }
@@ -153,18 +118,18 @@ fn spread<S: Sink>(sink: &S, session: &str, record: ServerMessage) {
 /// Forwards the records of one session until the pi of that session ends.
 ///
 /// `ended` is the future of the end, which the caller builds from
-/// [`Client::wait`](crate::pi_rpc::Client::wait). It is a parameter so that a
-/// test can drive this function with its own channel and its own end.
+/// [`Session::peer`](crate::connection::Session::peer). It is a parameter so that a
+/// test can drive this function with its own stream and its own end.
 ///
 /// # Panics
 ///
-/// Never. A channel that closed before the end could be read leaves this
-/// function through the wait for the end, which is the same wait the loop would
-/// have made.
+/// Never. A stream that ended before the end could be read leaves this function
+/// through the wait for the end, which is the same wait the loop would have
+/// made.
 pub async fn forward_loop<S: Sink, E: Future<Output = Termination>>(
     sink: S,
     session: &str,
-    mut records: broadcast::Receiver<ServerMessage>,
+    mut records: EventStream,
     ended: E,
 ) {
     tokio::pin!(ended);
@@ -172,28 +137,26 @@ pub async fn forward_loop<S: Sink, E: Future<Output = Termination>>(
         tokio::select! {
             // The records come first, and `biased` keeps that order. The read
             // loop of the client sets the end *after* it passes its last record
-            // on, so every record of pi is in this channel before the end can be
-            // read. Without `biased`, the two branches are polled in a random
+            // on, and the stream drains what is buffered before it reports the
+            // end, so every record of pi is on its way here before the end can
+            // be read. Without `biased`, the two branches are polled in a random
             // order, and the end that won the race would leave those records
-            // behind in the channel.
+            // behind.
             biased;
             record = records.recv() => match record {
-                Ok(record) => spread(&sink, session, record),
+                Ok(event) => spread(&sink, session, &event),
                 // This pipe fell behind the records of its session. The frontend
                 // reads the state again on its own - the snapshot of the
                 // transcript is the authority - so the pipe says what happened
-                // and carries on.
-                Err(broadcast::error::RecvError::Lagged(behind)) => {
-                    tracing::warn!(behind, session, "a pipe fell behind the records of its session");
+                // and carries on. The stream reports falling behind as a
+                // protocol failure and the end as a closed one, and those are
+                // the only two it reports.
+                Err(error) if error.kind() == ErrorKind::Protocol => {
+                    tracing::warn!(%error, session, "a pipe fell behind the records of its session");
                 }
-                // Unreachable while the caller holds a client: the sender of this
-                // channel lives beside the client, in the same `Inner`. If it
-                // ever happens, the records are gone and the end is the only
-                // fact left to report.
-                Err(broadcast::error::RecvError::Closed) => {
-                    tracing::debug!(session, "the channel of a session closed before its end");
-                    break None;
-                }
+                // The stream is over: the records are drained and the end is the
+                // only fact left to report.
+                Err(_) => break None,
             },
             termination = &mut ended => break Some(termination),
         }
@@ -209,13 +172,82 @@ pub async fn forward_loop<S: Sink, E: Future<Output = Termination>>(
 /// Starts the pipe of one session.
 ///
 /// `records` must come from the client of `session`, and the caller subscribes
-/// before this call: a broadcast channel delivers only to the receivers that are
-/// already there, so a task that subscribed on its own would have the wider
-/// window in which pi writes into no receiver at all.
-pub fn forward(app: AppHandle, session: &Session, records: broadcast::Receiver<ServerMessage>) {
+/// before this call: the stream carries only what is written after the
+/// subscription, so a task that subscribed on its own would have the wider
+/// window in which pi writes into no listener at all.
+pub fn forward(app: AppHandle, session: &Session, records: EventStream) {
     let id = session.id().to_string();
-    let client = session.client().clone();
+    let peer = session.peer().clone();
     tauri::async_runtime::spawn(async move {
-        forward_loop(app, &id, records, client.wait()).await;
+        forward_loop(app, &id, records, peer.wait()).await;
     });
+}
+
+/// Answers the dialogs pi opens on one session.
+///
+/// Pi blocks on four of them - `select`, `confirm`, `input` and `editor` - until
+/// an answer arrives or the dialog times out, and an `editor` dialog has no
+/// timeout at all. Until pie has a screen that asks a person, the one answer
+/// that keeps pi moving is a dismissal, which is what this handler gives.
+///
+/// Each dialog arrives with the wire id it was sent under; a future
+/// forwarding path can use that id to route an answer back to the dialog
+/// it came from. The notices and status lines that need no answer are not
+/// forwarded either: no screen reads them yet.
+pub async fn answer_dialogs(session: &Session) {
+    session
+        .client()
+        .set_ui_handler(Dialogs {
+            session: session.id().to_string(),
+        })
+        .await;
+}
+
+/// The handler that keeps a session moving while pie has no dialogs.
+struct Dialogs {
+    session: String,
+}
+
+#[pi_rpc::async_trait]
+impl UiHandler for Dialogs {
+    async fn select(&mut self, id: String, dialog: SelectDialog) -> UiOutcome {
+        self.dismissed("select", &id, &dialog.title);
+        UiOutcome::Dismissed
+    }
+
+    async fn confirm(&mut self, id: String, dialog: ConfirmDialog) -> bool {
+        self.dismissed("confirm", &id, &dialog.title);
+        false
+    }
+
+    async fn input(&mut self, id: String, dialog: InputDialog) -> UiOutcome {
+        self.dismissed("input", &id, &dialog.title);
+        UiOutcome::Dismissed
+    }
+
+    async fn editor(&mut self, id: String, dialog: EditorDialog) -> UiOutcome {
+        self.dismissed("editor", &id, &dialog.title);
+        UiOutcome::Dismissed
+    }
+
+    async fn notify(&mut self, notice: Notice) {
+        tracing::debug!(session = %self.session, message = %notice.message, "pi showed a notice");
+    }
+
+    async fn set_title(&mut self, title: pi_rpc::extui::WindowTitle) {
+        tracing::debug!(session = %self.session, title = %title.title, "pi set the window title");
+    }
+}
+
+impl Dialogs {
+    /// Says which dialog was dropped, and why.
+    fn dismissed(&self, method: &str, id: &str, title: &str) {
+        tracing::warn!(
+            session = %self.session,
+            dialog = method,
+            id,
+            title,
+            "a dialog of pi was dismissed: pie has no screen that answers one yet",
+        );
+    }
 }

@@ -165,7 +165,8 @@ pub async fn connect(
         // reads the id of the session. What pi wrote before then is lost, and
         // lost in silence - the module of `commands::pipe` carries the whole of
         // that, and the loss that a dialog can pay for it.
-        pipe::forward(app.clone(), session, session.client().clone().subscribe());
+        pipe::forward(app.clone(), session, session.client().subscribe());
+        pipe::answer_dialogs(session).await;
     }
     *slot = Some(connection);
     Ok(info)

@@ -250,12 +250,12 @@ describe("the readings of a session while a response streams", () => {
     });
 
     it("leaves the context reading alone when pi names no window", () => {
-        const unknown = sessionStats({ contextUsage: null });
+        const unknown = sessionStats({ contextUsage: undefined });
         const live = usage({ totalTokens: 4200 });
 
         const read = withLiveUsage(unknown, live)!;
 
-        expect(read.contextUsage).toBeNull();
+        expect(read.contextUsage).toBeUndefined();
         expect(read.tokens.total).toBeGreaterThan(unknown.tokens.total);
     });
 });

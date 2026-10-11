@@ -1,4 +1,4 @@
-import type { JsonValue } from "@/lib/protocol/serde_json/JsonValue";
+import type { JsonValue } from "@/lib/rpc-protocol";
 
 /**
  * Reading JSON that is still being written.

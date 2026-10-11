@@ -18,13 +18,12 @@ export const FAILURE_REASON: FailureText = {
     unreadable_remote: "The sessions on the host could not be read.",
     sftp_unanswered: "The host would not open a channel to read files through.",
     not_absolute: "That is not a path on the host.",
-    // `pi_rpc::Error`: the reads behind the transcript.
-    closed: "The connection to pi ended.",
+    // The protocol layer's five kinds: what the reads behind the transcript met.
+    transport: "The connection to pi failed.",
+    protocol: "pi answered in a way pie does not know.",
+    command: "pi refused the command.",
     timeout: "pi did not answer in time.",
-    rpc: "pi refused the command.",
-    payload: "pi answered in a way pie does not know.",
-    io: "The connection to pi failed.",
-    no_runtime: "Pie could not reach its own runtime.",
+    closed: "The connection to pi ended.",
     // `commands::Error`: the IPC layer itself.
     unusable_name: "That name cannot be used for a connection.",
     no_host_key_store: "Pie cannot find where to keep host keys.",

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PieError } from "@/lib/bridge";
 import type { SessionDeps, SessionEvent } from "@/machines/session.machine";
 import { isListening, isSwitching, phaseOf, sessionMachine, type SessionSnapshot } from "@/machines/session.machine";
-import type { Event as SessionRecord } from "@/lib/protocol";
+import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { assistant, usage } from "@/preview/fixtures";
 
 /**

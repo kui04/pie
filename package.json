@@ -1,7 +1,7 @@
 {
     "name": "pie",
     "private": true,
-    "version": "0.99.2",
+    "version": "1.1.0",
     "type": "module",
     "scripts": {
         "dev": "vite",
@@ -40,6 +40,8 @@
         "zustand": "^5.0.15"
     },
     "devDependencies": {
+        "@earendil-works/pi-ai": "1.1.0",
+        "@earendil-works/pi-coding-agent": "1.1.0",
         "@eslint/js": "^10.0.1",
         "@storybook/addon-a11y": "^10.6.1",
         "@storybook/addon-docs": "^10.6.1",

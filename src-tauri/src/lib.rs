@@ -1,16 +1,17 @@
 //! Pie's Tauri application: the connection lifecycle, the supervision of
 //! processes, and the IPC bridge to the React frontend.
 //!
-//! [`pi_rpc`] mirrors the `pi --mode rpc` protocol of Pi and stays free of app
-//! concerns. Everything policy-shaped lives here: where logs go ([`logging`]),
-//! what a connected host is ([`connection`]), and what the frontend can ask for
-//! ([`commands`]).
+//! The `pi_rpc` crate mirrors the `pi --mode rpc` protocol of Pi and stays free
+//! of app concerns; [`transport`] is where that protocol's bytes come from, and
+//! it owns the process or channel on the other end. Everything policy-shaped
+//! lives here: where logs go ([`logging`]), what a connected host is
+//! ([`connection`]), and what the frontend can ask for ([`commands`]).
 
 pub mod commands;
 pub mod connection;
 pub mod error;
 pub mod logging;
-pub mod pi_rpc;
+pub mod transport;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

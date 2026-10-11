@@ -5,8 +5,7 @@
  * is `details.diff`, which pi fills in for a display that never reads the file.
  */
 
-import type { BashExecutionMessage, ToolResultMessage } from "@/lib/protocol";
-import type { JsonValue } from "@/lib/protocol/serde_json/JsonValue";
+import type { BashExecutionMessage, JsonValue, ToolResultMessage } from "@/lib/rpc-protocol";
 import { displayText, linesOf, numberedFile, numberedLines, resultText, type NumberedLine } from "@/lib/text";
 
 export type ToolBody =
@@ -267,8 +266,7 @@ function detailsString(details: JsonValue | null | undefined, key: string): stri
 }
 
 function detailsObject(details: JsonValue | null | undefined, key: string): Record<string, JsonValue> | null {
-    const value = detailsField(details, key);
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+    return asJsonObject(detailsField(details, key));
 }
 
 /**
@@ -276,6 +274,19 @@ function detailsObject(details: JsonValue | null | undefined, key: string): Reco
  * that is absent, null, or not an object has no fields.
  */
 function detailsField(details: JsonValue | null | undefined, key: string): JsonValue | undefined {
-    if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
-    return details[key];
+    const bag = asJsonObject(details);
+    return bag === null ? undefined : bag[key];
+}
+
+/**
+ * A JSON value as an object, or `null` for anything else.
+ *
+ * The cast is what the check already proved: pi types a JSON array as
+ * `readonly JsonValue[]`, which is not assignable to `any[]`, so `Array.isArray`
+ * leaves the array case in the union.
+ */
+function asJsonObject(value: JsonValue | null | undefined): Record<string, JsonValue> | null {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Record<string, JsonValue>)
+        : null;
 }

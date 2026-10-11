@@ -26,7 +26,7 @@ import type {
     ModelThinkingLevel,
     PromptData,
     StreamingBehavior,
-} from "@/lib/protocol";
+} from "@/lib/rpc-protocol";
 import { call } from "./invoke";
 
 /**

@@ -1,11 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import type { ToolResultMessage } from "@/lib/protocol";
+import type { ToolResultMessage } from "@/lib/rpc-protocol";
 import { ToolResultCard } from "@/routes/chat/components/entries/ToolResultCard";
 import { presentCall } from "@/routes/chat/components/toolPresentation";
 
-const answered = (text: string, overrides: Partial<ToolResultMessage> = {}): ToolResultMessage => ({
+const answered = (text: string, overrides: Partial<Omit<ToolResultMessage, "role">> = {}): ToolResultMessage => ({
+    role: "toolResult",
     toolCallId: "c1",
     toolName: "bash",
     content: [{ type: "text", text }],

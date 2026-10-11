@@ -13,14 +13,15 @@
 //! free for `disconnect`.
 //!
 //! A read fails as the layer that owns the failure: an absent connection or an
-//! absent session is [`connection::Error`], and everything below them is
-//! [`crate::pi_rpc::Error`]. Neither is wrapped here.
+//! absent session is [`connection::Error`], and everything below them is the
+//! protocol layer's own errors. Neither is wrapped here.
 
 use tauri::State;
 
 use crate::connection;
 use crate::error::PieError;
-use crate::pi_rpc::protocol::{EntriesData, SessionState, SessionStats, SwitchSessionData};
+
+use pi_rpc::response::{EntryList, SessionState, SessionStats, SessionSwitch};
 
 use super::state::AppState;
 
@@ -56,7 +57,7 @@ pub async fn get_state(state: State<'_, AppState>, session: String) -> Result<Se
 /// The same as [`get_state`], and the failure of the protocol.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
-pub async fn get_entries(state: State<'_, AppState>, session: String) -> Result<EntriesData, PieError> {
+pub async fn get_entries(state: State<'_, AppState>, session: String) -> Result<EntryList, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {
         doing: "reading the transcript of a session".to_string(),
@@ -113,7 +114,7 @@ pub async fn switch_session(
     state: State<'_, AppState>,
     session: String,
     path: String,
-) -> Result<SwitchSessionData, PieError> {
+) -> Result<SessionSwitch, PieError> {
     let connection = state.connection.lock().await.clone();
     let connection = connection.ok_or_else(|| connection::Error::NotConnected {
         doing: "switching a session to another conversation".to_string(),

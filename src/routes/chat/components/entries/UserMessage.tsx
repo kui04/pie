@@ -5,7 +5,7 @@ import { Markdown } from "@/components/Markdown";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { copyText } from "@/lib/clipboard";
 import { messageText } from "@/lib/text";
-import type { UserMessage as UserMessageData } from "@/lib/protocol";
+import type { UserMessage as UserMessageData } from "@/lib/rpc-protocol";
 
 export interface UserMessageProps {
     /** The entry this card draws, as the base of its ids. */

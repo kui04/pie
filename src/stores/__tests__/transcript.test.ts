@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { EntriesData, SessionEntry } from "@/lib/protocol";
+import type { EntriesData, SessionEntry } from "@/lib/rpc-protocol";
 import { contextEntries, sessionPath, type TranscriptEntries } from "@/lib/transcript";
 import { liveRows } from "@/lib/stream";
 import { transcriptRows } from "@/lib/transcript";

@@ -25,10 +25,10 @@ import type {
     AgentMessage,
     AssistantContentPart,
     AssistantMessageEvent,
+    JsonValue,
     ToolCall,
     ToolResultMessage,
-} from "@/lib/protocol";
-import type { JsonValue } from "@/lib/protocol/serde_json/JsonValue";
+} from "@/lib/rpc-protocol";
 import { parseStreamingJson } from "@/lib/partial-json";
 import type { TranscriptRow } from "@/lib/transcript";
 
@@ -72,9 +72,9 @@ export type RunPhase = "idle" | "waiting" | "working";
 /** The messages that wait for a run, as `queue_update` reports them. */
 export interface QueuedMessages {
     /** Messages that interrupt the run at its next step. */
-    steering: string[];
+    steering: readonly string[];
     /** Messages that wait for the run to settle. */
-    followUp: string[];
+    followUp: readonly string[];
 }
 
 /** A run that has written nothing yet. */
@@ -309,6 +309,7 @@ function asResultMessage(
 ): ToolResultMessage {
     const bag = asRecord(result);
     return {
+        role: "toolResult",
         toolCallId: call.toolCallId,
         toolName: call.toolName,
         content: asContent(bag?.content),

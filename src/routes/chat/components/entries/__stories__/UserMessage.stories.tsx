@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { UserMessage as UserMessageData } from "@/lib/protocol";
+import type { UserMessage as UserMessageData } from "@/lib/rpc-protocol";
 import { UserMessage } from "@/routes/chat/components/entries/UserMessage";
 
 /** What the reader asked, on their side of the transcript. */

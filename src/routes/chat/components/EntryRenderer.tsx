@@ -34,7 +34,7 @@ export function EntryRenderer({ row, onRetractQueued }: EntryRendererProps) {
             return (
                 <UserMessage
                     id={row.id}
-                    message={{ content: row.text, timestamp: 0 }}
+                    message={{ role: "user", content: row.text, timestamp: 0 }}
                     queued={row.queue}
                     onRetract={onRetractQueued}
                 />

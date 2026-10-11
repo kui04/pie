@@ -6,10 +6,12 @@
 //! variant. The wording for a person is the task of
 //! [`Display`](std::fmt::Display).
 //!
-//! This enum holds the host only. A failure of the protocol or of the transport
-//! below it is a named variant of [`pi_rpc::Error`](crate::pi_rpc::Error) and reaches the boundary
-//! without a change. Therefore nothing in this enum wraps it. Every variant is
-//! about the one connection: the reach to a machine, or which state it is in.
+//! This enum holds the host only. A failure of the transport below it is a
+//! named variant of [`transport::Error`](crate::transport::Error), and a failure
+//! of the protocol is the protocol crate's own
+//! [`Error`](pi_rpc::error::Error); both reach the boundary without a change.
+//! Therefore nothing in this enum wraps either. Every variant is about the one
+//! connection: the reach to a machine, or which state it is in.
 
 use russh_sftp::client::error::Error as SftpError;
 use serde::Serialize;
@@ -50,8 +52,8 @@ pub enum Error {
     /// This is one variant, not one for each exit code: the sentence already
     /// holds what a person can do. The case that needs a match - a `pi` that is
     /// present but speaks another release - is
-    /// [`pi_rpc::Error::VersionMismatch`](crate::pi_rpc::Error::VersionMismatch).
-    /// That is a failure of the protocol layer, and it lives there.
+    /// [`transport::Error::VersionMismatch`](crate::transport::Error::VersionMismatch).
+    /// That is a failure of the transport layer, and it lives there.
     #[error("`pi --version` on {endpoint} {reported}")]
     RemoteVersion {
         /// The host that pie asked, `user@host:port`.

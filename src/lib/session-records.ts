@@ -9,8 +9,14 @@
 
 import type { QueryKey } from "@tanstack/react-query";
 import type { toast } from "sonner";
-import type { AgentMessage, AssistantMessageEvent, Event as SessionRecord, SessionEntry, Usage } from "@/lib/protocol";
-import type { JsonValue } from "@/lib/protocol/serde_json/JsonValue";
+import type {
+    AgentMessage,
+    AssistantMessageEvent,
+    Event as SessionRecord,
+    JsonValue,
+    SessionEntry,
+    Usage,
+} from "@/lib/rpc-protocol";
 import type { QueuedMessages } from "@/lib/stream";
 
 /** What the records write in the store of the transcript. */

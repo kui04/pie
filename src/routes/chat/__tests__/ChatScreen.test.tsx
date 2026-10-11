@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
-import type { Event } from "@/lib/protocol";
+import type { Event } from "@/lib/rpc-protocol";
 import { MODULE_REASON } from "@/lib/failure-text";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { useTranscriptStore } from "@/stores/transcript.store";
@@ -559,7 +559,13 @@ describe("ChatScreen", () => {
         // the entry of the message the run already wrote.
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(called))));
         act(() =>
-            publish({ type: "compaction_end", reason: "threshold", result: null, aborted: false, willRetry: false }),
+            publish({
+                type: "compaction_end",
+                reason: "threshold",
+                result: undefined,
+                aborted: false,
+                willRetry: false,
+            }),
         );
 
         await waitFor(() => expect(useTranscriptStore.getState().live.messages).toEqual([]));
@@ -613,7 +619,7 @@ describe("ChatScreen", () => {
         await waitFor(() => expect(screen.getByLabelText("Running")).toBeInTheDocument());
         expect(screen.getByText("Working…")).toBeInTheDocument();
 
-        act(() => publish({ type: "agent_settled" }));
+        act(() => publish({ type: "agent_settled", aborted: false }));
 
         await waitFor(() => expect(screen.queryByText("Working…")).not.toBeInTheDocument());
     });
@@ -671,7 +677,7 @@ describe("ChatScreen", () => {
                 ),
             ),
         );
-        act(() => publish({ type: "agent_settled" }));
+        act(() => publish({ type: "agent_settled", aborted: false }));
 
         await waitFor(() => expect(screen.getByLabelText("Succeeded")).toBeInTheDocument());
         // The same element: the row kept its name, so the card kept its state.
@@ -772,7 +778,7 @@ describe("ChatScreen", () => {
         bridge.switchSession.mockRejectedValue({
             type: "rpc",
             message: "raw",
-            error: { kind: "rpc" },
+            error: { kind: "command" },
         });
 
         await renderOpen([HELD, other]);

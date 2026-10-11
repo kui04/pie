@@ -22,7 +22,7 @@ import { Bot, Brain } from "lucide-react";
 import { toast } from "sonner";
 import { SelectWithSearch } from "@/components/SelectWithSearch";
 import * as bridge from "@/lib/bridge";
-import type { Model, ModelThinkingLevel } from "@/lib/protocol";
+import type { Model, ModelThinkingLevel } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 
 /** Which popup of the composer is open, if any. */

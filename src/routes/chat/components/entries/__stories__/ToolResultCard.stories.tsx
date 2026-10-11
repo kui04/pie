@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import type { ToolResultMessage } from "@/lib/protocol";
+import type { ToolResultMessage } from "@/lib/rpc-protocol";
 import { presentCall } from "@/routes/chat/components/toolPresentation";
 import { ToolResultCard } from "@/routes/chat/components/entries/ToolResultCard";
 
@@ -26,6 +26,7 @@ export const Diff: Story = {
     args: {
         id: "story-diff",
         presentation: presentCall("edit", { path: "~/work/parse.ts" }, {
+            role: "toolResult",
             toolCallId: "c1",
             toolName: "edit",
             content: [{ type: "text", text: "the file was written" }],
@@ -64,6 +65,7 @@ export const LongHeader: Story = {
                 path: "~/.pi/agent/sessions/-home-kui-projects-pie-with-a-rather-long-name/2026-10-07T14-58-00-000Z_0199e1a0-0000-7000-8000-000000000000.jsonl",
             },
             {
+                role: "toolResult",
                 toolCallId: "c1",
                 toolName: "read",
                 content: [{ type: "text", text: "the head of the file\nthe rest of it" }],
@@ -79,6 +81,7 @@ export const File: Story = {
     args: {
         id: "story-file",
         presentation: presentCall("read", { path: "~/work/notes.md", offset: 40 }, {
+            role: "toolResult",
             toolCallId: "c1",
             toolName: "read",
             content: [{ type: "text", text: "the notes\ncontinue here\nand here" }],
@@ -155,9 +158,10 @@ export const UnknownTool: Story = {
 };
 
 /** A result whose output is `count` lines long. */
-function answered(count: number, overrides: Partial<ToolResultMessage> = {}): ToolResultMessage {
+function answered(count: number, overrides: Partial<Omit<ToolResultMessage, "role">> = {}): ToolResultMessage {
     const text = Array.from({ length: count }, (_, index) => `test ${index + 1} ... ok`).join("\n");
     return {
+        role: "toolResult",
         toolCallId: "c1",
         toolName: "bash",
         content: [{ type: "text", text }],
@@ -170,6 +174,7 @@ function answered(count: number, overrides: Partial<ToolResultMessage> = {}): To
 /** A result that failed, with the text of the failure. */
 function failed(text: string): ToolResultMessage {
     return {
+        role: "toolResult",
         toolCallId: "c1",
         toolName: "bash",
         content: [{ type: "text", text }],

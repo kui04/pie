@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { AssistantMessage as AssistantMessageData } from "@/lib/protocol";
+import type { AssistantMessage as AssistantMessageData } from "@/lib/rpc-protocol";
 import { assistant, text, thinking, toolCall, usage } from "@/preview/fixtures";
 import { AssistantMessage } from "@/routes/chat/components/entries/AssistantMessage";
 
@@ -70,6 +70,7 @@ export const Streaming: Story = {
                     {
                         running: true,
                         result: {
+                            role: "toolResult",
                             toolCallId: "c1",
                             toolName: "bash",
                             content: [

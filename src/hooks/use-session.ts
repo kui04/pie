@@ -14,7 +14,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
-import type { Event as SessionRecord } from "@/lib/protocol";
+import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 import { createRecordTable, type RecordTranscript } from "@/lib/session-records";
 import { isListening, isSwitching, phaseOf, sessionMachine, type SessionDeps } from "@/machines/session.machine";

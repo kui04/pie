@@ -20,7 +20,7 @@ import type {
     ToolCall,
     ToolResultMessage,
     Usage,
-} from "@/lib/protocol";
+} from "@/lib/rpc-protocol";
 import type { SessionSummary } from "@/lib/bridge";
 import type { TranscriptEntries } from "@/lib/transcript";
 
@@ -124,7 +124,7 @@ export function model(overrides: Partial<Model> = {}): Model {
 }
 
 /** One command of `get_commands`, as pi reports it. */
-export function slashCommand(name: string, description: string | null, source: SlashCommandSource): SlashCommand {
+export function slashCommand(name: string, description: string, source: SlashCommandSource): SlashCommand {
     return {
         name,
         description,
@@ -134,7 +134,6 @@ export function slashCommand(name: string, description: string | null, source: S
             source: source === "extension" ? "npm:pi-review" : source === "prompt" ? "top-level" : "~/work/pie",
             scope: "user",
             origin: source === "extension" ? "package" : "top-level",
-            baseDir: null,
         },
     };
 }
@@ -169,6 +168,7 @@ export function bashExecution(
         role: "bashExecution",
         command,
         output,
+        exitCode: undefined,
         cancelled: false,
         truncated: false,
         timestamp: MILLIS,
@@ -229,7 +229,7 @@ export const usageEntry = (): Unlinked<SessionEntry> => ({
     usage: usage(),
 });
 
-export const sessionInfo = (name: string | null = null): Unlinked<SessionEntry> => ({
+export const sessionInfo = (name: string | undefined = undefined): Unlinked<SessionEntry> => ({
     type: "session_info",
     timestamp: AT,
     name,

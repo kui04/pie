@@ -24,12 +24,14 @@ use pie_lib::connection::{
     AskHostKey, ConnectOptions, ConnectSpec, Connection, Error, KnownHosts, PresentedKey, Session, SessionSummary,
     SshAuthSpec,
 };
-use pie_lib::error::PieError;
-use pie_lib::pi_rpc::Error as ProtocolError;
-use pie_lib::pi_rpc::protocol::{
-    AgentMessage, Command, CommandKind, EntriesData, ModelThinkingLevel, SessionEntry, SessionState, UserContent,
-    UserContentPart,
-};
+use pie_lib::error::{PieError, RpcFailure};
+use pie_lib::transport::Error as TransportError;
+
+use ::pi_rpc::command::{Command, NewSession};
+use ::pi_rpc::entry::Entry;
+use ::pi_rpc::message::{Message, UserBlock, UserContent};
+use ::pi_rpc::response::{EntryList, SessionState};
+use ::pi_rpc::types::ThinkingLevel;
 
 /// An asker for tests. It answers with a fixed verdict. It panics if pie asks
 /// it when a store must answer.
@@ -202,20 +204,8 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
     // session file only after a conversation message exists (its `#10000`
     // rule). Therefore a start and a stop of pi leaves no file. This session
     // says something before the listing.
-    let state: SessionState = client
-        .request(Command::new(CommandKind::GetState))
-        .await
-        .expect("pi answers")
-        .decode()
-        .expect("a state");
-    client
-        .request(Command::new(CommandKind::Prompt {
-            message: "first words".to_string(),
-            images: None,
-            streaming_behavior: None,
-        }))
-        .await
-        .expect("pi takes the prompt");
+    let state: SessionState = client.get_state().await.expect("a state");
+    client.prompt("first words").await.expect("pi takes the prompt");
     let mine = wait_for_the_listing(&connection, &state.session_id).await;
     assert_eq!(
         Path::new(&mine.cwd),
@@ -225,7 +215,7 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
     assert_eq!(mine.first_message.as_deref(), Some("first words"));
 
     connection.disconnect().await;
-    assert!(client.is_closed(), "disconnecting stops pi");
+    assert!(!session.peer().is_alive(), "disconnecting stops pi");
 }
 
 #[ignore = "requires the ssh fixture"]
@@ -243,8 +233,8 @@ async fn a_host_key_nobody_trusted_ends_the_connection() {
     assert!(
         matches!(
             &error,
-            PieError::Rpc { error, .. }
-                if matches!(&**error, ProtocolError::HostKeyRejected { .. })
+            PieError::Transport { error, .. }
+                if matches!(&**error, TransportError::HostKeyRejected { .. })
         ),
         "got {error:?}"
     );
@@ -312,8 +302,8 @@ async fn a_host_key_that_changed_is_refused_and_says_which_store_to_fix() {
         .expect_err("a key that changed is not this host");
 
     match &error {
-        PieError::Rpc { error, .. } => match &**error {
-            ProtocolError::HostKeyRejected { reason, .. } => {
+        PieError::Transport { error, .. } => match &**error {
+            TransportError::HostKeyRejected { reason, .. } => {
                 // The message must tell a person what to do: the file, the line
                 // in the file, and the next step of another connect.
                 assert!(
@@ -375,20 +365,10 @@ async fn the_host_session_listing_comes_back_over_sftp() {
     // Pi writes its session file at the start of the turn (its `#10000` rule).
     // Therefore the session says something and the listing waits for the row.
     let session = &connection.sessions()[0];
-    let state: SessionState = session
-        .client()
-        .request(Command::new(CommandKind::GetState))
-        .await
-        .expect("pi answers")
-        .decode()
-        .expect("a state");
+    let state: SessionState = session.client().get_state().await.expect("a state");
     session
         .client()
-        .request(Command::new(CommandKind::Prompt {
-            message: "first words".to_string(),
-            images: None,
-            streaming_behavior: None,
-        }))
+        .prompt("first words")
         .await
         .expect("pi takes the prompt");
 
@@ -449,10 +429,10 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
 
 /// The id of an entry, read from its wire shape.
 ///
-/// Every variant of `SessionEntry` carries an `id`, which the leaf path of a
+/// Every variant of `Entry` carries an `id`, which the leaf path of a
 /// transcript walks. The shape keeps the one test below short: no arm for each
 /// of the eleven kinds.
-fn entry_id(entry: &SessionEntry) -> String {
+fn entry_id(entry: &Entry) -> String {
     let sent = serde_json::to_value(entry).expect("an entry serializes");
     sent["id"].as_str().expect("every entry carries an id").to_string()
 }
@@ -461,7 +441,7 @@ fn entry_id(entry: &SessionEntry) -> String {
 ///
 /// Pi appends it while the response of the prompt is already on the way (the
 /// response reports the preflight, not the turn). Therefore this waits.
-async fn entries_after_the_prompt(session: &Session, before: usize) -> EntriesData {
+async fn entries_after_the_prompt(session: &Session, before: usize) -> EntryList {
     for _ in 0..50 {
         let entries = session.entries().await.expect("the entries");
         if entries.entries.len() > before {
@@ -526,12 +506,7 @@ async fn the_reads_answer_about_the_session_that_was_named() {
     );
 
     session
-        .client()
-        .request(Command::new(CommandKind::Prompt {
-            message: "first words".to_string(),
-            images: None,
-            streaming_behavior: None,
-        }))
+        .prompt("first words", None, None)
         .await
         .expect("pi takes the prompt");
 
@@ -584,12 +559,7 @@ async fn a_switch_moves_the_session_to_the_conversation_of_another_file() {
     // `#10000` rule), and the response to a prompt reports the preflight, before
     // the turn begins. Therefore the listing is what says the file is there.
     session
-        .client()
-        .request(Command::new(CommandKind::Prompt {
-            message: "first words".to_string(),
-            images: None,
-            streaming_behavior: None,
-        }))
+        .prompt("first words", None, None)
         .await
         .expect("pi takes the prompt");
     let before = session.state().await.expect("the state of the conversation");
@@ -599,7 +569,10 @@ async fn a_switch_moves_the_session_to_the_conversation_of_another_file() {
     // a file that nothing points at.
     session
         .client()
-        .request(Command::new(CommandKind::NewSession { parent_session: None }))
+        .send_raw(Command::NewSession(NewSession {
+            id: None,
+            parent_session: None,
+        }))
         .await
         .expect("pi takes the new session");
     let away = session.state().await.expect("the state of the new conversation");
@@ -651,7 +624,13 @@ async fn a_switch_moves_the_session_to_the_conversation_of_another_file() {
 
     let refused = session.switch_session(&stranded.display().to_string()).await;
     assert!(
-        matches!(&refused, Err(PieError::Rpc { error, .. }) if matches!(&**error, ProtocolError::Rpc { .. })),
+        matches!(
+            &refused,
+            Err(PieError::Rpc {
+                error: RpcFailure::Command,
+                ..
+            })
+        ),
         "pi refuses the session whose directory is gone, got {refused:?}"
     );
     assert_eq!(
@@ -689,17 +668,17 @@ async fn a_switch_moves_the_session_to_the_conversation_of_another_file() {
 ///
 /// Every other kind of entry answers with nothing, which is what lets a test ask
 /// one question of a set of eleven kinds.
-fn user_text(entry: &SessionEntry) -> Option<String> {
-    let SessionEntry::Message(entry) = entry else {
+fn user_text(entry: &Entry) -> Option<String> {
+    let Entry::Message(entry) = entry else {
         return None;
     };
     match &entry.message {
-        AgentMessage::User(user) => Some(match &user.content {
+        Message::User(user) => Some(match &user.content {
             UserContent::Text(text) => text.clone(),
-            UserContent::Parts(parts) => parts
+            UserContent::Blocks(parts) => parts
                 .iter()
                 .filter_map(|part| match part {
-                    UserContentPart::Text(text) => Some(text.text.clone()),
+                    UserBlock::Text(text) => Some(text.text.clone()),
                     // An image, or a part of a later pi: neither is words.
                     _ => None,
                 })
@@ -776,19 +755,17 @@ async fn a_switch_to_a_file_that_is_not_a_session_is_refused_and_leaves_it_be() 
     let stranger = home.path().join("notes.txt");
     std::fs::write(&stranger, "these are notes, not a conversation\n").expect("a file of this test's own");
 
+    // Pi refuses a file that is not a session: the refusal names the reason.
     let refused = session.switch_session(&stranger.display().to_string()).await;
-    assert!(
-        matches!(&refused, Err(PieError::Rpc { error, .. }) if matches!(&**error, ProtocolError::Rpc { .. })),
-        "got {refused:?}"
-    );
     match &refused {
-        Err(PieError::Rpc { error, .. }) => match &**error {
-            ProtocolError::Rpc { message, .. } => {
-                assert!(message.contains("not a valid"), "pi says why: {message}");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        },
-        other => panic!("unexpected error: {other:?}"),
+        Err(PieError::Rpc {
+            error: RpcFailure::Command,
+            message,
+            ..
+        }) => {
+            assert!(message.contains("not a valid"), "pi says why: {message}");
+        }
+        other => panic!("unexpected answer: {other:?}"),
     }
 
     assert_eq!(
@@ -833,7 +810,8 @@ async fn the_queue_holds_what_was_queued_and_clear_queue_answers_it() {
 
     session
         .client()
-        .request(Command::new(CommandKind::Steer {
+        .send_raw(Command::Steer(::pi_rpc::command::Steer {
+            id: None,
             message: "a steering message".to_string(),
             images: None,
         }))
@@ -841,7 +819,8 @@ async fn the_queue_holds_what_was_queued_and_clear_queue_answers_it() {
         .expect("pi takes a steering message");
     session
         .client()
-        .request(Command::new(CommandKind::FollowUp {
+        .send_raw(Command::FollowUp(::pi_rpc::command::FollowUp {
+            id: None,
             message: "a follow-up message".to_string(),
             images: None,
         }))
@@ -904,7 +883,7 @@ async fn the_composer_reads_answer_and_a_shell_command_enters_the_transcript() {
     let models = session.available_models().await.expect("the models of a session");
     let levels = session.available_thinking_levels().await.expect("the thinking levels");
     assert!(
-        levels.levels.contains(&ModelThinkingLevel::Off),
+        levels.levels.contains(&ThinkingLevel::Off),
         "every session can turn its reasoning off, got {:?}",
         levels.levels
     );
@@ -930,7 +909,7 @@ async fn the_composer_reads_answer_and_a_shell_command_enters_the_transcript() {
     let command = "printf 'hello from the composer'";
     let ran = session.bash(command, true).await.expect("pi runs a shell command");
     assert_eq!(ran.output, "hello from the composer");
-    assert_eq!(ran.exit_code, Some(0));
+    assert_eq!(ran.exit_code, Some(0.0));
     assert!(!ran.truncated && !ran.cancelled);
     session
         .abort_bash()
@@ -944,8 +923,8 @@ async fn the_composer_reads_answer_and_a_shell_command_enters_the_transcript() {
     let recorded = entries.entries.iter().any(|entry| {
         matches!(
             entry,
-            SessionEntry::Message(message)
-                if matches!(&message.message, AgentMessage::BashExecution(ran)
+            Entry::Message(message)
+                if matches!(&message.message, Message::BashExecution(ran)
                     if ran.command == command && ran.exclude_from_context == Some(true))
         )
     });

@@ -4,7 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
-import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/protocol";
+import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/rpc-protocol";
 import { liveRows } from "@/lib/stream";
 import { statsRefetchInterval, useSession } from "@/hooks/use-session";
 import { queryDefaults } from "@/lib/query";
@@ -642,7 +642,7 @@ describe("the run a session streams", () => {
         const mounted = await open();
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledTimes(1));
 
-        publish?.({ type: "agent_settled" });
+        publish?.({ type: "agent_settled", aborted: false });
 
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledTimes(2));
         expect(mounted.result.current.phase).toBe("idle");
@@ -678,7 +678,7 @@ describe("the run a session streams", () => {
         await open();
         fake.getState.mockClear();
 
-        publish?.({ type: "compaction_end", reason: "threshold", result: null, aborted: false, willRetry: false });
+        publish?.({ type: "compaction_end", reason: "threshold", result: undefined, aborted: false, willRetry: false });
 
         await waitFor(() => expect(fake.getState).toHaveBeenCalled());
     });

@@ -1,18 +1,21 @@
-//! Replays the recorded stdout of a real `pi --mode rpc` through the mirrored
-//! types. The corpus and its provenance are described in `tests/fixtures`.
+//! Replays the recorded stdout of a real `pi --mode rpc` through the protocol
+//! crate that speaks it. The corpus and its provenance are described in
+//! `tests/fixtures`.
+//!
+//! Pi is what these recordings are of, and the crate is what reads it: the
+//! tests here are the one place where a decoding rule meets the output of the
+//! release that wrote it. A record the crate cannot name - a kind, a command, a
+//! field that moved - fails here rather than in a session on a device.
 
 use std::path::PathBuf;
 
-use pie_lib::pi_rpc::protocol::{
-    AgentMessage, AssistantContentPart, AssistantMessageEvent, BashResult, CompactionReason, CompactionResult,
-    DoneReason, ErrorReason, Event, ExtensionUiRequestKind, Model, ModelThinkingLevel, ModelType, NestedToolCallStatus,
-    QueuedInputDisposition, Response, ServerMessage, SessionEntry, SessionState, SessionStats, StopReason,
-    SystemContent, ToolResultContentPart, UserContent, UserContentPart,
-};
-use pie_lib::pi_rpc::protocol::{
-    AvailableModelsData, AvailableThinkingLevelsData, ClearQueueData, CloneData, CommandsData, CycleModelData,
-    CycleThinkingLevelData, EntriesData, ExportHtmlData, ForkData, ForkMessagesData, LastAssistantTextData,
-    MessagesData, NewSessionData, PromptData, QueuedInputData, SwitchSessionData, TreeData,
+use pi_rpc::entry::Entry;
+use pi_rpc::event::{AssistantUpdate, CompactionReason, Event};
+use pi_rpc::extui::UiRequest;
+use pi_rpc::message::{AssistantBlock, Message, NestedStatus, SystemContent, UserBlock, UserContent};
+use pi_rpc::response::{BashResult, Envelope, Response, SessionState};
+use pi_rpc::types::{
+    CommandSource, ModelInput, QueuedInputDisposition, SourceOrigin, SourceScope, StopReason, ThinkingLevel,
 };
 
 /// Lines of one recorded fixture.
@@ -25,19 +28,38 @@ fn fixture(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every response in a fixture.
-fn responses(name: &str) -> Vec<Response> {
+/// One line of a fixture, as a `Value`, for what the typed path hides.
+fn raw(name: &str, command: &str) -> serde_json::Value {
     fixture(name)
         .into_iter()
-        .filter_map(|line| ServerMessage::parse(&line).into_response())
+        .find(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .is_ok_and(|value| value.get("command").and_then(|v| v.as_str()) == Some(command))
+        })
+        .unwrap_or_else(|| panic!("{name} has no `{command}` record"))
+        .parse()
+        .expect("a JSON record")
+}
+
+/// Every response in a fixture.
+fn responses(name: &str) -> Vec<Envelope> {
+    fixture(name)
+        .into_iter()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            match value.get("type").and_then(|v| v.as_str()) {
+                Some("response") => Some(pi_rpc::response::decode_envelope_value(value).expect(name)),
+                _ => None,
+            }
+        })
         .collect()
 }
 
 /// The response to one command in a fixture.
-fn response(name: &str, command: &str) -> Response {
+fn response(name: &str, command: &str) -> Envelope {
     responses(name)
         .into_iter()
-        .find(|response| response.command == command)
+        .find(|envelope| envelope.body.tag() == command)
         .unwrap_or_else(|| panic!("{name} has no `{command}` response"))
 }
 
@@ -45,41 +67,52 @@ fn response(name: &str, command: &str) -> Response {
 fn events_in(name: &str) -> Vec<Event> {
     fixture(name)
         .into_iter()
-        .filter_map(|line| ServerMessage::parse(&line).into_event())
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            match value.get("type").and_then(|v| v.as_str()) {
+                Some("response") | Some("extension_ui_request") | None => None,
+                Some(_) => Some(pi_rpc::event::decode_event_value(value).expect(name)),
+            }
+        })
         .collect()
 }
 
 /// Every `message_update` delta in a fixture.
-fn deltas_in(name: &str) -> Vec<AssistantMessageEvent> {
+fn deltas_in(name: &str) -> Vec<AssistantUpdate> {
     events_in(name)
         .into_iter()
         .filter_map(|event| match event {
-            Event::MessageUpdate {
-                assistant_message_event,
-                ..
-            } => Some(assistant_message_event),
+            Event::MessageUpdate(update) => Some(update.update),
             _ => None,
         })
         .collect()
 }
 
 /// The messages a recorded `get_messages` response reports.
-fn messages_in(name: &str) -> Vec<AgentMessage> {
-    response(name, "get_messages")
-        .decode::<MessagesData>()
-        .unwrap_or_else(|error| panic!("{name}: {error}"))
-        .messages
+fn messages_in(name: &str) -> Vec<Message> {
+    match response(name, "get_messages").body {
+        Response::GetMessages(messages) => messages,
+        other => panic!("{name}: get_messages answered {other:?}"),
+    }
 }
 
-const PROBE: &str = "session-probe-0.99.2.jsonl";
-const BASH: &str = "bash-session-0.99.2.jsonl";
-const MODELS: &str = "model-probe-0.99.2.jsonl";
-const TRANSCRIPT: &str = "transcript-0.99.2.jsonl";
-const TOUR: &str = "tour-0.99.2.jsonl";
-const BRANCH: &str = "branch-0.99.2.jsonl";
-const FAILURES: &str = "failures-0.99.2.jsonl";
-const SESSION: &str = "session-0.99.2.jsonl";
-const SUPPLEMENT: &str = "derived-supplement-0.99.2.jsonl";
+/// The entries a recorded `get_entries` response reports.
+fn entries_in(name: &str) -> Vec<Entry> {
+    match response(name, "get_entries").body {
+        Response::GetEntries(list) => list.entries,
+        other => panic!("{name}: get_entries answered {other:?}"),
+    }
+}
+
+const PROBE: &str = "session-probe-1.1.0.jsonl";
+const BASH: &str = "bash-session-1.1.0.jsonl";
+const MODELS: &str = "model-probe-1.1.0.jsonl";
+const TRANSCRIPT: &str = "transcript-1.1.0.jsonl";
+const TOUR: &str = "tour-1.1.0.jsonl";
+const BRANCH: &str = "branch-1.1.0.jsonl";
+const FAILURES: &str = "failures-1.1.0.jsonl";
+const SESSION: &str = "session-1.1.0.jsonl";
+const SUPPLEMENT: &str = "derived-supplement-1.1.0.jsonl";
 
 /// Every fixture, recorded and supplemented.
 const FIXTURES: [&str; 9] = [
@@ -87,13 +120,30 @@ const FIXTURES: [&str; 9] = [
 ];
 
 #[test]
-fn every_record_maps_to_a_mirrored_type() {
+fn every_record_reads_as_the_kind_it_names() {
     for name in FIXTURES {
         for line in fixture(name) {
-            match ServerMessage::parse(&line) {
-                ServerMessage::Unknown { raw } => panic!("{name}: no mirrored type for {raw}"),
-                ServerMessage::Unparseable { error, .. } => panic!("{name}: unparseable: {error}"),
-                _ => {}
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            match value.get("type").and_then(|v| v.as_str()) {
+                Some("response") => match pi_rpc::response::decode_envelope_value(value) {
+                    Ok(Envelope {
+                        body: Response::Unknown(unknown),
+                        ..
+                    }) => panic!("{name}: no type for `{}`", unknown.command),
+                    Ok(_) => {}
+                    Err(error) => panic!("{name}: {error}"),
+                },
+                Some("extension_ui_request") => match pi_rpc::extui::decode_ui_request_value(value) {
+                    Ok(UiRequest::Unknown(_)) => panic!("{name}: no type for a dialog method"),
+                    Ok(_) => {}
+                    Err(error) => panic!("{name}: {error}"),
+                },
+                Some(_) => match pi_rpc::event::decode_event_value(value) {
+                    Ok(Event::Unknown(_)) => panic!("{name}: no type for an event"),
+                    Ok(_) => {}
+                    Err(error) => panic!("{name}: {error}"),
+                },
+                None => panic!("{name}: a record with no kind"),
             }
         }
     }
@@ -101,99 +151,128 @@ fn every_record_maps_to_a_mirrored_type() {
 
 #[test]
 fn decodes_the_session_state() {
-    let response = response(PROBE, "get_state");
-    assert!(response.is_success());
-    let state: SessionState = response.decode().unwrap();
+    let Response::GetState(state) = response(PROBE, "get_state").body else {
+        panic!("get_state answered something else");
+    };
 
-    assert_eq!(state.thinking_level, ModelThinkingLevel::High);
+    assert_eq!(state.thinking_level, ThinkingLevel::Max);
     assert!(!state.is_streaming);
     assert!(state.auto_compaction_enabled);
     assert_eq!(state.session_id, "00000000-0000-4000-8000-000000000000");
 
     let model = state.model.expect("the fixture session has a model");
     assert_eq!(model.api, "openai-completions");
-    assert_eq!(model.model_type, None, "pi omits `type` for chat models");
+    assert_eq!(
+        model.extra.get("type"),
+        None,
+        "pi omits `type` for the model of a session state"
+    );
     assert!(model.reasoning);
-    assert_eq!(model.input, vec![pie_lib::pi_rpc::protocol::InputModality::Text]);
-    let map = model.thinking_level_map.expect("thinkingLevelMap is present");
-    assert_eq!(map.low, Some(Some("low".to_string())));
-    assert_eq!(map.medium, Some(None), "null marks a level the model does not support");
-    assert!(model.compat.is_some(), "provider compat is kept raw");
+    assert_eq!(model.input, vec![ModelInput::Text]);
+    let map = model
+        .extra
+        .get("thinkingLevelMap")
+        .expect("thinkingLevelMap is present");
+    assert_eq!(map["low"], serde_json::json!("low"));
+    assert_eq!(
+        map["medium"],
+        serde_json::Value::Null,
+        "null marks a level the model does not support"
+    );
+    assert!(model.extra.contains_key("compat"), "provider compat is kept verbatim");
 }
 
 #[test]
 fn decodes_thinking_levels_including_off() {
-    let levels: AvailableThinkingLevelsData = response(PROBE, "get_available_thinking_levels").decode().unwrap();
+    let Response::GetAvailableThinkingLevels(levels) = response(PROBE, "get_available_thinking_levels").body else {
+        panic!("get_available_thinking_levels answered something else");
+    };
     assert_eq!(
-        levels.levels,
+        levels,
         vec![
-            ModelThinkingLevel::Off,
-            ModelThinkingLevel::Low,
-            ModelThinkingLevel::High,
-            ModelThinkingLevel::Max
+            ThinkingLevel::Off,
+            ThinkingLevel::Low,
+            ThinkingLevel::High,
+            ThinkingLevel::Max
         ]
     );
 }
 
 #[test]
 fn decodes_slash_commands_with_source_metadata() {
-    let commands: CommandsData = response(PROBE, "get_commands").decode().unwrap();
-    assert!(!commands.commands.is_empty());
+    let Response::GetCommands(commands) = response(PROBE, "get_commands").body else {
+        panic!("get_commands answered something else");
+    };
+    assert!(!commands.is_empty());
 
-    let first = &commands.commands[0];
+    let first = &commands[0];
     assert!(!first.name.is_empty());
-    assert_eq!(first.source_info.scope, pie_lib::pi_rpc::protocol::SourceScope::User);
-    assert_eq!(
-        first.source_info.origin,
-        pie_lib::pi_rpc::protocol::SourceOrigin::Package
-    );
+    assert_eq!(first.source, CommandSource::Extension);
+    assert_eq!(first.source_info.scope, SourceScope::User);
+    assert_eq!(first.source_info.origin, SourceOrigin::Package);
     assert!(first.source_info.path.starts_with('/'));
 
     // The catalog mixes word styles: `package` here, `top-level` further down.
     assert!(
         commands
-            .commands
             .iter()
-            .any(|command| command.source_info.origin == pie_lib::pi_rpc::protocol::SourceOrigin::TopLevel),
+            .any(|command| command.source_info.origin == SourceOrigin::TopLevel),
         "a top-level command must decode too"
     );
 }
 
 #[test]
 fn decodes_available_models() {
-    let models: AvailableModelsData = response(MODELS, "get_available_models").decode().unwrap();
-    assert!(!models.models.is_empty());
+    let Response::GetAvailableModels(models) = response(MODELS, "get_available_models").body else {
+        panic!("get_available_models answered something else");
+    };
+    assert!(!models.is_empty());
 
-    for model in &models.models {
+    for model in &models {
         assert_eq!(
-            model.model_type,
-            Some(ModelType::Chat),
-            "the catalog writes the optional `type` that `get_state` omits"
+            model.extra.get("type"),
+            Some(&serde_json::json!("chat")),
+            "the catalog writes the optional `type` that a session state omits"
         );
         assert!(model.reasoning);
-        assert!(model.context_window > 0 && model.max_tokens > 0);
+        assert!(model.context_window.is_some_and(|window| window > 0.0));
+        assert!(model.max_tokens.is_some_and(|tokens| tokens > 0.0));
         assert!(!model.input.is_empty());
-        assert!(model.compat.is_some(), "provider compat is kept raw");
     }
 
+    // A catalog entry may omit `compat`; the ones that carry it keep the
+    // provider-specific bag verbatim rather than a struct of the crate's own.
+    assert!(
+        models
+            .iter()
+            .any(|model| model.extra.get("compat").is_some_and(serde_json::Value::is_object)),
+        "a provider compat bag is kept verbatim"
+    );
+
     // The two spellings of "unsupported" both appear in real output: the catalog
-    // omits the level, while `get_state` lists it as `null` - which is why the
-    // mirror keeps an absent key apart from an explicit `null`.
-    let map = models.models[0]
-        .thinking_level_map
-        .as_ref()
+    // omits a level the model has no mapping for, while the session state lists
+    // it as `null` - which is why an absent key stays apart from an explicit
+    // `null`.
+    let map = models[0]
+        .extra
+        .get("thinkingLevelMap")
         .expect("the first catalog entry carries a map");
-    assert_eq!(map.off, None, "an unlisted level is absent");
-    assert_eq!(map.medium, Some(None), "a listed but unsupported level is null");
+    assert_eq!(map.get("minimal"), None, "an unlisted level is absent");
+    assert_eq!(
+        map["off"],
+        serde_json::Value::Null,
+        "a listed but unsupported level is null"
+    );
 }
 
 #[test]
 fn accepts_off_as_a_thinking_level() {
     // pi accepts `off` for `set_thinking_level`, and both the event and the
-    // session state carry it - so a level is a `ModelThinkingLevel`.
+    // session state carry it.
     let sets: Vec<Response> = responses(MODELS)
         .into_iter()
-        .filter(|response| response.command == "set_thinking_level")
+        .map(|envelope| envelope.body)
+        .filter(|body| body.tag() == "set_thinking_level")
         .collect();
     assert_eq!(
         sets.len(),
@@ -201,89 +280,115 @@ fn accepts_off_as_a_thinking_level() {
         "one `set_thinking_level` with `off`, one with an invalid value"
     );
     assert!(
-        sets.iter().all(Response::is_success),
-        "pi does not validate the level, so the mirrored type stays the documented value space"
+        sets.iter().all(|body| matches!(body, Response::SetThinkingLevel)),
+        "pi does not validate the level: {sets:?}"
     );
 
     let states: Vec<SessionState> = responses(MODELS)
         .into_iter()
-        .filter(|response| response.command == "get_state")
-        .map(|response| response.decode().unwrap())
-        .collect();
-    assert_eq!(states[0].thinking_level, ModelThinkingLevel::Off);
-    assert_eq!(states[1].thinking_level, ModelThinkingLevel::Low);
-
-    let levels: Vec<ModelThinkingLevel> = fixture(MODELS)
-        .into_iter()
-        .filter_map(|line| match ServerMessage::parse(&line) {
-            ServerMessage::Event(Event::ThinkingLevelChanged { level }) => Some(level),
+        .filter_map(|envelope| match envelope.body {
+            Response::GetState(state) => Some(state),
             _ => None,
         })
         .collect();
-    assert_eq!(levels, vec![ModelThinkingLevel::Off, ModelThinkingLevel::Low]);
+    assert_eq!(states[0].thinking_level, ThinkingLevel::Off);
+    assert_eq!(states[1].thinking_level, ThinkingLevel::Low);
+
+    let levels: Vec<ThinkingLevel> = fixture(MODELS)
+        .into_iter()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            match pi_rpc::event::decode_event_value(value) {
+                Ok(Event::ThinkingLevelChanged(changed)) => Some(changed.level),
+                _ => None,
+            }
+        })
+        .collect();
+    assert_eq!(levels, vec![ThinkingLevel::Off, ThinkingLevel::Low]);
 }
 
 #[test]
 fn decodes_a_cycled_thinking_level() {
-    let cycled: CycleThinkingLevelData = response(MODELS, "cycle_thinking_level").decode().unwrap();
-    assert_eq!(cycled.level, ModelThinkingLevel::Low);
+    let Response::CycleThinkingLevel(Some(level)) = response(MODELS, "cycle_thinking_level").body else {
+        panic!("cycle_thinking_level answered no level");
+    };
+    assert_eq!(level.level, ThinkingLevel::Low);
 }
 
 #[test]
 fn decodes_session_stats_with_context_usage() {
-    let stats: SessionStats = response(PROBE, "get_session_stats").decode().unwrap();
-    assert_eq!(stats.tokens.total, 0);
+    let Response::GetSessionStats(stats) = response(PROBE, "get_session_stats").body else {
+        panic!("get_session_stats answered something else");
+    };
+    assert_eq!(stats.tokens.total, 0.0);
     assert_eq!(stats.total_messages, 0);
     assert_eq!(stats.session_file, None, "pi omits sessionFile when not persisted");
 
     let usage = stats.context_usage.expect("the fixture reports context usage");
-    assert_eq!(usage.context_window, 512_000);
-    assert_eq!(usage.tokens, Some(0));
+    assert_eq!(usage.context_window, 512_000.0);
+    assert_eq!(usage.tokens, Some(0.0));
 }
 
 #[test]
 fn decodes_entries_and_tree_variants() {
-    let entries: EntriesData = response(BASH, "get_entries").decode().unwrap();
-    assert_eq!(entries.leaf_id.as_deref().map(str::len), Some(8));
-    assert!(matches!(entries.entries[0], SessionEntry::ModelChange(_)));
-    assert!(matches!(entries.entries[1], SessionEntry::ThinkingLevelChange(_)));
-    assert!(matches!(entries.entries[2], SessionEntry::SessionInfo(_)));
+    let entries = entries_in(BASH);
+    assert_eq!(
+        match response(BASH, "get_entries").body {
+            Response::GetEntries(list) => list.leaf_id.map(|id| id.len()),
+            _ => None,
+        },
+        Some(8)
+    );
+    assert!(matches!(entries[0], Entry::ModelChange(_)));
+    assert!(matches!(entries[1], Entry::ThinkingLevelChange(_)));
+    assert!(matches!(entries[2], Entry::SessionInfo(_)));
 
-    let tree: TreeData = response(BASH, "get_tree").decode().unwrap();
+    let Response::GetTree(tree) = response(BASH, "get_tree").body else {
+        panic!("get_tree answered something else");
+    };
     let root = &tree.tree[0];
-    assert!(matches!(root.entry, SessionEntry::ModelChange(_)));
+    assert!(matches!(root.entry, Entry::ModelChange(_)));
     assert_eq!(root.children.len(), 1, "the tree nests children");
 }
 
 #[test]
 fn decodes_an_omitted_last_assistant_text() {
-    let response = response(PROBE, "get_last_assistant_text");
+    let answer = raw(PROBE, "get_last_assistant_text");
     assert_eq!(
-        response.data,
-        Some(serde_json::json!({})),
+        answer.get("data"),
+        Some(&serde_json::json!({})),
         "pi sends an empty object, not `null`"
     );
-    let text: LastAssistantTextData = response.decode().unwrap();
-    assert_eq!(text.text, None);
+    assert!(
+        matches!(
+            response(PROBE, "get_last_assistant_text").body,
+            Response::GetLastAssistantText(None)
+        ),
+        "an empty object is no text"
+    );
 }
 
 #[test]
 fn surfaces_a_failed_command_as_an_error() {
-    let unknown = response(PROBE, "bogus_command");
-    assert!(!unknown.is_success());
-    let error = unknown.into_result().unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "pi rejected `bogus_command`: Unknown command: bogus_command"
-    );
+    let Response::Error(failed) = response(PROBE, "bogus_command").body else {
+        panic!("an unknown command answered something else");
+    };
+    assert_eq!(failed.command, "bogus_command", "the refusal echoes what was sent");
+    assert_eq!(failed.error, "Unknown command: bogus_command");
 }
 
 #[test]
 fn surfaces_a_parse_failure_that_has_no_id() {
-    let parse_error = response(PROBE, "parse");
-    assert_eq!(parse_error.id, None, "parse errors are not correlated to a request");
-    assert!(!parse_error.is_success());
-    assert!(parse_error.error.unwrap().starts_with("Failed to parse command:"));
+    let answer = raw(PROBE, "parse");
+    assert_eq!(answer.get("id"), None, "parse errors are not correlated to a request");
+    let Response::Error(failed) = response(PROBE, "parse").body else {
+        panic!("a parse failure answered something else");
+    };
+    assert!(
+        failed.error.starts_with("Failed to parse command:"),
+        "got {}",
+        failed.error
+    );
 }
 
 #[test]
@@ -292,32 +397,32 @@ fn decodes_events_that_arrived_during_the_session() {
 
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::SessionInfoChanged { name: Some(name) } if name == "pie conformance"
+        Event::SessionInfoChanged(info) if info.name.as_deref() == Some("pie recording bash")
     )));
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::QueueUpdate { steering, follow_up } if steering.is_empty() && follow_up.is_empty()
+        Event::QueueUpdate(queue) if queue.steering.is_empty() && queue.follow_up.is_empty()
     )));
 }
 
 #[test]
 fn decodes_extension_ui_requests_and_status_updates() {
-    let requests: Vec<_> = fixture(BASH)
+    let requests: Vec<UiRequest> = fixture(BASH)
         .into_iter()
-        .filter_map(|line| match ServerMessage::parse(&line) {
-            ServerMessage::ExtensionUiRequest(request) => Some(request),
-            _ => None,
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            match value.get("type").and_then(|v| v.as_str()) {
+                Some("extension_ui_request") => Some(pi_rpc::extui::decode_ui_request_value(value).expect(BASH)),
+                _ => None,
+            }
         })
         .collect();
     assert!(!requests.is_empty());
 
     let cleared = requests
         .iter()
-        .find_map(|request| match &request.request {
-            ExtensionUiRequestKind::SetStatus {
-                status_key,
-                status_text,
-            } if status_text.is_none() => Some(status_key.clone()),
+        .find_map(|request| match request {
+            UiRequest::SetStatus(status) if status.status_text.is_none() => Some(&status.status_key),
             _ => None,
         })
         .expect("a setStatus request with no text");
@@ -326,7 +431,7 @@ fn decodes_extension_ui_requests_and_status_updates() {
 
 #[test]
 fn decodes_the_recorded_system_message() {
-    let AgentMessage::System(system) = &messages_in(TRANSCRIPT)[0] else {
+    let Message::System(system) = &messages_in(TRANSCRIPT)[0] else {
         panic!("the first message is the system prompt");
     };
 
@@ -341,40 +446,39 @@ fn decodes_the_recorded_system_message() {
 
 #[test]
 fn decodes_the_recorded_user_message() {
-    let AgentMessage::User(user) = &messages_in(TRANSCRIPT)[1] else {
+    let Message::User(user) = &messages_in(TRANSCRIPT)[1] else {
         panic!("the second message is the user turn");
     };
 
-    let UserContent::Parts(parts) = &user.content else {
-        panic!("a recorded user message carries content parts");
+    let UserContent::Blocks(parts) = &user.content else {
+        panic!("a recorded user message carries content blocks");
     };
     assert!(
-        matches!(parts.as_slice(), [UserContentPart::Text(text)] if text.text.starts_with("Read package.json")),
-        "unexpected parts: {parts:?}"
+        matches!(parts.as_slice(), [UserBlock::Text(text)] if text.text.starts_with("Use the bash tool")),
+        "unexpected blocks: {parts:?}"
     );
 }
 
 #[test]
 fn decodes_the_recorded_assistant_message_with_a_tool_call() {
-    let AgentMessage::Assistant(assistant) = &messages_in(TRANSCRIPT)[2] else {
+    let Message::Assistant(assistant) = &messages_in(TRANSCRIPT)[2] else {
         panic!("the third message is the assistant turn");
     };
 
-    assert_eq!(assistant.stop_reason, StopReason::ToolUse, "the camelCase stop reason");
-    assert_eq!(assistant.provider, "openrouter");
-    assert_eq!(assistant.model, "stealth/space-bunny-alpha");
+    assert_eq!(assistant.stop_reason, StopReason::ToolUse);
+    assert_eq!(assistant.provider, "cheapest");
+    assert_eq!(assistant.model, "@preset/deepseek-v4-flash-0731");
     assert_eq!(assistant.raw_stop_reason.as_deref(), Some("tool_calls"));
-    assert_eq!(
-        assistant.usage.reasoning,
-        Some(0),
-        "a provider may report zero reasoning tokens"
+    assert!(
+        assistant.usage.reasoning.is_some_and(|reasoning| reasoning > 0.0),
+        "a reasoning model reports the tokens it spent thinking"
     );
     assert!(assistant.usage.total_tokens >= assistant.usage.input);
 
     assert!(
-        assistant.content.iter().any(|part| matches!(
-            part,
-            AssistantContentPart::ToolCall(call) if call.name == "bash" && call.arguments.contains_key("command")
+        assistant.content.iter().any(|block| matches!(
+            block,
+            AssistantBlock::ToolCall(call) if call.name == "bash" && call.arguments.contains_key("command")
         )),
         "the model should have called bash: {:?}",
         assistant.content
@@ -383,7 +487,7 @@ fn decodes_the_recorded_assistant_message_with_a_tool_call() {
 
 #[test]
 fn decodes_the_recorded_tool_result() {
-    let AgentMessage::ToolResult(result) = &messages_in(TRANSCRIPT)[3] else {
+    let Message::ToolResult(result) = &messages_in(TRANSCRIPT)[3] else {
         panic!("the fourth message is the tool result");
     };
 
@@ -391,65 +495,58 @@ fn decodes_the_recorded_tool_result() {
     assert_eq!(result.tool_name, "bash");
     assert!(matches!(
         result.content.as_slice(),
-        [ToolResultContentPart::Text(text)] if text.text.contains("0.99.2")
+        [UserBlock::Text(text)] if text.text.contains("1.1.0")
     ));
     assert_eq!(result.nested_calls, None, "a plain tool result records no nested calls");
 }
 
 #[test]
 fn decodes_the_recorded_session_entries() {
-    let entries: EntriesData = response(TRANSCRIPT, "get_entries").decode().unwrap();
+    let entries = entries_in(TRANSCRIPT);
 
+    assert!(entries.iter().any(|entry| matches!(entry, Entry::Message(_))));
+    assert!(entries.iter().any(|entry| matches!(entry, Entry::ModelChange(_))));
     assert!(
         entries
-            .entries
             .iter()
-            .any(|entry| matches!(entry, SessionEntry::Message(_)))
-    );
-    assert!(
-        entries
-            .entries
-            .iter()
-            .any(|entry| matches!(entry, SessionEntry::ModelChange(_)))
-    );
-    assert!(
-        entries
-            .entries
-            .iter()
-            .any(|entry| matches!(entry, SessionEntry::ThinkingLevelChange(_)))
+            .any(|entry| matches!(entry, Entry::ThinkingLevelChange(_)))
     );
 
     let custom = entries
-        .entries
         .iter()
         .find_map(|entry| match entry {
-            SessionEntry::Custom(custom) => Some(custom),
+            Entry::Custom(custom) => Some(custom),
             _ => None,
         })
         .expect("an extension stored its own entry");
     assert_eq!(custom.custom_type, "om.observations.recorded");
-    assert!(custom.data.is_some(), "the extension payload is kept raw");
+    assert!(custom.data.is_some(), "the extension payload is kept verbatim");
 }
 
 #[test]
 fn decodes_the_model_a_set_model_switch_returns() {
-    let model: Model = response(TRANSCRIPT, "set_model").decode().unwrap();
+    let Response::SetModel(model) = response(TRANSCRIPT, "set_model").body else {
+        panic!("set_model answered something else");
+    };
 
-    assert_eq!(model.id, "stealth/space-bunny-alpha");
-    assert_eq!(model.provider, "openrouter");
+    assert_eq!(model.id, "@preset/deepseek-v4-flash-0731");
+    assert_eq!(model.provider, "cheapest");
     assert!(model.reasoning);
-    assert!(model.context_window > 0);
+    assert!(model.context_window.is_some_and(|window| window > 0.0));
 }
 
 #[test]
 fn decodes_the_notify_requests_pi_sends() {
     let notifications = fixture(TRANSCRIPT)
         .into_iter()
-        .filter_map(|line| match ServerMessage::parse(&line) {
-            ServerMessage::ExtensionUiRequest(request) => Some(request),
-            _ => None,
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            match value.get("type").and_then(|v| v.as_str()) {
+                Some("extension_ui_request") => Some(pi_rpc::extui::decode_ui_request_value(value).expect(TRANSCRIPT)),
+                _ => None,
+            }
         })
-        .filter(|request| matches!(&request.request, ExtensionUiRequestKind::Notify { .. }))
+        .filter(|request| matches!(request, UiRequest::Notify(_)))
         .count();
 
     assert!(notifications > 0, "pi notifies the client while tools run");
@@ -457,7 +554,7 @@ fn decodes_the_notify_requests_pi_sends() {
 
 #[test]
 fn decodes_a_supplemental_system_message_that_removes_a_section() {
-    let AgentMessage::System(system) = &messages_in(SUPPLEMENT)[0] else {
+    let Message::System(system) = &messages_in(SUPPLEMENT)[0] else {
         panic!("the supplement starts with a system message");
     };
 
@@ -468,42 +565,42 @@ fn decodes_a_supplemental_system_message_that_removes_a_section() {
 
 #[test]
 fn decodes_a_message_with_an_image_part() {
-    let AgentMessage::User(user) = &messages_in(SUPPLEMENT)[1] else {
+    let Message::User(user) = &messages_in(SUPPLEMENT)[1] else {
         panic!("the supplement carries a user message");
     };
 
-    let UserContent::Parts(parts) = &user.content else {
-        panic!("the message carries content parts");
+    let UserContent::Blocks(parts) = &user.content else {
+        panic!("the message carries content blocks");
     };
     assert!(matches!(
         parts.as_slice(),
-        [UserContentPart::Text(_), UserContentPart::Image(image)] if image.mime_type == "image/png"
+        [UserBlock::Text(_), UserBlock::Image(image)] if image.mime_type == "image/png"
     ));
 }
 
 #[test]
 fn decodes_an_assistant_message_with_a_thinking_part() {
-    let AgentMessage::Assistant(assistant) = &messages_in(SUPPLEMENT)[2] else {
+    let Message::Assistant(assistant) = &messages_in(SUPPLEMENT)[2] else {
         panic!("the supplement carries an assistant message");
     };
 
-    assert_eq!(assistant.thinking_level, Some(ModelThinkingLevel::Max));
+    assert_eq!(assistant.thinking_level, Some(ThinkingLevel::Max));
     assert_eq!(assistant.provider_thinking_level.as_deref(), Some("max"));
-    assert_eq!(assistant.usage.reasoning, Some(5));
-    assert!(assistant.content.iter().any(|part| matches!(
-        part,
-        AssistantContentPart::Thinking(thinking)
+    assert_eq!(assistant.usage.reasoning, Some(5.0));
+    assert!(assistant.content.iter().any(|block| matches!(
+        block,
+        AssistantBlock::Thinking(thinking)
             if thinking.redacted == Some(false) && thinking.thinking_signature.is_some()
     )));
-    assert!(assistant.content.iter().any(|part| matches!(
-        part,
-        AssistantContentPart::ToolCall(call) if call.namespace.is_some() && call.thought_signature.is_some()
+    assert!(assistant.content.iter().any(|block| matches!(
+        block,
+        AssistantBlock::ToolCall(call) if call.namespace.is_some() && call.thought_signature.is_some()
     )));
 }
 
 #[test]
 fn decodes_a_tool_result_with_nested_calls() {
-    let AgentMessage::ToolResult(result) = &messages_in(SUPPLEMENT)[3] else {
+    let Message::ToolResult(result) = &messages_in(SUPPLEMENT)[3] else {
         panic!("the supplement ends with a tool result");
     };
 
@@ -515,58 +612,59 @@ fn decodes_a_tool_result_with_nested_calls() {
 
     let nested = result.nested_calls.as_ref().expect("the result records nested calls");
     assert!(!nested.complete, "an unfinished call makes the record incomplete");
-    assert_eq!(nested.calls[1].status, NestedToolCallStatus::Unfinished);
+    assert_eq!(nested.calls[1].status, NestedStatus::Unfinished);
     assert_eq!(nested.calls[1].arguments, None, "oversized arguments are omitted");
-    assert_eq!(nested.calls[1].arguments_bytes, Some(42));
+    assert_eq!(nested.calls[1].arguments_bytes, Some(42.0));
 }
 
 #[test]
 fn decodes_the_recorded_streaming_deltas() {
     let deltas = deltas_in(TRANSCRIPT);
 
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::ToolcallStart { tool_name, .. } if tool_name == "bash"
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::ToolcallStart(start) if start.tool_name == "bash"
     )));
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::ToolcallDelta { delta, .. } if !delta.is_empty()
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::ToolcallDelta(delta) if !delta.delta.is_empty()
     )));
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::ToolcallEnd { tool_call, .. } if tool_call.name == "bash"
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::ToolcallEnd(end) if end.tool_call.name == "bash"
     )));
     assert!(
         deltas
             .iter()
-            .any(|event| matches!(event, AssistantMessageEvent::TextStart { .. }))
+            .any(|update| matches!(update, AssistantUpdate::TextStart(_)))
     );
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::TextDelta { delta, .. } if !delta.is_empty()
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::TextDelta(delta) if !delta.delta.is_empty()
     )));
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::TextEnd { content, .. } if content == "0.99.2"
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::TextEnd(end) if end.content == "1.1.0"
     )));
 }
 
 /// `done` and `error` never appeared in any recording of this release: RPC mode
-/// forwards `start`, `*_delta` and `*_end` only. They stay mirrored because the TS
-/// union declares them.
+/// forwards `start`, `*_delta` and `*_end` only. The supplement holds them
+/// because the TS union declares them.
 #[test]
 fn decodes_the_deltas_no_recording_reaches_yet() {
     let deltas = deltas_in(SUPPLEMENT);
 
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::Done { reason: DoneReason::ToolUse, message }
-            if message.stop_reason == StopReason::ToolUse
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::Done(done)
+            if done.reason == StopReason::ToolUse && done.message.stop_reason == StopReason::ToolUse
     )));
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::Error { reason: ErrorReason::Aborted, error }
-            if error.error_message.as_deref() == Some("aborted by client")
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::Error(failed)
+            if failed.reason == StopReason::Aborted
+                && failed.error.error_message.as_deref() == Some("aborted by client")
     )));
 }
 
@@ -576,17 +674,19 @@ fn decodes_the_recorded_tool_execution_events() {
 
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::ToolExecutionStart { tool_name, parent_tool_call_id: None, args, .. }
-            if tool_name == "bash" && args["command"].as_str().is_some_and(|command| command.contains("version"))
+        Event::ToolExecutionStart(start)
+            if start.tool_name == "bash"
+                && start.parent_tool_call_id.is_none()
+                && start.args["command"].as_str().is_some_and(|command| command.contains("version"))
     )));
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, Event::ToolExecutionUpdate { .. }))
+            .any(|event| matches!(event, Event::ToolExecutionUpdate(_)))
     );
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::ToolExecutionEnd { tool_call_id, is_error: false, .. } if !tool_call_id.is_empty()
+        Event::ToolExecutionEnd(end) if !end.tool_call_id.is_empty() && !end.is_error
     )));
 }
 
@@ -596,7 +696,8 @@ fn decodes_a_nested_tool_execution() {
 
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::ToolExecutionUpdate { parent_tool_call_id: Some(parent), .. } if parent == "call_1"
+        Event::ToolExecutionUpdate(update)
+            if update.parent_tool_call_id.as_deref() == Some("call_1")
     )));
 }
 
@@ -606,17 +707,34 @@ fn decodes_the_recorded_agent_end() {
     let settled = events
         .iter()
         .find_map(|event| match event {
-            Event::AgentEnd { messages, will_retry } => Some((messages, will_retry)),
+            Event::AgentEnd(end) => Some(end),
             _ => None,
         })
         .expect("the recording settles a run");
 
-    assert_eq!(settled.0.len(), 5, "the settled run carries the whole transcript");
-    assert!(!settled.1);
+    assert_eq!(
+        settled.messages.len(),
+        5,
+        "the settled run carries the whole transcript"
+    );
+    assert!(!settled.will_retry);
     assert!(
-        events.iter().any(|event| matches!(event, Event::AgentSettled)),
+        events.iter().any(|event| matches!(event, Event::AgentSettled(_))),
         "pi reports that it became idle"
     );
+}
+
+#[test]
+fn every_recorded_run_reports_whether_it_was_aborted() {
+    // `aborted` arrived with pi 1.1.0 and is required, so a client that reads
+    // the field can tell a stopped run from a finished one.
+    for name in FIXTURES {
+        for event in events_in(name) {
+            if let Event::AgentSettled(settled) = event {
+                assert!(!settled.aborted, "{name}: a recorded run finished on its own");
+            }
+        }
+    }
 }
 
 #[test]
@@ -627,32 +745,27 @@ fn decodes_retry_events_and_an_aborted_compaction() {
     // failures report `aborted: false` with an error message instead.
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::CompactionEnd {
-            reason: CompactionReason::Manual,
-            result: None,
-            aborted: true,
-            error_message: Some(message),
-            ..
-        } if message == "summarizer failed"
+        Event::CompactionEnd(done)
+            if done.reason == CompactionReason::Manual
+                && done.result.is_none()
+                && done.aborted
+                && done.error_message.as_deref() == Some("summarizer failed")
     )));
 
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::AutoRetryStart {
-            attempt: 1,
-            max_attempts: 3,
-            delay_ms: 500,
-            ..
-        }
+        Event::AutoRetryStart(start)
+            if start.attempt == 1 && start.max_attempts == 3 && start.delay_ms == 500
     )));
     assert!(events.iter().any(|event| matches!(
         event,
-        Event::AutoRetryEnd { success: false, final_error: Some(error), .. } if error == "overloaded"
+        Event::AutoRetryEnd(end)
+            if !end.success && end.final_error.as_deref() == Some("overloaded")
     )));
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, Event::SummarizationRetryScheduled { attempt: 1, .. }))
+            .any(|event| matches!(event, Event::SummarizationRetryScheduled(_)))
     );
     assert!(
         events
@@ -663,10 +776,10 @@ fn decodes_retry_events_and_an_aborted_compaction() {
 
 #[test]
 fn decodes_extension_errors() {
-    let errors: Vec<_> = fixture(SUPPLEMENT)
+    let errors: Vec<_> = events_in(SUPPLEMENT)
         .into_iter()
-        .filter_map(|line| match ServerMessage::parse(&line) {
-            ServerMessage::ExtensionError(error) => Some(error),
+        .filter_map(|event| match event {
+            Event::ExtensionError(fault) => Some(fault),
             _ => None,
         })
         .collect();
@@ -677,56 +790,52 @@ fn decodes_extension_errors() {
     assert!(errors[0].extension_path.ends_with("thing.ts"));
 }
 
-/// The strongest invariant in this file: every payload a recorded response carries
-/// must decode into the type its command documents. The envelope check above
-/// cannot see this - a payload of the wrong *shape* is still a valid response.
-/// This is what caught `bashExecution`, a message role the app adds by TS
-/// declaration merging.
+/// The strongest invariant in this file: every payload a recorded success
+/// carries must decode into the type its command documents, and a command that
+/// answers with nothing must carry no payload at all.
 #[test]
 fn every_recorded_payload_decodes() {
+    /// The commands whose answer is the success flag alone.
+    const EMPTY: [&str; 9] = [
+        "abort",
+        "abort_bash",
+        "abort_retry",
+        "set_auto_compaction",
+        "set_auto_retry",
+        "set_follow_up_mode",
+        "set_session_name",
+        "set_steering_mode",
+        "set_thinking_level",
+    ];
+
     for name in FIXTURES {
-        for response in responses(name) {
-            if !response.is_success() {
+        for line in fixture(name) {
+            let value: serde_json::Value = serde_json::from_str(&line).expect("a JSON record");
+            if value.get("type").and_then(|kind| kind.as_str()) != Some("response") {
                 continue;
             }
-            let command = response.command.as_str();
-            match command {
-                "prompt" => drop(response.decode::<PromptData>().unwrap()),
-                "steer" | "follow_up" => drop(response.decode::<QueuedInputData>().unwrap()),
-                "clear_queue" => drop(response.decode::<ClearQueueData>().unwrap()),
-                "new_session" => drop(response.decode::<NewSessionData>().unwrap()),
-                "get_state" => drop(response.decode::<SessionState>().unwrap()),
-                "set_model" => drop(response.decode::<Model>().unwrap()),
-                "cycle_model" => drop(response.decode_opt::<CycleModelData>().unwrap()),
-                "get_available_models" => drop(response.decode::<AvailableModelsData>().unwrap()),
-                "cycle_thinking_level" => drop(response.decode_opt::<CycleThinkingLevelData>().unwrap()),
-                "get_available_thinking_levels" => drop(response.decode::<AvailableThinkingLevelsData>().unwrap()),
-                "compact" => drop(response.decode::<CompactionResult>().unwrap()),
-                "bash" => drop(response.decode::<BashResult>().unwrap()),
-                "get_session_stats" => drop(response.decode::<SessionStats>().unwrap()),
-                "export_html" => drop(response.decode::<ExportHtmlData>().unwrap()),
-                "switch_session" => drop(response.decode::<SwitchSessionData>().unwrap()),
-                "fork" => drop(response.decode::<ForkData>().unwrap()),
-                "clone" => drop(response.decode::<CloneData>().unwrap()),
-                "get_fork_messages" => drop(response.decode::<ForkMessagesData>().unwrap()),
-                "get_entries" => drop(response.decode::<EntriesData>().unwrap()),
-                "get_tree" => drop(response.decode::<TreeData>().unwrap()),
-                "get_last_assistant_text" => drop(response.decode::<LastAssistantTextData>().unwrap()),
-                "get_messages" => drop(response.decode::<MessagesData>().unwrap()),
-                "get_commands" => drop(response.decode::<CommandsData>().unwrap()),
-                // Commands that answer with nothing at all.
-                "abort"
-                | "abort_bash"
-                | "abort_retry"
-                | "set_auto_compaction"
-                | "set_auto_retry"
-                | "set_follow_up_mode"
-                | "set_session_name"
-                | "set_steering_mode"
-                | "set_thinking_level" => {
-                    assert_eq!(response.data, None, "{name}: `{command}` answered with a payload");
-                }
-                other => panic!("{name}: no payload mapping for `{other}`"),
+            if value.get("success").and_then(serde_json::Value::as_bool) != Some(true) {
+                continue;
+            }
+            let command = value
+                .get("command")
+                .and_then(|one| one.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if EMPTY.contains(&command.as_str()) {
+                assert_eq!(value.get("data"), None, "{name}: `{command}` answered with a payload");
+            }
+            match pi_rpc::response::decode_envelope_value(value) {
+                Ok(Envelope {
+                    body: Response::Unknown(unknown),
+                    ..
+                }) => panic!("{name}: no type for `{}`", unknown.command),
+                Ok(Envelope {
+                    body: Response::Error(failed),
+                    ..
+                }) => panic!("{name}: a recorded success answered {}", failed.error),
+                Ok(_) => {}
+                Err(error) => panic!("{name}: `{command}` did not decode: {error}"),
             }
         }
     }
@@ -738,155 +847,159 @@ fn decodes_a_recorded_bash_execution_message() {
     let execution = messages
         .iter()
         .find_map(|message| match message {
-            AgentMessage::BashExecution(execution) => Some(execution),
+            Message::BashExecution(execution) => Some(execution),
             _ => None,
         })
         .expect("a recorded session keeps its `!` command in the transcript");
 
     assert_eq!(execution.command, "for i in 1 2 3; do echo tick $i; sleep 1; done");
-    assert_eq!(execution.exit_code, Some(0));
+    assert_eq!(execution.exit_code, Some(0.0));
     assert!(!execution.cancelled && !execution.truncated);
-    assert!(execution.timestamp > 0);
+    assert!(execution.timestamp > 0.0);
 }
 
 #[test]
 fn decodes_recorded_bash_results() {
-    let results: Vec<BashResult> = responses(TOUR)
+    let answers: Vec<BashResult> = responses(TOUR)
         .into_iter()
-        .filter(|response| response.command == "bash")
-        .map(|response| response.decode().unwrap())
+        .filter_map(|envelope| match envelope.body {
+            Response::Bash(result) => Some(result),
+            _ => None,
+        })
         .collect();
 
-    assert_eq!(results.len(), 2, "one finished command and one that was aborted");
+    assert_eq!(answers.len(), 2, "one finished command and one that was aborted");
     assert!(
-        results
+        answers
             .iter()
-            .any(|result| result.exit_code == Some(0) && !result.cancelled),
-        "the finished command reports its code: {results:?}"
+            .any(|result| result.exit_code == Some(0.0) && !result.cancelled),
+        "the finished command reports its code: {answers:?}"
     );
-    let aborted = results.iter().find(|result| result.cancelled).expect("one was aborted");
+    let aborted = answers.iter().find(|result| result.cancelled).expect("one was aborted");
     assert_eq!(aborted.exit_code, None, "a killed command reports no exit code");
     assert!(aborted.output.is_empty());
 }
 
 #[test]
 fn decodes_recorded_queue_updates() {
-    let steer: QueuedInputData = response(TOUR, "steer").decode().unwrap();
-    let follow_up: QueuedInputData = response(TOUR, "follow_up").decode().unwrap();
+    let Response::Steer(steer) = response(TOUR, "steer").body else {
+        panic!("steer answered something else");
+    };
+    let Response::FollowUp(follow_up) = response(TOUR, "follow_up").body else {
+        panic!("follow_up answered something else");
+    };
 
     assert_eq!(steer.disposition, QueuedInputDisposition::Queued);
     assert_eq!(follow_up.disposition, QueuedInputDisposition::Queued);
     assert!(
         events_in(TOUR)
             .iter()
-            .any(|event| matches!(event, Event::QueueUpdate { .. })),
+            .any(|event| matches!(event, Event::QueueUpdate(_))),
         "pi reports the queue back while a run is streaming"
     );
 }
 
 #[test]
 fn decodes_recorded_thinking() {
-    // The message keeps the reasoning part next to the text it produced.
+    // The message keeps the reasoning block next to the text it produced.
     let messages = messages_in(TOUR);
     let assistant = messages
         .iter()
         .find_map(|message| match message {
-            AgentMessage::Assistant(assistant) => Some(assistant),
+            Message::Assistant(assistant) => Some(assistant),
             _ => None,
         })
         .expect("the recording has an assistant turn");
-    assert!(assistant.content.iter().any(|part| matches!(
-        part,
-        AssistantContentPart::Thinking(thinking) if !thinking.thinking.is_empty()
+    assert!(assistant.content.iter().any(|block| matches!(
+        block,
+        AssistantBlock::Thinking(thinking) if !thinking.thinking.is_empty()
     )));
 
     let deltas = deltas_in(TOUR);
     assert!(
         deltas
             .iter()
-            .any(|event| matches!(event, AssistantMessageEvent::ThinkingStart { .. }))
+            .any(|update| matches!(update, AssistantUpdate::ThinkingStart(_)))
     );
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::ThinkingDelta { delta, .. } if !delta.is_empty()
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::ThinkingDelta(delta) if !delta.delta.is_empty()
     )));
-    assert!(deltas.iter().any(|event| matches!(
-        event,
-        AssistantMessageEvent::ThinkingEnd { content, .. } if !content.is_empty()
+    assert!(deltas.iter().any(|update| matches!(
+        update,
+        AssistantUpdate::ThinkingEnd(end) if !end.content.is_empty()
     )));
 }
 
 #[test]
 fn decodes_a_recorded_compaction() {
-    let entries: EntriesData = response(BRANCH, "get_entries").decode().unwrap();
-    let entry = entries
-        .entries
-        .iter()
+    let entry = entries_in(BRANCH)
+        .into_iter()
         .find_map(|entry| match entry {
-            SessionEntry::Compaction(compaction) => Some(compaction),
+            Entry::Compaction(compaction) => Some(compaction),
             _ => None,
         })
         .expect("the recorded session compacted");
     assert!(!entry.summary.is_empty());
-    assert!(entry.tokens_before > 0);
+    assert!(entry.tokens_before > 0.0);
 
-    let ended = events_in(BRANCH)
+    let done = events_in(BRANCH)
         .into_iter()
         .find_map(|event| match event {
-            Event::CompactionEnd {
-                reason,
-                result: Some(result),
-                aborted,
-                ..
-            } => Some((reason, result, aborted)),
+            Event::CompactionEnd(done) if done.result.is_some() => Some(done),
             _ => None,
         })
         .expect("the recording compacted");
-    assert_eq!(ended.0, CompactionReason::Manual);
-    assert!(!ended.2);
+    assert_eq!(done.reason, CompactionReason::Manual);
+    assert!(!done.aborted);
+    let result = done.result.expect("the recorded compaction carries its result");
     assert_eq!(
-        ended.1.first_kept_entry_id, entry.first_kept_entry_id,
+        result.first_kept_entry_id, entry.first_kept_entry_id,
         "the event and the appended entry describe the same compaction"
     );
-    assert!(ended.1.usage.is_some(), "the summary call's usage is reported");
+    assert!(result.usage.is_some(), "the summary call's usage is reported");
 }
 
 #[test]
 fn decodes_a_recorded_fork() {
-    let forkable: ForkMessagesData = response(BRANCH, "get_fork_messages").decode().unwrap();
-    assert!(
-        !forkable.messages.is_empty(),
-        "the recording has something to fork from"
-    );
+    let Response::GetForkMessages(forkable) = response(BRANCH, "get_fork_messages").body else {
+        panic!("get_fork_messages answered something else");
+    };
+    assert!(!forkable.is_empty(), "the recording has something to fork from");
 
-    let forked: ForkData = response(BRANCH, "fork").decode().unwrap();
+    let Response::Fork(forked) = response(BRANCH, "fork").body else {
+        panic!("fork answered something else");
+    };
     assert!(!forked.cancelled);
     assert_eq!(
-        forked.text, forkable.messages[0].text,
+        forked.text.as_deref(),
+        Some(forkable[0].text.as_str()),
         "the fork echoes the entry it started from"
     );
 }
 
 #[test]
 fn decodes_a_recorded_session_switch() {
-    let state: SessionState = response(SESSION, "get_state").decode().unwrap();
+    let Response::GetState(state) = response(SESSION, "get_state").body else {
+        panic!("get_state answered something else");
+    };
     assert!(state.session_file.is_some(), "a file-backed session reports its path");
 
-    let switched: SwitchSessionData = response(SESSION, "switch_session").decode().unwrap();
+    let Response::SwitchSession(switched) = response(SESSION, "switch_session").body else {
+        panic!("switch_session answered something else");
+    };
     assert!(!switched.cancelled);
 }
 
 #[test]
 fn decodes_a_recorded_rejection() {
-    let rejected = response(FAILURES, "set_model");
-    assert!(!rejected.is_success());
+    let Response::Error(rejected) = response(FAILURES, "set_model").body else {
+        panic!("a model outside the catalog answered something else");
+    };
     assert!(
-        rejected
-            .into_result()
-            .unwrap_err()
-            .to_string()
-            .contains("Model not found"),
-        "a model outside the catalog is refused"
+        rejected.error.contains("Model not found"),
+        "a model outside the catalog is refused: {}",
+        rejected.error
     );
 
     // A compaction that could not run reports the reason on the event, not as an
@@ -894,22 +1007,17 @@ fn decodes_a_recorded_rejection() {
     let failed = events_in(FAILURES)
         .into_iter()
         .find_map(|event| match event {
-            Event::CompactionEnd {
-                result,
-                aborted,
-                error_message,
-                ..
-            } => Some((result, aborted, error_message)),
+            Event::CompactionEnd(done) => Some(done),
             _ => None,
         })
         .expect("the recording attempted a compaction");
-    assert!(failed.0.is_none() && !failed.1);
+    assert!(failed.result.is_none() && !failed.aborted);
     assert!(
         failed
-            .2
+            .error_message
             .as_deref()
             .is_some_and(|message| message.contains("Nothing to compact")),
         "got {:?}",
-        failed.2
+        failed.error_message
     );
 }

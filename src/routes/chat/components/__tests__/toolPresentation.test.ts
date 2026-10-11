@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ToolResultMessage } from "@/lib/protocol";
+import type { ToolResultMessage } from "@/lib/rpc-protocol";
 import { presentCall, presentExecution, presentRunningExecution } from "@/routes/chat/components/toolPresentation";
 
-const result = (text: string, overrides: Partial<ToolResultMessage> = {}): ToolResultMessage => ({
+const result = (text: string, overrides: Partial<Omit<ToolResultMessage, "role">> = {}): ToolResultMessage => ({
+    role: "toolResult",
     toolCallId: "c1",
     toolName: "bash",
     content: [{ type: "text", text }],
@@ -55,6 +56,7 @@ describe("how a tool reads on the card", () => {
         ]);
 
         const failedRun = presentExecution({
+            role: "bashExecution",
             command: "false",
             output: "",
             cancelled: false,

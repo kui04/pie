@@ -1,4 +1,4 @@
-//! [`SshSession`](pie_lib::pi_rpc::transport::SshSession) against a real sshd.
+//! [`SshSession`](pie_lib::transport::SshSession) against a real sshd.
 //!
 //! Ignored by default: the tests need the container from
 //! `tests/scripts/ssh-fixture.sh`, which serves password and key
@@ -14,8 +14,8 @@
 //! reached over SSH answers a real protocol exchange.
 //!
 //! The one test that needs nothing but this file is what keeps the host honest:
-//! it runs when the host does not, and fails when the image would speak a
-//! different protocol than the one mirrored here.
+//! it runs when the host does not, and fails when the image would run a release
+//! other than the one pie pins.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -23,12 +23,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use pie_lib::pi_rpc::protocol::{Command, CommandKind, Event, ServerMessage, SessionState};
-use pie_lib::pi_rpc::transport::{Control, HostKey, PublicKey, SshAuth, SshSession, SshTarget, Termination, Transport};
-use pie_lib::pi_rpc::{Client, Error};
+use pi_rpc::client::Client;
+use pi_rpc::error::ErrorKind;
+use pi_rpc::event::Event;
+use pi_rpc::response::SessionState;
+use pie_lib::transport::{Error, HostKey, PI_VERSION, Peer, PublicKey, SshAuth, SshSession, SshTarget, Termination};
 use russh_sftp::client::SftpSession;
-use tokio::io::AsyncReadExt;
-use tokio::sync::broadcast;
 
 /// What `ssh-fixture.sh start` prints, as the tests need it.
 struct Fixture {
@@ -84,7 +84,7 @@ impl HostKey for Verdict {
         host: &str,
         port: u16,
         _key: &PublicKey,
-    ) -> Pin<Box<dyn Future<Output = pie_lib::pi_rpc::Result<()>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = pie_lib::transport::Result<()>> + Send + '_>> {
         // Owned before the future moves in: the boxed future borrows nothing
         // that outlives this call.
         let endpoint = format!("{host}:{port}");
@@ -101,12 +101,10 @@ impl HostKey for Verdict {
     }
 }
 
-/// Next record from the subscriber, or a failure after five seconds.
-async fn receive(messages: &mut broadcast::Receiver<ServerMessage>) -> ServerMessage {
-    tokio::time::timeout(Duration::from_secs(5), messages.recv())
-        .await
-        .expect("a record arrived")
-        .expect("the client is alive")
+/// One exec channel of the fixture, as the app takes a peer apart.
+fn start(transport: pie_lib::transport::SshTransport) -> (Client, pie_lib::transport::PeerHandle) {
+    let (wire, handle) = Peer::Ssh(transport).split().expect("the channel hands its bytes over");
+    (Client::new(wire), handle)
 }
 
 /// Sockets the fixture's sshd currently has, on a TCP connection to it.
@@ -179,11 +177,11 @@ async fn a_failed_connection_does_not_leave_the_session_running() {
     );
 }
 
-/// The host must run the release this crate mirrors.
+/// The host must run the release pie pins.
 ///
 /// The image takes pi's version as a build argument, and nothing else connects
 /// it to the pin: a stale `ARG` would have the SSH tests quietly exercise a
-/// protocol nobody mirrors. This runs without the fixture, so the default
+/// release nobody speaks. This runs without the fixture, so the default
 /// `cargo test` is where it is caught.
 #[test]
 fn the_test_host_runs_the_pinned_pi_version() {
@@ -199,7 +197,7 @@ fn the_test_host_runs_the_pinned_pi_version() {
 
     assert_eq!(
         declared.trim(),
-        pie_lib::pi_rpc::PI_VERSION,
+        PI_VERSION,
         "{} pins pi {declared}; bump it with the protocol",
         dockerfile.display()
     );
@@ -219,22 +217,34 @@ async fn terminate_stops_a_command_that_never_stops() {
         .await
         .expect("the session opens");
     let transport = session.exec("yes").await.expect("the command starts");
-    let client = Client::start(transport).expect("the client starts");
+    let (client, handle) = start(transport);
 
     // Long enough for the output to back up behind the reader, which is the
     // state that used to make terminate wait forever.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let termination = tokio::time::timeout(Duration::from_secs(10), client.terminate())
-        .await
-        .expect("terminate must not wait for a command that never stops");
+    let termination = tokio::time::timeout(Duration::from_secs(10), async {
+        handle.terminate().await;
+        handle.wait().await
+    })
+    .await
+    .expect("terminate must not wait for a command that never stops");
 
-    // How the peer ended is not the point here: the transport's copy of stdout
-    // is abandoned when the client stops reading, so a status that arrives after
-    // that never reaches anyone. What has to hold is that terminate returns and
-    // the connection is closed.
-    let _ = termination;
-    assert!(client.is_closed());
+    assert_eq!(
+        termination,
+        Termination::Signalled { signal: 9 },
+        "the kill pie sent is what the channel reports"
+    );
+
+    // The end of the channel reaches the client as one of the two ends it
+    // names: a clean EOF is `Closed`, and a channel that died mid-flight is the
+    // transport's own failure. Which of them arrives is not the point - that
+    // nothing hangs is.
+    let error = client.get_state().await.expect_err("a dead channel answers nothing");
+    assert!(
+        matches!(error.kind(), ErrorKind::Closed | ErrorKind::Transport),
+        "got {error}"
+    );
 }
 
 /// `terminate` must kill the command, not merely stop listening to it.
@@ -254,12 +264,15 @@ async fn terminate_kills_a_command_that_ignores_its_streams() {
         .exec("sh -c 'sleep 2; touch /tmp/pie-terminate-survived'")
         .await
         .expect("the command starts");
-    let client = Client::start(transport).expect("the client starts");
+    let (_client, handle) = start(transport);
 
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let termination = tokio::time::timeout(Duration::from_secs(10), client.terminate())
-        .await
-        .expect("terminate returns promptly");
+    let termination = tokio::time::timeout(Duration::from_secs(10), async {
+        handle.terminate().await;
+        handle.wait().await
+    })
+    .await
+    .expect("terminate returns promptly");
 
     // What the two transports answer for the same kill: the local one reports
     // `Signalled { signal: 9 }` from `child.kill()`, so the SSH one must not
@@ -283,42 +296,42 @@ async fn terminate_kills_a_command_that_ignores_its_streams() {
 /// arrive.
 ///
 /// Diagnostics are the one stream that may be dropped: they are for whoever is
-/// watching, not part of the conversation. Blocking on them instead would take
-/// the protocol stream and the exit status down with them.
+/// watching, not part of the conversation. The app's transport drains them into
+/// the log - nobody has to read them for the channel to keep moving - and a
+/// reader of records sees only the peer's own output and its end.
 #[tokio::test]
 #[ignore = "requires the ssh fixture"]
 async fn a_flood_of_stderr_does_not_stall_stdout_or_the_exit_status() {
+    use pi_rpc::transport::{Transport, TransportRecv};
+
     let fixture = Fixture::from_env();
     // Well past the pipe's capacity, then the output that has to get through.
     let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
         .await
         .expect("the session opens");
     let transport = session
-        .exec("sh -c 'head -c 200000 /dev/zero 1>&2; echo done; exit 3'")
+        .exec("sh -c 'head -c 2000000 /dev/zero 1>&2; echo done; exit 3'")
         .await
         .expect("the command starts");
-    let parts = transport.split().expect("the channel splits");
-    let mut control = parts.control;
-    drop(parts.writer);
-    let mut stdout = parts.reader;
-    // `diagnostics` is deliberately never read: that is the state the copy
-    // used to wedge on.
+    let (wire, handle) = Peer::Ssh(transport).split().expect("the channel hands its bytes over");
+    let (tx, mut rx) = wire.split();
+    drop(tx);
 
-    let mut out = String::new();
-    tokio::time::timeout(Duration::from_secs(10), stdout.read_to_string(&mut out))
+    let mut records = Vec::new();
+    let read = async {
+        while let Some(record) = rx.recv().await.expect("a record arrives") {
+            records.push(record);
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), read)
         .await
-        .expect("stdout keeps flowing while stderr is dropped")
-        .expect("stdout is readable");
-    assert!(
-        out.contains("done"),
-        "the peer's stdout arrived without its exit: {out:?}"
-    );
+        .expect("stdout keeps flowing while the diagnostics flood is drained");
 
+    assert_eq!(records, ["done"], "the peer's stdout arrived without its diagnostics");
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(10), control.wait())
+        tokio::time::timeout(Duration::from_secs(10), handle.wait())
             .await
-            .expect("the exit status arrives even though stderr was dropped")
-            .expect("the channel reports its exit"),
+            .expect("the exit status arrives even though stderr was dropped"),
         Termination::Exited {
             code: 3,
             success: false
@@ -329,7 +342,9 @@ async fn a_flood_of_stderr_does_not_stall_stdout_or_the_exit_status() {
 /// The transport on its own, without the protocol client on top of it.
 #[tokio::test]
 #[ignore = "requires the ssh fixture"]
-async fn carries_stdout_stderr_and_the_exit_status() {
+async fn carries_stdout_and_the_exit_status_of_a_one_shot_command() {
+    use pi_rpc::transport::{Transport, TransportRecv};
+
     let fixture = Fixture::from_env();
     let session = SshSession::open(fixture.target(), fixture.key_auth(), Arc::new(Verdict(None)))
         .await
@@ -338,23 +353,22 @@ async fn carries_stdout_stderr_and_the_exit_status() {
         .exec("sh -c 'echo out; echo err >&2; exit 7'")
         .await
         .expect("the command starts");
-    let parts = transport.split().expect("the channel splits");
-    let mut control = parts.control;
-    drop(parts.writer);
-    let mut stdout = parts.reader;
-    let mut stderr = parts.diagnostics.expect("an ssh channel reports stderr");
+    let (wire, handle) = Peer::Ssh(transport).split().expect("the channel hands its bytes over");
+    let (tx, mut rx) = wire.split();
+    drop(tx);
 
-    // Reading stdout to its end means the transport has copied every message it
-    // received, stderr among them.
-    let mut out = String::new();
-    stdout.read_to_string(&mut out).await.expect("stdout is readable");
-    let mut err = String::new();
-    stderr.read_to_string(&mut err).await.expect("stderr is readable");
+    // The diagnostics of this channel are drained by the transport rather than
+    // handed to a caller, so what a reader sees is the records of stdout - and
+    // reading them to their end means the transport has copied every message it
+    // received, the diagnostics among them.
+    let mut records = Vec::new();
+    while let Some(record) = rx.recv().await.expect("a record arrives") {
+        records.push(record);
+    }
 
-    assert_eq!(out, "out\n");
-    assert_eq!(err, "err\n");
+    assert_eq!(records, ["out"]);
     assert_eq!(
-        control.wait().await.expect("the channel reports its exit"),
+        handle.wait().await,
         Termination::Exited {
             code: 7,
             success: false
@@ -397,14 +411,11 @@ async fn one_session_serves_one_shot_commands_exec_channels_and_the_sftp_subsyst
 
     // And pi's own channel, on the same connection as both of the above.
     let transport = session.exec(Fixture::PI).await.expect("pi starts");
-    let client = Client::start(transport).expect("the client starts");
-    let response = client.request(Command::new(CommandKind::GetState)).await.unwrap();
-    let state: SessionState = response.decode().unwrap();
+    let (client, handle) = start(transport);
+    let state: SessionState = client.get_state().await.expect("pi answers");
     assert!(!state.session_id.is_empty(), "a real session has an id");
-    assert!(matches!(
-        client.shutdown().await,
-        Termination::Exited { success: true, .. }
-    ));
+    client.close().await.expect("the client closes");
+    assert!(matches!(handle.wait().await, Termination::Exited { success: true, .. }));
 }
 
 /// A one-shot capture of more than the cap is a truncation, not a failure.
@@ -559,10 +570,10 @@ async fn reports_the_shell_status_of_a_missing_command() {
         .exec("pie-there-is-no-such-command")
         .await
         .expect("the command starts");
-    let client = Client::start(transport).expect("the client starts");
+    let (_client, handle) = start(transport);
 
     assert_eq!(
-        client.wait().await,
+        handle.wait().await,
         Termination::Exited {
             code: 127,
             success: false
@@ -579,30 +590,30 @@ async fn drives_real_pi_over_ssh_with_a_key() {
         .await
         .expect("the session opens");
     let transport = session.exec(Fixture::PI).await.expect("the ssh channel starts pi");
-    let client = Client::start(transport).expect("the client starts");
-    let mut messages = client.subscribe();
+    let (client, handle) = start(transport);
+    let mut events = client.subscribe();
 
-    let response = client.request(Command::new(CommandKind::GetState)).await.unwrap();
-    let state: SessionState = response.decode().unwrap();
+    let state: SessionState = client.get_state().await.expect("pi answers");
     assert!(!state.session_id.is_empty(), "a real session has an id");
 
-    let response = client
-        .request(Command::new(CommandKind::SetSessionName {
-            name: "pie over ssh".to_string(),
-        }))
+    client
+        .set_session_name("pie over ssh")
         .await
-        .unwrap();
-    assert!(response.is_success());
+        .expect("pi takes the name");
     assert!(
         matches!(
-            receive(&mut messages).await,
-            ServerMessage::Event(Event::SessionInfoChanged { .. })
+            &*tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .expect("a record arrived")
+                .expect("the client is alive"),
+            Event::SessionInfoChanged(_)
         ),
         "the event stream survives the channel"
     );
 
+    client.close().await.expect("the client closes");
     assert_eq!(
-        client.shutdown().await,
+        handle.wait().await,
         Termination::Exited { code: 0, success: true },
         "closing stdin is an orderly shutdown, over ssh too"
     );
@@ -616,14 +627,11 @@ async fn drives_real_pi_over_ssh_with_a_password() {
         .await
         .expect("password authentication reaches the host");
     let transport = session.exec(Fixture::PI).await.expect("the ssh channel starts pi");
-    let client = Client::start(transport).expect("the client starts");
+    let (client, handle) = start(transport);
 
-    let response = client.request(Command::new(CommandKind::GetState)).await.unwrap();
-    let state: SessionState = response.decode().unwrap();
+    let state: SessionState = client.get_state().await.expect("pi answers");
     assert!(!state.session_id.is_empty(), "a real session has an id");
 
-    assert!(matches!(
-        client.shutdown().await,
-        Termination::Exited { success: true, .. }
-    ));
+    client.close().await.expect("the client closes");
+    assert!(matches!(handle.wait().await, Termination::Exited { success: true, .. }));
 }

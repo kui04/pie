@@ -1,10 +1,11 @@
 # A host for pi, for the SSH transport tests and for developing pie against
 # something that is not this machine.
 #
-# pi is the release the protocol mirrors (see AGENTS.md), taken from its own
-# release assets rather than from a package manager, so the host speaks exactly
-# the protocol src-tauri/src/pi_rpc mirrors. When that pin moves, this moves:
-# ARG PI_VERSION below is the only place it is written down.
+# pi is the release this app pins (see AGENTS.md), taken from its own release
+# assets rather than from a package manager, so the host speaks exactly the
+# protocol the pi_rpc crate mirrors. A test in tests/ssh.rs compares the
+# ARG PI_VERSION below against the app's own version, so a stale one fails the
+# default cargo test.
 #
 # Built by tests/scripts/ssh-fixture.sh, which decides the account below and
 # passes it in. To build by hand, pass the two arguments yourself:
@@ -13,9 +14,9 @@
 #       --build-arg PI_HOST_USER=pie --build-arg PI_HOST_PASSWORD=pie-test-password \
 #       src-tauri/tests/pi-host
 #
-ARG PI_VERSION=0.99.2
+ARG PI_VERSION=1.1.0
 # From pi's published SHA256SUMS for that release.
-ARG PI_SHA256=f998cc1232733eab240526d74acdce429d650b9e01f5804636d7aa96eb629846
+ARG PI_SHA256=3faa94666cd3849d37af320ff749407d0271b07a9b94f420c87e30866e10e289
 
 FROM debian:bookworm-slim
 

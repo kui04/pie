@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage } from "@/lib/protocol";
+import type { AssistantMessage } from "@/lib/rpc-protocol";
 import {
     activityRows,
     applyDelta,
@@ -16,7 +16,7 @@ import {
 
 /**
  * The sequences below are the ones a recorded run writes
- * (`src-tauri/tests/fixtures/tour-0.99.2.jsonl`, `transcript-0.99.2.jsonl`): a
+ * (`src-tauri/tests/fixtures/tour-1.1.0.jsonl`, `transcript-1.1.0.jsonl`): a
  * `message_start` with the parts the provider sent, deltas for one part at a time, a
  * tool call whose arguments stream before it runs, and a result that arrives twice.
  */

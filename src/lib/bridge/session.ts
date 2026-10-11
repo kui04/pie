@@ -23,7 +23,7 @@
  */
 
 import { listen } from "@tauri-apps/api/event";
-import type { EntriesData, Event, SessionState, SessionStats, SwitchSessionData } from "@/lib/protocol";
+import type { EntriesData, Event, SessionState, SessionStats, SwitchSessionData } from "@/lib/rpc-protocol";
 import { call, type Unsubscribe } from "./invoke";
 
 // The sessions of the host. These are files, not protocol: pie scans the sessions

@@ -1,11 +1,11 @@
 //! pi as a local child process.
 //!
 //! ```no_run
-//! use pie_lib::pi_rpc::transport::LocalTransport;
+//! use pie_lib::transport::{LocalTransport, Peer};
 //!
-//! # fn example() -> pie_lib::pi_rpc::Result<()> {
-//! let process = LocalTransport::pi().arg("--no-session").spawn()?;
-//! # let _ = process;
+//! # fn example() -> pie_lib::transport::Result<()> {
+//! let peer = Peer::Local(LocalTransport::pi().arg("--no-session").spawn()?);
+//! # let _ = peer;
 //! # Ok(())
 //! # }
 //! ```
@@ -15,11 +15,9 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 
-use tokio::io::AsyncRead;
-use tokio::process::{Child, ChildStdin, ChildStdout};
+use tokio::process::Child;
 
-use super::{Control, Termination, Transport, TransportParts};
-use crate::pi_rpc::error::{Error, Result};
+use super::{Lifecycle, Result, Termination, Wire, error::Error};
 
 /// Builds the command that starts pi.
 ///
@@ -80,8 +78,8 @@ impl LocalTransport {
 
     /// Starts the process with piped stdio.
     ///
-    /// The child is killed when the client is dropped without a graceful
-    /// shutdown, so an orphaned pi cannot outlive the app.
+    /// The child is killed when the last hand on it goes, so an orphaned pi
+    /// cannot outlive the app.
     ///
     /// # Errors
     ///
@@ -104,8 +102,6 @@ impl LocalTransport {
 }
 
 /// A running pi child process.
-///
-/// Implement with [`Client::start`](crate::pi_rpc::Client::start).
 #[derive(Debug)]
 pub struct LocalProcess {
     child: Child,
@@ -122,26 +118,25 @@ impl LocalProcess {
     pub fn program(&self) -> &str {
         &self.program
     }
-}
 
-impl Transport for LocalProcess {
-    type Reader = ChildStdout;
-    type Writer = ChildStdin;
-    type Control = LocalControl;
-
-    fn split(mut self) -> Result<TransportParts<Self::Reader, Self::Writer, Self::Control>> {
+    /// Takes the pipes apart, and keeps the child as the lifecycle behind them.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Io`] when a pipe the process should hold is missing. Every pipe
+    /// is asked for at spawn, so this is a bug rather than a condition.
+    pub fn split(mut self) -> Result<(Wire, LocalControl)> {
         let reader = self.child.stdout.take().ok_or_else(|| missing_pipe("stdout"))?;
         let writer = self.child.stdin.take().ok_or_else(|| missing_pipe("stdin"))?;
-        let diagnostics = self.child.stderr.take();
-        Ok(TransportParts {
-            reader,
-            writer,
-            control: LocalControl {
+        let diagnostics = self.child.stderr.take().ok_or_else(|| missing_pipe("stderr"))?;
+        let wire = Wire::of_process(reader, writer, Some(diagnostics));
+        Ok((
+            wire,
+            LocalControl {
                 child: self.child,
                 program: self.program,
             },
-            diagnostics: diagnostics.map(|stderr| Box::new(stderr) as Box<dyn AsyncRead + Unpin + Send>),
-        })
+        ))
     }
 }
 
@@ -159,7 +154,7 @@ impl LocalControl {
     }
 }
 
-impl Control for LocalControl {
+impl Lifecycle for LocalControl {
     async fn terminate(&mut self) -> Result<()> {
         if self.child.id().is_none() {
             return Ok(());

@@ -11,7 +11,9 @@ only the presentation.
 ```
 src/                    React: UI + UI state only
 src-tauri/              Rust app: connection lifecycle, supervision, IPC bridge
-src-tauri/src/pi_rpc/   Protocol module: Pi's wire types, framing, transports
+src-tauri/src/transport/  Where pi runs: local process or SSH channel, framing,
+                          version probe, lifecycle
+pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
 ```
 
 ## Hard boundaries
@@ -30,15 +32,15 @@ src-tauri/src/pi_rpc/   Protocol module: Pi's wire types, framing, transports
 - Rust (`src-tauri`) owns ALL logic: process supervision, connection lifecycle,
   retries and backoff, host-key verification, protocol normalization, error
   mapping.
-- `pi_rpc` MUST stay protocol-only: it knows JSONL, types, and transports — no
-  `tauri` imports, no UI concepts, no connection policy, and no reaching into
-  other app modules. It was a separate crate until that was traded for the
-  simpler single-crate layout, so this boundary is now a convention:
-  `src-tauri/tests/purity.rs` fails the build if it is crossed. Do not weaken
-  that test to make room for app concerns — put them outside the module.
+- The `pi_rpc` crate MUST stay protocol-only: it knows JSONL, types, framing and
+  a client, and it owns no socket, process or TLS — a caller hands it a
+  `Transport`. It has no `tauri` dependency and no connection policy. The
+  boundary is the crate edge, so the compiler holds it; do not add app concerns
+  to it, and put them in `src-tauri/src/transport/` or above.
 - Local and SSH connections MUST share one protocol layer — only the transport
-  differs (`tokio::process::Child` stdin/stdout vs a `russh` exec channel). No
-  PTY anywhere: Pi rpc is stdio.
+  differs (`tokio::process::Child` stdin/stdout vs a `russh` exec channel), and
+  both are `Peer` values in `src-tauri/src/transport/`. No PTY anywhere: Pi rpc
+  is stdio.
 
 ## IPC contract
 
@@ -49,18 +51,23 @@ src-tauri/src/pi_rpc/   Protocol module: Pi's wire types, framing, transports
   values are snake_case (`host_key`); field names are camelCase, matching the
   fields the frontend already reads off Pi's own records.
 - Every layer names its own failures as a `thiserror` enum whose variants are
-  what a caller matches on: `pi_rpc::Error` for the protocol and its transport,
-  `connection::Error` for pie's own reach for a machine (which state the
-  connection is in included), `commands::Error` for the IPC layer. No layer
-  wraps another's error — a `pi` that is not installed is `pi_rpc::Error`, not a
-  variant invented by the layer above it.
+  what a caller matches on: `transport::Error` for a reach for a machine and the
+  run of pi on it, `connection::Error` for pie's own reach for a machine (which
+  state the connection is in included), `commands::Error` for the IPC layer. No
+  layer wraps another's error — a `pi` that is not installed is
+  `transport::Error::Spawn`, not a variant invented by the layer above it. The
+  protocol crate names its five kinds (`pi_rpc::error::ErrorKind`).
 - The boundary type is an aggregation, not a taxonomy:
-  `PieError::{Connection, Commands, Rpc, Io}` (`src-tauri/src/error.rs`), one
-  variant per module, each holding that module's error whole. It serializes as
-  `type` (the module), `message` (what a person reads), and `error` — the named
-  variant underneath, tagged on `kind`. The frontend branches on `kind`, so it
-  reads the name the owning layer gave the failure; a variant added in Rust
-  needs no change here. Never stringify a failure into a category of pie's own
-  invention.
-- Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the `pi_rpc`
-  module == the Pi release the protocol mirrors.
+  `PieError::{Connection, Commands, Rpc, Transport, Io}`
+  (`src-tauri/src/error.rs`), one variant per module, each holding that module's
+  error whole. It serializes as `type` (the module), `message` (what a person
+  reads), and `error` — the named variant underneath, tagged on `kind`. The
+  frontend branches on `kind`, so it reads the name the owning layer gave the
+  failure; a variant added in Rust needs no change here. Never stringify a
+  failure into a category of pie's own invention.
+- Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the version
+  of this crate == the Pi release the protocol mirrors, and the `pi_rpc` crate
+  carries that release's commit in its `[package.metadata.pi_rpc] pi_rev`.
+  `src-tauri/tests/ssh.rs` fails when the test host's image pins another
+  release, and `src-tauri/tests/conformance.rs` fails when the corpus records
+  one the crate cannot read.

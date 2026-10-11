@@ -46,15 +46,16 @@ and its `sshd` publishes a port of its own (2222 by default). Three details are
 worth knowing before changing it:
 
 - **`pi` is pi's own release artifact**, downloaded in the Dockerfile and
-  checked against the `SHA256SUMS` upstream publishes, at the version
-  `src-tauri/src/pi_rpc` mirrors. Building it from the container would mean
-  installing pi's own extension packages first, over the network, on every fresh
-  image - minutes for extensions no test here touches.
+  checked against the `SHA256SUMS` upstream publishes, at the version this app
+  pins. Building it from the container would mean installing pi's own extension
+  packages first, over the network, on every fresh image - minutes for
+  extensions no test here touches.
 - **A release `pi` reports `0.0.0` for its version** - the string is compiled
   into the binary, so only whoever builds pi sets it (`VERSION = pkg.version` in
   pi's `config.ts`). The image therefore also sets `PI_SKIP_VERSION_CHECK=1`,
-  which is what every packaged pi does. `src-tauri/src/pi_rpc/version.rs` checks
-  the pin against a _packaged_ pi on the developer's own machine, not here.
+  which is what every packaged pi does. `src-tauri/src/transport/version.rs`
+  checks the pin against a _packaged_ pi on the developer's own machine, not
+  here.
 - **Credentials are a read-only mount of the host's `~/.pi/agent/auth.json`,**
   at the path the container user reads them from. pi refuses to build a session
   without a model, and a copy of a secret is worse than a mount that ends with
@@ -71,12 +72,16 @@ reacting to what pi sends - which is what reaches situations a static pipeline
 cannot: forking by an entry id that only exists at runtime, steering or aborting
 mid-run, and answering the dialogs pi opens so a run never stalls on one.
 
-| scenario    | what it drives                                                                                                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reasoning` | two prompts, a manual `compact`, `get_entries` + `get_fork_messages`, a `fork` from a reported entry, a prompt on the new branch, then the reporting commands                                     |
-| `tour`      | streaming `bash` runs (one aborted), a prompt that is steered, followed up and aborted, then the session commands (`clear_queue`, `cycle_*`, `set_auto_*`, `clone`, `export_html`, `new_session`) |
-| `session`   | session commands only and no model calls: `set_session_name`, `bash`, `get_state`, `switch_session`, `export_html`, `clone`, `new_session`                                                        |
-| `failures`  | a model outside the catalog (refused), a prompt, then a `compact` that cannot run                                                                                                                 |
+The model is not left to the machine's default: `PI_RECORD_PROVIDER`,
+`PI_RECORD_MODEL` and `PI_RECORD_THINKING` are passed to pi when they are set,
+so the recording that reaches a fixture names the model that produced it.
+
+| scenario    | what it drives                                                                                                                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reasoning` | two prompts (each reading a large file, so the run is over `keepRecentTokens` and the manual `compact` has work to do), `get_entries` + `get_fork_messages`, a `fork` from a reported entry, a prompt on the new branch, then the reporting commands |
+| `tour`      | streaming `bash` runs (one aborted), a prompt that is steered, followed up and aborted, then the session commands (`clear_queue`, `cycle_*`, `set_auto_*`, `clone`, `export_html`, `new_session`)                                                    |
+| `session`   | session commands only and no model calls: `set_session_name`, `bash`, `get_state`, `switch_session`, `export_html`, `clone`, `new_session`                                                                                                           |
+| `failures`  | a model outside the catalog (refused), a prompt, then a `compact` that cannot run                                                                                                                                                                    |
 
 The output is a raw recording: it still holds local paths, the session id and
 the whole harness prompt, and it is not yet a fixture. Sanitize it first
@@ -85,7 +90,7 @@ the whole harness prompt, and it is not yet a fixture. Sanitize it first
 ## `install-recording.mjs` - turn a recording into a fixture
 
 ```sh
-node src-tauri/tests/scripts/install-recording.mjs /tmp/tour.jsonl tour-0.99.2.jsonl
+node src-tauri/tests/scripts/install-recording.mjs /tmp/tour.jsonl tour-1.1.0.jsonl
 ```
 
 Reads a raw recording, sanitizes it, trims the harness prompt, writes

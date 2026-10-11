@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { SessionEntry } from "@/lib/protocol";
+import type { SessionEntry } from "@/lib/rpc-protocol";
 import { transcriptRows } from "@/lib/transcript";
 import {
     assistant,

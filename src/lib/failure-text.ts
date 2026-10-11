@@ -27,6 +27,7 @@ export const MODULE_REASON: Record<bridge.PieErrorModule, string> = {
     connection: "Something went wrong reaching the host.",
     commands: "Something on pie's own side went wrong.",
     rpc: "Something went wrong talking to pi.",
+    transport: "Something went wrong reaching the machine that runs pi.",
     io: "That file could not be read. Another one may work.",
 };
 

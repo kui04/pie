@@ -46,8 +46,7 @@ use russh::keys::known_hosts::learn_known_hosts_path;
 use russh::keys::ssh_key::PublicKey as HostPublicKey;
 use serde::Serialize;
 
-use crate::pi_rpc::transport::{HostKey, PublicKey};
-use crate::pi_rpc::{Error, Result as ProtocolResult};
+use crate::transport::{Error, HostKey, PublicKey, Result as TransportResult};
 
 /// A key a host presented, in the terms a person can check it in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -122,7 +121,7 @@ impl KnownHosts {
     }
 
     /// Sorts out one presented key and returns the verdict to the handshake.
-    async fn decide(&self, host: String, port: u16, key: HostPublicKey) -> ProtocolResult<()> {
+    async fn decide(&self, host: String, port: u16, key: HostPublicKey) -> TransportResult<()> {
         let endpoint = format!("{host}:{port}");
         let own = check(&self.own, &host, port, &key);
         let borrowed = self
@@ -179,7 +178,7 @@ impl HostKey for KnownHosts {
         host: &str,
         port: u16,
         key: &PublicKey,
-    ) -> Pin<Box<dyn Future<Output = ProtocolResult<()>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
         // The key is taken out of the certificate it may have arrived in: what
         // is remembered, and compared, is the key the host proves it holds.
         let key = key.public_key();
@@ -343,7 +342,7 @@ mod tests {
         }
     }
 
-    async fn verify(policy: &KnownHosts, key: &PublicKey) -> ProtocolResult<()> {
+    async fn verify(policy: &KnownHosts, key: &PublicKey) -> TransportResult<()> {
         policy.verify("host.example.com", 22, key).await
     }
 

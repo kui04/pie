@@ -1,5 +1,5 @@
 import { Markdown } from "@/components/Markdown";
-import type { AssistantMessage as AssistantMessageData, ToolResultMessage } from "@/lib/protocol";
+import type { AssistantMessage as AssistantMessageData, ToolResultMessage } from "@/lib/rpc-protocol";
 import type { LiveCall } from "@/lib/stream";
 import { ThinkingCard } from "@/routes/chat/components/entries/ThinkingCard";
 import { ToolResultCard } from "@/routes/chat/components/entries/ToolResultCard";
@@ -116,6 +116,7 @@ function failedCall(message: AssistantMessageData, toolCallId: string, toolName:
     const text = failureText(message);
     if (text === null) return null;
     return {
+        role: "toolResult",
         toolCallId,
         toolName,
         content: [{ type: "text", text }],

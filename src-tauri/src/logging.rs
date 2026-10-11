@@ -14,8 +14,10 @@
 //!   and how long it took.
 //! - `pie_ui` - the webview ([`crate::commands::logs`]): one name for everything
 //!   the frontend writes, so all of it can be turned up at once.
-//! - `pi_rpc` - the protocol and its transports, including what the `pi` process
-//!   itself writes to stderr (`pi_rpc::stderr`).
+//! - `pi_rpc` - the protocol layer: framing, requests, dialogs, and the events
+//!   it fans out.
+//! - `transport` - the byte paths: the SSH steps, and what the `pi` process
+//!   itself writes to stderr (`transport::stderr`).
 //!
 //! # What `RUST_LOG` says
 //!
@@ -25,7 +27,8 @@
 //!
 //! - unset: `info`, and `debug` for `pie_lib` - the app's own commands and steps
 //! - `info`: nothing at `debug`, whatever wrote it
-//! - `info,pi_rpc=debug`: the protocol, and what `pi` says on its stderr
+//! - `info,pi_rpc=debug,transport=debug`: the protocol, and what `pi` says on
+//!   its stderr
 //! - `info,pie_ui=debug`: the frontend's own lines
 //! - `debug`: everything, third-party crates included
 //!
@@ -193,7 +196,8 @@ mod tests {
             assert!(tracing::enabled!(target: "pie_lib::commands::session", Level::DEBUG));
             // A dependency's are not, and neither is the protocol's chatter.
             assert!(!tracing::enabled!(target: "wry::webview", Level::DEBUG));
-            assert!(!tracing::enabled!(target: "pi_rpc::stderr", Level::DEBUG));
+            assert!(!tracing::enabled!(target: "pi_rpc::client", Level::DEBUG));
+            assert!(!tracing::enabled!(target: "transport::stderr", Level::DEBUG));
         });
     }
 
@@ -204,8 +208,9 @@ mod tests {
             assert!(!tracing::enabled!(target: "commands::session", Level::INFO));
         });
 
-        filtered("info,pi_rpc=debug", || {
+        filtered("info,pi_rpc=debug,transport=debug", || {
             assert!(tracing::enabled!(target: "pi_rpc::client", Level::DEBUG));
+            assert!(tracing::enabled!(target: "transport::stderr", Level::DEBUG));
             assert!(tracing::enabled!(target: "commands::session", Level::INFO));
             assert!(!tracing::enabled!(target: "commands::session", Level::DEBUG));
         });

@@ -1,6 +1,6 @@
 //! Pi version pinning.
 //!
-//! The crate version is the Pi release whose protocol this crate mirrors, so
+//! The app version is the Pi release whose protocol pie mirrors, so
 //! [`PI_VERSION`] *is* the pin. Whether a mismatch is fatal is the app's call:
 //! [`probe_version`] and [`check_version`] only report.
 
@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use crate::pi_rpc::error::{Error, Result};
+use super::error::{Error, Result};
 
 /// The Pi release this crate mirrors.
 pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -307,7 +307,7 @@ mod tests {
 
         let directory = tempfile::tempdir().expect("a temp directory");
         let script = directory.path().join("pi-being-written");
-        std::fs::write(&script, "#!/bin/sh\necho 0.99.2\n").unwrap();
+        std::fs::write(&script, "#!/bin/sh\necho 9.9.9\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         // Held open for writing while the probe runs: every exec is refused
@@ -323,7 +323,7 @@ mod tests {
             .expect("a program that stops being written can be run");
         release.join().expect("the writer is gone");
 
-        assert_eq!(found, "0.99.2");
+        assert_eq!(found, "9.9.9");
     }
 
     /// A probe that prints more than a pipe can hold must still be read. Waiting
@@ -340,7 +340,7 @@ mod tests {
         // Well over the 64 KiB a pipe holds, then the version on its own line.
         std::fs::write(
             &script,
-            "#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\0' 'x'\necho 0.99.2\n",
+            "#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\0' 'x'\necho 9.9.9\n",
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -349,6 +349,6 @@ mod tests {
             .await
             .expect("a chatty program still answers");
 
-        assert!(found.contains("0.99.2"), "got {found:.40}...");
+        assert!(found.contains("9.9.9"), "got {found:.40}...");
     }
 }

@@ -28,7 +28,7 @@
 
 import { assign, fromCallback, raise, setup, type SnapshotFrom } from "xstate";
 import * as bridge from "@/lib/bridge";
-import type { Event as SessionRecord } from "@/lib/protocol";
+import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import type { RecordTable } from "@/lib/session-records";
 import type { RunPhase } from "@/lib/stream";
 

@@ -11,7 +11,7 @@
  * thing lives in this app.
  */
 
-import type { SlashCommand } from "@/lib/protocol";
+import type { SlashCommand } from "@/lib/rpc-protocol";
 
 /** The commands of pie itself, answered without pi. */
 export type OwnCommand = "compact" | "copy" | "name";

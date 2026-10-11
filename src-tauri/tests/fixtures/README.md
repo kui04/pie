@@ -1,24 +1,24 @@
 # Recorded protocol fixtures
 
 Real stdout of `pi --mode rpc`, recorded from the pinned Pi release.
-`tests/conformance.rs` replays every record through the mirrored types; when a
-protocol type changes, re-record these files in the same change, and keep what
-each run reached in the corpus. `derived-supplement-0.99.2.jsonl` is the one
+`tests/conformance.rs` replays every record through the `pi_rpc` crate's types;
+when a protocol type changes, re-record these files in the same change, and keep
+what each run reached in the corpus. `derived-supplement-1.1.0.jsonl` is the one
 exception: it is hand-derived, and its section below says from what and why.
 
 ## Provenance
 
-| file                              | recorded   | pi version | what the run did                                                                                                                                                                                                                                                                                                                                                               |
-| --------------------------------- | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `session-probe-0.99.2.jsonl`      | 2026-10-01 | 0.99.2     | `--no-session`, fed `get_state`, `get_available_thinking_levels`, `get_commands`, `get_session_stats`, `get_messages`, `get_tree`, `get_last_assistant_text`, `set_steering_mode`, `set_follow_up_mode`, `get_fork_messages`, an unknown command, and one unparseable line                                                                                                     |
-| `bash-session-0.99.2.jsonl`       | 2026-10-01 | 0.99.2     | `--no-session`, fed `set_session_name`, `bash` (still running at shutdown), `get_entries`, `get_session_stats`, `get_tree`, `clear_queue`, `abort_bash`, `get_state`                                                                                                                                                                                                           |
-| `model-probe-0.99.2.jsonl`        | 2026-10-01 | 0.99.2     | `--no-session`, fed `get_available_models`, `set_thinking_level` (`off`, then an invalid value), `get_state`, `cycle_thinking_level`                                                                                                                                                                                                                                           |
-| `transcript-0.99.2.jsonl`         | 2026-10-01 | 0.99.2     | `set_model` (`openrouter`, `stealth/space-bunny-alpha`), `set_thinking_level` `max`, a prompt answered with a `bash` tool call, then `get_messages`, `get_entries`, `get_session_stats`                                                                                                                                                                                        |
-| `tour-0.99.2.jsonl`               | 2026-10-01 | 0.99.2     | `--session-dir`, streaming `bash` runs (one aborted), a prompt that is steered, followed up and then aborted, then `clear_queue`, `get_state`, `get_messages`, `get_entries`, `get_tree`, `get_last_assistant_text`, `get_fork_messages`, `cycle_model`, `cycle_thinking_level`, `set_auto_compaction`, `set_auto_retry`, `abort_retry`, `clone`, `export_html`, `new_session` |
-| `branch-0.99.2.jsonl`             | 2026-10-01 | 0.99.2     | `--no-session`, two prompts, a manual `compact`, `get_entries` (showing the appended `compaction` entry), `get_fork_messages`, `fork` from a reported entry, a third prompt on the new branch, then `get_entries`, `get_tree`, `get_messages`, `get_session_stats`, `export_html`                                                                                              |
-| `failures-0.99.2.jsonl`           | 2026-10-01 | 0.99.2     | `--no-session`, `set_auto_retry`/`set_auto_compaction`, `set_model` with a model outside the catalog (refused), a prompt, `get_messages`, a `compact` that cannot run, `get_entries`, `get_state`                                                                                                                                                                              |
-| `session-0.99.2.jsonl`            | 2026-10-01 | 0.99.2     | `--session-dir`, `set_session_name`, a `bash` run, `get_state`, `switch_session` back into that file, `get_entries`, `get_session_stats`, `get_tree`, `get_last_assistant_text`, `export_html`, `clear_queue`, `cycle_model`, `set_auto_compaction`, `set_auto_retry`, `abort_retry`, `clone`, `new_session`, `get_state`                                                      |
-| `derived-supplement-0.99.2.jsonl` | -          | 0.99.2     | not recorded - see the section below                                                                                                                                                                                                                                                                                                                                           |
+| file                             | recorded   | pi version | what the run did                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `session-probe-1.1.0.jsonl`      | 2026-10-10 | 1.1.0      | `--no-session`, fed `get_state`, `get_available_thinking_levels`, `get_commands`, `get_session_stats`, `get_messages`, `get_tree`, `get_last_assistant_text`, `set_steering_mode`, `set_follow_up_mode`, `get_fork_messages`, an unknown command, and one unparseable line                                                                                                     |
+| `bash-session-1.1.0.jsonl`       | 2026-10-10 | 1.1.0      | `--no-session`, fed `set_session_name`, `bash` (still running at shutdown), `get_entries`, `get_session_stats`, `get_tree`, `clear_queue`, `abort_bash`, `get_state`                                                                                                                                                                                                           |
+| `model-probe-1.1.0.jsonl`        | 2026-10-10 | 1.1.0      | `--no-session`, fed `get_available_models`, `set_thinking_level` (`off`, then an invalid value), `get_state`, `cycle_thinking_level`                                                                                                                                                                                                                                           |
+| `transcript-1.1.0.jsonl`         | 2026-10-10 | 1.1.0      | `set_model` (`cheapest`, `@preset/deepseek-v4-flash-0731`), `set_thinking_level` `max`, a prompt answered with a `bash` tool call, then `get_messages`, `get_entries`, `get_session_stats`                                                                                                                                                                                     |
+| `tour-1.1.0.jsonl`               | 2026-10-10 | 1.1.0      | `--session-dir`, streaming `bash` runs (one aborted), a prompt that is steered, followed up and then aborted, then `clear_queue`, `get_state`, `get_messages`, `get_entries`, `get_tree`, `get_last_assistant_text`, `get_fork_messages`, `cycle_model`, `cycle_thinking_level`, `set_auto_compaction`, `set_auto_retry`, `abort_retry`, `clone`, `export_html`, `new_session` |
+| `branch-1.1.0.jsonl`             | 2026-10-10 | 1.1.0      | `--no-session`, two prompts, a manual `compact`, `get_entries` (showing the appended `compaction` entry), `get_fork_messages`, `fork` from a reported entry, a third prompt on the new branch, then `get_entries`, `get_tree`, `get_messages`, `get_session_stats`, `export_html`                                                                                              |
+| `failures-1.1.0.jsonl`           | 2026-10-10 | 1.1.0      | `--no-session`, `set_auto_retry`/`set_auto_compaction`, `set_model` with a model outside the catalog (refused), a prompt, `get_messages`, a `compact` that cannot run, `get_entries`, `get_state`                                                                                                                                                                              |
+| `session-1.1.0.jsonl`            | 2026-10-10 | 1.1.0      | `--session-dir`, `set_session_name`, a `bash` run, `get_state`, `switch_session` back into that file, `get_entries`, `get_session_stats`, `get_tree`, `get_last_assistant_text`, `export_html`, `clear_queue`, `cycle_model`, `set_auto_compaction`, `set_auto_retry`, `abort_retry`, `clone`, `new_session`, `get_state`                                                      |
+| `derived-supplement-1.1.0.jsonl` | -          | 1.1.0      | not recorded - see the section below                                                                                                                                                                                                                                                                                                                                           |
 
 ## Recording
 
@@ -39,11 +39,21 @@ stdout verbatim:
 node src-tauri/tests/scripts/record.mjs tour /tmp/tour.jsonl
 ```
 
+The model that produced a recording is not left to the machine's default:
+`record.mjs` reads `PI_RECORD_PROVIDER`, `PI_RECORD_MODEL` and
+`PI_RECORD_THINKING` and passes each to pi. The 1.1.0 corpus was recorded with
+`cheapest` / `@preset/deepseek-v4-flash-0731` at thinking level `max`.
+
+Each fixture was recorded with the same arguments, so a case whose prompt
+selects a tool by name must say so: a prompt that only asks for a value lets the
+model choose `read` instead of `bash` and changes which events the fixture
+carries.
+
 Then install the raw recording with `install-recording.mjs` from the same
 directory, which sanitizes and trims it (below) and prints what it contains:
 
 ```sh
-node src-tauri/tests/scripts/install-recording.mjs /tmp/tour.jsonl tour-0.99.2.jsonl
+node src-tauri/tests/scripts/install-recording.mjs /tmp/tour.jsonl tour-1.1.0.jsonl
 ```
 
 The test double and the recording tools live in `tests/scripts`, not here: a
@@ -56,9 +66,9 @@ Only opaque values are replaced, never structure, keys or types:
 
 - `/home/<user>` paths are rewritten to `/home/user`, and session ids to a fixed
   UUID;
-- the 589-entry `get_available_models` payload in `model-probe` keeps its first
+- the 600-entry `get_available_models` payload in `model-probe` keeps its first
   three entries (the element schema is what that fixture is for; the full list
-  would have added 337 KB);
+  would have added 360 KB);
 - in the fixtures recorded after it, the harness prompt is trimmed: strings
   longer than 120 characters are cut to 120 plus `…`, a `sections` map keeps its
   first two entries, and `toolsAdded`/`toolsRemoved` keep their first two
@@ -71,7 +81,7 @@ way, which is why the rule is spelled out here.
 
 ## Supplement corpus
 
-`derived-supplement-0.99.2.jsonl` is **not** recorded: it is hand-written from
+`derived-supplement-1.1.0.jsonl` is **not** recorded: it is hand-written from
 the pinned checkout, because some shapes still have no recording. They come from
 
 - `packages/coding-agent/src/modes/rpc/rpc-types.ts` - the `extension_error`
@@ -111,12 +121,13 @@ types.
   `set_thinking_level` with `off` succeeds, and `thinking_level_changed` carries
   `"off"` too - so a session level is a `ModelThinkingLevel`.
 - `set_thinking_level` with an invalid value (`"bogus"`) also answers
-  `success: true`: pi does not validate the level. The mirrored type stays the
-  closed `ModelThinkingLevel`, because that is the value space pi documents.
-- `set_thinking_level` with `max` produced two `thinking_level_changed` events
-  (`max`, then `high`) and the assistant message reported
-  `thinkingLevel: "high"`: the level pi reports is the one it resolved, not
-  necessarily the one requested.
+  `success: true`: pi does not validate the level. The crate's type stays the
+  closed `ThinkingLevel`, because that is the value space pi documents.
+- `set_thinking_level` with `max` on a model that does not offer `max` produced
+  two `thinking_level_changed` events (`max`, then the level pi fell back to)
+  and an assistant message reporting that resolved level: the level pi reports
+  is the one it resolved, not necessarily the one requested. Setting the level a
+  run is already at produces no event at all, so a client must not wait for one.
 - A catalog model entry carries `"type":"chat"`; the `get_state` projection
   omits `type` entirely.
 - `get_state`'s model spells unsupported thinking levels out as `null`
@@ -131,7 +142,14 @@ types.
   one. That is why `every_recorded_payload_decodes` exists - the envelope check
   alone cannot see a payload like this.
 - A plain tool result carries only `content`, `isError`, `toolCallId`,
-  `toolName` and `timestamp` - no `details`, `usage` or `nestedCalls`.
+  `toolName`, `durationMs` and `timestamp` - no `details`, `usage` or
+  `nestedCalls`.
+- 1.1.0 timings: `tool_execution_end` carries `durationMs`, and a stored
+  assistant message or tool result carries its own `durationMs`; both were
+  absent before this release.
+- `agent_settled` carries `aborted`, which separates a cancelled run from a
+  finished one. A client that matches the bare `type` still works, because the
+  field is additive.
 - A real user message carries `content` as parts, never as a bare string.
 - A killed `bash` reports `cancelled: true` and **omits** `exitCode`.
 - `steer` and `follow_up` during a run answer `disposition: "queued"` and are

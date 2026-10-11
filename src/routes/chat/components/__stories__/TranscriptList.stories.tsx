@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { SessionEntry } from "@/lib/protocol";
+import type { SessionEntry } from "@/lib/rpc-protocol";
 import { transcriptRows } from "@/lib/transcript";
 import { compactedTranscript, sampleTranscript, storeOf } from "@/preview/fixtures";
 import { TranscriptList } from "@/routes/chat/components/TranscriptList";

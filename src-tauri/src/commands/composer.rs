@@ -14,19 +14,21 @@
 //!
 //! A command fails as the layer that owns the failure: an absent connection or an
 //! absent session is [`connection::Error`], and everything below them, including
-//! a refusal of pi itself, is [`crate::pi_rpc::Error`]. Neither is wrapped here.
+//! a refusal of pi itself, is the protocol layer's own errors. Neither is wrapped
+//! here.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 
-use crate::connection::{self, Session};
-use crate::error::PieError;
-use crate::pi_rpc::protocol::{
-    AvailableModelsData, AvailableThinkingLevelsData, BashResult, ClearQueueData, CommandsData, CompactionResult,
-    ImageContent, ImagePartType, LastAssistantTextData, Model, ModelThinkingLevel, PromptData, StreamingBehavior,
+use crate::connection::{
+    self, AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData, Session,
 };
+use crate::error::PieError;
+
+use pi_rpc::response::{BashResult, ClearQueueData, CompactionResult};
+use pi_rpc::types::{ImageContent, ImageKind, Model, StreamingBehavior, ThinkingLevel};
 
 use super::state::AppState;
 
@@ -129,7 +131,7 @@ fn picked_images(app: &AppHandle) -> Result<Option<Vec<PickedImage>>, PieError> 
         picked.push(PickedImage {
             name: name.unwrap_or_else(|| "Image".to_string()),
             image: ImageContent {
-                part_type: ImagePartType::Image,
+                kind: ImageKind::Image,
                 data: base64::engine::general_purpose::STANDARD.encode(&bytes),
                 mime_type: image_mime_type(&extension, &bytes).to_string(),
             },
@@ -370,7 +372,7 @@ pub async fn set_model(
 pub async fn set_thinking_level(
     state: State<'_, AppState>,
     session: String,
-    level: ModelThinkingLevel,
+    level: ThinkingLevel,
 ) -> Result<(), PieError> {
     named_session(&state, &session, "setting the thinking level of a session")
         .await?

@@ -2,8 +2,15 @@
 # its platform binary ships as an optional dependency, and `just build`,
 # `just test` and `pnpm build-storybook` all pass with the script never run.
 # Set to true only if a future dependency genuinely needs it.
+#
+# The two below arrive with pi's type packages (see AGENTS.md): pie imports types
+# from them and never runs their code, so their install scripts stay off as well.
+# They are answered rather than left out because pnpm refuses to run any script
+# at all while a package it wants to build has no answer here.
 allowBuilds:
+  "@google/genai": false
   esbuild: false
+  protobufjs: false
 # virtua 0.53.2 was published hours before this install. pnpm refuses a package
 # inside its release-age window (24 hours, measured on this machine: taking this
 # line away makes `pnpm install` fail with

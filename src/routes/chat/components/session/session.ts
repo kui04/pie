@@ -10,7 +10,7 @@
  * without a bridge.
  */
 
-import type { SessionStats, SessionTokens, Usage } from "@/lib/protocol";
+import type { SessionStats, SessionTokens, Usage } from "@/lib/rpc-protocol";
 import { BREATHE_CYCLE } from "@/lib/motion";
 import type { SessionSummary } from "@/lib/bridge";
 

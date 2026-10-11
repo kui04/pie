@@ -23,11 +23,19 @@ const FRONTEND: [&str; 2] = [
     "../src/routes/chat/failure-reason.ts",
 ];
 
-/// Every error enum whose variant names reach the frontend as a `kind`.
-const ENUMS: [&str; 3] = [
-    "src/pi_rpc/error.rs",
-    "src/connection/error.rs",
-    "src/commands/error.rs",
+/// Every error enum whose variant names reach the frontend as a `kind`, beside
+/// the name of the enum itself.
+///
+/// The transport's own failures, the state of a connection, and what the IPC
+/// layer cannot do are named by their variants. What the protocol layer fails on
+/// is that layer's five kinds, which reach the frontend through
+/// [`RpcFailure`](pie_lib::error::RpcFailure) - the protocol crate names them and
+/// is not serializable itself, so this app names them once, for both sides.
+const ENUMS: [(&str, &str); 4] = [
+    ("src/transport/error.rs", "Error"),
+    ("src/connection/error.rs", "Error"),
+    ("src/commands/error.rs", "Error"),
+    ("src/error.rs", "RpcFailure"),
 ];
 
 fn read(path: &str) -> String {
@@ -51,16 +59,17 @@ fn kind_of(variant: &str) -> String {
     kind
 }
 
-/// The `kind` of every variant of the one `pub enum Error` in `path`.
-fn variants(path: &str) -> BTreeSet<String> {
+/// The `kind` of every variant of the one `pub enum <name>` in `path`.
+fn variants(path: &str, name: &str) -> BTreeSet<String> {
     let text = read(path);
     let mut kinds = BTreeSet::new();
     let mut inside = false;
+    let opening = format!("pub enum {name} {{");
     for line in text.lines() {
         let indent = line.len() - line.trim_start().len();
         let line = line.trim_start();
         if !inside {
-            inside = line == "pub enum Error {";
+            inside = line == opening;
             continue;
         }
         // A blank line has no indentation. It separates variants. It is not the
@@ -126,7 +135,7 @@ fn table_kinds(path: &str) -> BTreeSet<String> {
 
 #[test]
 fn the_frontend_has_words_for_exactly_the_names_rust_gives() {
-    let named: BTreeSet<String> = ENUMS.iter().flat_map(|path| variants(path)).collect();
+    let named: BTreeSet<String> = ENUMS.iter().flat_map(|(path, name)| variants(path, name)).collect();
     assert_eq!(
         named,
         frontend_kinds(),
@@ -138,7 +147,7 @@ fn the_frontend_has_words_for_exactly_the_names_rust_gives() {
 fn no_two_modules_name_a_failure_alike() {
     // The frontend lookup is one flat table with `kind` as the key. A name that
     // two modules use would send a person the text of the other module.
-    let enums: Vec<(&str, BTreeSet<String>)> = ENUMS.iter().map(|path| (*path, variants(path))).collect();
+    let enums: Vec<(&str, BTreeSet<String>)> = ENUMS.iter().map(|(path, name)| (*path, variants(path, name))).collect();
     for (index, (left, left_kinds)) in enums.iter().enumerate() {
         for (right, right_kinds) in &enums[index + 1..] {
             let shared: Vec<&String> = left_kinds.intersection(right_kinds).collect();

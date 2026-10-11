@@ -154,7 +154,7 @@ const REAL_DEPS: ConnectScreenDeps = {
  * falls back to the text of its module (`@/lib/failure-text`).
  */
 const FAILURE_REASON: FailureText = {
-    // `pi_rpc::Error`: the connect to the host, and the run of pi on the host.
+    // `transport::Error`: the connect to the host, and the run of pi on the host.
     connect: "The host could not be reached.",
     connect_timeout: "The host did not answer in time.",
     ssh: "The SSH handshake with the host failed.",
@@ -169,13 +169,13 @@ const FAILURE_REASON: FailureText = {
     subsystem_timeout: "The host never answered about a file channel.",
     version_probe: "pi would not say which release it is.",
     version_mismatch: "pi is not the release pie speaks.",
-    // `pi_rpc::Error`: the protocol itself.
-    rpc: "pi refused the command.",
+    // The protocol layer's five kinds: what pie could not do with pi itself.
+    transport: "The connection to pi failed.",
+    protocol: "pi answered in a way pie does not know.",
+    command: "pi refused the command.",
     timeout: "pi did not answer in time.",
-    payload: "pi answered in a way pie does not know.",
-    encode: "Pie could not write a request pi understands.",
     closed: "The connection to pi ended.",
-    no_runtime: "Pie could not reach its own runtime.",
+    // `transport::Error`: the byte path below the protocol.
     io: "The connection to pi failed.",
     // `connection::Error`: the connect of pie to the machine, and the state of
     // that connection.

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { assistant, text, thinking, toolCall, toolResult } from "@/preview/fixtures";
 import { AssistantMessage } from "@/routes/chat/components/entries/AssistantMessage";
 import type { LiveCall } from "@/lib/stream";
-import type { AssistantMessage as AssistantMessageData, ToolResultMessage } from "@/lib/protocol";
+import type { AssistantMessage as AssistantMessageData, ToolResultMessage } from "@/lib/rpc-protocol";
 
 const results = (...answered: ToolResultMessage[]) => new Map(answered.map((result) => [result.toolCallId, result]));
 
@@ -103,6 +103,7 @@ describe("AssistantMessage", () => {
         const call: LiveCall = {
             running: true,
             result: {
+                role: "toolResult",
                 toolCallId: "c1",
                 toolName: "bash",
                 content: [{ type: "text", text: "half of the file" }],
