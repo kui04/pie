@@ -20,7 +20,17 @@ const KEY: PresentedKey = {
     fingerprint: "SHA256:2a:b4:c1:88:9f:0e",
 };
 
-afterEach(cleanup);
+/** Which machine pie is on: the frame reads it, and a test can change it. */
+const platform = vi.hoisted(() => ({ mobile: false }));
+
+vi.mock("@/hooks/use-platform", () => ({
+    useIsMobile: () => platform.mobile,
+}));
+
+afterEach(() => {
+    platform.mobile = false;
+    cleanup();
+});
 
 /** A dial that stays open. A test can then look at the locked form. */
 const never = () => new Promise<ConnectionInfo>(() => undefined);
@@ -446,6 +456,30 @@ describe("ConnectScreen", () => {
         // The form operates again. This is the second result of the closed
         // prompt.
         expect(CONNECT()).toBeEnabled();
+    });
+
+    it("draws the window's own handle and keys over the card", () => {
+        const stub = stubBridge();
+        const { container } = renderGate(stub.deps);
+
+        const bar = container.querySelector("#topbar");
+        // `deep`: a press anywhere on the bar drags the window (see tauri's
+        // `window/scripts/drag.js`); the gate has no slots before the keys.
+        expect(bar?.getAttribute("data-tauri-drag-region")).toBe("deep");
+        expect(container.querySelector("#window_controllers")).not.toBeNull();
+    });
+
+    it("leaves the window's keys to a desktop, and the page's room to the page", () => {
+        platform.mobile = true;
+        const stub = stubBridge();
+        const { container } = renderGate(stub.deps);
+
+        expect(container.querySelector("#topbar")).not.toBeNull();
+        expect(container.querySelector("#window_controllers")).toBeNull();
+        // The page is the safe area: the room is taken once, by the column.
+        expect(container.querySelector("#safe-main")?.className.split(" ")).toEqual(
+            expect.arrayContaining(["pt-safe", "pb-safe", "pl-safe", "pr-safe"]),
+        );
     });
 
     it("asks for no host key at all until one is actually presented", () => {

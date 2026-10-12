@@ -368,8 +368,7 @@ turns the bar into the session's own and hands the foot to the composer.
 
 - **Mobile first.** Base styles are the phone's; wider windows layer on with
   Tailwind breakpoints. The column that only exists above `lg` (the session
-  list) is not mounted below it, and neither is the bar with no window keys to
-  carry.
+  list) is not mounted below it.
 - **One scroller per region.** The window itself never scrolls: the shell is
   `h-svh` and clips, and `html`/`body` carry `overflow: clip`, so nothing that
   lands outside the shell — a portal, a stray element — can scroll the window
@@ -382,21 +381,31 @@ turns the bar into the session's own and hands the foot to the composer.
 - **Safe areas.** A phone draws its status bar and its navigation bar over the
   window — Android enforces edge to edge from target 35 — and hands the room
   they take to the page as `safe-area-inset-*` (the viewport says
-  `viewport-fit=cover`; the webview reports the system bars from M144).
-  `src/components/SafeArea.tsx` is where a region takes that room, and the pane
-  behind it keeps painting to the screen's edge: the bar keeps the status bar's
-  height, the list's column and the composer keep the navigation bar's, and the
-  shell keeps the side bars of a landscape window. Every overlay asks for its
-  own side the same way.
+  `viewport-fit=cover`; the webview reports the system bars from M144). A
+  screen's page is the safe area (`src/components/SafeArea.tsx`, around the
+  column): the room is taken once, on the whole page and on all four sides, so
+  nothing inside it can sit under a system bar. An overlay leaves the page for a
+  portal, where the page's room does not reach: it takes its own side the same
+  way.
 
 ## Elevation & Depth
 
-There are only two elevations.
+Two questions stand behind a surface: whether it is in flow or leaves the page,
+and — where two surfaces meet — which one the light is on.
 
 **In flow — none.** A tile is flat: `card` on `surface`, no border, no shadow. A
 divider inside a tile is a 1px hairline in `divider`; a tile's footer is
 separated from its body by that hairline, never by a gap alone. This is what
 keeps a long transcript readable: no edges accumulate down the column.
+
+**Raised and inset — where two surfaces meet.** The composer is set into the
+page: the window lies above it along its top edge, and the light catches its
+bottom one (`elevation-inset`). The layers over it — its command list and its
+two pickers — are raised: the light catches their top edge and their shadow
+falls below (`elevation-raised`), on the composer's own plane and with the `lg`
+corner, so the family reads as one. Both take their two colours from the theme
+(`--elevation-highlight`, `--elevation-shadow`), because dark and light disagree
+about a highlight and about a shadow.
 
 **Floating — what the scrim does not.** A layer that leaves the page carries the
 theme's shadow: `shadow-sm` for the gate card, `shadow-md` for a pill, a menu or
@@ -424,33 +433,41 @@ never grows with the size of the surface it is on.
 
 ## Components
 
-**Window** (`src/components/layout/Window.tsx`) — the window itself: the list's
-column, where there is one, and the chat beside it. Two regions, edge to edge,
-told apart by the one hairline the column carries; no margins and no corners,
-because the window's own edge is not a shape to round.
+**The window's frame** — no component holds it: each screen draws its own. The
+window's shape is the screen's, so nothing fixes a side column or a bar as a
+region of the window. The gate draws its card on the window's plane; the chat
+draws the list's column, where there is one, and the chat beside it — two
+regions, edge to edge, told apart by the one hairline the column carries, with
+no margins and no corners, because the window's own edge is not a shape to
+round.
 
-The chat is a column of two. Its bar (`#topbar`) is the window's handle — a
-press on it drags a window that has no decorations — and it carries the
-session's slots before the window's own keys (`WindowControls`): the way to the
-list, the name, the state of the context. The bar has no plane of its own and no
-hairline under it: it is the top of the chat's own plane, so the chat reads as
-one region from the window's edge down. Where a phone's OS owns the frame there
-are no keys, and a bar with nothing in it is not drawn at all.
+What a frame shares is the bar: the window's own handle, and the one piece the
+window owns. The window has no decorations, so a press on the bar drags it, and
+its three keys (`WindowControls`) sit at its end, after the slots the page gives
+it — the way to the list, the name, the state of the context. The chat's bar
+(`#topbar`) has no plane of its own and no hairline under it: it is the top of
+the chat's own plane, so the chat reads as one region from the window's edge
+down. The bar is the page's first row on every platform; its keys are a
+desktop's, because a phone's OS owns the frame there. On a desktop every inset
+is zero, so the frame is one tree.
 
-The body under the bar is the chat. It scrolls edge to edge — the transcript's
-scroller is the whole region — while what is drawn inside it is capped: the
-transcript's rows and the composer's band share one content column, 64rem wide
-at most and centred, so a row and the composer start and end on the same two
-lines. The bar costs the columns nothing: it floats over the region's edge (see
-**Scrollbar**), so the band takes the region's whole width. And it shows itself
-only while the list moves, so a reader who is not scrolling sees no bar at all.
+The body under the bar is the chat, and it is a column: the transcript, then the
+composer at its foot. Both are capped to one content column, 64rem wide at most
+and centred. The composer's box stands 8px outside a row's content line on each
+side, and the 8px is its own corner: `rounded-lg` curves over exactly that much,
+so the curve ends where a row's words begin. The composer is a row of its own on
+the window's surface, not a layer over the words: the transcript ends where the
+band begins, so no row passes under it. The band takes the region's whole width,
+because the transcript's bar floats over the scroller's edge (see **Scrollbar**)
+rather than taking room of its own. And it shows itself only while the list
+moves, so a reader who is not scrolling sees no bar at all.
 
 A column that opens — the session list above `lg` — is revealed by a clip: its
 wrapper owns the width the transcript gives up (256px), and the column inside it
 keeps its own width, so what moves is the edge and the hairline on it, not the
 rows.
 
-**Landing** (`src/routes/chat/components/ChatLanding.tsx`) — the window with no
+**Landing** (`src/routes/chat/SessionLanding.tsx`) — the window with no
 conversation open, which is where it starts and where `Detach` will return it.
 It draws the words of pi and the keys the window will answer to, centred, and
 the bar above it carries only the way to the list and the window's own keys: a
@@ -461,9 +478,9 @@ its binding is not made yet — the rows are the plan a reader can read
 the loading page and the conversation itself, and a page leaves before the next
 arrives (`STAGE`).
 
-**Loading** (`src/routes/chat/components/SessionLoading.tsx`) — a conversation
-is on its way: the window keeps the bar of the landing — a conversation that has
-not arrived has nothing to say about itself — and the page says
+**Loading** (`src/routes/chat/SessionLoading.tsx`) — a conversation is on its
+way: the window keeps the bar of the landing — a conversation that has not
+arrived has nothing to say about itself — and the page says
 `Opening the session…` beside shadcn's **spinner** (`Loader2`,
 `muted-foreground`), centred. No composer and no session slots until the read
 answers, and nothing under it: a page of its own, entered and left with the same
@@ -514,10 +531,9 @@ works takes away again.
 The list keeps the reader where they are: it follows the end only while they are
 at it, and the key below takes them back when they are not. A jump to the end is
 taken again while the sizes settle under it — a row is measured when it is first
-drawn, a row whose words rewrapped changes height, and the composer's band moves
-the foot the list pads itself by — for the end of the transcript is wherever
-those sizes put it, and a jump measured against the older ones leaves the last
-rows under the band.
+drawn, and a row whose words rewrapped changes height — for the end of the
+transcript is wherever those sizes put it, and a jump measured against the older
+ones lands short of it.
 
 The key's jump is run, not cut: the scroller glides to the end over a length the
 distance decides (a fixed number of pixels a millisecond between two bounds, so
@@ -537,12 +553,20 @@ its first three; the rest arrives through the footer.
 line is the same bubble in a tighter box. Its actions are its own context menu,
 not a control in the corner.
 
-**Popup** (`src/components/SelectWithSearch.tsx`) — the panel a picker of the
-composer opens: our own plane (`popover`, under the layer's 10% hairline) in the
-draft's shape — a 12px corner, `space-sm` of padding, `space-xs` between its
-rows, 17rem wide for the models and 11rem for the levels, and a fixed 240px
-where a host may offer more models than fit. The command menu's panel is the
-same plane and shape, and scrolls past 320px. Its rows take the menu's accent
+**Popup** (`src/routes/chat/composer/ModelPicker.tsx`, `ThinkingLevelPicker.tsx`
+beside it) — the panel a picker of the composer opens, and the command list of
+the message box with it: the composer's own plane (`card`) in the composer's
+shape — the `lg` corner and the raised elevation, `space-sm` of padding,
+`space-xs` between the rows, 17rem wide for the models and 11rem for the levels,
+and a fixed 240px where a host may offer more models than fit — six hundred of
+them on a host with every provider configured, of which the popup draws the
+forty the search ranks first, led by the model in use. The search reads all of
+them, so a model past those rows is reached by typing, not by scrolling. The
+mark of a model's provider leads its key and its row — 16px, the shape of
+models.dev in the ink of the surface under it, and the key of the composer where
+models.dev has no mark — fetched once and kept for a day. The command menu's
+panel is the same plane and shape, as wide as the card it stands above, and
+shows ten rows before it scrolls. Its rows take the menu's accent
 (`selected-row`) — the row under the pointer or the keyboard, and the row in use
 with its check in `primary-text`.
 

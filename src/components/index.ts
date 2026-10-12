@@ -3,7 +3,6 @@ export { Hourglass } from "./Hourglass";
 export { Markdown, type MarkdownProps } from "./Markdown";
 export { OptionRow } from "./OptionRow";
 export { ScrollPane } from "./ScrollPane";
-export { SelectWithSearch, type SelectChoice, type SelectWithSearchProps } from "./SelectWithSearch";
 export {
     Sheet,
     SheetClose,
@@ -17,5 +16,4 @@ export {
     SheetTrigger,
 } from "./Sheet";
 export { SafeArea, type SafeAreaProps, type SafeAreaSide } from "./layout/SafeArea";
-export { Window, type WindowProps } from "./layout/Window";
 export { WindowControls } from "./layout/WindowControls";

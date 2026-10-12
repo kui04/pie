@@ -30,6 +30,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app::open_url,
             commands::app::platform,
+            commands::app::provider_logo,
             commands::host::connect,
             commands::host::disconnect,
             commands::host::get_connection,

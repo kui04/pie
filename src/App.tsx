@@ -24,7 +24,7 @@ function AppShell() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ type: "tween", duration: 0.15 }}
-            className="pl-safe pr-safe flex h-svh w-svw flex-col overflow-hidden font-sans"
+            className="flex h-svh w-svw flex-col overflow-hidden font-sans"
         >
             <AppRoutes />
             <Toaster position="top-center" mobileOffset={{ top: "calc(1rem + env(safe-area-inset-top))" }} />

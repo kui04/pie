@@ -52,6 +52,21 @@ pub enum Error {
         source: Box<tauri_plugin_opener::Error>,
     },
 
+    /// The mark of a provider could not be fetched from models.dev.
+    ///
+    /// The mark is the app's own business: it is drawn beside a model, and a
+    /// model whose provider has no mark is drawn with the fallback icon. A fetch
+    /// that fails is not a failure of pi, which is why it is named here.
+    #[error("fetching the mark of {provider} failed: {source}")]
+    LogoFetch {
+        /// The provider of the model, as models.dev names it.
+        provider: String,
+        /// What the request said, boxed for the reason above.
+        #[serde(skip)]
+        #[source]
+        source: Box<ureq::Error>,
+    },
+
     /// Pie cannot find its own directory for host keys.
     #[error("pie cannot resolve where to keep host keys: {source}")]
     NoHostKeyStore {

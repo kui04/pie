@@ -1,9 +1,11 @@
 import { useMachine } from "@xstate/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+import { useIsMobile } from "@/hooks/use-platform";
+
 import { ConnectionCard, type ConnectionForm, HostKeyPrompt } from "@/routes/connect/components";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
-import { Window } from "@/components";
+import { SafeArea, WindowControls } from "@/components";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 
@@ -153,6 +155,8 @@ export interface ConnectScreenProps {
 export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const { pickPrivateKey } = deps;
     const navigate = useNavigate();
+    const isMobile = useIsMobile();
+
     const [form, setForm] = useState(EMPTY_FORM);
     const [askedKey, setAskedKey] = useState<bridge.PresentedKey | null>(null);
     const [state, send] = useMachine(connectionMachine, {
@@ -187,21 +191,35 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     }, [pickPrivateKey]);
 
     return (
-        <Window bodyClassName="items-center justify-center p-4">
-            <ConnectionCard
-                form={form}
-                connecting={state.matches("connecting")}
-                canConnect={spec !== undefined}
-                onChange={patch}
-                onConnect={() => spec && send({ type: "CONNECT", spec })}
-                onPickKey={() => void pickKey()}
-            />
+        <main id="window" className="bg-surface text-foreground flex min-h-0 w-full flex-1 overflow-hidden font-sans">
+            <SafeArea side="all" id="safe-main" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <div
+                    id="topbar"
+                    data-tauri-drag-region="deep"
+                    className="flex min-h-11 shrink-0 items-center gap-1 px-3"
+                >
+                    {!isMobile && <WindowControls />}
+                </div>
+                <div
+                    id="connection-from"
+                    className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden p-4"
+                >
+                    <ConnectionCard
+                        form={form}
+                        connecting={state.matches("connecting")}
+                        canConnect={spec !== undefined}
+                        onChange={patch}
+                        onConnect={() => spec && send({ type: "CONNECT", spec })}
+                        onPickKey={() => void pickKey()}
+                    />
 
-            <HostKeyPrompt
-                key={askedKey?.fingerprint}
-                presentedKey={asking ? askedKey : null}
-                onAnswer={(trusted) => send({ type: "ANSWER_HOST_KEY", trusted })}
-            />
-        </Window>
+                    <HostKeyPrompt
+                        key={askedKey?.fingerprint}
+                        presentedKey={asking ? askedKey : null}
+                        onAnswer={(trusted) => send({ type: "ANSWER_HOST_KEY", trusted })}
+                    />
+                </div>
+            </SafeArea>
+        </main>
     );
 }

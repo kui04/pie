@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { act, type ReactNode } from "react";
 import { queryDefaults } from "@/lib/query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui";
 import type * as Bridge from "@/lib/bridge";
@@ -44,6 +44,13 @@ const bridge = vi.hoisted(() => ({
 vi.mock("@/lib/bridge", async (importOriginal) => ({
     ...(await importOriginal<typeof Bridge>()),
     ...bridge,
+}));
+
+/** Which machine pie is on: the frame reads it, and a test can change it. */
+const platform = vi.hoisted(() => ({ mobile: false }));
+
+vi.mock("@/hooks/use-platform", () => ({
+    useIsMobile: () => platform.mobile,
 }));
 
 /**
@@ -93,20 +100,21 @@ function windowOf(width: "narrow" | "wide"): () => void {
  *
  * The screen reads its connection through TanStack Query and its landing links
  * to the gate, so it needs a client above it and a router around it - the same
- * two things the app's own mounting gives it.
+ * two things the app's own mounting gives it. The gate itself stands at `/`, so a
+ * test can see the window leave for it.
  */
-function renderScreen() {
-    // The client of the app, not a fresh one: a warm cache is what a second visit
-    // to a read depends on (`queryDefaults`).
-    const client = new QueryClient(queryDefaults);
+function renderScreen(client = new QueryClient(queryDefaults)) {
     return render(
         <QueryClientProvider client={client}>
-            <MemoryRouter>
+            <MemoryRouter initialEntries={["/chat"]}>
                 {/* The toast stack belongs to the app; the workspace announces
                     what a switch could not do. */}
                 <Toaster position="top-center" />
                 <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
-                    <ChatScreen />
+                    <Routes>
+                        <Route path="/chat" element={<ChatScreen />} />
+                        <Route path="/" element={<p>the gate stands here</p>} />
+                    </Routes>
                 </div>
             </MemoryRouter>
         </QueryClientProvider>,
@@ -114,6 +122,7 @@ function renderScreen() {
 }
 
 beforeEach(() => {
+    platform.mobile = false;
     vi.clearAllMocks();
     useTranscriptStore.getState().clear();
     bridge.onSessionEvent.mockResolvedValue(() => undefined);
@@ -150,14 +159,56 @@ async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
 }
 
 describe("ChatScreen", () => {
-    it("offers the way back to the gate when no connection is held", async () => {
+    it("returns to the gate when no connection is held", async () => {
         bridge.getConnection.mockResolvedValue(null);
 
         renderScreen();
 
+        // The workspace is not a page to stay on with no host to speak through:
+        // the gate is where one is made, and `replace` is what keeps the back
+        // gesture from landing on the empty workspace again.
+        expect(await screen.findByText("the gate stands here")).toBeInTheDocument();
+    });
+
+    it("returns to the gate when the read of the connection fails", async () => {
+        bridge.getConnection.mockRejectedValue({
+            type: "commands",
+            message: "pie could not reach its own backend",
+        });
+
+        renderScreen();
+
+        expect(await screen.findByText("the gate stands here")).toBeInTheDocument();
+    });
+
+    it("stays when a cached answer says no connection but the fresh read holds one", async () => {
+        // The gate sends the window here after a connect, and this read may still
+        // hold the `null` of a visit before it. The answer being fetched is the
+        // truth; a return to the gate on the cached one would be a bounce.
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([HELD]);
+        const client = new QueryClient(queryDefaults);
+        client.setQueryData(["connection"], null);
+
+        renderScreen(client);
+
         expect(await screen.findByText(/There are many agent harnesses/)).toBeInTheDocument();
-        expect(await screen.findByText("This window is not connected to a host.")).toBeInTheDocument();
-        expect(screen.getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/");
+        expect(screen.queryByText("the gate stands here")).toBeNull();
+    });
+
+    it("draws no page of the chat while it has no connection to speak through", () => {
+        // The read that will answer is still on its way: the window is its frame
+        // alone, not a landing whose note the return to the gate would take away
+        // again a frame later.
+        bridge.getConnection.mockReturnValue(new Promise(() => undefined));
+        const client = new QueryClient(queryDefaults);
+        client.setQueryData(["connection"], null);
+
+        const { container } = renderScreen(client);
+
+        expect(container.querySelector("#window")).not.toBeNull();
+        expect(container.querySelector("#chat-landing")).toBeNull();
+        expect(screen.queryByText("This window is not connected to a host.")).toBeNull();
     });
 
     it("lands on the words of pi before a conversation is chosen", async () => {
@@ -244,14 +295,13 @@ describe("ChatScreen", () => {
 
         expect(await screen.findByText("hello")).toBeInTheDocument();
         expect(container.querySelector("#session_name")).toHaveTextContent("Fix the parser");
-        // A conversation that has words keeps its composer at the foot, under them.
-        // The bar floats over the list, so the band takes the region's whole width
-        // and the two centred columns - the rows and the composer - line up.
-        expect(container.querySelector("#composer-band")?.className).toContain("absolute");
-        expect(container.querySelector("#composer-band")?.className).toContain("right-0");
-        // The band's own gap is above and below; the navigation bar is room the
-        // content adds, so the keys never sit under the bar.
-        expect(container.querySelector("#composer-band > div")?.className).toContain("pb-safe");
+        // A conversation that has words keeps its composer at the foot, under them:
+        // a row of the column and not a layer over the list, so no row can pass
+        // under it.
+        const band = container.querySelector("#composer-band");
+        expect(band?.parentElement?.id).toBe("transcript");
+        expect(band?.className).toContain("shrink-0");
+        expect(band?.className).not.toContain("absolute");
         expect(container.querySelector("#session-loading")).toBeNull();
     });
 
@@ -278,7 +328,7 @@ describe("ChatScreen", () => {
 
         expect(container.querySelector("#sidebar")).toBeNull();
         expect(container.querySelectorAll("#window")).toHaveLength(1);
-        expect(container.querySelector("#main-content")).not.toBeNull();
+        expect(container.querySelector("#safe-main")).not.toBeNull();
         restore();
     });
 
@@ -335,10 +385,9 @@ describe("ChatScreen", () => {
         expect(await screen.findByText("Nothing has been said yet.")).toBeInTheDocument();
         expect(container.querySelector("#transcript-list")).toBeNull();
         // A conversation with nothing in it holds its composer, and the sentence that
-        // says why, in the middle of the window: there are no words to stand under.
+        // says why, at the foot of the window: there are no words to stand under.
         const band = container.querySelector("#composer-band");
-        expect(band?.className).toContain("m-auto");
-        expect(band?.className).not.toContain("right-0");
+        expect(band?.className).toContain("mt-auto");
         expect(band?.querySelector("p")?.textContent).toBe("Nothing has been said yet.");
     });
 
@@ -844,3 +893,65 @@ function storeOfEntries(entries: ReturnType<typeof chain> = []) {
     const store = storeOf(entries);
     return { entries, leafId: store.order.length > 0 ? store.order[store.order.length - 1] : null };
 }
+
+/**
+ * The frame is the screen's own, so what the window's bar does is pinned here: it
+ * is the handle of a window without decorations, the page's slots stand before the
+ * window's keys, and the page itself - not the bar - is the safe area.
+ */
+describe("the window the chat draws", () => {
+    it("carries the drag handle, the page's slots and the window's keys", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([HELD]);
+
+        const { container } = renderScreen();
+        await screen.findByText(/There are many agent harnesses/);
+
+        const bar = container.querySelector("#topbar");
+        // `deep`: a press anywhere on the bar drags the window, while the buttons
+        // in it keep their own clicks (see tauri's `window/scripts/drag.js`).
+        expect(bar?.getAttribute("data-tauri-drag-region")).toBe("deep");
+        const ids = [...(bar?.children ?? [])].map((child) => child.id);
+        expect(ids).toEqual(["sidebar_toggle", "window_controllers"]);
+        // A row of the content column, not a fixed height: its own content decides.
+        expect(bar?.className.split(" ")).toContain("min-h-11");
+    });
+
+    it("draws the bar before the page has slots to carry", () => {
+        // The read of the connection has not answered: the page has no slots, and the
+        // bar is the window's own keys alone.
+        bridge.getConnection.mockReturnValue(new Promise(() => undefined));
+
+        const { container } = renderScreen();
+
+        expect(container.querySelector("#topbar")).not.toBeNull();
+        expect(container.querySelector("#window_controllers")).not.toBeNull();
+        expect(container.querySelector("#sidebar_toggle")).toBeNull();
+    });
+
+    it("keeps the system bars' room on the page, not on the bar", async () => {
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([HELD]);
+
+        const { container } = renderScreen();
+        await screen.findByText(/There are many agent harnesses/);
+
+        // The page is the safe area, so the room is taken once, by the column.
+        expect(container.querySelector("#safe-main")?.className.split(" ")).toEqual(
+            expect.arrayContaining(["pt-safe", "pb-safe", "pl-safe", "pr-safe"]),
+        );
+        expect(container.querySelector("#topbar")?.className.split(" ")).not.toContain("pt-safe");
+    });
+
+    it("keeps the window's keys to a desktop, and the page's slots everywhere", async () => {
+        platform.mobile = true;
+        bridge.getConnection.mockResolvedValue(CONNECTED);
+        bridge.listSessions.mockResolvedValue([HELD]);
+
+        const { container } = renderScreen();
+        await screen.findByText(/There are many agent harnesses/);
+
+        expect(container.querySelector("#sidebar_toggle")).not.toBeNull();
+        expect(container.querySelector("#window_controllers")).toBeNull();
+    });
+});

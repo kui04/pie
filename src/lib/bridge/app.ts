@@ -1,6 +1,6 @@
 /**
- * The app itself: which kind of machine this is, links that leave it, and the
- * window's own controls.
+ * The app itself: which kind of machine this is, links that leave it, the marks
+ * of the providers, and the window's own controls.
  *
  * The mirror of `src-tauri/src/commands/app.rs`, plus the one door of this
  * folder that does not go through `invoke`: the window. Tauri's window API is
@@ -33,6 +33,17 @@ export function platform(): Promise<Platform> {
  */
 export function openUrl(url: string): Promise<void> {
     return call<void>("open_url", { url });
+}
+
+/**
+ * The mark of a provider from models.dev, as a data URL, or `null` when it has
+ * none.
+ *
+ * Rust fetches it and keeps it for a day, so the popup of a model asks once. A
+ * request that fails answers `null` too; the composer then draws its own icon.
+ */
+export function providerLogo(provider: string): Promise<string | null> {
+    return call<string | null>("provider_logo", { provider });
 }
 
 /**
