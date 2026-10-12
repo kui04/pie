@@ -99,8 +99,8 @@ impl SessionManager {
     /// # Errors
     ///
     /// [`PieError::Host`] when the machine cannot be reached, its credentials are
-    /// refused, its host key is not trusted, or its `pi` is not the release pie
-    /// speaks, and [`PieError::Session`] when the name cannot be used.
+    /// refused, its host key is not trusted, or it has no `pi` for pie to speak
+    /// to, and [`PieError::Session`] when the name cannot be used.
     pub async fn connect(id: Id, spec: &Spec, options: &Options) -> Result<Self, PieError> {
         let host = Host::connect(spec, options).await?;
         let store = SessionStore::of(&host);

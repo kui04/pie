@@ -8,6 +8,7 @@ import { connectionMachine, type ConnectionDeps } from "@/machines/connection.ma
 import { SafeArea, WindowControls } from "@/components";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
+import { useHostStore, type RememberedHost } from "@/stores/host.store";
 
 /** The first contents of the card: this machine, no data typed. */
 const EMPTY_FORM: ConnectionForm = {
@@ -18,6 +19,26 @@ const EMPTY_FORM: ConnectionForm = {
     privateKeyMaterial: "",
     passphrase: "",
 };
+
+/**
+ * The first contents of the card for a person who connected before: the host
+ * that answered, with no credential in it. The secret of that host is typed
+ * again, because pie keeps none.
+ */
+function formFrom(host: RememberedHost | null): ConnectionForm {
+    if (host === null) return EMPTY_FORM;
+    return { ...EMPTY_FORM, transport: host.transport, address: host.address, auth: host.auth };
+}
+
+/** The host a request names, as the gate remembers it. */
+function rememberedFrom(spec: bridge.ConnectSpec): RememberedHost {
+    if (spec.transport === "local") return { transport: "local", address: "", auth: "password" };
+    // A literal goes back between brackets: without them the colons of the
+    // address read as the port separator, and the field would not parse again.
+    const host = spec.host.includes(":") ? `[${spec.host}]` : spec.host;
+    const port = spec.port === undefined ? "" : `:${spec.port}`;
+    return { transport: "ssh", address: `${spec.user}@${host}${port}`, auth: spec.auth.type };
+}
 
 /** The largest port number. */
 const LAST_PORT = 65535;
@@ -86,6 +107,22 @@ function parseSshAddress(address: string): { user: string; host: string; port?: 
 }
 
 /**
+ * The one thing that still stands between the person and a dial, or `null` when
+ * nothing does.
+ *
+ * Connect stays off while this answers, and a button that is off without a
+ * reason is where a first run ends. Therefore the card says what it waits for,
+ * naming the field, in the order the fields are read.
+ */
+function missingFor(form: ConnectionForm): string | null {
+    if (form.transport === "local") return null;
+    if (form.address.trim() === "") return "Enter the address of the host.";
+    if (parseSshAddress(form.address) === undefined) return "Write the address as user@host.";
+    if (form.auth === "password") return form.password === "" ? "Enter the password." : null;
+    return form.privateKeyMaterial.trim() === "" ? "Paste the key, or choose a key file." : null;
+}
+
+/**
  * The request for Rust from the contents of the card. Returns `undefined` while
  * the contents name no host. The card reads `canConnect` from this value.
  * Therefore an address that cannot name a target keeps Connect off. There is no
@@ -133,14 +170,14 @@ const REAL_DEPS: ConnectScreenDeps = {
     trustHostKey: bridge.trustHostKey,
     onConnectionState: bridge.onConnectionState,
     pickPrivateKey: bridge.pickPrivateKey,
-    notify: (message) => toast.error(message),
+    notify: (failure) => toast.error(failure.message),
     onHostKey: () => undefined,
 };
 
 /**
  * The needs of the screen: the needs of the machine, and the one call that only
- * the screen makes. The picker is not the business of the machine. Therefore it
- * is not in {@link ConnectionDeps}. In that type, each test of the machine would
+ * the screen makes. The picker is not the business of the machine. Therefore it is
+ * not in {@link ConnectionDeps}. In that type, each test of the machine would
  * replace a call that the machine never makes.
  */
 export type ConnectScreenDeps = ConnectionDeps & {
@@ -157,20 +194,30 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const navigate = useNavigate();
     const isMobile = useIsMobile();
 
-    const [form, setForm] = useState(EMPTY_FORM);
+    // The host of the last connection, as the card opens on it. Read once, for
+    // the first contents of the form; a dial that answers replaces it below.
+    const remembered = useHostStore((state) => state.lastHost);
+    const remember = useHostStore((state) => state.remember);
+    const [form, setForm] = useState<ConnectionForm>(() => formFrom(remembered));
     const [askedKey, setAskedKey] = useState<bridge.PresentedKey | null>(null);
     const [state, send] = useMachine(connectionMachine, {
         input: { ...deps, onHostKey: (key) => setAskedKey(key) },
     });
 
-    // This is the one place where a ready connection causes another action.
+    // This is the one place where a ready connection causes another action: the
+    // host that answered is written down for the next launch, and the window
+    // hands over to the workspace.
     const reached = state.matches("connected");
+    const answered = state.context.spec;
     useEffect(() => {
-        if (reached) navigate("/chat", { replace: true });
-    }, [navigate, reached]);
+        if (!reached || answered === null) return;
+        remember(rememberedFrom(answered));
+        navigate("/chat", { replace: true });
+    }, [answered, navigate, reached, remember]);
     const asking = state.matches({ connecting: "asking" });
 
     const spec = useMemo(() => connectSpec(form), [form]);
+    const missing = useMemo(() => missingFor(form), [form]);
     const patch = useCallback(
         (change: Partial<ConnectionForm>) => setForm((previous) => ({ ...previous, ...change })),
         [],
@@ -201,13 +248,14 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                     {!isMobile && <WindowControls />}
                 </div>
                 <div
-                    id="connection-from"
+                    id="connection-panel"
                     className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden p-4"
                 >
                     <ConnectionCard
                         form={form}
                         connecting={state.matches("connecting")}
                         canConnect={spec !== undefined}
+                        missing={missing}
                         onChange={patch}
                         onConnect={() => spec && send({ type: "CONNECT", spec })}
                         onPickKey={() => void pickKey()}

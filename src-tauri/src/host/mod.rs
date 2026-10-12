@@ -70,10 +70,13 @@ impl std::fmt::Debug for Host {
 }
 
 impl Host {
-    /// Reaches the machine that `spec` names, and checks the pi that runs there.
+    /// Reaches the machine that `spec` names, and reads the pi that runs there.
     ///
     /// The check happens before any session exists, because a `pi` that is not
-    /// the release of this build speaks a protocol that pie does not know.
+    /// the release of this build may speak a protocol that pie does not know. A
+    /// mismatch is not fatal: the log carries it, and a record pie does not know
+    /// degrades to `Unknown` in [`pi_rpc`]. What stops a connect is a machine where
+    /// `pi` cannot be read at all - there is nothing to speak to.
     ///
     /// An SSH reach can wait here for a person: a host key that is in no store
     /// goes to the frontend, and the answer arrives through a command while this
@@ -82,15 +85,11 @@ impl Host {
     /// # Errors
     ///
     /// [`Error`]: a connection that could not be made, a credential that was
-    /// refused, a host key that nobody trusted, and a `pi` whose version is not
-    /// the pin.
+    /// refused, a host key that nobody trusted, and a `pi` that is missing or
+    /// that cannot report its release.
     pub async fn connect(spec: &Spec, options: &Options) -> Result<Self, Error> {
-        match spec {
-            Spec::Local => {
-                let host = Self::Local(LocalHost::new(options.home.clone()));
-                host.check_pi().await?;
-                Ok(host)
-            }
+        let host = match spec {
+            Spec::Local => Self::Local(LocalHost::new(options.home.clone())),
             Spec::Ssh { host, port, user, auth } => {
                 let mut target = SshTarget::new(host.clone(), user.clone());
                 if let Some(port) = port {
@@ -99,10 +98,20 @@ impl Host {
                 // One session serves all channels on the host. Therefore the
                 // version probe below needs no connection of its own.
                 let session = SshSession::open(target, auth.clone().into(), options.trust.clone()).await?;
-                let host = Self::Ssh(Arc::new(SshHost::new(session)));
-                host.check_pi().await?;
+                Self::Ssh(Arc::new(SshHost::new(session)))
+            }
+        };
+
+        // The `pi` of another release still speaks most of what pie knows: the log
+        // carries the mismatch and the reach goes on. A machine with no `pi` at all
+        // has nothing to speak to, and that failure stays.
+        match host.check_pi().await {
+            Ok(()) => Ok(host),
+            Err(error @ Error::VersionMismatch { .. }) => {
+                tracing::warn!(%error, "the pi of this machine is not the release pie speaks; going on");
                 Ok(host)
             }
+            Err(error) => Err(error),
         }
     }
 

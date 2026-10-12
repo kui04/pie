@@ -1,5 +1,5 @@
 import { cn } from "cn";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
 import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
 import { OptionRow } from "@/components";
@@ -26,30 +26,47 @@ export interface ConnectionCardProps {
     connecting: boolean;
     /** Nothing to connect to yet, which is the only reason Connect stays off. */
     canConnect: boolean;
+    /** What the card still waits for, or `null` when it waits for nothing. */
+    missing: string | null;
     onChange: (patch: Partial<ConnectionForm>) => void;
     onConnect: () => void;
     /** Opens the picker and drops whatever it brought back into the form. */
     onPickKey: () => void;
 }
 
-export function ConnectionCard({ form, connecting, canConnect, onChange, onConnect, onPickKey }: ConnectionCardProps) {
+export function ConnectionCard({
+    form,
+    connecting,
+    canConnect,
+    missing,
+    onChange,
+    onConnect,
+    onPickKey,
+}: ConnectionCardProps) {
     const ssh = form.transport === "ssh";
+    const still = useReducedMotion();
 
     return (
         <Card
             id="connection-card-root"
-            className="bg-card flex max-h-full min-h-0 w-full max-w-104 flex-col overflow-hidden rounded-xl shadow-sm"
+            // Grid, not a flex column: a card capped by `max-h-full` has no definite
+            // height, so a percentage viewport inside it sizes to its content and paints
+            // the form over the footer. Resolved grid tracks are definite.
+            className="bg-card grid max-h-full min-h-0 w-full max-w-104 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-xl shadow-sm"
         >
-            <ScrollPane id="connection-card-scroll" className="min-h-0 flex-1">
+            <ScrollPane id="connection-card-scroll" className="min-h-0">
                 <div className="flex flex-col gap-6 px-6 pt-6">
                     <header id="connection-card-header" className="flex flex-col gap-4">
                         <h1 id="connection-card-title" className="text-title-lg font-medium">
-                            Connect to your host
+                            Connect to pi
                         </h1>
                         <p id="connection-card-subcopy" className="text-body-sm text-muted-foreground">
-                            One step — pick a transport, enter the address.
+                            Pie opens the sessions of a pi that is already installed on the machine you point at.
                         </p>
                     </header>
+                    {/* Focus shows as the stroke of the control itself, not as a ring:
+                        this pane and the block below clip, and a ring outside the box is
+                        cut wherever a control sits flush with an edge. */}
                     <motion.fieldset
                         id="connection-card-lock"
                         disabled={connecting}
@@ -64,7 +81,11 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                             onValueChange={(value) => onChange({ transport: value as Transport })}
                             className="flex flex-col gap-2"
                         >
-                            <OptionRow id="connection-card-transport-local" value="local">
+                            <OptionRow
+                                id="connection-card-transport-local"
+                                value="local"
+                                className="focus-visible:ring-0"
+                            >
                                 <HardDrive
                                     id="connection-card-transport-local-icon"
                                     className="text-muted-foreground size-4"
@@ -88,7 +109,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                 </span>
                             </OptionRow>
 
-                            <OptionRow id="connection-card-transport-ssh" value="ssh">
+                            <OptionRow id="connection-card-transport-ssh" value="ssh" className="focus-visible:ring-0">
                                 <Server
                                     id="connection-card-transport-ssh-icon"
                                     className="text-muted-foreground size-4"
@@ -139,7 +160,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                             autoCapitalize="none"
                                             autoCorrect="off"
                                             spellCheck={false}
-                                            className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0!"
+                                            className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0"
                                         />
                                     </div>
 
@@ -161,7 +182,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                     id="connection-card-auth-password"
                                                     value="password"
                                                     variant="pill"
-                                                    className="focus-visible:ring-0!"
+                                                    className="focus-visible:ring-0"
                                                 >
                                                     <span
                                                         id="connection-card-auth-password-label"
@@ -174,7 +195,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                     id="connection-card-auth-key"
                                                     value="key"
                                                     variant="pill"
-                                                    className="focus-visible:ring-0!"
+                                                    className="focus-visible:ring-0"
                                                 >
                                                     <span
                                                         id="connection-card-auth-key-label"
@@ -207,7 +228,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                     autoCapitalize="none"
                                                     autoCorrect="off"
                                                     spellCheck={false}
-                                                    className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0!"
+                                                    className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0"
                                                 />
                                             </div>
                                         ) : (
@@ -231,7 +252,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                         autoCapitalize="none"
                                                         autoCorrect="off"
                                                         spellCheck={false}
-                                                        className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code field-sizing-fixed w-full min-w-0 resize-none px-3 py-2 font-mono focus-visible:ring-0!"
+                                                        className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code field-sizing-fixed w-full min-w-0 resize-none px-3 py-2 font-mono focus-visible:ring-0"
                                                     />
                                                 </div>
 
@@ -254,7 +275,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                         autoCapitalize="none"
                                                         autoCorrect="off"
                                                         spellCheck={false}
-                                                        className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0!"
+                                                        className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0"
                                                     />
                                                 </div>
 
@@ -264,7 +285,7 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                                                     variant="outline"
                                                     disabled={connecting}
                                                     onClick={onPickKey}
-                                                    className="w-full"
+                                                    className="w-full focus-visible:ring-0"
                                                 >
                                                     <FolderOpen aria-hidden className="size-4" />
                                                     <span className="text-label-lg font-medium">Choose a key file</span>
@@ -279,7 +300,22 @@ export function ConnectionCard({ form, connecting, canConnect, onChange, onConne
                 </div>
             </ScrollPane>
 
-            <div id="connection-card-action" className="shrink-0 px-6 pt-6 pb-6">
+            <div id="connection-card-action" className="flex flex-col gap-4 px-6 pt-6 pb-6">
+                <AnimatePresence initial={false}>
+                    {missing !== null && (
+                        <motion.p
+                            key="missing"
+                            id="connection-card-missing"
+                            className="text-body-sm text-muted-foreground"
+                            initial={still ? false : { opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ type: "tween", duration: 0.18, ease: "easeOut" }}
+                        >
+                            {missing}
+                        </motion.p>
+                    )}
+                </AnimatePresence>
                 <Button
                     id="connection-card-connect"
                     onClick={onConnect}

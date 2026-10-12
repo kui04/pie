@@ -12,6 +12,7 @@ import { Toaster } from "@/components/ui";
 import { toast } from "sonner";
 import { ConnectScreen, type ConnectScreenDeps } from "@/routes/connect/ConnectScreen";
 import type { ConnectionInfo, PieError, PresentedKey } from "@/lib/bridge";
+import { useHostStore } from "@/stores/host.store";
 
 const KEY: PresentedKey = {
     host: "192.168.1.10",
@@ -29,6 +30,10 @@ vi.mock("@/hooks/use-platform", () => ({
 
 afterEach(() => {
     platform.mobile = false;
+    // The gate remembers the host that answered, and the store writes it to
+    // `localStorage`: without this, one test's connection prefills the next.
+    localStorage.clear();
+    useHostStore.setState({ lastHost: null });
     cleanup();
 });
 
@@ -58,7 +63,7 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
             return () => undefined;
         }),
         pickPrivateKey: vi.fn(async () => null),
-        notify: (message: string) => toast.error(message),
+        notify: (failure: PieError) => toast.error(failure.message),
         onHostKey: () => undefined,
         ...overrides,
     };
@@ -358,8 +363,8 @@ describe("ConnectScreen", () => {
         const connect = vi
             .fn()
             .mockRejectedValueOnce({
-                type: "rpc",
-                message: "pi is not on PATH",
+                type: "channel",
+                message: "failed to start `pi`: No such file or directory",
                 error: { kind: "spawn" },
             } satisfies PieError)
             .mockImplementation(never);
@@ -367,10 +372,9 @@ describe("ConnectScreen", () => {
 
         await user.click(CONNECT());
 
-        // The toast carries the message from Rust, with no table of its own.
-        const announced = await screen.findByText("pi is not on PATH");
+        // The toast carries the sentence from Rust, with no table of its own.
+        const announced = await screen.findByText("failed to start `pi`: No such file or directory");
         expect(announced).toBeInTheDocument();
-        expect(screen.queryByText("pi is not there, or could not be started.")).not.toBeInTheDocument();
 
         // The form did not change. Therefore it is ready for another attempt.
         expect(CONNECT()).toBeEnabled();
@@ -381,7 +385,7 @@ describe("ConnectScreen", () => {
     it("says nothing on a second failure once the first toast has gone", async () => {
         const user = userEvent.setup();
         const connect = vi.fn().mockRejectedValue({
-            type: "rpc",
+            type: "host",
             message: "connection refused",
             error: { kind: "connect" },
         } satisfies PieError);
@@ -389,14 +393,58 @@ describe("ConnectScreen", () => {
 
         await user.click(CONNECT());
         await screen.findByText("connection refused");
-        // A connect failure reads as the message Rust sent, with no extra text.
-        expect(screen.queryByText("The host could not be reached.")).not.toBeInTheDocument();
         unmount();
 
         // A new mount starts with no failure. Therefore there is no announcement.
         // The toast follows the error of the machine, not the record of the form.
         renderGate(stubBridge({ connect: vi.fn(never) }).deps);
         expect(screen.queryByText("connection refused")).not.toBeInTheDocument();
+    });
+
+    it("says what the card still waits for, instead of leaving a dead button", async () => {
+        const user = userEvent.setup();
+        renderGate(stubBridge().deps);
+
+        await user.click(screen.getByRole("radio", { name: /SSH/ }));
+        expect(await screen.findByText("Enter the address of the host.")).toBeInTheDocument();
+
+        await paste(user, "Address", "192.168.1.10");
+        expect(await screen.findByText("Write the address as user@host.")).toBeInTheDocument();
+
+        await user.clear(screen.getByLabelText("Address"));
+        await paste(user, "Address", "pi@192.168.1.10");
+        expect(await screen.findByText("Enter the password.")).toBeInTheDocument();
+
+        await user.click(screen.getByRole("radio", { name: "Private key" }));
+        expect(await screen.findByText("Paste the key, or choose a key file.")).toBeInTheDocument();
+
+        await paste(user, "Private key", KEY_TEXT);
+        expect(screen.queryByText("Paste the key, or choose a key file.")).not.toBeInTheDocument();
+    });
+
+    it("opens on the host that answered last, with no credential in it", async () => {
+        const user = userEvent.setup();
+        const connect = vi.fn(async () => ({
+            id: "main",
+            endpoint: "pi@box.example:2222",
+            sessions: [],
+        }));
+        const { unmount } = renderGate(stubBridge({ connect }).deps);
+
+        await user.click(screen.getByRole("radio", { name: /SSH/ }));
+        await paste(user, "Address", "pi@box.example:2222");
+        await paste(user, "Password", "hunter2");
+        await user.click(CONNECT());
+        await screen.findByText("the workspace");
+        unmount();
+
+        renderGate(stubBridge({ connect: vi.fn(never) }).deps);
+
+        // The host comes back; pie keeps no secret, so the password is typed
+        // again and the card asks for it.
+        expect(screen.getByLabelText("Address")).toHaveValue("pi@box.example:2222");
+        expect(screen.getByLabelText("Password")).toHaveValue("");
+        expect(await screen.findByText("Enter the password.")).toBeInTheDocument();
     });
 
     it("puts the host key up while the handshake waits, and can trust it", async () => {
@@ -453,8 +501,8 @@ describe("ConnectScreen", () => {
         await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
         expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Trust" })).not.toBeInTheDocument();
-        // The form operates again. This is the second result of the closed
-        // prompt.
+        // The form operates again, and its one button offers the dial again.
+        // This is the second result of the closed prompt.
         expect(CONNECT()).toBeEnabled();
     });
 

@@ -316,7 +316,7 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
 
         expect(harness.deps.notify).toHaveBeenCalledTimes(1);
-        expect(harness.deps.notify).toHaveBeenCalledWith("connection refused");
+        expect(harness.deps.notify).toHaveBeenCalledWith(expect.objectContaining({ message: "connection refused" }));
     });
 
     it("never asks once the handshake is over", async () => {

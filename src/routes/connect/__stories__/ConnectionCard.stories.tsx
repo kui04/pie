@@ -34,12 +34,13 @@ const SSH_KEY_PASTED: ConnectionForm = {
 
 /** What every frame starts with; a story overrides what its situation changes.
  *
- *  A failed dial has no frame: it is announced by the screen's toast stack,
- *  which leaves nothing of the card to photograph. */
+ *  A failed dial is not part of the card: it lands in the screen's toast stack,
+ *  where every failure of this app lands. */
 const BASE: ConnectionCardProps = {
     form: LOCAL,
     connecting: false,
     canConnect: true,
+    missing: null,
     onChange: () => undefined,
     onConnect: () => undefined,
     onPickKey: () => undefined,
@@ -76,9 +77,15 @@ export const Connecting: Story = {
     args: { form: SSH_PASSWORD, connecting: true },
 };
 
-/** Nothing typed that names a host yet: Connect stays off. */
+/** Nothing typed that names a host yet: Connect stays off, and the card says
+ *  what it waits for. */
 export const SshWithoutAddress: Story = {
-    args: { form: { ...LOCAL, transport: "ssh" }, canConnect: false },
+    args: { form: { ...LOCAL, transport: "ssh" }, canConnect: false, missing: "Enter the address of the host." },
+};
+
+/** A host named, the secret still to type: the same slot asks for the password. */
+export const SshWithoutPassword: Story = {
+    args: { form: { ...SSH_PASSWORD, password: "" }, canConnect: false, missing: "Enter the password." },
 };
 
 /** A key pasted in rather than named: the source toggle has moved, and the

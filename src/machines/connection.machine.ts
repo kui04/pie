@@ -3,6 +3,10 @@
  * progress, a connection that is ready, and the reason that the connection
  * failed.
  *
+ * A failure is held in the context of the `error` state and announced by the
+ * screen that asked for the dial (`notify`), which leaves the form ready for
+ * another attempt. The machine draws nothing and announces nothing on its own.
+ *
  * `asking` is a child of `connecting`. It is not a flag. A host-key question can
  * exist only while a handshake is active. The graph shows this condition in one
  * place.
@@ -15,7 +19,7 @@
  */
 
 import { assign, fromCallback, fromPromise, setup } from "xstate";
-import type { ConnectSpec, PresentedKey } from "@/lib/bridge";
+import type { ConnectSpec, PieError, PresentedKey } from "@/lib/bridge";
 import * as bridge from "@/lib/bridge";
 
 /** What this machine needs from the outside world. */
@@ -24,7 +28,8 @@ export interface ConnectionDeps {
     connect: typeof bridge.connect;
     trustHostKey: typeof bridge.trustHostKey;
     onConnectionState: typeof bridge.onConnectionState;
-    notify: (message: string) => void;
+    /** A dial that failed. The screen owns the stack the sentence lands in. */
+    notify: (failure: PieError) => void;
     onHostKey: (key: PresentedKey | null) => void;
 }
 
@@ -160,7 +165,7 @@ export const connectionMachine = setup({
         },
         error: {
             entry: ({ context }) => {
-                if (context.error !== null) context.deps.notify(context.error.message);
+                if (context.error !== null) context.deps.notify(context.error);
             },
             on: {
                 CONNECT: {
