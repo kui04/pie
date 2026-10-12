@@ -30,6 +30,8 @@ function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
                 unlistenCalls += 1;
             };
         }),
+        notify: vi.fn(),
+        onHostKey: vi.fn(),
         ...overrides,
     };
 
@@ -161,16 +163,16 @@ describe("connectionMachine", () => {
         actor.send({ type: "CONNECT", spec: SPEC });
         await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
         harness.askHostKey(KEY);
-        expect(actor.getSnapshot().context.hostKey).toEqual(KEY);
+        expect(harness.deps.onHostKey).toHaveBeenCalledWith(KEY);
 
         harness.failWith(new Error("host never answered"));
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
 
-        expect(actor.getSnapshot().context.hostKey).toBeNull();
+        expect(harness.deps.onHostKey).toHaveBeenLastCalledWith(null);
         // No question is open. The answer has no handler here.
         actor.send({ type: "ANSWER_HOST_KEY", trusted: false });
         expect(actor.getSnapshot().matches("error")).toBe(true);
-        expect(actor.getSnapshot().context.hostKey).toBeNull();
+        expect(harness.deps.onHostKey).toHaveBeenLastCalledWith(null);
     });
 
     it("drops the question when the handshake succeeds with one still up", async () => {
@@ -183,7 +185,7 @@ describe("connectionMachine", () => {
         harness.settle();
 
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
-        expect(actor.getSnapshot().context.hostKey).toBeNull();
+        expect(harness.deps.onHostKey).toHaveBeenLastCalledWith(null);
     });
 
     it("asks while it waits, and only while a handshake is in flight", async () => {
@@ -199,7 +201,7 @@ describe("connectionMachine", () => {
         harness.askHostKey(KEY);
 
         expect(actor.getSnapshot().matches({ connecting: "asking" })).toBe(true);
-        expect(actor.getSnapshot().context.hostKey).toEqual(KEY);
+        expect(harness.deps.onHostKey).toHaveBeenCalledWith(KEY);
     });
 
     it("keeps waiting when the answer itself cannot be delivered", async () => {
@@ -247,7 +249,7 @@ describe("connectionMachine", () => {
         // The dial continues. The result of the answer is not visible yet. The
         // sheet is gone, but the handshake has not decided.
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "waiting" })).toBe(true));
-        expect(actor.getSnapshot().context.hostKey).toBeNull();
+        expect(harness.deps.onHostKey).toHaveBeenLastCalledWith(null);
 
         harness.settle();
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
@@ -302,6 +304,21 @@ describe("connectionMachine", () => {
         expect(actor.getSnapshot().context.error).toBeNull();
     });
 
+    it("announces each failure once, through the injected notify", async () => {
+        const harness = fakeDeps({
+            connect: async () => {
+                throw new Error("connection refused");
+            },
+        });
+        const actor = createActor(connectionMachine, { input: harness.deps }).start();
+
+        actor.send({ type: "CONNECT", spec: SPEC });
+        await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
+
+        expect(harness.deps.notify).toHaveBeenCalledTimes(1);
+        expect(harness.deps.notify).toHaveBeenCalledWith("connection refused");
+    });
+
     it("never asks once the handshake is over", async () => {
         const harness = fakeDeps();
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
@@ -312,7 +329,8 @@ describe("connectionMachine", () => {
         actor.send({ type: "HOST_KEY", key: KEY });
 
         expect(actor.getSnapshot().matches("connected")).toBe(true);
-        expect(actor.getSnapshot().context.hostKey).toBeNull();
+        // The handshake exit withdraws with null; no question content ever routes.
+        expect(harness.deps.onHostKey).not.toHaveBeenCalledWith(expect.anything());
     });
 
     it("stops listening when the actor is stopped", async () => {

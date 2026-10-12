@@ -20,26 +20,18 @@ import * as bridge from "@/lib/bridge";
 
 /** What this machine needs from the outside world. */
 export interface ConnectionDeps {
-    /** The name the connection is opened under, and its events arrive on. */
     connection: string;
     connect: typeof bridge.connect;
     trustHostKey: typeof bridge.trustHostKey;
     onConnectionState: typeof bridge.onConnectionState;
+    notify: (message: string) => void;
+    onHostKey: (key: PresentedKey | null) => void;
 }
 
 export interface ConnectionContext {
     deps: ConnectionDeps;
-    /** What was asked for. The handshake reads it when `connecting` starts. */
     spec: ConnectSpec | null;
-    // What `connect` answered is not kept here. The workspace outlives this
-    // machine, so it reads the session it has to subscribe to from Rust with
-    // `get_connection` (`lib/query.ts`). A copy in this context would be a value
-    // with no reader.
-    /** The reason for the last failure, while the error is on screen. */
     error: bridge.PieError | null;
-    /** The key of the question, while the question is on screen. */
-    hostKey: PresentedKey | null;
-    /** The answer that goes to Rust. */
     trusted: boolean;
 }
 
@@ -98,7 +90,7 @@ export const connectionMachine = setup({
 }).createMachine({
     id: "connection",
     initial: "idle",
-    context: ({ input }) => ({ deps: input, spec: null, error: null, hostKey: null, trusted: false }),
+    context: ({ input }) => ({ deps: input, spec: null, error: null, trusted: false }),
     states: {
         idle: {
             on: {
@@ -117,24 +109,23 @@ export const connectionMachine = setup({
                 src: "handshake",
                 input: ({ context }) => ({ deps: context.deps, spec: context.spec as ConnectSpec }),
             },
+            exit: ({ context }) => context.deps.onHostKey(null),
             on: {
                 // This transition is on the parent. Therefore a question arrives
                 // in the same way with or without a question on screen. Rust
                 // keeps one question open at a time.
-                HOST_KEY: { target: ".asking", actions: assign({ hostKey: ({ event }) => event.key }) },
+                HOST_KEY: {
+                    target: ".asking",
+                    actions: ({ context, event }) => context.deps.onHostKey(event.key),
+                },
                 CONNECTED: {
                     target: "connected",
                     // The answer stays in Rust, which holds the connection. The
                     // workspace reads it back with `get_connection`.
-                    actions: assign({ hostKey: null }),
                 },
-                // Clear `hostKey`, as on every other exit from `connecting`. If
-                // it stays set, the prompt stays open over the error.
-                // `ANSWER_HOST_KEY` is handled only in `asking`, so no event can
-                // close the prompt.
                 FAILED: {
                     target: "error",
-                    actions: assign({ error: ({ event }) => event.error, hostKey: null }),
+                    actions: assign({ error: ({ event }) => event.error }),
                 },
             },
             states: {
@@ -146,7 +137,10 @@ export const connectionMachine = setup({
                     on: {
                         ANSWER_HOST_KEY: {
                             target: "answering",
-                            actions: assign({ hostKey: null, trusted: ({ event }) => event.trusted }),
+                            actions: [
+                                ({ context }) => context.deps.onHostKey(null),
+                                assign({ trusted: ({ event }) => event.trusted }),
+                            ],
                         },
                     },
                 },
@@ -165,6 +159,9 @@ export const connectionMachine = setup({
             },
         },
         error: {
+            entry: ({ context }) => {
+                if (context.error !== null) context.deps.notify(context.error.message);
+            },
             on: {
                 CONNECT: {
                     target: "connecting",

@@ -131,6 +131,8 @@ const REAL_DEPS: ConnectScreenDeps = {
     trustHostKey: bridge.trustHostKey,
     onConnectionState: bridge.onConnectionState,
     pickPrivateKey: bridge.pickPrivateKey,
+    notify: (message) => toast.error(message),
+    onHostKey: () => undefined,
 };
 
 /**
@@ -152,21 +154,17 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const { pickPrivateKey } = deps;
     const navigate = useNavigate();
     const [form, setForm] = useState(EMPTY_FORM);
-    const [state, send] = useMachine(connectionMachine, { input: deps });
+    const [askedKey, setAskedKey] = useState<bridge.PresentedKey | null>(null);
+    const [state, send] = useMachine(connectionMachine, {
+        input: { ...deps, onHostKey: (key) => setAskedKey(key) },
+    });
 
     // This is the one place where a ready connection causes another action.
     const reached = state.matches("connected");
     useEffect(() => {
         if (reached) navigate("/chat", { replace: true });
     }, [navigate, reached]);
-
-    // A failed connect is announced, not shown on the form. The form did not
-    // change. An inline line would be the only text about the attempt, not about
-    // the connection.
-    const failure = state.context.error;
-    useEffect(() => {
-        if (failure) toast.error(failure.message);
-    }, [failure]);
+    const asking = state.matches({ connecting: "asking" });
 
     const spec = useMemo(() => connectSpec(form), [form]);
     const patch = useCallback(
@@ -189,13 +187,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     }, [pickPrivateKey]);
 
     return (
-        <Window
-            // The gate's card: centred, and kept away from the window's edge.
-            // The body does not scroll. The card has the height of the body and
-            // scrolls its own contents - a body that scrolled would move the top
-            // edge and the border of the card out of view.
-            bodyClassName="items-center justify-center p-4"
-        >
+        <Window bodyClassName="items-center justify-center p-4">
             <ConnectionCard
                 form={form}
                 connecting={state.matches("connecting")}
@@ -206,11 +198,8 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
             />
 
             <HostKeyPrompt
-                // Rust keeps one question open at a time. A new question replaces
-                // the old question. Therefore a new fingerprint must start a new
-                // prompt. If not, the keys of the old question stay on screen.
-                key={state.context.hostKey?.fingerprint}
-                presentedKey={state.context.hostKey}
+                key={askedKey?.fingerprint}
+                presentedKey={asking ? askedKey : null}
                 onAnswer={(trusted) => send({ type: "ANSWER_HOST_KEY", trusted })}
             />
         </Window>

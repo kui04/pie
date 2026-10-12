@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui";
+import { toast } from "sonner";
 import { ConnectScreen, type ConnectScreenDeps } from "@/routes/connect/ConnectScreen";
 import type { ConnectionInfo, PieError, PresentedKey } from "@/lib/bridge";
 
@@ -47,6 +48,8 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
             return () => undefined;
         }),
         pickPrivateKey: vi.fn(async () => null),
+        notify: (message: string) => toast.error(message),
+        onHostKey: () => undefined,
         ...overrides,
     };
     return {

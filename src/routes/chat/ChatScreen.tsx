@@ -1,10 +1,3 @@
-/**
- * The workspace: the transcript of a session, and what to do when there is none.
- *
- * The connection comes from Rust, because this screen outlives the machine that
- * opened it: a reload of the webview finds the same connection here.
- */
-
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
