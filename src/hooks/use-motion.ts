@@ -9,7 +9,7 @@
 
 import { useMemo } from "react";
 import { useReducedMotion } from "motion/react";
-import { fade, frame, reveal, shell, slot, stage, swap, turn, type MotionProps } from "@/lib/motion";
+import { fade, frame, reveal, shell, slot, spin, stage, swap, turn, type MotionProps } from "@/lib/motion";
 
 export interface Motion {
     /** Whether the reader asked for less motion. */
@@ -20,6 +20,8 @@ export interface Motion {
     swap: MotionProps;
     reveal: MotionProps;
     turn: MotionProps;
+    /** One turn of a key that says it worked, and then still. */
+    spin: MotionProps;
     /** A part that changes its state where it stands. */
     fade: (opacity: number) => MotionProps;
     /** The list's column, at the width it holds when it is out. */
@@ -37,6 +39,7 @@ export function useMotion(): Motion {
             swap: swap(still),
             reveal: reveal(still),
             turn: turn(still),
+            spin: spin(still),
             fade: (opacity: number) => fade(still, opacity),
             frame: (width: number) => frame(still, width),
         }),

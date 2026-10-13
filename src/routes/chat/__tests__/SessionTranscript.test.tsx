@@ -111,12 +111,29 @@ const rows = (count: number): TranscriptRow[] =>
         body: null,
     }));
 
-const land = (offset: number) => act(() => spies.onScroll?.(offset));
+// The list hears where it stands, and it really stands there: the scroller is the same one
+// the harness writes to.
+const land = (offset: number) =>
+    act(() => {
+        box.top = offset;
+        spies.onScroll?.(offset);
+    });
+/** The reader at the end, who then takes the list back up it: the pill stands. */
+const leftTheEnd = () => {
+    land(END);
+    land(0);
+};
 const sized = () => act(() => spies.onResize?.());
+/** The pin a size change asks for is a microtask: hand it its turn, where a frame would not. */
+const pinned = () =>
+    act(async () => {
+        await Promise.resolve();
+    });
 const settled = () => act(() => spies.onScrollEnd?.());
 // The reader's own hand is heard on the region around the scroller, not on the
-// scroller the list hands virtua.
-const wheeled = (container: HTMLElement) => act(() => fireEvent.wheel(container.firstElementChild as HTMLElement));
+// scroller the list hands virtua. A wheel that way is a wheel back up the list.
+const wheeled = (container: HTMLElement, deltaY = -100) =>
+    act(() => fireEvent.wheel(container.firstElementChild as HTMLElement, { deltaY }));
 
 const show = (overrides: Partial<Parameters<typeof SessionTranscript>[0]> = {}) =>
     render(<SessionTranscript rows={rows(30)} {...overrides} />);
@@ -170,6 +187,102 @@ describe("SessionTranscript", () => {
         expect(spies.props?.bufferSize).toBeGreaterThan(0);
     });
 
+    it("keeps the place a reader wheeled back to while the run writes", () => {
+        const view = show();
+        land(END); // our jump landed, and the reader is reading from the end
+        view.rerender(<SessionTranscript rows={rows(31)} />);
+        handle.scrollToIndex.mockClear();
+
+        // One notch of the wheel back up the list. The pin has to let go here and now:
+        // the frame after this one writes another row, and the pin's own seek would
+        // land after the reader's wheel and drag them to the end they left.
+        wheeled(view.container);
+        land(END - 60);
+        view.rerender(<SessionTranscript rows={rows(32)} />);
+
+        expect(handle.scrollToIndex).not.toHaveBeenCalled();
+        expect(pill(view.container)).not.toBeNull();
+    });
+
+    it("keeps it when the bar was dragged instead of the wheel turned", () => {
+        const view = show();
+        land(END);
+        view.rerender(<SessionTranscript rows={rows(31)} />);
+        handle.scrollToIndex.mockClear();
+
+        // A drag of the bar hears no wheel: what says the reader is reading is the
+        // list moving back up, however far it went.
+        land(END - 60);
+        view.rerender(<SessionTranscript rows={rows(32)} />);
+
+        expect(handle.scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    it("does not take the end back while the reader is still on their way up", () => {
+        const view = show();
+        land(END);
+        view.rerender(<SessionTranscript rows={rows(31)} />);
+        handle.scrollToIndex.mockClear();
+
+        // One notch of the wheel, still inside the band that counts as the end: the run
+        // must not read that as the reader having arrived back, or the frame after this
+        // one drags them to where they were going anyway.
+        wheeled(view.container);
+        land(END - 10);
+        view.rerender(<SessionTranscript rows={rows(32)} />);
+
+        expect(handle.scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    it("does not take the end from a scroll that only a measurement moved", () => {
+        const view = show();
+        land(END);
+        view.rerender(<SessionTranscript rows={rows(31)} />);
+        wheeled(view.container); // up: the reader has the list
+        land(END - 60);
+
+        // A row is measured, virtua keeps the view still, and that shift happens to leave the
+        // list at the end. Nobody scrolled there: the run must not take it back from it.
+        sized();
+        land(END);
+        handle.scrollToIndex.mockClear();
+        view.rerender(<SessionTranscript rows={rows(32)} />);
+
+        expect(handle.scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    it("takes the end back from a wheel that goes down onto it", () => {
+        const view = show();
+        land(END);
+        view.rerender(<SessionTranscript rows={rows(31)} />);
+        wheeled(view.container);
+        land(END - 60);
+        sized(); // a measurement moves the list: on its own that is not the reader coming back
+        handle.scrollToIndex.mockClear();
+
+        wheeled(view.container, 100); // down, and onto the end
+        land(END);
+        view.rerender(<SessionTranscript rows={rows(32)} />);
+
+        // They asked for the end with their own hand, so what they land on is theirs to keep.
+        expect(handle.scrollToIndex).toHaveBeenCalledWith(31, { align: "end" });
+    });
+
+    it("takes the end again once the reader comes back to it", () => {
+        const view = show();
+        land(END);
+        view.rerender(<SessionTranscript rows={rows(31)} />);
+        wheeled(view.container);
+        land(END - 60); // the wheel moved the list back, and the run writes on without it
+
+        // Back at the end, of their own accord: the run follows it again.
+        land(END);
+        handle.scrollToIndex.mockClear();
+        view.rerender(<SessionTranscript rows={rows(32)} />);
+
+        expect(handle.scrollToIndex).toHaveBeenCalledWith(31, { align: "end" });
+    });
+
     it("follows the end from the first frame, and again whenever a row changes", () => {
         const view = show();
         expect(handle.scrollToIndex).toHaveBeenCalledWith(29, { align: "end" });
@@ -179,7 +292,7 @@ describe("SessionTranscript", () => {
         expect(handle.scrollToIndex).toHaveBeenCalledWith(30, { align: "end" });
     });
 
-    it("takes the jump again while the sizes settle under it", () => {
+    it("takes the jump again while the sizes settle under it", async () => {
         // A jump lands where the sizes known at the time put the end; a row drawn for
         // the first time (or a rewrapped one) moves the end, and the reader who asked
         // for the end has to be brought to where it went.
@@ -189,48 +302,48 @@ describe("SessionTranscript", () => {
         land(END - 300); // our own landing, short of a moved end
         sized();
 
-        // Not in the observer's own delivery: a scroll written there is the loop the
-        // browser reports as "undelivered notifications".
+        // Not in the observer's own delivery: the pin waits a microtask, so the frame the
+        // reader is shown is the frame the end is already at.
         expect(handle.scrollToIndex).not.toHaveBeenCalled();
-        frame(16);
+        await pinned();
 
         expect(handle.scrollToIndex).toHaveBeenCalledWith(29, { align: "end" });
     });
 
-    it("gives the end up when the reader scrolled a screen away from it", () => {
+    it("gives the end up when the reader scrolled a screen away from it", async () => {
         show();
         handle.scrollToIndex.mockClear();
 
-        land(0); // the reader left
+        leftTheEnd();
         sized();
-        frame(16);
+        await pinned();
 
         expect(handle.scrollToIndex).not.toHaveBeenCalled();
     });
 
-    it("stops taking the jump once it has arrived", () => {
+    it("stops taking the jump once it has arrived", async () => {
         show();
         land(END);
         handle.scrollToIndex.mockClear();
 
         sized();
-        frame(16);
+        await pinned();
 
         // Still at the end, so a size that moves the end is followed - and a reader
         // who has to be somewhere else is served by the pill once they move.
         expect(handle.scrollToIndex).toHaveBeenCalledTimes(1);
 
-        land(0);
+        leftTheEnd();
         handle.scrollToIndex.mockClear();
         sized();
-        frame(16);
+        await pinned();
         expect(handle.scrollToIndex).not.toHaveBeenCalled();
     });
 
     it("runs the jump to the end instead of cutting to it", async () => {
         motion(false);
         const view = show();
-        land(0);
+        leftTheEnd();
         handle.scrollToIndex.mockClear();
 
         await act(async () => pill(view.container)?.click());
@@ -254,7 +367,7 @@ describe("SessionTranscript", () => {
     it("keeps the pill away while its own run is still going", async () => {
         motion(false);
         const view = show();
-        land(0); // the reader left, so the pill stands
+        leftTheEnd();
 
         await act(async () => pill(view.container)?.click());
         expect(pill(view.container)).toBeNull();
@@ -268,7 +381,7 @@ describe("SessionTranscript", () => {
     it("jumps at once where the reader asked for less motion", async () => {
         motion(true);
         const view = show();
-        land(0);
+        leftTheEnd();
         handle.scrollToIndex.mockClear();
 
         const jump = pill(view.container);
@@ -282,7 +395,7 @@ describe("SessionTranscript", () => {
     it("lets the reader take the jump back", async () => {
         motion(false);
         const view = show();
-        land(0);
+        leftTheEnd();
         handle.scrollToIndex.mockClear();
 
         await act(async () => pill(view.container)?.click());
@@ -299,7 +412,7 @@ describe("SessionTranscript", () => {
     it("takes the end again once the glide's scroll has settled", async () => {
         motion(false);
         const view = show();
-        land(0);
+        leftTheEnd();
 
         await act(async () => pill(view.container)?.click());
         frame(200);

@@ -222,7 +222,7 @@
   /*
    * The bar is a rounded, inset pill, drawn by the engine itself, and it shows
    * itself only while a region is moving: `is-scrolling` is put on the document
-   * for as long as that lasts by `src/lib/scrollbars.ts`. The lane it lives in
+   * for as long as that lasts by `src/main.tsx`. The lane it lives in
    * keeps its width either way, because a bar that resized its region would move
    * the words the reader was looking at every time it came and went.
    *

@@ -84,7 +84,7 @@ function SessionListPanel({
     ...list
 }: SessionList & { id: string; className?: string; breathing: boolean }) {
     const { endpoint, attached, onPick } = list;
-    const { turn, still } = useMotion();
+    const { spin } = useMotion();
     const client = useQueryClient();
     const sessions = useQuery(sessionsQueries.list(endpoint));
     const [search, setSearch] = useState("");
@@ -142,12 +142,9 @@ function SessionListPanel({
                         void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
                     }}
                 >
-                    <motion.span
-                        key={turns}
-                        className="flex"
-                        initial={turns === 0 || still ? false : { rotate: 0 }}
-                        {...turn}
-                    >
+                    {/* One turn of the key per press, not a ring that keeps turning: the words
+                        of the list arrive on their own, and a spinning key would say nothing. */}
+                    <motion.span key={turns} className="flex" {...(turns === 0 ? {} : spin)}>
                         <RefreshCw className="size-4" />
                     </motion.span>
                 </Button>

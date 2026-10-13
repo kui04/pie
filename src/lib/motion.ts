@@ -30,6 +30,8 @@ export const MOTION = {
     frame: 0.3,
     /** One cycle of the ring of a run at work, and of a spinner. */
     turn: 1,
+    /** The same ring for a reader who asked for less motion: the same fact, told slowly. */
+    turnSlow: 2,
     /** One cycle of the hourglass' sand. */
     sand: 3,
     /** One breath of the light of a row, in milliseconds. */
@@ -129,13 +131,31 @@ export function frame(still: boolean, width: number): MotionProps {
     };
 }
 
-/** Something endless: the ring of a run at work, and the spinner of a page on its way. */
+/**
+ * Something endless: the ring of a run at work, and the spinner of a page on its way.
+ *
+ * A reader who asked for less motion keeps it, twice as slow. The turn is not decoration: it is
+ * what says that a run is still going on, and a ring standing still says the opposite.
+ */
 export function turn(still: boolean): MotionProps {
-    if (still) return {};
     return {
         animate: {
             rotate: 360,
-            transition: { type: "tween", duration: MOTION.turn, ease: EASE.loop, repeat: Infinity },
+            transition: {
+                type: "tween",
+                duration: still ? MOTION.turnSlow : MOTION.turn,
+                ease: EASE.loop,
+                repeat: Infinity,
+            },
         },
+    };
+}
+
+/** One turn of a key that says it worked, and then still. */
+export function spin(still: boolean): MotionProps {
+    if (still) return {};
+    return {
+        initial: { rotate: 0 },
+        animate: { rotate: 360, transition: tween(MOTION.turn, still, EASE.loop) },
     };
 }

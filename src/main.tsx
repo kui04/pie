@@ -49,6 +49,12 @@ document.addEventListener(
 // Asked for before the first render, so no screen draws on an unknown platform.
 void loadPlatform();
 
+// The reader's own answer about motion, once, so that a report about what moves - or about
+// something that does not - can be read against it.
+log.info("the reader's motion", {
+    reduce: typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+});
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
         <QueryClientProvider client={queryClient}>

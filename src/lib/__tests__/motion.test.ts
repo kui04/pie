@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { EASE, MOTION, frame, reveal, shell, slot, stage, swap, turn } from "@/lib/motion";
+import { EASE, MOTION, frame, reveal, shell, slot, spin, stage, swap, turn } from "@/lib/motion";
 
 describe("the app's motion", () => {
     it("moves a page, a slot, a swap and a reveal at their own pace", () => {
@@ -45,8 +45,17 @@ describe("the app's motion", () => {
         expect(swap(true).exit).toMatchObject({ scale: 1 });
         expect(pace(reveal(true))).toBe(MOTION.reduce);
         expect(pace(frame(true, 256))).toBe(MOTION.reduce);
-        expect(turn(true)).toEqual({});
         expect(pace(shell(true))).toBe(MOTION.reduce);
+        // One endless thing still turns, at half its speed: a ring standing still says a run has
+        // stopped. A key that turns to say it worked is movement, and waits for the press.
+        expect(turn(true)).toMatchObject({
+            animate: { rotate: 360, transition: { duration: MOTION.turnSlow, repeat: Infinity } },
+        });
+        expect(turn(false)).toMatchObject({
+            animate: { rotate: 360, transition: { duration: MOTION.turn, repeat: Infinity } },
+        });
+        expect(spin(true)).toEqual({});
+        expect(pace({ animate: spin(false).animate })).toBe(MOTION.turn);
     });
 
     it("keeps the endless things in step with the CSS that draws them", () => {

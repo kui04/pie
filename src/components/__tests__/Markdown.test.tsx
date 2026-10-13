@@ -13,6 +13,20 @@ const parser = vi.mocked((await import("react-markdown")).default);
 // Every test here uses its own id: the cache is the component's own and lives as
 // long as the module does.
 describe("Markdown", () => {
+    it("keeps the element of a paragraph while its words change", () => {
+        // The words of an answer change on every frame of a run. React identifies a
+        // component by its function, so a renderer built again for each frame would
+        // unmount every paragraph of the message and mount it anew - the flicker the
+        // reader sees, and the reason a moving card never finishes an animation.
+        const view = render(<Markdown id="writing">A **bold** paragraph, half.</Markdown>);
+        const paragraph = view.container.querySelector("p");
+
+        view.rerender(<Markdown id="writing">A **bold** paragraph, half a sentence.</Markdown>);
+
+        expect(view.container.querySelector("p")).toBe(paragraph);
+        expect(paragraph?.textContent).toBe("A bold paragraph, half a sentence.");
+    });
+
     it("draws a row again without parsing it again", () => {
         const first = render(<Markdown id="redraw">A **paragraph**.</Markdown>);
         expect(parser).toHaveBeenCalledTimes(1);

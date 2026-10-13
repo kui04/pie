@@ -468,12 +468,14 @@ small part settles in gently, a leaving gathers speed and is gone — a leaving 
 not an arrival backwards. Nothing bounces, and nothing elastic.
 
 A reader who asked for less motion keeps the same page and loses only its
-movement: no travel, no scale, no turn, and every fade cut to a tenth of a
-second, because a thing that appears must still be seen to appear. The endless
-things hold their place, and so does a light whose list is not on screen: the
-column that is out, or the sheet that is open, is the one that breathes. The
-test environment answers for less motion (`src/test/setup.ts`), which is why
-nothing in the suite waits on an animation.
+movement: no travel, no scale, and every fade cut to a tenth of a second,
+because a thing that appears must still be seen to appear. The endless things
+hold their place except one, which turns on at half its speed: the ring of a run
+at work is what says the run is still going on, and a ring standing still says
+the opposite. A light whose list is not on screen does not breathe: the column
+that is out, or the sheet that is open, is the one that breathes. The test
+environment answers for less motion (`src/test/setup.ts`), which is why nothing
+in the suite waits on an animation.
 
 What the app does not move itself: a picker's panel, a menu and a toast follow
 their library (Radix, sonner), and the sheet's slide is Vaul's own half second —
