@@ -240,7 +240,10 @@ export function Composer({ session, working }: ComposerProps) {
                                 <div
                                     key={id}
                                     id={`composer-attachment-${index}`}
-                                    className="border-border-strong bg-surface-container-highest flex max-w-full items-center gap-2 rounded-full border p-1"
+                                    className={cn(
+                                        "border-border-strong bg-surface-container-highest",
+                                        "flex max-w-full items-center gap-2 rounded-full border p-1",
+                                    )}
                                 >
                                     <img
                                         alt=""
@@ -253,7 +256,11 @@ export function Composer({ session, working }: ComposerProps) {
                                         variant="ghost"
                                         size="icon"
                                         aria-label={`Remove ${name}`}
-                                        className="text-muted-foreground hover:bg-surface-bright hover:text-foreground dark:hover:bg-surface-bright size-5 shrink-0 rounded-full p-0"
+                                        className={cn(
+                                            "text-muted-foreground hover:bg-surface-bright",
+                                            "hover:text-foreground dark:hover:bg-surface-bright",
+                                            "size-5 shrink-0 rounded-full p-0",
+                                        )}
                                         onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
                                     >
                                         <X className="size-3" />
@@ -278,7 +285,11 @@ export function Composer({ session, working }: ComposerProps) {
                                 : "Ask Pi anything, or type / for commands. Enter steers, Alt+Enter queues a follow-up."
                         }
                         aria-label="Your message"
-                        className="text-body-md block max-h-25 min-h-15 resize-none rounded-none border-0 bg-transparent p-0 focus-visible:ring-0 dark:bg-transparent"
+                        className={cn(
+                            "text-body-md block max-h-25 min-h-15 resize-none",
+                            "rounded-none border-0 bg-transparent p-0",
+                            "focus-visible:ring-0 dark:bg-transparent",
+                        )}
                     />
                     <div id="composer-controls" className="flex items-center justify-between gap-2">
                         <div id="composer-actions" className="flex items-center gap-2">
@@ -352,7 +363,9 @@ function ComposerKey({ className, ...props }: ComponentProps<typeof Button>) {
             variant="ghost"
             size="icon"
             className={cn(
-                "border-border-strong bg-surface-container-highest text-foreground hover:bg-surface-bright hover:text-foreground dark:hover:bg-surface-bright size-8 shrink-0 rounded-full border p-0",
+                "border-border-strong bg-surface-container-highest",
+                "text-foreground hover:bg-surface-bright hover:text-foreground",
+                "dark:hover:bg-surface-bright size-8 shrink-0 rounded-full border p-0",
                 className,
             )}
             {...props}

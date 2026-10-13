@@ -78,7 +78,10 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
             <Sheet open={open} onOpenChange={refuseOnClose} direction="bottom">
                 <SheetContent
                     overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40"
-                    className="border-border bg-card text-foreground gap-4 border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className={cn(
+                        "border-border bg-card text-foreground gap-4 border",
+                        "px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none",
+                    )}
                     aria-describedby="host-key-sheet-message"
                 >
                     <SheetTitle className="text-body-md font-normal">Trust this host?</SheetTitle>

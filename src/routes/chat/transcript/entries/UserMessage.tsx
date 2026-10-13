@@ -47,7 +47,9 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             tabIndex={0}
             aria-label="Your message"
             className={cn(
-                "bg-primary text-primary-foreground focus-visible:ring-ring max-w-[80%] min-w-0 space-y-2 rounded-md wrap-break-word outline-none focus-visible:ring-2",
+                "bg-primary text-primary-foreground focus-visible:ring-ring",
+                "max-w-[80%] min-w-0 space-y-2 rounded-md wrap-break-word",
+                "outline-none focus-visible:ring-2",
                 oneLine ? "px-4 py-2" : "p-3",
                 queued !== undefined && "opacity-60",
             )}

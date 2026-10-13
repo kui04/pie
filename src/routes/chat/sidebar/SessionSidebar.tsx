@@ -174,7 +174,10 @@ function SessionListPanel({ id, className, ...list }: SessionList & { id: string
                                     type="button"
                                     aria-expanded={!folded.has(group.cwd)}
                                     onClick={() => toggle(group.cwd)}
-                                    className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left"
+                                    className={cn(
+                                        "text-muted-foreground hover:text-foreground flex",
+                                        "w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left",
+                                    )}
                                 >
                                     <Folder className="size-4 shrink-0" aria-hidden />
                                     <span className="text-body-md min-w-0 flex-1 truncate">
@@ -249,7 +252,8 @@ function SessionSheet({
                     // from the edge it is anchored to. The clip is what holds it:
                     // the panel inside paints its own square background, and
                     // nothing cuts it to the corner without this.
-                    "bg-surface-dim border-border w-72 max-w-[85%] overflow-hidden rounded-r-xl border-r outline-none",
+                    "bg-surface-dim border-border w-72 max-w-[85%]",
+                    "overflow-hidden rounded-r-xl border-r outline-none",
                     "lg:hidden",
                     className,
                 )}
@@ -307,7 +311,9 @@ function SessionRow({
             disabled={busy}
             onClick={() => onPick(session.path)}
             className={cn(
-                "hover:bg-accent flex w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left disabled:pointer-events-none disabled:opacity-60",
+                "hover:bg-accent flex w-full items-center gap-1.5",
+                "rounded-md px-1 py-1.5 text-left",
+                "disabled:pointer-events-none disabled:opacity-60",
                 current && "bg-accent",
             )}
         >

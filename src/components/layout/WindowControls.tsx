@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
 import { useMaximized } from "@/hooks/use-maximized";
 import { windowControls } from "@/lib/bridge";
+import { cn } from "cn";
 
 /**
  * The keys sit at the end of the bar whatever the bar carries on the left, so
@@ -26,7 +27,11 @@ export function WindowControls() {
                 type="button"
                 aria-label="Minimize"
                 onClick={() => void windowControls.minimize()}
-                className="hover:bg-muted focus-visible:outline-primary text-foreground size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out"
+                className={cn(
+                    "hover:bg-muted focus-visible:outline-primary text-foreground",
+                    "size-6 shrink-0 rounded-sm bg-transparent p-1",
+                    "transition-colors duration-50 ease-in-out",
+                )}
             >
                 <Minus id="window-minimize-icon" className="size-4" aria-hidden />
             </button>
@@ -35,7 +40,11 @@ export function WindowControls() {
                 type="button"
                 aria-label={maximized ? "Restore" : "Maximize"}
                 onClick={() => void windowControls.toggleMaximize()}
-                className="hover:bg-muted focus-visible:outline-primary text-foreground size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out"
+                className={cn(
+                    "hover:bg-muted focus-visible:outline-primary text-foreground",
+                    "size-6 shrink-0 rounded-sm bg-transparent p-1",
+                    "transition-colors duration-50 ease-in-out",
+                )}
             >
                 <AnimatePresence initial={false} mode="wait">
                     <motion.span
@@ -61,7 +70,11 @@ export function WindowControls() {
                 type="button"
                 aria-label="Close"
                 onClick={() => void windowControls.close()}
-                className="focus-visible:outline-primary hover:bg-destructive hover:text-destructive-foreground size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out"
+                className={cn(
+                    "focus-visible:outline-primary hover:bg-destructive",
+                    "hover:text-destructive-foreground size-6 shrink-0",
+                    "rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out",
+                )}
             >
                 <X id="window-close-icon" className="size-4" aria-hidden />
             </button>

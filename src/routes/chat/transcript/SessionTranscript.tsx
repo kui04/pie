@@ -245,7 +245,9 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                         // alpha - translucent, and it outranks a plain `hover:` class -
                         // so both are written out (`surface-bright`, the plane the
                         // composer's keys hover on).
-                        "elevation-raised bg-surface-container hover:bg-surface-bright dark:hover:bg-surface-bright text-foreground absolute right-2 bottom-2 size-8 rounded-full border-0 p-0",
+                        "elevation-raised bg-surface-container hover:bg-surface-bright",
+                        "dark:hover:bg-surface-bright text-foreground absolute right-2 bottom-2",
+                        "size-8 rounded-full border-0 p-0",
                         "sm:right-auto sm:left-1/2 sm:h-auto sm:w-max sm:-translate-x-1/2",
                         "sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2",
                     )}

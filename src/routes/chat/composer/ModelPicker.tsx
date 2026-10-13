@@ -60,7 +60,13 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                     aria-label="Choose the model"
                     // The pill grows with its label; below `sm` the label is gone
                     // and the key is the 32px circle of the other composer keys.
-                    className="border-border-strong bg-surface-container-highest text-foreground hover:bg-surface-bright aria-expanded:bg-surface-container-highest h-8 shrink-0 gap-2 rounded-full border px-3 max-sm:w-8 max-sm:justify-center max-sm:px-0"
+                    className={cn(
+                        "border-border-strong bg-surface-container-highest",
+                        "text-foreground hover:bg-surface-bright",
+                        "aria-expanded:bg-surface-container-highest h-8",
+                        "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
+                        "max-sm:justify-center max-sm:px-0",
+                    )}
                 >
                     <ProviderMark provider={current?.provider ?? null} />
                     <span className="text-label-lg hidden max-w-40 truncate sm:block">{current?.name ?? "Model"}</span>
@@ -74,7 +80,10 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 // The draft's model popup is a fixed 240px (its own max-height), so the
                 // popup is the same shape whether a host offers three models or six
                 // hundred.
-                className="elevation-raised bg-card text-foreground mx-2 flex h-60 max-h-60 w-68 flex-col gap-1 overflow-hidden p-2"
+                className={cn(
+                    "elevation-raised bg-card text-foreground mx-2",
+                    "flex h-60 max-h-60 w-68 flex-col gap-1 overflow-hidden p-2",
+                )}
             >
                 <ModelMenu
                     catalogue={catalogue ?? []}
@@ -138,7 +147,12 @@ function ModelMenu({ catalogue, value, onChoose }: ModelMenuProps) {
             label="Choose the model"
             className="flex min-h-0 flex-1 flex-col gap-1"
         >
-            <div className="border-border-strong bg-surface-container-highest flex items-center gap-2 rounded-lg border px-2 py-2">
+            <div
+                className={cn(
+                    "border-border-strong bg-surface-container-highest",
+                    "flex items-center gap-2 rounded-lg border px-2 py-2",
+                )}
+            >
                 <Search className="text-muted-foreground size-4 shrink-0" aria-hidden />
                 <CommandPrimitive.Input
                     value={query}
@@ -161,7 +175,8 @@ function ModelMenu({ catalogue, value, onChoose }: ModelMenuProps) {
                                 value={choice}
                                 onSelect={() => onChoose(choice)}
                                 className={cn(
-                                    "text-muted-foreground flex cursor-default items-center gap-2 rounded-lg px-2 py-2 outline-hidden select-none",
+                                    "text-muted-foreground flex cursor-default items-center gap-2",
+                                    "rounded-lg px-2 py-2 outline-hidden select-none",
                                     "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
                                     inUse && "bg-accent text-accent-foreground font-medium",
                                 )}

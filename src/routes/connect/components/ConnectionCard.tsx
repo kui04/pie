@@ -52,7 +52,11 @@ export function ConnectionCard({
             // Grid, not a flex column: a card capped by `max-h-full` has no definite
             // height, so a percentage viewport inside it sizes to its content and paints
             // the form over the footer. Resolved grid tracks are definite.
-            className="bg-card grid max-h-full min-h-0 w-full max-w-104 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-xl shadow-sm"
+            className={cn(
+                "bg-card grid max-h-full min-h-0 w-full max-w-104",
+                "grid-rows-[minmax(0,1fr)_auto] overflow-hidden",
+                "rounded-xl shadow-sm",
+            )}
         >
             <ScrollPane id="connection-card-scroll" className="min-h-0">
                 <div className="flex flex-col gap-6 px-6 pt-6">
@@ -160,7 +164,11 @@ export function ConnectionCard({
                                             autoCapitalize="none"
                                             autoCorrect="off"
                                             spellCheck={false}
-                                            className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0"
+                                            className={cn(
+                                                "border-border-strong bg-surface-container-highest",
+                                                "placeholder:text-outline text-code h-12 w-full",
+                                                "px-3 font-sans focus-visible:ring-0",
+                                            )}
                                         />
                                     </div>
 
@@ -228,7 +236,11 @@ export function ConnectionCard({
                                                     autoCapitalize="none"
                                                     autoCorrect="off"
                                                     spellCheck={false}
-                                                    className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0"
+                                                    className={cn(
+                                                        "border-border-strong bg-surface-container-highest",
+                                                        "placeholder:text-outline text-code h-12 w-full",
+                                                        "px-3 font-sans focus-visible:ring-0",
+                                                    )}
                                                 />
                                             </div>
                                         ) : (
@@ -252,7 +264,12 @@ export function ConnectionCard({
                                                         autoCapitalize="none"
                                                         autoCorrect="off"
                                                         spellCheck={false}
-                                                        className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code field-sizing-fixed w-full min-w-0 resize-none px-3 py-2 font-mono focus-visible:ring-0"
+                                                        className={cn(
+                                                            "border-border-strong bg-surface-container-highest",
+                                                            "placeholder:text-outline text-code field-sizing-fixed",
+                                                            "w-full min-w-0 resize-none px-3 py-2 font-mono",
+                                                            "focus-visible:ring-0",
+                                                        )}
                                                     />
                                                 </div>
 
@@ -275,7 +292,11 @@ export function ConnectionCard({
                                                         autoCapitalize="none"
                                                         autoCorrect="off"
                                                         spellCheck={false}
-                                                        className="border-border-strong bg-surface-container-highest placeholder:text-outline text-code h-12 w-full px-3 font-sans focus-visible:ring-0"
+                                                        className={cn(
+                                                            "border-border-strong bg-surface-container-highest",
+                                                            "placeholder:text-outline text-code h-12 w-full",
+                                                            "px-3 font-sans focus-visible:ring-0",
+                                                        )}
                                                     />
                                                 </div>
 

@@ -78,7 +78,10 @@ function CommandItem({ className, children, ...props }: React.ComponentPropsWith
         <CommandPrimitive.Item
             data-slot="command-item"
             className={cn(
-                "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-lg px-2 py-2 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+                "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+                "relative flex cursor-default items-center gap-2",
+                "rounded-lg px-2 py-2 text-sm outline-hidden select-none",
+                "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
                 className,
             )}
             {...props}
@@ -128,7 +131,8 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
             // of the spacing unit - so the list scrolls past what the panel shows and
             // no further.
             className={cn(
-                "elevation-raised bg-card text-foreground max-h-103 w-(--radix-popover-trigger-width) gap-1 overflow-hidden p-2",
+                "elevation-raised bg-card text-foreground max-h-103",
+                "w-(--radix-popover-trigger-width) gap-1 overflow-hidden p-2",
                 className,
             )}
         >

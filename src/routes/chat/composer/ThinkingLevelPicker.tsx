@@ -64,7 +64,13 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                     aria-label="Choose the thinking level"
                     // The pill grows with its label; below `sm` the label is gone
                     // and the key is the 32px circle of the other composer keys.
-                    className="border-border-strong bg-surface-container-highest text-foreground hover:bg-surface-bright aria-expanded:bg-surface-container-highest h-8 shrink-0 gap-2 rounded-full border px-3 max-sm:w-8 max-sm:justify-center max-sm:px-0"
+                    className={cn(
+                        "border-border-strong bg-surface-container-highest",
+                        "text-foreground hover:bg-surface-bright",
+                        "aria-expanded:bg-surface-container-highest h-8",
+                        "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
+                        "max-sm:justify-center max-sm:px-0",
+                    )}
                 >
                     <Brain className="size-4 shrink-0" />
                     <span className="text-label-lg hidden max-w-40 truncate sm:block">{current ?? "Thinking"}</span>
@@ -75,7 +81,10 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                 side="top"
                 align="center"
                 sideOffset={12}
-                className="elevation-raised bg-card text-foreground mx-2 flex max-h-60 w-44 flex-col gap-1 overflow-hidden p-2"
+                className={cn(
+                    "elevation-raised bg-card text-foreground mx-2",
+                    "flex max-h-60 w-44 flex-col gap-1 overflow-hidden p-2",
+                )}
             >
                 <CommandPrimitive
                     // The four levels are a plain list: nothing to search.
@@ -104,7 +113,8 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                                             choose(level);
                                         }}
                                         className={cn(
-                                            "text-muted-foreground flex cursor-default items-center gap-2 rounded-lg px-2 py-2 outline-hidden select-none",
+                                            "text-muted-foreground flex cursor-default items-center gap-2",
+                                            "rounded-lg px-2 py-2 outline-hidden select-none",
                                             "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
                                             inUse && "bg-accent text-accent-foreground font-medium",
                                         )}
