@@ -14,7 +14,8 @@ import { ModelPicker } from "@/routes/chat/composer/ModelPicker";
 import { ThinkingLevelPicker } from "@/routes/chat/composer/ThinkingLevelPicker";
 import { ToolResultCard } from "@/routes/chat/transcript/entries/ToolResultCard";
 import { presentRunningExecution } from "@/routes/chat/transcript/tool-presentation";
-import { useTranscriptStore } from "@/stores/transcript.store";
+import { useSelector } from "@xstate/react";
+import type { SessionRef } from "@/lib/sessions";
 
 export interface ComposerProps {
     /** The session that this box sends to. */
@@ -24,6 +25,8 @@ export interface ComposerProps {
      * key means: Enter steers a run, and starts the next turn when none goes on.
      */
     working: boolean;
+    /** The chart of the session: the shell card runs in it, above this box. */
+    machine: SessionRef;
 }
 
 /** One picture the reader staged, with the name of the file it came from. */
@@ -33,7 +36,7 @@ interface Staged {
     image: ImageContent;
 }
 
-export function Composer({ session, working }: ComposerProps) {
+export function Composer({ session, working, machine }: ComposerProps) {
     const client = useQueryClient();
     const isMobile = useIsMobile();
     const [value, setValue] = useState("");
@@ -46,9 +49,7 @@ export function Composer({ session, working }: ComposerProps) {
 
     const state = useQuery(sessionQueries.state(session));
     const commands = useQuery(sessionQueries.commands(session));
-    const runningBash = useTranscriptStore((store) => store.runningBash);
-    const startBash = useTranscriptStore((store) => store.startBash);
-    const finishBash = useTranscriptStore((store) => store.finishBash);
+    const runningBash = useSelector(machine, (snapshot) => snapshot.context.bash);
 
     const piCommands = useMemo(() => commands.data?.commands ?? [], [commands.data]);
     const name = slashName(value);
@@ -84,7 +85,7 @@ export function Composer({ session, working }: ComposerProps) {
         }
         setValue("");
         setDismissed(false);
-        startBash(shell);
+        machine.send({ type: "BASH_START", run: shell });
         void bridge
             .bash(session, shell.command, shell.excludeFromContext)
             .then(() => {
@@ -96,7 +97,7 @@ export function Composer({ session, working }: ComposerProps) {
                 toast.error(bridge.asPieError(thrown).message);
                 // The command never ran, so pi records nothing and no entry will take the
                 // card down: it goes here.
-                finishBash();
+                machine.send({ type: "BASH_DROPPED" });
                 setValue((current) =>
                     current === "" ? `${shell.excludeFromContext ? "!!" : "!"}${shell.command}` : current,
                 );
@@ -224,8 +225,8 @@ export function Composer({ session, working }: ComposerProps) {
                     {runningBash !== null && (
                         // The reader's own run, above the card where the command panel comes
                         // from. Pi records it as an entry when it can (its own
-                        // `_pendingBashMessages` may defer that), and the store takes the card
-                        // down with the record.
+                        // `_pendingBashMessages` may defer that), and the chart takes the card
+                        // down when the entry of that command arrives (`bashAfter`).
                         <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
                             <ToolResultCard
                                 id="composer-run-card"

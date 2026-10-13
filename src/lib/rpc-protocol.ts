@@ -10,7 +10,7 @@
  * Both packages are dev dependencies. Every import here is a type, which `tsc`
  * erases, so none of their code enters the bundle.
  *
- * Most names below are a bare alias. Two are not, and each says why at its own
+ * Most names below are a bare alias. Some are not, and each says why at its own
  * line. A rename or a shape change in pi fails the build here rather than
  * reaching the screens as a field that is quietly never there.
  */
@@ -46,8 +46,24 @@ export type { JsonValue };
  * This is the JSON projection, not the in-process `AgentSessionEvent`: pi strips
  * the cumulative `partial` snapshot from every `message_update` delta and adds
  * `id` and `toolName` to `toolcall_start`.
+ *
+ * One kind is not in pi's JSON union: `extension_error` is RPC-only - the pin sends it from
+ * the `onError` handler of `packages/coding-agent/src/modes/rpc/rpc-mode.ts` - so it is named
+ * here by hand. The `pi_rpc` crate mirrors it as `Event::ExtensionError`, and Rust forwards
+ * the record verbatim, so it reaches this side.
  */
-export type Event = JsonAgentSessionEvent;
+export type Event = JsonAgentSessionEvent | ExtensionFault;
+
+/** An RPC-only record: an extension handler threw while it answered an event. */
+export interface ExtensionFault {
+    type: "extension_error";
+    /** The path of the extension that failed. */
+    extensionPath: string;
+    /** The pi event the extension was answering, e.g. `tool_call`. */
+    event: string;
+    /** What the handler threw, as pi writes it. */
+    error: string;
+}
 
 /**
  * The state of the session behind a connection (`RpcSessionState`).
@@ -93,9 +109,6 @@ export type AvailableModelsData = Extract<RpcResponse, { command: "get_available
 
 /** Payload of `get_available_thinking_levels`. */
 export type AvailableThinkingLevelsData = Extract<RpcResponse, { command: "get_available_thinking_levels" }>["data"];
-
-/** Payload of `switch_session`. */
-export type SwitchSessionData = Extract<RpcResponse, { command: "switch_session" }>["data"];
 
 /** Payload of `get_entries`. */
 export type EntriesData = Extract<RpcResponse, { command: "get_entries" }>["data"];

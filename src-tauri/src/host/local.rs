@@ -12,6 +12,20 @@ use crate::channel::{Channel, Program};
 use super::version::{check_version, probe_version};
 use super::{HostPath, Result};
 
+/// The arguments of the `pi` of this machine: the RPC mode, and the conversation
+/// to load at the start when one is named.
+///
+/// Pi reads the conversation path itself, on the machine where it runs, so the
+/// path travels as the host wrote it.
+fn pi_args(conversation: Option<&HostPath>) -> Vec<String> {
+    let mut args = vec!["--mode".to_string(), "rpc".to_string()];
+    if let Some(path) = conversation {
+        args.push("--session".to_string());
+        args.push(path.as_str().to_string());
+    }
+    args
+}
+
 /// This machine, as a machine that runs pi.
 pub struct LocalHost {
     /// The home directory of this machine: the start of a session when the
@@ -43,17 +57,25 @@ impl LocalHost {
     /// in the home directory of this machine, or in the directory of the app
     /// when there is no home either.
     ///
+    /// `conversation` is a conversation file of pi to load at the start
+    /// (`--session`). `None` starts a new conversation; pi creates the file at
+    /// the first message.
+    ///
     /// # Errors
     ///
     /// The channel's own failures: a `pi` that is not on `PATH` is
     /// [`channel::Error::Spawn`](crate::channel::Error::Spawn).
-    pub(crate) fn open_pi(&self, cwd: Option<&HostPath>) -> crate::channel::Result<Channel> {
+    pub(crate) fn open_pi(
+        &self,
+        cwd: Option<&HostPath>,
+        conversation: Option<&HostPath>,
+    ) -> crate::channel::Result<Channel> {
         let dir = cwd
             .map(|path| PathBuf::from(path.as_str()))
             .or_else(|| self.home.clone());
         let program = match dir {
-            Some(dir) => Program::new("pi").args(["--mode", "rpc"]).cwd(dir),
-            None => Program::new("pi").args(["--mode", "rpc"]),
+            Some(dir) => Program::new("pi").args(pi_args(conversation)).cwd(dir),
+            None => Program::new("pi").args(pi_args(conversation)),
         };
         program.spawn()
     }
@@ -71,5 +93,21 @@ impl LocalHost {
     pub(crate) async fn check_pi(&self) -> Result<()> {
         let found = probe_version("pi").await?;
         check_version(found)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_conversation_is_passed_as_a_session_argument() {
+        assert_eq!(pi_args(None), ["--mode", "rpc"]);
+
+        let path = HostPath::new("/tmp/sessions/one.jsonl");
+        assert_eq!(
+            pi_args(Some(&path)),
+            ["--mode", "rpc", "--session", "/tmp/sessions/one.jsonl"]
+        );
     }
 }

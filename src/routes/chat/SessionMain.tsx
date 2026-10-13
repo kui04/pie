@@ -1,25 +1,26 @@
 /**
- * The main region of a session: the bar above the words, the transcript, and the
- * composer under it — and the list beside them, where the window holds a column.
+ * The main region of a session: the bar above the words, the transcript, and the composer
+ * under it — and the list beside them, where the window holds a column.
  *
- * This subtree holds the reads of one conversation (`useSession`): the shape of its
- * feed, its run and its queue. The screen mounts it per session (`ChatScreen`), so a
- * session is another mount.
+ * The chart of the session lives in the registry (`lib/sessions.ts`): this screen holds one
+ * hand on it while it is on screen, and reads the transcript as the fold of the base read
+ * and the records that arrived after it (`lib/transcript-merge.ts`).
  */
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
-import type { ActorRefFrom } from "xstate";
 import { toast } from "sonner";
 import { Button } from "@/components/ui";
 import { useSession } from "@/hooks/use-session";
-import { chatMachine, stageOf } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
+import { sessionKeys } from "@/lib/query";
+import { ensureSession, forgetSession, sessionOf, subscribeSessions, type SessionRef } from "@/lib/sessions";
 import { queuedRows, transcriptRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/stream";
+import { mergedTranscript } from "@/lib/transcript-merge";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { Composer } from "@/routes/chat/composer/Composer";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
@@ -27,11 +28,8 @@ import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
-import { useTranscriptStore } from "@/stores/transcript.store";
 
 export interface SessionMainProps {
-    /** The chart of the screen: this subtree is what hears its reads answer. */
-    machine: ActorRefFrom<typeof chatMachine>;
     session: string;
     cwd: string | null;
     endpoint: string;
@@ -40,10 +38,40 @@ export interface SessionMainProps {
     sheet: boolean;
     onOpenSheet: (open: boolean) => void;
     onToggleSessions: () => void;
+    /** A conversation of the list was chosen: the chat chart attaches a session on it. */
+    onFocus: (path: string) => void;
     client: QueryClient;
 }
 
-export function SessionMain({
+/**
+ * The slot of one session: it holds the chart of the registry for as long as the screen
+ * shows it, and hands the body the actor. The body is rendered only when the chart is
+ * there, so its hooks are unconditional.
+ */
+export function SessionMain(props: SessionMainProps) {
+    const { session, client } = props;
+    useEffect(() => {
+        ensureSession(session, client);
+        return () => forgetSession(session);
+    }, [session, client]);
+    const machine = useSyncExternalStore(
+        subscribeSessions,
+        () => sessionOf(session),
+        () => null,
+    );
+    if (machine === null) {
+        return (
+            <ChatFrame>
+                <div className="relative flex min-h-0 flex-1">
+                    <SessionLoading />
+                </div>
+            </ChatFrame>
+        );
+    }
+    return <SessionBody {...props} machine={machine} />;
+}
+
+function SessionBody({
     machine,
     session,
     cwd,
@@ -53,48 +81,47 @@ export function SessionMain({
     sheet,
     onOpenSheet,
     onToggleSessions,
+    onFocus,
     client,
-}: SessionMainProps) {
-    const { phase, working, state, snapshot, stats, listening, error, reopen, switchTo, switching } =
-        useSession(session);
+}: SessionMainProps & { machine: SessionRef }) {
+    const { phase, working, state, entries, stats, ready, listening, error, reopen } = useSession(session, machine);
     const still = useReducedMotion();
-    const stage = useSelector(machine, stageOf);
-    const loaded = stage === "loaded";
+    const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
+    const live = useSelector(machine, (snapshot) => snapshot.context.live);
+    const queued = useSelector(machine, (snapshot) => snapshot.context.queued);
+    const rowIds = useSelector(machine, (snapshot) => snapshot.context.rowIds);
+    const liveUsage = useSelector(machine, (snapshot) => snapshot.context.usage);
+
+    // The transcript is the base read and the records folded together, then the rows the
+    // run writes now, the line under it, and the queue. The settled half is recomputed
+    // only when the base or the overlay changes, not on every delta.
+    const base = entries.data ?? null;
+    const merged = useMemo(() => mergedTranscript(base, overlay), [base, overlay]);
+    const settled = useMemo(() => transcriptRows(merged, merged.leaf, rowIds), [merged, rowIds]);
+    const moving = useMemo(
+        () => [...liveRows(live), ...activityRows(phase), ...queuedRows(queued)],
+        [live, phase, queued],
+    );
+    const rows = useMemo(() => [...settled, ...moving], [settled, moving]);
+
+    // The words of a conversation are on screen when its base read answered. A chart that
+    // outlived the cache of an earlier screen can be ready with no base in hand; the view
+    // then waits for the answer instead of painting the overlay alone.
+    const loaded = ready && base !== null;
+    const composerOn = loaded && error === null;
+    const empty = loaded && rows.length === 0;
+
+    // Two kinds of failure reach this screen: the listeners never opened, which the chart
+    // reports, and a read, which the query holds. They are read in that order.
+    const failure = error ?? entries.error ?? state.error ?? stats.error;
+
+    const currentSessionId = state.data?.sessionId ?? null;
+
     const retry = () => {
         reopen();
         void client.invalidateQueries({ queryKey: ["connection"] });
-        void client.invalidateQueries({ queryKey: ["session", session] });
+        void client.invalidateQueries({ queryKey: sessionKeys.whole(session) });
     };
-    const entries = useTranscriptStore((state) => state.entries);
-    const order = useTranscriptStore((state) => state.order);
-    const leafId = useTranscriptStore((state) => state.leafId);
-    const queued = useTranscriptStore((state) => state.queued);
-    const live = useTranscriptStore((state) => state.live);
-    const liveUsage = useTranscriptStore((state) => state.liveUsage);
-    const rowIds = useTranscriptStore((state) => state.rowIds);
-
-    const rows = useMemo(
-        () => [
-            ...transcriptRows({ entries, order }, leafId, rowIds),
-            ...liveRows(live),
-            ...activityRows(phase),
-            ...queuedRows(queued),
-        ],
-        [entries, order, leafId, rowIds, live, phase, queued],
-    );
-
-    const composerOn = loaded && error === null;
-    const empty = loaded && rows.length === 0;
-    const arrived = listening && !switching && !snapshot.isPending;
-    useEffect(() => {
-        if (arrived) machine.send({ type: "ARRIVED" });
-    }, [arrived, machine]);
-
-    // Two kinds of failure reach this screen: the listeners never opened, which the
-    // hook reports, and a read, which the query holds. They are read in that order.
-    const failure = error ?? snapshot.error ?? state.error ?? stats.error;
-
-    const currentSessionId = state.data?.sessionId ?? null;
 
     /** Drops every queued message, and says how many went: pi cannot take back one. */
     function retractQueue() {
@@ -108,34 +135,23 @@ export function SessionMain({
     }
 
     /**
-     * Continues the conversation of the row that was chosen.
+     * Opens the conversation of the row that was chosen.
      *
-     * The sheet closes before the switch is answered: a host across a network can take
-     * a moment, and meanwhile the transcript says that it is opening the session.
+     * A session holds one conversation, so this is not a switch: the chat chart attaches a
+     * session on the file and ends the one in view when the new one answers.
      */
     function pick(path: string) {
-        // While the feed is opening or has failed there is no conversation to leave:
-        // the switch would reach Rust and the chart would drop its answer. The rows of
-        // the list are disabled for the same reason (`busy` below).
-        if (!listening || working || switching) {
-            bridge.log.debug("a pick was not taken", { path, listening, working, switching });
+        if (!listening || working) {
+            bridge.log.debug("a pick was not taken", { path, listening, working });
             return;
         }
         onOpenSheet(false);
-        // The conversation that is on screen is not opened a second time: pi reloads
-        // the file it is asked for even when it already holds it, and the window
-        // would empty itself for the read it did not need (`switchSession`).
         if (path === state.data?.sessionFile) {
             bridge.log.debug("a pick was already the open conversation", { path });
             return;
         }
         bridge.log.info("a conversation was picked", { path });
-        machine.send({ type: "SWITCH" });
-        void switchTo(path).catch((thrown: unknown) => {
-            const error = bridge.asPieError(thrown);
-            bridge.log.error("the switch failed", { path, reason: error.message });
-            toast.error(error.message);
-        });
+        onFocus(path);
     }
 
     const transcript = <SessionTranscript rows={rows} onRetractQueued={retractQueue} />;
@@ -205,7 +221,7 @@ export function SessionMain({
                     endpoint={endpoint}
                     currentSessionId={currentSessionId}
                     working={working}
-                    busy={!listening || working || switching}
+                    busy={!listening || working}
                     onPick={pick}
                     wide={wide}
                     column={column}
@@ -247,7 +263,7 @@ export function SessionMain({
                                     Nothing has been said yet.
                                 </p>
                             )}
-                            <Composer session={session} working={working} />
+                            <Composer session={session} working={working} machine={machine} />
                         </div>
                     </motion.div>
                 )}

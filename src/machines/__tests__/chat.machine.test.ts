@@ -1,134 +1,137 @@
 import { createActor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
-import { chatMachine, errorOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
+import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 
 /**
- * The chart of the screen: which conversation the window shows, and whether it
- * has arrived. Nothing of the session itself is here - the feed, the run and the
- * switch belong to `session.machine.ts` - so these tests drive events only.
+ * The chart of the screen: which conversation the window shows, and the attach that opens
+ * one. Nothing of the session itself is here - the feed, the transcript and the run belong
+ * to `session.machine.ts` - so these tests drive events only.
  *
- * Starting pi is a step of this flow, so the attach arrives as a dep: a test says
- * whether it answers or fails, and needs no Tauri runtime.
+ * Starting pi is a step of this flow, so the attach arrives as a dep: a test says what it
+ * answers, and needs no Tauri runtime.
  */
 
-function started(attach: ChatDeps["attach"] = async () => {}) {
-    const actor = createActor(chatMachine, { input: { attach } }).start();
-    return actor;
+function started(overrides: Partial<ChatDeps> = {}) {
+    const attached: (string | null)[] = [];
+    const detached: string[] = [];
+    let made = 0;
+    const actor = createActor(chatMachine, {
+        input: {
+            attach: async (path) => {
+                attached.push(path);
+                made += 1;
+                // A name that no test writes by hand, so the assertion can tell the session
+                // the attach answered with from one that was already there.
+                return { id: `made:${made}`, cwd: null };
+            },
+            detach: async (session) => {
+                detached.push(session);
+            },
+            ...overrides,
+        },
+    }).start();
+    return { actor, attached, detached };
 }
 
 describe("the chat's stages", () => {
     it("starts on the landing, with no session chosen", () => {
-        const actor = started();
+        const { actor } = started();
 
         expect(stageOf(actor.getSnapshot())).toBe("landing");
         expect(sessionOf(actor.getSnapshot())).toBeNull();
     });
 
-    it("opens the session that was picked, and holds it once it arrives", () => {
-        const actor = started();
+    it("attaches a new conversation, and views the session that answers", async () => {
+        const { actor, attached } = started();
 
-        actor.send({ type: "OPEN", session: "main:1" });
+        actor.send({ type: "ATTACH" });
 
-        expect(stageOf(actor.getSnapshot())).toBe("loading");
-        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
-
-        actor.send({ type: "ARRIVED" });
-
-        expect(stageOf(actor.getSnapshot())).toBe("loaded");
-        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
+        expect(stageOf(actor.getSnapshot())).toBe("attaching");
+        expect(pathOf(actor.getSnapshot())).toBeNull();
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
+        expect(attached).toEqual([null]);
+        expect(sessionOf(actor.getSnapshot())).toBe("made:1");
     });
 
-    it("hands the window back to the loading page on a switch", () => {
-        // A switch is the same passage as an open: the loaded page is given up, and
-        // the page that says a conversation is coming stands in its place.
-        const actor = started();
+    it("attaches on the conversation of a chosen file", async () => {
+        const { actor, attached } = started();
+
+        actor.send({ type: "FOCUS", path: "/sessions/one.jsonl" });
+
+        expect(stageOf(actor.getSnapshot())).toBe("attaching");
+        expect(pathOf(actor.getSnapshot())).toBe("/sessions/one.jsonl");
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
+        // Pi reads the file itself: the path is what the attach is given.
+        expect(attached).toEqual(["/sessions/one.jsonl"]);
+    });
+
+    it("views a session that already speaks, with no attach", () => {
+        const { actor, attached } = started();
+
+        actor.send({ type: "OPEN", session: "main:7" });
+
+        expect(stageOf(actor.getSnapshot())).toBe("viewing");
+        expect(sessionOf(actor.getSnapshot())).toBe("main:7");
+        expect(attached).toEqual([]);
+    });
+
+    it("ends the session in view when another conversation opens", async () => {
+        // A session is one process with one conversation: the pick attaches the new one and
+        // the one in view goes, so the machine never holds two.
+        const { actor, detached } = started();
         actor.send({ type: "OPEN", session: "main:1" });
-        actor.send({ type: "ARRIVED" });
 
-        actor.send({ type: "SWITCH" });
+        actor.send({ type: "FOCUS", path: "/sessions/two.jsonl" });
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
 
-        expect(stageOf(actor.getSnapshot())).toBe("loading");
-        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
+        expect(sessionOf(actor.getSnapshot())).toBe("made:1");
+        expect(detached).toEqual(["main:1"]);
+    });
 
-        actor.send({ type: "ARRIVED" });
+    it("ends the session the landing was holding when a file opens from the list", async () => {
+        // After a reload the connection still holds a pi. A pick of another file attaches a
+        // session on it, and the held process goes with the pick.
+        const { actor, detached } = started();
+        actor.send({ type: "FOCUS", path: "/sessions/three.jsonl", dropping: "main:9" });
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
 
-        expect(stageOf(actor.getSnapshot())).toBe("loaded");
+        expect(detached).toEqual(["main:9"]);
+        expect(sessionOf(actor.getSnapshot())).toBe("made:1");
     });
 
     it("gives the conversation up when the screen is told to close it", () => {
-        // `Detach` is not built yet; the chart already holds the edge it will use.
-        const actor = started();
+        const { actor, detached } = started();
         actor.send({ type: "OPEN", session: "main:1" });
-        actor.send({ type: "ARRIVED" });
 
         actor.send({ type: "CLOSE" });
 
         expect(stageOf(actor.getSnapshot())).toBe("landing");
         expect(sessionOf(actor.getSnapshot())).toBeNull();
+        expect(detached).toEqual(["main:1"]);
     });
 
-    it("does not open a second conversation while one is on its way", () => {
-        const actor = started();
-        actor.send({ type: "OPEN", session: "main:1" });
+    it("does not open another conversation while one is on its way", () => {
+        const { actor } = started();
+        actor.send({ type: "ATTACH" });
 
         actor.send({ type: "OPEN", session: "main:2" });
 
-        expect(stageOf(actor.getSnapshot())).toBe("loading");
-        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
-    });
-
-    it("does not switch a conversation that has not arrived", () => {
-        const actor = started();
-        actor.send({ type: "OPEN", session: "main:1" });
-
-        actor.send({ type: "SWITCH" });
-
-        expect(sessionOf(actor.getSnapshot())).toBe("main:1");
-        expect(stageOf(actor.getSnapshot())).toBe("loading");
-    });
-
-    it("starts pi when the connection holds none, and lands when it answers", async () => {
-        let attached = 0;
-        const actor = started(async () => {
-            attached += 1;
-        });
-
-        actor.send({ type: "ATTACH" });
-
         expect(stageOf(actor.getSnapshot())).toBe("attaching");
-        await vi.waitFor(() => expect(attached).toBe(1));
-        // The attach itself leaves no page: the read of the connection shows the
-        // session next, and that is what the landing waits for.
-        expect(stageOf(actor.getSnapshot())).toBe("attaching");
-
-        actor.send({ type: "HELD" });
-
-        expect(stageOf(actor.getSnapshot())).toBe("landing");
-        expect(errorOf(actor.getSnapshot())).toBeNull();
+        expect(sessionOf(actor.getSnapshot())).toBeNull();
     });
 
-    it("starts nothing when a session already speaks", () => {
-        // A reload of the webview: Rust holds the pi of the connection, and the
-        // read shows it before the actor of `attaching` ever runs.
-        let attached = 0;
-        const actor = started(async () => {
-            attached += 1;
-        });
-
-        actor.send({ type: "HELD" });
-
-        expect(stageOf(actor.getSnapshot())).toBe("landing");
-        expect(attached).toBe(0);
-    });
-
-    it("says why pi could not be started, and tries again", async () => {
+    it("says why pi could not be started, and tries the same conversation again", async () => {
         let attempts = 0;
-        const actor = started(async () => {
-            attempts += 1;
-            if (attempts === 1) throw new Error("no pi on PATH");
+        const { actor, attached } = started({
+            attach: async (path) => {
+                attempts += 1;
+                attached.push(path);
+                if (attempts === 1) throw new Error("no pi on PATH");
+                return { id: "main:1", cwd: null };
+            },
         });
 
-        actor.send({ type: "ATTACH" });
+        actor.send({ type: "FOCUS", path: "/sessions/one.jsonl" });
         await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("unattached"));
         expect(errorOf(actor.getSnapshot())?.message).toBe("no pi on PATH");
 
@@ -136,6 +139,7 @@ describe("the chat's stages", () => {
 
         expect(stageOf(actor.getSnapshot())).toBe("attaching");
         expect(errorOf(actor.getSnapshot())).toBeNull();
-        await vi.waitFor(() => expect(attempts).toBe(2));
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
+        expect(attached).toEqual(["/sessions/one.jsonl", "/sessions/one.jsonl"]);
     });
 });

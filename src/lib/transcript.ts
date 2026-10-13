@@ -129,7 +129,7 @@ export function transcriptRows(
     leafId: string | null,
     /**
      * The name a row renders under, for an entry that took over a message a run had
-     * already drawn (`stores/transcript.store.ts`).
+     * already drawn (`lib/transcript-merge.ts`).
      */
     rowIds?: Map<string, string>,
 ): TranscriptRow[] {

@@ -12,7 +12,18 @@ while IFS= read -r line; do
             printf '{"id":"%s","type":"response","command":"get_state","success":true,"data":{"thinkingLevel":"high","isStreaming":false,"isCompacting":false,"steeringMode":"all","followUpMode":"all","sessionId":"fake-session","autoCompactionEnabled":true,"messageCount":0,"pendingMessageCount":0}}\n' "$id"
             ;;
         *'"type":"bash"'*)
-            printf '{"type":"bash_execution_update","id":"%s","delta":"hello\\n"}\n' "$id"
+            case "$line" in
+                *'"command":"burst"'*)
+                    # A burst of records before the answer. A pipe that holds one of them
+                    # cannot keep up with the rest, which is what a slow reader sees.
+                    printf '{"type":"bash_execution_update","id":"%s","delta":"one\\n"}\n' "$id"
+                    printf '{"type":"bash_execution_update","id":"%s","delta":"two\\n"}\n' "$id"
+                    printf '{"type":"bash_execution_update","id":"%s","delta":"three\\n"}\n' "$id"
+                    ;;
+                *)
+                    printf '{"type":"bash_execution_update","id":"%s","delta":"hello\\n"}\n' "$id"
+                    ;;
+            esac
             printf '{"id":"%s","type":"response","command":"bash","success":true,"data":{"output":"hello\\n","exitCode":0,"cancelled":false,"truncated":false}}\n' "$id"
             ;;
         *)

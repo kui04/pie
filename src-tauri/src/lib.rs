@@ -60,7 +60,6 @@ pub fn run() {
             commands::session::set_model,
             commands::session::set_session_name,
             commands::session::set_thinking_level,
-            commands::session::switch_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

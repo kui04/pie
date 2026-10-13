@@ -1,116 +1,132 @@
 /**
- * The feed of one session, the switch that may be in flight, and the phase of the run.
- * The three are independent, so they are three regions of one chart
- * (`.agents/rules/state.md`):
+ * The feed of one session, its transcript, and the phase of the run. The three are
+ * independent, so they are three regions of one chart (`.agents/rules/state.md`):
  *
  * - `feed`: `opening` (the listeners stand in the way), `live`, `failed`.
- * - `switching`: `off` or `inFlight`. A switch does not close the listeners, and the
- *   phase of the run being left must stay readable (the composer's key is `working`).
+ * - `transcript`: `empty` until a base read answered, then `ready`. The base stays in
+ *   Query; the overlay of `lib/transcript-merge.ts` is the context of this chart.
  * - `run`: `idle`, `waiting` (from the send until the model's first output), `working`.
- *   The bytes of a run are the store's; a phase is not a question about the rows, because
- *   a read that lands mid-run takes the rows over.
  *
- * A region cannot read its siblings, so the two transitions that must know whether the
- * feed is attached are raised by the region that knows: `SWITCH` becomes `BEGIN_SWITCH`
- * in `live` (a screen that never attached has no conversation to leave), and `STATE_READ`
- * becomes `READ` there (a read of a session nobody is attached to cannot move the phase).
+ * A session is one pi process with one conversation: it never changes its conversation, so
+ * there is no switch and no fence. A pick of another conversation attaches another session
+ * (the chat chart).
+ *
+ * A region cannot read its siblings, so the transition that must know whether the feed is
+ * attached is raised by the region that knows: `STATE_READ` becomes `READ` in `live` (a read
+ * of a session nobody is attached to cannot move the phase).
  *
  * A read never outranks a record either: its answer was formed before the records that
- * arrived after it was asked for. The first record of a run closes `heardRun` and a read
- * that follows may only latch; opening the listeners again opens the latch, because the
- * records of a closed listener are gone and only a read covers them.
+ * arrived after it was asked for. The run region holds a read authority for that:
+ * `readAuthoritative` is open until a phase record is heard, and `lastReadAt` is the
+ * `dataUpdatedAt` of the last applied answer. Only `begin`, `write` and `end` records close
+ * it - a delta says nothing about the phase, so it may not. While the authority is open the
+ * newest answer applies; it opens again when the listeners open, or when the pipe reports a
+ * gap in the records, because the records of a closed listener are gone and only a read
+ * covers them.
  *
- * The listeners live in an actor, so the race where a subscription arrives after its
- * state was left is handled here (`connection.machine.ts` does the same for the
- * handshake). Everything the chart needs from the world comes through `deps`, so a test
- * drives this graph with a stub feed and needs no Tauri runtime.
+ * Everything the chart needs from the world comes through `deps`, so a test drives this
+ * graph with a stub feed and needs no Tauri runtime.
  */
 
 import { assign, fromCallback, raise, setup, type SnapshotFrom } from "xstate";
 import * as bridge from "@/lib/bridge";
-import type { Event as SessionRecord } from "@/lib/rpc-protocol";
-import type { RecordTable } from "@/lib/session-records";
+import type { EntriesData, Event as SessionRecord } from "@/lib/rpc-protocol";
+import { noticeOf, reading, type Notice, type ReadTarget } from "@/lib/session-records";
 import type { RunPhase } from "@/lib/stream";
+import {
+    acceptEntry,
+    acceptSnapshot,
+    emptyStream,
+    liveDelta,
+    liveEnd,
+    liveRetrying,
+    liveStart,
+    liveToolEnd,
+    liveToolStart,
+    liveToolUpdate,
+    noQueue,
+    type StreamState,
+} from "@/lib/transcript-merge";
 
 export interface SessionDeps {
-    /** Applies one record: the store, the reads it makes stale, the words (`lib/session-records.ts`). */
-    apply: RecordTable["apply"];
     /** Opens the two subscriptions of the session - both, or none. */
-    listen: (onRecord: (record: SessionRecord) => void, onStale: () => void) => Promise<bridge.Unsubscribe>;
-    /** Continues this session as the conversation in `path`. */
-    switchSession: (path: string) => Promise<{ cancelled: boolean }>;
-    /** Asks the reads of this session again. */
-    reRead: () => void;
-    /** The listeners are open: the queue goes, because records alone write it. */
-    opened: () => void;
-    /** Empties what the conversation being left owned, and asks both of its reads again. */
-    afterSwitch: () => void;
+    listen: (
+        onRecord: (record: SessionRecord) => void,
+        onLifecycle: (life: bridge.SessionLifecycle) => void,
+    ) => Promise<bridge.Unsubscribe>;
+    /** Asks one read of this session again. */
+    reRead: (target: ReadTarget) => void;
+    /** Says what a retry is doing. */
+    notice: (notice: Notice) => void;
 }
 
-export interface SessionContext {
+export interface SessionContext extends StreamState {
     deps: SessionDeps;
     /** Why the listeners could not be opened, while the screen says so. */
     error: bridge.PieError | null;
-    /** A record of a run has been heard since the listeners last opened. */
-    heardRun: boolean;
+    /** A read may set the phase: no phase record has been heard since the authority opened. */
+    readAuthoritative: boolean;
+    /** The `dataUpdatedAt` of the last applied state read: a late older answer may not move the phase. */
+    lastReadAt: number;
+    /**
+     * When this side heard that the response of a run is in the session file, or `null` while
+     * no response waits for a read.
+     */
+    settledAt: number | null;
+    /** The `dataUpdatedAt` of the last accepted base: an older answer may not replace it. */
+    lastSnapshotAt: number;
+    /** The attempt the last scheduled summarization retry named, for the words of the one that runs. */
+    summaryAt: { attempt: number; maxAttempts: number } | null;
 }
 
 export type SessionEvent =
     /** Both listeners are open; only a read covers the time before them. */
-    | { type: "FEED_OPEN" }
+    | { type: "FEED_OPEN"; at: number }
     /** The listeners could not be opened. */
     | { type: "FEED_FAILED"; error: bridge.PieError }
     /** The pi of this session is gone: its reads have to be asked again. */
     | { type: "FEED_STALE" }
-    /** One record of the session, as the wire carries it. */
-    | { type: "RECORD"; record: SessionRecord }
-    /** The state of the session was read; `streaming` is its `isStreaming`. */
-    | { type: "STATE_READ"; streaming: boolean }
+    /** The pipe fell behind: records were dropped, and the reads are the repair. */
+    | { type: "GAP"; at: number }
+    /**
+     * One record of the session, as the wire carries it. `at` is the moment this side heard
+     * it, on the same clock as a read's `dataUpdatedAt`: it orders a settle against the reads,
+     * and it travels in the event because an action that read the clock itself would write a
+     * different context for the same event, which a graph walk of this chart cannot dedupe.
+     */
+    | { type: "RECORD"; record: SessionRecord; at: number }
+    /** The state of the session was read; `streaming` is its `isStreaming`, `at` its `dataUpdatedAt`. */
+    | { type: "STATE_READ"; streaming: boolean; at: number }
+    /** The entries of the session were read, with the leaf they point at. */
+    | { type: "SNAPSHOT"; data: EntriesData; at: number }
+    /** The usage of the session was read; `at` is its `dataUpdatedAt`. */
+    | { type: "STATS_READ"; at: number }
     /** Ask for the listeners again, for a screen whose failure was the subscription. */
     | { type: "REOPEN" }
-    /** A switch of this session is on its way: its rows may belong to the conversation being left. */
-    | { type: "SWITCH" }
-    /** The switch is done: the conversation in view is another one. */
-    | { type: "SWITCH_DONE" }
-    /** Pi refused the switch, or it failed: the conversation in view is the same one. */
-    | { type: "SWITCH_ABANDONED" }
-    | { type: "SWITCH_FAILED" }
-    /** Raised inside the chart by `live`: the feed is attached, so a switch may begin. */
-    | { type: "BEGIN_SWITCH" }
     /** Raised inside the chart by `live`: the feed is attached, so a read may move the phase. */
-    | { type: "READ"; streaming: boolean }
-    /** Raised inside the chart by a done switch: the run before it is over. */
-    | { type: "NEW_CONVERSATION" };
+    | { type: "READ"; streaming: boolean; at: number }
+    /** The reader's own shell command: the card that runs above the composer. */
+    | { type: "BASH_START"; run: { command: string; excludeFromContext: boolean } }
+    /** The command never ran: the card goes without an entry to take it down. */
+    | { type: "BASH_DROPPED" };
 
-/** A run began: `agent_start`, or the message a reader sent while pi was idle. */
-function beginsRun(record: SessionRecord): boolean {
-    return record.type === "agent_start" || (record.type === "message_start" && record.message.role === "user");
-}
+/** The record of a `RECORD` event, for the actions that read it. */
+type RecordEvent = Extract<SessionEvent, { type: "RECORD" }>;
 
-/** The model has begun to write the answer of the run. */
-function writesAnswer(record: SessionRecord): boolean {
-    return record.type === "message_start" && record.message.role === "assistant";
-}
+/** The answer of a base read, for the actions and guards that read it. */
+type SnapshotEvent = Extract<SessionEvent, { type: "SNAPSHOT" }>;
 
-/** The run is over. `agent_end` keeps it alive while pi takes the turn up again. */
-function endsRun(record: SessionRecord): boolean {
-    return record.type === "agent_settled" || (record.type === "agent_end" && !record.willRetry);
-}
+/** A read of the usage, and a shell command of the reader. */
+type StatsEvent = Extract<SessionEvent, { type: "STATS_READ" }>;
+type BashEvent = Extract<SessionEvent, { type: "BASH_START" }>;
 
-/**
- * Applies what a record carries, and says whether it may draw: the rows of a
- * conversation are written only while that conversation is the one in view.
- */
-function draw(context: SessionContext, record: SessionRecord, self: Reader): void {
-    // Read as the plain object the state is: naming the snapshot type here would make
-    // this signature depend on the machine that uses it, and the machine's on this one.
-    const here = self.getSnapshot().value as { feed?: string; switching?: string };
-    context.deps.apply(record, here.feed === "live" && here.switching === "off");
-}
+/** The two events that reset the clock of the reads, for the actions that read it. */
+type FeedOpenEvent = Extract<SessionEvent, { type: "FEED_OPEN" }>;
+type GapEvent = Extract<SessionEvent, { type: "GAP" }>;
 
-/** A reader of the chart's own state, for the action above. */
-interface Reader {
-    getSnapshot: () => { value: unknown };
+/** Whether a state answer may set the phase: the authority is open and the answer is newer. */
+function readApplies(context: SessionContext, at: number): boolean {
+    return context.readAuthoritative && at > context.lastReadAt;
 }
 
 /** The feed of the session the actor is subscribed to. */
@@ -129,7 +145,8 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
         }
         const batch = held;
         held = [];
-        for (const record of batch) sendBack({ type: "RECORD", record });
+        const at = Date.now();
+        for (const record of batch) sendBack({ type: "RECORD", record, at });
     };
 
     // Deltas arrive tens of times a second and each one folds the rows again, so they
@@ -138,7 +155,7 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
     const hear = (record: SessionRecord) => {
         if (record.type !== "message_update") {
             flush();
-            sendBack({ type: "RECORD", record });
+            sendBack({ type: "RECORD", record, at: Date.now() });
             return;
         }
         held.push(record);
@@ -150,7 +167,15 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
 
     void (async () => {
         try {
-            const events = await deps.listen(hear, () => sendBack({ type: "FEED_STALE" }));
+            const events = await deps.listen(hear, (life) => {
+                // The deltas held for their frame go first: a gap may not overtake a record
+                // that arrived before it, and the order of what this side hears is the order
+                // pi wrote it in.
+                flush();
+                // The end of the session fails the reads; a gap in its records makes them the
+                // authority again. Either way the feed itself is unchanged: the pipe is alive.
+                sendBack(life.type === "lagged" ? { type: "GAP", at: Date.now() } : { type: "FEED_STALE" });
+            });
             // The chart left this state before the listeners arrived: drop them rather
             // than feeding a graph that moved on.
             if (!alive) {
@@ -158,7 +183,7 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
                 return;
             }
             off = [events];
-            sendBack({ type: "FEED_OPEN" });
+            sendBack({ type: "FEED_OPEN", at: Date.now() });
         } catch (thrown) {
             for (const unsubscribe of off) unsubscribe();
             off = [];
@@ -185,10 +210,143 @@ export const sessionMachine = setup({
         input: {} as SessionDeps,
     },
     actors: { listen },
+    actions: {
+        /**
+         * The listeners are open: the queue goes (records alone write it), and the reads are
+         * asked again. The clock travels in the event, so that the same event always writes
+         * the same context: an action that called `Date.now()` itself would stamp a fresh
+         * value, and a graph walk of this chart would never meet a node it had seen.
+         */
+        opened: assign(({ event }) => ({
+            error: null,
+            readAuthoritative: true,
+            lastReadAt: (event as FeedOpenEvent).at,
+            queued: noQueue,
+        })),
+        /** Asks every read of this session again, after a gap in the records. */
+        reReadWhole: ({ context }) => context.deps.reRead("whole"),
+        /**
+         * A gap in the records: a read may set the phase again, and the queue goes - it is
+         * written by records alone, and the ones this gap swallowed are gone.
+         */
+        gap: assign(({ event }) => ({
+            readAuthoritative: true,
+            lastReadAt: (event as GapEvent).at,
+            queued: noQueue,
+        })),
+        /**
+         * The pi of this session is gone: nothing a run left behind may be shown - no settle
+         * record is coming for it - and the reads have to say so.
+         */
+        stale: assign({ usage: null, settledAt: null }),
+        /**
+         * What a record leaves in the context: the response it settled, and the summary retry
+         * it scheduled. The settle is held as the record's own moment, and a read that cannot
+         * cover the response leaves it where it is (A1), so the read that does cover it takes
+         * the increment and this time away together.
+         */
+        mark: assign(({ event }) => {
+            const { record, at } = event as RecordEvent;
+            const spec = reading(record);
+            const settled = spec.settles === true ? { settledAt: at } : {};
+            const notice = spec.notice;
+            if (notice === undefined) return settled;
+            if (notice.kind === "summary-scheduled") {
+                return { ...settled, summaryAt: { attempt: notice.attempt, maxAttempts: notice.maxAttempts } };
+            }
+            if (notice.kind === "summary-finished") return { ...settled, summaryAt: null };
+            return settled;
+        }),
+        /** What a record says out loud, and the reads it makes stale - either way, drawn or not. */
+        route: ({ context, event }) => {
+            const spec = reading((event as RecordEvent).record);
+            if (spec.notice !== undefined) {
+                const words = noticeOf(spec.notice, context.summaryAt);
+                if (words !== null) context.deps.notice(words);
+            }
+            for (const target of spec.invalidates) context.deps.reRead(target);
+        },
+        /**
+         * Writes what a record carries, while the feed is live. The answer of a read that
+         * lands mid-run takes the rows over (`acceptSnapshot`).
+         */
+        draw: assign(({ context, event, self }) => {
+            // The value is read as the plain object a snapshot is: `@xstate/graph` walks the
+            // machine with a scope whose snapshot carries none.
+            const here = self.getSnapshot?.().value as { feed?: string } | undefined;
+            if (here?.feed !== "live") return {};
+            const spec = reading((event as RecordEvent).record);
+            if (spec.draws === null) return {};
+            switch (spec.draws.kind) {
+                case "liveStart":
+                    return liveStart(context, spec.draws.message);
+                case "liveDelta":
+                    // The increment carries the clock of the record that wrote it, so that a
+                    // settle and a stats answer are ordered against it on one timeline.
+                    return liveDelta(context, spec.draws.event, spec.draws.usage, (event as RecordEvent).at);
+                case "liveEnd":
+                    return liveEnd(context, spec.draws.message);
+                case "toolStart":
+                    return liveToolStart(context, spec.draws);
+                case "toolUpdate":
+                    return liveToolUpdate(context, spec.draws);
+                case "toolEnd":
+                    return liveToolEnd(context, spec.draws);
+                case "retrying":
+                    return liveRetrying(context);
+                case "entry":
+                    return acceptEntry(context, spec.draws.entry);
+                case "queue":
+                    return { queued: { steering: [...spec.draws.steering], followUp: [...spec.draws.followUp] } };
+                case "bash":
+                    return context.bash === null
+                        ? {}
+                        : { bash: { ...context.bash, output: context.bash.output + spec.draws.delta } };
+            }
+        }),
+        /** A phase record was heard: the phase is the records' from here, not a read's. */
+        runHeard: assign({ readAuthoritative: false }),
+        /** The base read answered: the stream is reconciled with it. */
+        snapshot: assign(({ context, event }) => {
+            const { data, at } = event as SnapshotEvent;
+            return { ...acceptSnapshot(context, data), lastSnapshotAt: at };
+        }),
+        /**
+         * A stats answer that covers the settled response is the truth now, so the increment
+         * and the settle time go with it (C4). An answer written before the settle may not
+         * drop the increment - the response may not be in the file yet - and it leaves the
+         * settle time where it is, for the read that does cover it (A1). An answer older than
+         * the increment itself covers nothing either.
+         */
+        statsRead: assign(({ context, event }) => {
+            const { at } = event as StatsEvent;
+            if (context.settledAt === null) return {};
+            if (context.usage !== null && at < context.usage.at) return {};
+            return at >= context.settledAt ? { usage: null, settledAt: null } : {};
+        }),
+        /** The reader's own shell command: the card that runs above the composer. */
+        bashStart: assign({ bash: ({ event }) => ({ ...(event as BashEvent).run, output: "" }) }),
+        /** The command never ran: the card goes without an entry to take it down. */
+        bashDropped: assign({ bash: null }),
+    },
 }).createMachine({
     id: "session",
     type: "parallel",
-    context: ({ input }) => ({ deps: input, error: null, heardRun: false }),
+    context: ({ input }) => ({
+        ...emptyStream(),
+        deps: input,
+        error: null,
+        readAuthoritative: false,
+        lastReadAt: 0,
+        lastSnapshotAt: 0,
+        settledAt: null,
+        summaryAt: null,
+    }),
+    on: {
+        BASH_START: { actions: "bashStart" },
+        BASH_DROPPED: { actions: "bashDropped" },
+        STATS_READ: { actions: "statsRead" },
+    },
     states: {
         feed: {
             initial: "opening",
@@ -198,15 +356,18 @@ export const sessionMachine = setup({
             // A reopen enters `opening` again, which restarts the actor. What the run drew
             // and the phase it holds are not reset: those rows are the run's still, the
             // deltas that keep arriving land in them, and the read that follows settles the
-            // phase (its latch is open again below).
+            // phase (the authority opens again below).
             on: {
                 REOPEN: {
                     target: ".opening",
                     reenter: true,
-                    actions: assign({ error: null, heardRun: false }),
+                    // The authority opens with the FEED_OPEN that follows: only then is a
+                    // fresh read the cover for the records of the closed listener.
+                    actions: assign({ error: null }),
                 },
-                // The pi of this session went away: every read of it is stale.
-                FEED_STALE: { actions: ({ context }) => context.deps.reRead() },
+                // The pi of this session went away: every read of it is stale, and what the
+                // run left on screen goes with it.
+                FEED_STALE: { actions: ["stale", "reReadWhole"] },
             },
             states: {
                 opening: {
@@ -215,14 +376,7 @@ export const sessionMachine = setup({
                             target: "live",
                             // Only now may this session be read, and only a read covers the
                             // records a closed listener missed: the reads are asked again.
-                            actions: [
-                                assign({ heardRun: false }),
-                                assign({ error: null }),
-                                ({ context }) => {
-                                    context.deps.opened();
-                                    context.deps.reRead();
-                                },
-                            ],
+                            actions: ["opened", "reReadWhole"],
                         },
                         FEED_FAILED: {
                             target: "failed",
@@ -232,10 +386,23 @@ export const sessionMachine = setup({
                 },
                 live: {
                     on: {
-                        // Raised to the regions that hold the switch and the phase: both are
-                        // reachable only from an attached feed.
-                        SWITCH: { actions: raise({ type: "BEGIN_SWITCH" }) },
-                        STATE_READ: { actions: raise(({ event }) => ({ type: "READ", streaming: event.streaming })) },
+                        // Raised to the region that holds the phase: a read is reachable
+                        // only from an attached feed.
+                        STATE_READ: {
+                            actions: raise(({ event }) => ({
+                                type: "READ",
+                                streaming: event.streaming,
+                                at: event.at,
+                            })),
+                        },
+                        // The pipe of this session fell behind and records were dropped, so
+                        // what a read says outranks what was heard: the authority opens, every
+                        // read is asked again, and the queue goes. The transcript and the run
+                        // stay on screen - the reader is looking at them, and the base read
+                        // supersedes them as its answer lands. A gap reported while the
+                        // listeners are still opening is not lost: the open that follows resets
+                        // the same three things.
+                        GAP: { actions: ["gap", "reReadWhole"] },
                     },
                 },
                 failed: {
@@ -246,30 +413,29 @@ export const sessionMachine = setup({
                 },
             },
         },
-        switching: {
-            initial: "off",
+        transcript: {
+            initial: "empty",
             states: {
-                off: {
-                    // Raised by `live`: reachable only on an attached feed.
-                    on: { BEGIN_SWITCH: { target: "inFlight" } },
-                },
-                inFlight: {
+                // No base read has answered for this conversation yet.
+                empty: {
                     on: {
-                        // Another conversation is in view, and pi aborted the run of the one
-                        // being left (`teardownCurrent` of `agent-session-runtime.ts`): the
-                        // phase starts over and the reads are asked again.
-                        SWITCH_DONE: {
-                            target: "off",
-                            actions: [
-                                assign({ heardRun: false }),
-                                ({ context }) => context.deps.afterSwitch(),
-                                raise({ type: "NEW_CONVERSATION" }),
-                            ],
+                        SNAPSHOT: {
+                            target: "ready",
+                            // `>=`: two answers in one millisecond tie, and the one that arrived
+                            // last is the one that was read last.
+                            guard: ({ context, event }) => (event as SnapshotEvent).at >= context.lastSnapshotAt,
+                            actions: "snapshot",
                         },
-                        // Pi refused the switch, or it failed: the same conversation is in view
-                        // and its run never stopped, so nothing else changes.
-                        SWITCH_ABANDONED: { target: "off" },
-                        SWITCH_FAILED: { target: "off" },
+                    },
+                },
+                // The base is in view; a later answer refreshes it.
+                ready: {
+                    on: {
+                        SNAPSHOT: {
+                            target: "ready",
+                            guard: ({ context, event }) => (event as SnapshotEvent).at >= context.lastSnapshotAt,
+                            actions: "snapshot",
+                        },
                     },
                 },
             },
@@ -282,51 +448,40 @@ export const sessionMachine = setup({
                 working: {},
             },
             on: {
-                // The conversation the run belonged to is gone.
-                NEW_CONVERSATION: { target: ".idle" },
                 READ: [
                     {
-                        guard: ({ context, event }) => !context.heardRun && event.streaming,
+                        guard: ({ context, event }) => readApplies(context, event.at) && event.streaming,
                         target: ".working",
-                        actions: assign({ heardRun: true }),
+                        actions: assign({ lastReadAt: ({ event }) => event.at }),
                     },
                     {
-                        guard: ({ context, event }) => !context.heardRun && !event.streaming,
+                        guard: ({ context, event }) => readApplies(context, event.at) && !event.streaming,
                         target: ".idle",
-                        actions: assign({ heardRun: true }),
+                        actions: assign({ lastReadAt: ({ event }) => event.at }),
                     },
-                    { actions: assign({ heardRun: true }) },
+                    // A read older than a heard phase record changes nothing. It does not
+                    // latch either: a later read may still settle the phase.
+                    { actions: [] },
                 ],
                 RECORD: [
                     {
-                        guard: ({ event }) => beginsRun(event.record),
+                        guard: ({ event }) => reading(event.record).run === "begin",
                         target: ".waiting",
-                        actions: [
-                            ({ context, event, self }) => draw(context, event.record, self),
-                            assign({ heardRun: true }),
-                        ],
+                        actions: ["mark", "route", "draw", "runHeard"],
                     },
                     {
-                        guard: ({ event }) => writesAnswer(event.record),
+                        guard: ({ event }) => reading(event.record).run === "write",
                         target: ".working",
-                        actions: [
-                            ({ context, event, self }) => draw(context, event.record, self),
-                            assign({ heardRun: true }),
-                        ],
+                        actions: ["mark", "route", "draw", "runHeard"],
                     },
                     {
-                        guard: ({ event }) => endsRun(event.record),
+                        guard: ({ event }) => reading(event.record).run === "end",
                         target: ".idle",
-                        actions: [
-                            ({ context, event, self }) => draw(context, event.record, self),
-                            assign({ heardRun: true }),
-                        ],
+                        actions: ["mark", "route", "draw", "runHeard"],
                     },
                     {
-                        actions: [
-                            ({ context, event, self }) => draw(context, event.record, self),
-                            assign({ heardRun: true }),
-                        ],
+                        // A delta, a queue update, an entry: nothing about the phase.
+                        actions: ["mark", "route", "draw"],
                     },
                 ],
             },
@@ -342,12 +497,17 @@ export function phaseOf(snapshot: SessionSnapshot): RunPhase {
     return snapshot.matches({ run: "working" }) ? "working" : snapshot.matches({ run: "waiting" }) ? "waiting" : "idle";
 }
 
-/** Whether the feed holds a subscription: the reads may run, and a switch may begin. */
+/** Whether the feed holds a subscription: the reads may run. */
 export function isListening(snapshot: SessionSnapshot): boolean {
     return snapshot.matches({ feed: "live" });
 }
 
-/** Whether a conversation is being left. */
-export function isSwitching(snapshot: SessionSnapshot): boolean {
-    return snapshot.matches({ switching: "inFlight" });
+/** Whether a base read of the conversation has answered. */
+export function isReady(snapshot: SessionSnapshot): boolean {
+    return snapshot.matches({ transcript: "ready" });
+}
+
+/** Why the listeners could not be opened, or `null`. */
+export function errorOf(snapshot: SessionSnapshot): bridge.PieError | null {
+    return snapshot.context.error;
 }

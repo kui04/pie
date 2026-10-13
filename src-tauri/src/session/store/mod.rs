@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn a_session_file_is_named_absolutely() {
-        // The rule that `switch_session` answers with before it touches the client.
+        // The rule that an attach on a conversation answers with before it touches the host.
         assert_eq!(
             checked_session_path(&HostPath::new("/home/u/.pi/agent/sessions/x/one.jsonl")).expect("absolute"),
             "/home/u/.pi/agent/sessions/x/one.jsonl"

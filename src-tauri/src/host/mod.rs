@@ -153,6 +153,10 @@ impl Host {
 
     /// Starts `pi --mode rpc` on this machine.
     ///
+    /// `cwd` is the directory pi starts in, and `conversation` is a conversation
+    /// file of pi to load at the start (`--session`). `None` starts a new
+    /// conversation.
+    ///
     /// The bytes of the started program are the channel's; everything the reach
     /// fails on is this module's. That is why this entry point hands up the
     /// aggregation rather than one layer's failures.
@@ -161,11 +165,11 @@ impl Host {
     ///
     /// [`PieError::Channel`] when the program cannot be started, and
     /// [`PieError::Host`] when the reach cannot open the channel it runs in.
-    pub async fn open_pi(&self, cwd: Option<&HostPath>) -> Result<Channel, PieError> {
+    pub async fn open_pi(&self, cwd: Option<&HostPath>, conversation: Option<&HostPath>) -> Result<Channel, PieError> {
         match self {
-            Self::Local(local) => Ok(local.open_pi(cwd)?),
+            Self::Local(local) => Ok(local.open_pi(cwd, conversation)?),
             Self::Ssh(ssh) => {
-                let command = RemoteCommand::new("pi --mode rpc");
+                let command = RemoteCommand::new(remote_pi_line(conversation));
                 let command = match cwd {
                     Some(dir) => command.cwd(dir.as_str()),
                     None => command,
@@ -246,6 +250,17 @@ impl Host {
     }
 }
 
+/// The line that starts pi on a remote machine, conversation included.
+///
+/// The conversation path is quoted: it is a host path that pi wrote or that a
+/// person picked, and it must not become shell syntax.
+fn remote_pi_line(conversation: Option<&HostPath>) -> String {
+    match conversation {
+        Some(path) => format!("pi --mode rpc --session {}", quote(path.as_str())),
+        None => "pi --mode rpc".to_string(),
+    }
+}
+
 /// What the frontend hears about a connection during the handshake.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -258,4 +273,20 @@ pub enum ConnectionState {
         /// The key in the values that a person compares.
         key: PresentedKey,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remote_pi_loads_a_conversation_through_a_quoted_path() {
+        assert_eq!(remote_pi_line(None), "pi --mode rpc");
+
+        let path = HostPath::new("/home/o'brien/sessions/one.jsonl");
+        assert_eq!(
+            remote_pi_line(Some(&path)),
+            r"pi --mode rpc --session '/home/o'\''brien/sessions/one.jsonl'"
+        );
+    }
 }

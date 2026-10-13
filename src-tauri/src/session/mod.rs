@@ -44,7 +44,7 @@ use crate::error::PieError;
 use crate::host::{Host, HostPath, Options, Spec};
 
 use process::speaking;
-use store::SessionStore;
+use store::{SessionStore, checked_session_path};
 
 /// The sessions of one machine, and the reach to it.
 #[derive(Clone)]
@@ -129,13 +129,25 @@ impl SessionManager {
     /// machine's own default, so no path of this machine is turned into text on
     /// the way to it.
     ///
+    /// `conversation` names the file of pi to load at the start (`--session`), a
+    /// host path that pi reads itself. `None` starts a new conversation; pi
+    /// creates the file at the first message.
+    ///
     /// # Errors
     ///
-    /// [`PieError::Channel`] when pi cannot be started, and
-    /// [`PieError::Host`] when the channel it runs in cannot be opened.
-    pub async fn attach(&self, number: u64) -> Result<Session, PieError> {
+    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a conversation
+    /// path that is not absolute: pi would resolve a relative one against its own directory
+    /// and quietly open another conversation there. [`PieError::Channel`] when pi cannot be
+    /// started, and [`PieError::Host`] when the channel it runs in cannot be
+    /// opened.
+    pub async fn attach(&self, number: u64, conversation: Option<&HostPath>) -> Result<Session, PieError> {
+        // The path is of the caller, so it is checked before pi sees it.
+        let conversation = match conversation {
+            Some(path) => Some(HostPath::new(checked_session_path(path)?)),
+            None => None,
+        };
         let cwd = self.inner.host.home().map(HostPath::of_local);
-        let channel = self.inner.host.open_pi(None).await?;
+        let channel = self.inner.host.open_pi(None, conversation.as_ref()).await?;
         let (client, handle) = speaking(channel);
         let session = Session::new(self.inner.id.for_session(number), cwd, client, handle);
 

@@ -1,15 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { renderHook, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/rpc-protocol";
 import { liveRows } from "@/lib/stream";
-import { statsRefetchInterval, useSession } from "@/hooks/use-session";
-import { queryDefaults } from "@/lib/query";
+import { statsPoll, statsRefetchInterval, useSession } from "@/hooks/use-session";
+import { queryDefaults, sessionKeys } from "@/lib/query";
+import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/sessions";
+import { mergedTranscript } from "@/lib/transcript-merge";
 import { assistant, usage } from "@/preview/fixtures";
-import { useTranscriptStore } from "@/stores/transcript.store";
 
 /**
  * The order of the two reads and the writing of the store, with a bridge that
@@ -26,7 +27,6 @@ const fake = vi.hoisted(() => ({
     onSessionEvent: vi.fn<(session: string, onEvent: (event: Event) => void) => Promise<Bridge.Unsubscribe>>(),
     onSessionState:
         vi.fn<(session: string, onState: (state: Bridge.SessionLifecycle) => void) => Promise<Bridge.Unsubscribe>>(),
-    switchSession: vi.fn<(session: string, path: string) => Promise<{ cancelled: boolean }>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -60,23 +60,98 @@ function snapshot(entries: SessionEntry[], leafId: string | null): EntriesData {
 /** The publishing end of the two subscriptions, once they are open. */
 let publish: ((event: Event) => void) | undefined;
 let ended: (() => void) | undefined;
+let lagged: (() => void) | undefined;
 let listened: string[] = [];
 let unlistened: string[] = [];
 
+/** The session every test here speaks to. */
+const SESSION = "main:1";
+
+/** The query client the render at hand was built with. */
+let client: QueryClient;
+
+/**
+ * The transcript as the screen folds it: the base read of the query client and the overlay
+ * the chart holds - and nothing before a base read answered, which is the gate the screen
+ * draws its loading page behind. A test reads the same two sources the screen does.
+ */
+function view(session = SESSION) {
+    const machine = sessionOf(session);
+    if (machine === null) throw new Error("the chart of the session is not running");
+    const snapshot = machine.getSnapshot();
+    const context = snapshot.context;
+    const merged = snapshot.matches({ transcript: "ready" })
+        ? mergedTranscript(client.getQueryData<EntriesData>(sessionKeys.entries(session)) ?? null, context.overlay)
+        : { entries: new Map(), order: [] as string[], leaf: null };
+    return {
+        entries: merged.entries,
+        order: merged.order,
+        leafId: merged.leaf,
+        queued: context.queued,
+        live: context.live,
+        liveUsage: context.usage,
+        runningBash: context.bash,
+    };
+}
+
+/**
+ * The screen in test: it holds one hand on the chart of the session, as `SessionMain` does,
+ * and hands the hook's answer to the test. The hands are released after every test, so one
+ * test cannot read the chart of the one before it.
+ */
+function mount(session = SESSION, options: { strict?: boolean } = {}) {
+    ensureSession(session, client);
+    kept.push(session);
+    const latest: { current: ReturnType<typeof useSession> } = { current: null as never };
+
+    function Body({ id, machine }: { id: string; machine: SessionRef }) {
+        latest.current = useSession(id, machine);
+        return null;
+    }
+
+    const machine = sessionOf(session);
+    if (machine === null) throw new Error("the chart of the session did not start");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+            {options.strict ? <StrictMode>{children}</StrictMode> : children}
+        </QueryClientProvider>
+    );
+    const rendered = render(<Body id={session} machine={machine} />, { wrapper });
+    return {
+        result: latest,
+        unmount: () => {
+            rendered.unmount();
+            release(session);
+        },
+    };
+}
+
+/** The sessions whose chart a test holds; every one is released after it. */
+const kept: string[] = [];
+
+/** Drops one hand on a chart, and forgets the bookkeeping of it. */
+function release(session: string) {
+    const at = kept.lastIndexOf(session);
+    if (at >= 0) kept.splice(at, 1);
+    forgetSession(session);
+}
+
+afterEach(() => {
+    while (kept.length > 0) release(kept[kept.length - 1]);
+});
+
 describe("the session of the workspace", () => {
-    let client: QueryClient;
     let subscribed: ReturnType<typeof deferred>;
 
     beforeEach(() => {
-        useTranscriptStore.getState().clear();
         publish = undefined;
         ended = undefined;
+        lagged = undefined;
         listened = [];
         unlistened = [];
         subscribed = deferred();
 
         fake.getState.mockReset().mockResolvedValue({} as SessionState);
-        fake.switchSession.mockReset().mockResolvedValue({ cancelled: false });
         fake.getSessionStats.mockReset().mockResolvedValue({} as SessionStats);
         fake.getEntries.mockReset().mockResolvedValue(snapshot([userMessage("a", null)], "a"));
         fake.onSessionEvent.mockReset().mockImplementation(async (session, onEvent) => {
@@ -89,6 +164,7 @@ describe("the session of the workspace", () => {
             await subscribed.promise;
             listened.push(`state:${session}`);
             ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
+            lagged = () => onState({ type: "lagged" });
             return () => unlistened.push(`state:${session}`);
         });
 
@@ -100,10 +176,7 @@ describe("the session of the workspace", () => {
     });
 
     function render(session: string) {
-        const wrapper = ({ children }: { children: ReactNode }) => (
-            <QueryClientProvider client={client}>{children}</QueryClientProvider>
-        );
-        return renderHook(({ id }) => useSession(id), { initialProps: { id: session }, wrapper });
+        return mount(session);
     }
 
     it("reads nothing until both listeners are open", async () => {
@@ -127,19 +200,19 @@ describe("the session of the workspace", () => {
         render("main:1");
         subscribed.resolve();
 
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a", "b"]));
-        expect(useTranscriptStore.getState().leafId).toBe("b");
+        await waitFor(() => expect(view().order).toEqual(["a", "b"]));
+        expect(view().leafId).toBe("b");
     });
 
     it("takes an appended entry and follows the new leaf", async () => {
         render("main:1");
         subscribed.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+        await waitFor(() => expect(view().order).toEqual(["a"]));
 
         publish?.({ type: "entry_appended", entry: userMessage("b", "a") });
 
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a", "b"]));
-        expect(useTranscriptStore.getState().leafId).toBe("b");
+        await waitFor(() => expect(view().order).toEqual(["a", "b"]));
+        expect(view().leafId).toBe("b");
     });
 
     it("starts from nothing when the mount is another session", async () => {
@@ -148,13 +221,13 @@ describe("the session of the workspace", () => {
         // (`ChatScreen` keys it), and the store is cleared before it draws.
         const first = render("main:1");
         subscribed.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+        await waitFor(() => expect(view().order).toEqual(["a"]));
         first.unmount();
 
         subscribed = deferred();
         render("main:2");
 
-        expect(useTranscriptStore.getState().order).toEqual([]);
+        expect(view("main:2").order).toEqual([]);
         subscribed.resolve();
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:2"));
     });
@@ -176,6 +249,22 @@ describe("the session of the workspace", () => {
         expect(fake.getState.mock.calls.length).toBeGreaterThan(states);
     });
 
+    it("reads again when the pipe reports a gap, and keeps what is on screen", async () => {
+        // Records went missing before they reached this side, so what the screen shows is
+        // what happened to arrive. The reads are the repair, and the words the reader is
+        // looking at stay until the answers replace them.
+        render("main:1");
+        subscribed.resolve();
+        await waitFor(() => expect(view().order).toEqual(["a"]));
+        const entries = fake.getEntries.mock.calls.length;
+
+        lagged?.();
+
+        await waitFor(() => expect(fake.getEntries.mock.calls.length).toBeGreaterThan(entries));
+        expect(view().order).toEqual(["a"]);
+        expect(listened).toEqual(["event:main:1", "state:main:1"]);
+    });
+
     it("forgets the failure of a session that opens on a later visit", async () => {
         // A session that could not be read once may be readable later. The
         // failure belongs to that attempt, not to the name of the session - and
@@ -188,6 +277,7 @@ describe("the session of the workspace", () => {
         subscribed.resolve();
         await waitFor(() => expect(first.result.current.error?.message).toBe("the bus refused the listener"));
         first.unmount();
+        await Promise.resolve();
 
         subscribed = deferred();
         const again = render("main:1");
@@ -195,18 +285,6 @@ describe("the session of the workspace", () => {
 
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
         expect(again.result.current.error).toBeNull();
-    });
-
-    it("refuses a session that arrives in the mount of another", async () => {
-        // The chart of a session is built once for the mount, so a screen that
-        // changes the name under it would read the new session while it listens
-        // to the one before. That is a screen that lost its `key`, and it is a
-        // mistake worth hearing about.
-        subscribed.resolve();
-        const mounted = render("main:1");
-        await waitFor(() => expect(mounted.result.current.listening).toBe(true));
-
-        expect(() => mounted.rerender({ id: "main:2" })).toThrow(/one session/);
     });
 
     it("drops the queue when the listeners open again, and keeps the run on screen", async () => {
@@ -224,7 +302,7 @@ describe("the session of the workspace", () => {
         publish?.({ type: "queue_update", steering: ["go on"], followUp: [] });
         publish?.({ type: "agent_start" });
         publish?.({ type: "message_start", message: assistant([], { stopReason: "pending" as const }) });
-        await waitFor(() => expect(useTranscriptStore.getState().queued.steering).toEqual(["go on"]));
+        await waitFor(() => expect(view().queued.steering).toEqual(["go on"]));
         publish?.({
             type: "message_start",
             message: { ...assistant([], { stopReason: "pending" as const }), timestamp: 11 },
@@ -235,52 +313,12 @@ describe("the session of the workspace", () => {
         mounted.result.current.reopen();
         subscribed.resolve();
 
-        await waitFor(() => expect(useTranscriptStore.getState().queued.steering).toEqual([]));
-        // The rows of the run and its phase are the run's still: the deltas that keep
-        // arriving land in them, and the read that follows agrees that it streams.
-        expect(useTranscriptStore.getState().live.messages).toHaveLength(2);
-        await waitFor(() => expect(mounted.result.current.phase).toBe("working"));
-    });
-
-    it("refuses a switch while the feed is not live, and says so instead of asking", async () => {
-        // The chart accepts a switch only from a live feed: a screen that never attached
-        // has no conversation to leave. Asking Rust anyway would switch the session behind
-        // the chart's back and leave the store with the old one.
-        fake.onSessionEvent.mockImplementation(async () => {
-            await subscribed.promise;
-            return () => undefined;
-        });
-        const mounted = render("main:1");
-        expect(mounted.result.current.listening).toBe(false);
-
-        await mounted.result.current.switchTo("/tmp/other.jsonl");
-        expect(fake.switchSession).not.toHaveBeenCalled();
-    });
-
-    it("replaces the conversation that was left when the answer arrives", async () => {
-        // The store holds the conversation that is leaving until the read of the new one
-        // answers - clearing at the switch would empty the page that is still fading out -
-        // and that answer is written in their place: they are another conversation, and
-        // the entries of one never sit in the transcript of another.
-        const mounted = render("main:1");
-        subscribed.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
-
-        const later = deferred();
-        fake.getEntries.mockImplementation(async () => {
-            await later.promise;
-            return snapshot([userMessage("b", null)], "b");
-        });
-
-        await mounted.result.current.switchTo("/tmp/other.jsonl");
-
-        expect(fake.switchSession).toHaveBeenCalledWith("main:1", "/tmp/other.jsonl");
-        expect(useTranscriptStore.getState().order).toEqual(["a"]);
-
-        later.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["b"]));
-        expect([...useTranscriptStore.getState().entries.keys()]).toEqual(["b"]);
-        expect(useTranscriptStore.getState().leafId).toBe("b");
+        await waitFor(() => expect(view().queued.steering).toEqual([]));
+        // The rows the run drew are still the rows of that run: the deltas that keep
+        // arriving land in them. The phase itself is not asserted here - an answer that
+        // lands in the same millisecond as the reopen may not settle it, and which of the
+        // two wins is the machine's guard, held by the machine tests.
+        expect(view().live.messages).toHaveLength(2);
     });
 
     it("does not ask a second time when a read fails", async () => {
@@ -294,9 +332,9 @@ describe("the session of the workspace", () => {
         const { result } = render("main:1");
         subscribed.resolve();
 
-        await waitFor(() => expect(result.current.snapshot.isError).toBe(true));
+        await waitFor(() => expect(result.current.entries.isError).toBe(true));
         expect(fake.getEntries).toHaveBeenCalledTimes(1);
-        expect(result.current.snapshot.error?.message).toBe("the pi of this session is gone");
+        expect(result.current.entries.error?.message).toBe("the pi of this session is gone");
     });
 
     it("reads again on a second visit, however warm the cache is", async () => {
@@ -311,8 +349,11 @@ describe("the session of the workspace", () => {
         // nothing - a second read would then happen for the wrong reason.
         const first = render("main:1");
         subscribed.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+        await waitFor(() => expect(view().order).toEqual(["a"]));
         first.unmount();
+        // A chart outlives the screen that held it by the end of the task (a double mount
+        // finds it again); a visit that means to be a second one waits that out.
+        await Promise.resolve();
         // What the visit before read is beside the point from here on: this test
         // is about whether this visit reads at all.
         fake.getEntries.mockClear();
@@ -331,8 +372,9 @@ describe("the session of the workspace", () => {
         // heard, and that starts at its own listeners.
         const first = render("main:1");
         subscribed.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+        await waitFor(() => expect(view().order).toEqual(["a"]));
         first.unmount();
+        await Promise.resolve();
 
         const again = deferred();
         subscribed = again;
@@ -341,10 +383,10 @@ describe("the session of the workspace", () => {
         await vi.waitFor(() => expect(fake.onSessionEvent).toHaveBeenCalledTimes(2));
 
         expect(fake.getEntries).not.toHaveBeenCalled();
-        expect(useTranscriptStore.getState().order).toEqual([]);
+        expect(view().order).toEqual([]);
 
         again.resolve();
-        await waitFor(() => expect(useTranscriptStore.getState().order).toEqual(["a"]));
+        await waitFor(() => expect(view().order).toEqual(["a"]));
     });
 
     it("reads nothing while the listeners of its mount are still opening", async () => {
@@ -357,7 +399,7 @@ describe("the session of the workspace", () => {
 
         subscribed.resolve();
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
-        expect(useTranscriptStore.getState().order).toEqual(["a"]);
+        expect(view().order).toEqual(["a"]);
         expect(mounted.result.current.listening).toBe(true);
     });
 
@@ -389,11 +431,9 @@ describe("the session of the workspace", () => {
 });
 
 describe("the run a session streams", () => {
-    let client: QueryClient;
     let subscribed: ReturnType<typeof deferred>;
 
     beforeEach(() => {
-        useTranscriptStore.getState().clear();
         publish = undefined;
         listened = [];
         unlistened = [];
@@ -416,6 +456,7 @@ describe("the run a session streams", () => {
             await subscribed.promise;
             listened.push(`state:${session}`);
             ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
+            lagged = () => onState({ type: "lagged" });
             return () => unlistened.push(`state:${session}`);
         });
 
@@ -427,10 +468,7 @@ describe("the run a session streams", () => {
     });
 
     function render() {
-        const wrapper = ({ children }: { children: ReactNode }) => (
-            <QueryClientProvider client={client}>{children}</QueryClientProvider>
-        );
-        return renderHook(() => useSession("main:1"), { wrapper });
+        return mount();
     }
 
     /** A run whose listeners are open and whose first read landed. */
@@ -462,7 +500,7 @@ describe("the run a session streams", () => {
         });
 
         await waitFor(() =>
-            expect(liveRows(useTranscriptStore.getState().live)).toMatchObject([
+            expect(liveRows(view().live)).toMatchObject([
                 { kind: "assistant", message: { content: [{ type: "text", text: "an answer" }] } },
             ]),
         );
@@ -485,7 +523,7 @@ describe("the run a session streams", () => {
         publish?.({ type: "message_end", message: final });
 
         await waitFor(() =>
-            expect(liveRows(useTranscriptStore.getState().live)).toMatchObject([
+            expect(liveRows(view().live)).toMatchObject([
                 {
                     kind: "assistant",
                     message: { content: [{ type: "text", text: "the whole answer" }], stopReason: "stop" },
@@ -514,7 +552,7 @@ describe("the run a session streams", () => {
         });
 
         await waitFor(() => {
-            const [row] = liveRows(useTranscriptStore.getState().live);
+            const [row] = liveRows(view().live);
             const call = (row as Extract<typeof row, { kind: "assistant" }>).live?.calls.get("c1");
             expect(call).toMatchObject({ running: true });
             expect(call?.result?.content).toEqual([{ type: "text", text: "one\n" }]);
@@ -529,7 +567,7 @@ describe("the run a session streams", () => {
         });
 
         await waitFor(() => {
-            const [row] = liveRows(useTranscriptStore.getState().live);
+            const [row] = liveRows(view().live);
             expect((row as Extract<typeof row, { kind: "assistant" }>).live?.calls.get("c1")?.running).toBe(false);
         });
     });
@@ -547,7 +585,7 @@ describe("the run a session streams", () => {
         publish?.({ type: "message_start", message: { role: "user", content: "and now?", timestamp: 11 } });
 
         await waitFor(() =>
-            expect(liveRows(useTranscriptStore.getState().live)).toMatchObject([
+            expect(liveRows(view().live)).toMatchObject([
                 { kind: "assistant", message: { content: [{ type: "text", text: "one" }] } },
                 { kind: "user" },
             ]),
@@ -566,9 +604,7 @@ describe("the run a session streams", () => {
 
         publish?.({ type: "agent_end", messages: [failed], willRetry: true });
 
-        await waitFor(() =>
-            expect(liveRows(useTranscriptStore.getState().live)[0]).toMatchObject({ live: { retrying: true } }),
-        );
+        await waitFor(() => expect(liveRows(view().live)[0]).toMatchObject({ live: { retrying: true } }));
     });
 
     it("follows the usage of the response that streams", async () => {
@@ -584,14 +620,16 @@ describe("the run a session streams", () => {
             assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "an answer" },
         });
 
-        await waitFor(() => expect(useTranscriptStore.getState().liveUsage?.usage.totalTokens).toBe(4200));
+        await waitFor(() => expect(view().liveUsage?.usage.totalTokens).toBe(4200));
 
-        // The read of the usage that follows a finished response carries it as a message,
-        // so the increment goes: it would be the same tokens twice.
+        // The read of the usage that follows a settled response carries it as a message, so
+        // the increment goes: it would be the same tokens twice. Pi settles the run after the
+        // message ends, and it is the settle that says the response is in the file.
         fake.getSessionStats.mockResolvedValue({} as SessionStats);
         publish?.({ type: "message_end", message: assistantRun(10) });
+        publish?.({ type: "agent_settled", aborted: false });
 
-        await waitFor(() => expect(useTranscriptStore.getState().liveUsage).toBeNull());
+        await waitFor(() => expect(view().liveUsage).toBeNull());
     });
 
     it("says what a summarization retry is doing, and takes the words back when it works", async () => {
@@ -635,6 +673,24 @@ describe("the run a session streams", () => {
         expect(toast.warning).toHaveBeenCalledWith("Pi is retrying the summary", {
             id: "session-summary-retry",
             description: "Writing a branch summary - attempt 2 of 2",
+        });
+    });
+
+    it("says when an extension failed", async () => {
+        await open();
+
+        publish?.({ type: "extension_error", extensionPath: "/ext/one.ts", event: "tool_call", error: "boom" });
+
+        expect(toast.warning).toHaveBeenCalledWith("An extension failed", {
+            id: "session-extension-error",
+            description: "/ext/one.ts (tool_call): boom",
+        });
+
+        // A second failure replaces the words of the first rather than stacking them.
+        publish?.({ type: "extension_error", extensionPath: "/ext/two.ts", event: "turn_end", error: "again" });
+        expect(toast.warning).toHaveBeenLastCalledWith("An extension failed", {
+            id: "session-extension-error",
+            description: "/ext/two.ts (turn_end): again",
         });
     });
 
@@ -684,17 +740,11 @@ describe("the run a session streams", () => {
     });
 
     it("opens the feed when React mounts the screen twice over", async () => {
-        // StrictMode starts an effect, stops it and starts it again. The chart is
-        // what the whole screen waits on, so an actor that a second start leaves
-        // closed is a screen that never opens a session (`useActorRef` owns the
-        // lifecycle for this reason).
+        // The registry counts the hands on the chart of a session, so the double mount of
+        // StrictMode does not leave a chart that the first stop made final (see
+        // `lib/__tests__/sessions.test.tsx` for the count itself).
         subscribed.resolve();
-        const wrapper = ({ children }: { children: ReactNode }) => (
-            <StrictMode>
-                <QueryClientProvider client={client}>{children}</QueryClientProvider>
-            </StrictMode>
-        );
-        const mounted = renderHook(() => useSession("main:1"), { wrapper });
+        const mounted = mount(SESSION, { strict: true });
 
         await waitFor(() => expect(mounted.result.current.listening).toBe(true));
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalled());
@@ -706,5 +756,14 @@ describe("statsRefetchInterval", () => {
         expect(statsRefetchInterval({ state: { status: "error" } })).toBe(false);
         expect(statsRefetchInterval({ state: { status: "success" } })).toBe(30_000);
         expect(statsRefetchInterval({ state: { status: "pending" } })).toBe(30_000);
+    });
+
+    it("asks nothing of a session that has nothing running", () => {
+        // An idle session changes no counts between events: only a record can, and the chart
+        // asks for the reads those make stale. A run that streams for minutes is the one that
+        // needs the fallback.
+        expect(statsPoll("idle")).toBe(false);
+        expect(statsPoll("waiting")).toBe(statsRefetchInterval);
+        expect(statsPoll("working")).toBe(statsRefetchInterval);
     });
 });

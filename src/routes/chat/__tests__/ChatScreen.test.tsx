@@ -9,7 +9,7 @@ import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
 import type { Event } from "@/lib/rpc-protocol";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
-import { useTranscriptStore } from "@/stores/transcript.store";
+import { sessionOf } from "@/lib/sessions";
 import {
     assistant,
     chain,
@@ -31,11 +31,11 @@ type ListenState = (session: string, handler: (payload: SessionLifecycle) => voi
 const bridge = vi.hoisted(() => ({
     getConnection: vi.fn<Call>(),
     attachSession: vi.fn<Call>(),
+    detachSession: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getEntries: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
     listSessions: vi.fn<Call>(),
-    switchSession: vi.fn<Call>(),
     clearQueue: vi.fn<Call>(),
     onSessionEvent: vi.fn<ListenEvent>(),
     onSessionState: vi.fn<ListenState>(),
@@ -124,11 +124,11 @@ function renderScreen(client = new QueryClient(queryDefaults)) {
 beforeEach(() => {
     platform.mobile = false;
     vi.clearAllMocks();
-    useTranscriptStore.getState().clear();
     bridge.onSessionEvent.mockResolvedValue(() => undefined);
     bridge.onSessionState.mockResolvedValue(() => undefined);
     bridge.getState.mockResolvedValue(sessionState());
-    bridge.switchSession.mockResolvedValue({ cancelled: false });
+    bridge.attachSession.mockResolvedValue({ id: "main:1", cwd: "/home/kui04/work" });
+    bridge.detachSession.mockResolvedValue(undefined);
     bridge.getSessionStats.mockResolvedValue(sessionStats());
     bridge.getEntries.mockResolvedValue({ entries: [], leafId: null });
     bridge.listSessions.mockResolvedValue([]);
@@ -226,44 +226,49 @@ describe("ChatScreen", () => {
         expect(container.querySelector("#transcript-list")).toBeNull();
     });
 
-    it("starts pi when the connection holds no session yet", async () => {
-        // The connection is the machine, and pi is a process that the workspace
-        // starts when it appears. The read is what says which of the two cases
-        // this is, so the second answer is the one the attach produced in Rust.
-        bridge.getConnection.mockResolvedValueOnce({ ...CONNECTED, sessions: [] });
-        bridge.getConnection.mockResolvedValue(CONNECTED);
-        bridge.attachSession.mockResolvedValue({ id: "main:1", cwd: "/home/kui04/work" });
+    it("starts pi on the conversation that was picked when none holds it", async () => {
+        // A machine that is only browsed runs no pi: the landing lists the files, and the
+        // pick is what starts a pi on the file it names.
+        bridge.getConnection.mockResolvedValue({ ...CONNECTED, sessions: [] });
         bridge.listSessions.mockResolvedValue([HELD]);
 
         renderScreen();
 
         expect(await screen.findByText(/There are many agent harnesses/)).toBeInTheDocument();
-        expect(bridge.attachSession).toHaveBeenCalledTimes(1);
+        expect(bridge.attachSession).not.toHaveBeenCalled();
+
+        fireEvent.click(await screen.findByRole("button", { name: "Fix the parser" }));
+
+        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(HELD.path));
     });
 
-    it("says it is starting pi while it starts", async () => {
+    it("says it is opening the conversation while the attach runs", async () => {
         bridge.getConnection.mockResolvedValue({ ...CONNECTED, sessions: [] });
-        // The attach does not answer yet, so the window is on the page that says
-        // the workspace is getting itself a pi.
+        bridge.listSessions.mockResolvedValue([HELD]);
+        // The attach does not answer yet, so the window is on the page that says a
+        // conversation is coming.
         bridge.attachSession.mockReturnValue(new Promise(() => undefined));
 
         renderScreen();
+        fireEvent.click(await screen.findByRole("button", { name: "Fix the parser" }));
 
-        expect(await screen.findByText("Starting pi…")).toBeInTheDocument();
+        expect(await screen.findByText("Opening the conversation…")).toBeInTheDocument();
     });
 
     it("says why pi could not be started, and starts it again on Try again", async () => {
         bridge.getConnection.mockResolvedValue({ ...CONNECTED, sessions: [] });
+        bridge.listSessions.mockResolvedValue([HELD]);
         bridge.attachSession.mockRejectedValueOnce(new Error("pi is not on PATH"));
         bridge.attachSession.mockReturnValue(new Promise(() => undefined));
 
         renderScreen();
+        fireEvent.click(await screen.findByRole("button", { name: "Fix the parser" }));
 
         // The screen shows the message Rust sent, with no table of its own.
         expect(await screen.findByText("pi is not on PATH")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-        expect(await screen.findByText("Starting pi…")).toBeInTheDocument();
+        expect(await screen.findByText("Opening the conversation…")).toBeInTheDocument();
         expect(bridge.attachSession).toHaveBeenCalledTimes(2);
     });
 
@@ -305,16 +310,17 @@ describe("ChatScreen", () => {
         expect(container.querySelector("#session-loading")).toBeNull();
     });
 
-    it("switches pi to the conversation that was chosen from the landing", async () => {
-        // The list of the landing holds a session pi does not hold: the file of the
-        // row is handed over before the window opens it.
+    it("attaches pi on the conversation that was chosen from the landing", async () => {
+        // The list of the landing holds a conversation the connection does not: a session
+        // is one process with one conversation, so the pick starts a pi on that file.
         bridge.getConnection.mockResolvedValue(CONNECTED);
         const other = sessionSummary({ name: "The other one" });
+        bridge.attachSession.mockResolvedValue({ id: "main:2", cwd: "/home/kui04/work" });
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
 
         await renderOpen([other]);
 
-        expect(bridge.switchSession).toHaveBeenCalledWith("main:1", other.path);
+        expect(bridge.attachSession).toHaveBeenCalledWith(other.path);
         expect(await screen.findByText("the other conversation")).toBeInTheDocument();
     });
 
@@ -403,31 +409,26 @@ describe("ChatScreen", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Fix the parser" }));
 
-        expect(bridge.switchSession).not.toHaveBeenCalled();
+        expect(bridge.attachSession).not.toHaveBeenCalled();
         expect(screen.getByText("first words")).toBeInTheDocument();
         expect(screen.queryByText("Opening the session…")).toBeNull();
     });
 
     it("gives up the conversation it is leaving for the loading page", async () => {
-        // A switch is the passage from the loaded page to the loading page and back, so
-        // the page of the conversation that is leaving is given up at once: its words do
-        // not stand under the ring, and nothing of them comes back to go again. The page
-        // that is left is why the reads are keyed so carefully - the answer of the
-        // conversation that was left must not stand in for the one that is coming.
+        // A pick is the passage from the words to the page that says a conversation is
+        // coming: the rows of the one being left are given up at once, and the reads of
+        // the new session do not stand in for them.
         bridge.getConnection.mockResolvedValue(CONNECTED);
         const other = sessionSummary({ name: "The other one" });
-        bridge.getEntries
-            .mockResolvedValueOnce(storeOfEntries(chain(messageEntry(user("first words")))))
-            .mockReturnValue(new Promise(() => undefined));
-        bridge.switchSession.mockResolvedValue({ cancelled: false });
+        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
+        bridge.attachSession.mockReturnValue(new Promise(() => undefined));
 
         const view = await renderOpen([HELD, other]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "The other one" }));
 
-        await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledWith("main:1", other.path));
-        expect(await screen.findByText("Opening the session…")).toBeInTheDocument();
+        expect(await screen.findByText("Opening the conversation…")).toBeInTheDocument();
         expect(screen.queryByText("first words")).toBeNull();
         expect(view.container.querySelector("#transcript-list")).toBeNull();
         // The page says nothing about a conversation: no words, no name in the bar, no
@@ -522,7 +523,15 @@ describe("ChatScreen", () => {
         // Wait for the session to be open first: opening one clears the store it reads
         // through, and the queue of a session arrives after that.
         await screen.findByText("Nothing has been said yet.");
-        act(() => useTranscriptStore.getState().setQueue({ steering: ["run the tests first"], followUp: [] }));
+        act(() => {
+            const chart = sessionOf("main:1");
+            if (chart === null) throw new Error("the chart of the session is not running");
+            chart.send({
+                type: "RECORD",
+                at: 0,
+                record: { type: "queue_update", steering: ["run the tests first"], followUp: [] },
+            });
+        });
 
         // A queued prompt is a row of the thread, below what was said.
         expect(await screen.findByText("run the tests first")).toBeInTheDocument();
@@ -535,12 +544,12 @@ describe("ChatScreen", () => {
     });
 
     it("refuses a pick while the feed of the session is not open", async () => {
-        // A switch is not something a screen that never attached can ask for: the chart
-        // would drop the events of it while Rust made the switch, and the screen would
-        // keep the old conversation. The rows say so, and the pick does not reach Rust.
+        // A pick is not something a screen that never attached can ask for: the attach would
+        // leave a second process running behind the first, with nothing on screen to show for
+        // it. The rows say so, and the pick does not reach Rust.
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.listSessions.mockResolvedValue([HELD, sessionSummary({ name: "The other one" })]);
-        bridge.switchSession.mockClear();
+        bridge.attachSession.mockClear();
         // The listeners of this session never open.
         bridge.onSessionEvent.mockReturnValue(new Promise(() => undefined));
 
@@ -554,11 +563,11 @@ describe("ChatScreen", () => {
         const row = await screen.findByText("The other one");
         expect(row.closest("button")).toBeDisabled();
         fireEvent.click(row);
-        expect(bridge.switchSession).not.toHaveBeenCalled();
+        expect(bridge.attachSession).not.toHaveBeenCalled();
         restore();
     });
 
-    it("moves the session to the conversation that was picked, and reads it again", async () => {
+    it("attaches a session on the conversation that was picked, and reads it", async () => {
         const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries
@@ -566,7 +575,7 @@ describe("ChatScreen", () => {
             .mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
         const target = sessionSummary({ name: "The other one" });
         bridge.listSessions.mockResolvedValue([HELD, target]);
-        bridge.switchSession.mockResolvedValue({ cancelled: false });
+        bridge.attachSession.mockResolvedValue({ id: "main:2", cwd: "/home/kui04/work" });
 
         await renderOpen([HELD, target]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
@@ -578,14 +587,13 @@ describe("ChatScreen", () => {
         // The sheet reads the list when it opens, so the row arrives with that read.
         fireEvent.click(await within(sheet).findByText("The other one"));
 
-        // The path of the row is the one that is handed over: the workspace reads
-        // the file, it builds no path of its own.
-        await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledWith("main:1", target.path));
-        // Nothing of the new conversation arrives as an event, so the transcript is
-        // read again - and the store is emptied first, so the words of the
-        // conversation that was left are not on screen while it is read.
+        // The path of the row is the one that is handed over: pi reads the file itself.
+        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(target.path));
+        // The session the attach answered with is the one in view, and the process it
+        // replaced ends: a session holds one conversation.
         expect(await screen.findByText("the other conversation")).toBeInTheDocument();
         expect(screen.queryByText("first words")).toBeNull();
+        await waitFor(() => expect(bridge.detachSession).toHaveBeenCalledWith("main:1"));
         restore();
     });
 
@@ -659,7 +667,7 @@ describe("ChatScreen", () => {
             }),
         );
 
-        await waitFor(() => expect(useTranscriptStore.getState().live.messages).toEqual([]));
+        await waitFor(() => expect(sessionOf("main:1")?.getSnapshot().context.live.messages).toEqual([]));
         expect(screen.getByText("Working…")).toBeInTheDocument();
         expect(screen.queryByText("Waiting…")).not.toBeInTheDocument();
         // The row stands: the read replaced it with the entry of the same message.
@@ -806,19 +814,18 @@ describe("ChatScreen", () => {
         await waitFor(() => expect(screen.getByLabelText("Context usage 50.0%")).toBeInTheDocument());
     });
 
-    it("sends one switch for two rows that are picked at the same instant", async () => {
+    it("sends one attach for two rows that are picked at the same instant", async () => {
         const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         const first = sessionSummary({ name: "The first one" });
         const second = sessionSummary({ name: "The second one" });
         bridge.listSessions.mockResolvedValue([HELD, first, second]);
-        // A host across a network answers when it answers, and until it does the
-        // reader can pick another row; pi runs the commands of one session one after
-        // another, so two switches would leave the conversation of whichever ends
-        // last on screen.
+        // A host across a network answers when it answers, and until it does the reader
+        // can pick another row; the chart is on its way to one session, and a second pick
+        // would leave whichever process ended last on screen.
         let answer: (data: unknown) => void = () => undefined;
-        bridge.switchSession.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+        bridge.attachSession.mockReturnValue(new Promise((resolve) => (answer = resolve)));
 
         await renderOpen([HELD, first, second]);
         expect(await screen.findByText("first words")).toBeInTheDocument();
@@ -829,46 +836,21 @@ describe("ChatScreen", () => {
         fireEvent.click(await within(sheet).findByText("The first one"));
         fireEvent.click(within(sheet).getByText("The second one"));
 
-        expect(bridge.switchSession).toHaveBeenCalledTimes(1);
-        expect(bridge.switchSession).toHaveBeenCalledWith("main:1", first.path);
-        answer({ cancelled: false });
+        expect(bridge.attachSession).toHaveBeenCalledTimes(1);
+        expect(bridge.attachSession).toHaveBeenCalledWith(first.path);
+        answer({ id: "main:2", cwd: null });
         restore();
     });
 
-    it("keeps the transcript of the session a cancelled switch leaves alone", async () => {
+    it("says a pick that could not attach, and ends no session for it", async () => {
         const restore = windowOf("narrow");
         bridge.getConnection.mockResolvedValue(CONNECTED);
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         const other = sessionSummary({ name: "The other one" });
         bridge.listSessions.mockResolvedValue([HELD, other]);
-        // An extension of pi refused the switch, so the session is what it was.
-        bridge.switchSession.mockResolvedValue({ cancelled: true });
-
-        await renderOpen([HELD, other]);
-        expect(await screen.findByText("first words")).toBeInTheDocument();
-
-        fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
-        // The narrow window shows the list again as a sheet; the column is still
-        // mounted behind it, so the row is searched inside the sheet.
-        const sheet = await screen.findByRole("dialog");
-        // The sheet reads the list when it opens, so the row arrives with that read.
-        fireEvent.click(await within(sheet).findByText("The other one"));
-
-        await waitFor(() => expect(bridge.switchSession).toHaveBeenCalledTimes(1));
-        expect(bridge.getEntries).toHaveBeenCalledTimes(1);
-        expect(screen.getByText("first words")).toBeInTheDocument();
-        restore();
-    });
-
-    it("announces a switch that failed, and keeps the session that runs", async () => {
-        const restore = windowOf("narrow");
-        bridge.getConnection.mockResolvedValue(CONNECTED);
-        bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
-        const other = sessionSummary({ name: "The other one" });
-        bridge.listSessions.mockResolvedValue([HELD, other]);
-        bridge.switchSession.mockRejectedValue({
+        bridge.attachSession.mockRejectedValue({
             type: "rpc",
-            message: "pi refused the switch",
+            message: "pi refused the conversation",
             error: { kind: "command" },
         });
 
@@ -882,8 +864,10 @@ describe("ChatScreen", () => {
         // The sheet reads the list when it opens, so the row arrives with that read.
         fireEvent.click(await within(sheet).findByText("The other one"));
 
-        expect(await screen.findByText("pi refused the switch")).toBeInTheDocument();
-        expect(screen.getByText("first words")).toBeInTheDocument();
+        // The page says what the attach failed on, and the session that was in view was not
+        // ended: a pick that could not attach changes nothing of the processes.
+        expect(await screen.findByText("pi refused the conversation")).toBeInTheDocument();
+        expect(bridge.detachSession).not.toHaveBeenCalled();
         restore();
     });
 });

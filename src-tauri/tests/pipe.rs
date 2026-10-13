@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use pi_rpc::client::{BashReq, Client};
+use pi_rpc::client::{BashReq, Client, Config};
 use pie_lib::channel::{Channel, Handle, Program, Termination};
 use pie_lib::commands::pipe::{SessionLifecycle, Sink, forward_loop};
 use serde::Serialize;
@@ -29,6 +29,16 @@ fn fake_pi() -> (Client, Handle) {
     (Client::new(channel), handle)
 }
 
+/// The same, with the client tuned: the buffer of the subscription is what a test sets.
+fn tuned_pi(config: Config) -> (Client, Handle) {
+    let channel: Channel = Program::new("bash")
+        .arg(script("fake-pi.sh"))
+        .spawn()
+        .expect("the scripted pi starts");
+    let handle = channel.handle();
+    (Client::with_config(channel, config), handle)
+}
+
 /// A sink that keeps what it heard, in order.
 #[derive(Clone, Default)]
 struct Heard(Arc<Mutex<Vec<(String, serde_json::Value)>>>);
@@ -41,6 +51,19 @@ impl Heard {
             .expect("the lock")
             .iter()
             .map(|(channel, _)| channel.clone())
+            .collect()
+    }
+
+    /// What was heard, in order: the channel, and the kind of payload it carried.
+    fn typed(&self) -> Vec<(String, String)> {
+        self.0
+            .lock()
+            .expect("the lock")
+            .iter()
+            .map(|(channel, payload)| {
+                let kind = payload["type"].as_str().unwrap_or("?").to_string();
+                (channel.clone(), kind)
+            })
             .collect()
     }
 
@@ -173,5 +196,51 @@ fn the_end_of_a_session_serializes_with_its_own_tag() {
     assert_eq!(
         serde_json::to_value(&ended).expect("the payload serializes"),
         serde_json::json!({ "type": "ended", "termination": { "type": "signalled", "signal": 9 } })
+    );
+}
+
+#[test]
+fn the_gap_of_a_session_serializes_as_its_own_kind() {
+    assert_eq!(
+        serde_json::to_value(SessionLifecycle::Lagged).expect("the payload serializes"),
+        serde_json::json!({ "type": "lagged" })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pipe_that_fell_behind_reports_the_gap_and_carries_on() {
+    // One record is the smallest buffer the protocol layer takes. The burst is written
+    // before the pipe reads anything, so the buffer keeps the newest of three and the
+    // stream has two to report as gone - the hole a slow reader would leave.
+    let (client, peer) = tuned_pi(Config::default().with_event_capacity(1));
+    let records = client.subscribe();
+    client
+        .bash_with(BashReq {
+            command: "burst".to_string(),
+            exclude_from_context: None,
+        })
+        .await
+        .expect("the burst runs");
+    client.close().await.expect("the client closes");
+
+    let heard = Heard::default();
+    forward_loop(heard.clone(), "main:4", records, peer.wait()).await;
+
+    let event = "pi://session/main:4/event";
+    let state = "pi://session/main:4/state";
+    assert_eq!(
+        heard.typed(),
+        [
+            (state.to_string(), "lagged".to_string()),
+            (event.to_string(), "bash_execution_update".to_string()),
+            (state.to_string(), "ended".to_string()),
+        ],
+        "the gap is reported, the records after it follow, and the end closes: {:?}",
+        heard.payloads(event)
+    );
+    assert_eq!(
+        heard.payloads(event)[0]["delta"],
+        "three\n",
+        "the record that survived the gap is the newest one"
     );
 }

@@ -1,10 +1,9 @@
 //! One `pi --mode rpc` process, and what pie asks of it.
 //!
 //! A session is a process, not a conversation: its id (`main:1`) names the pi
-//! that pie started, and the conversation that process holds can move to another
-//! session file without the process changing ([`Session::switch_session`]).
-//! Therefore the files of pi's sessions and the processes that write them are
-//! both "sessions", and they are two different things.
+//! that pie started, and it holds the one conversation it was attached on
+//! (`--session`). Therefore the files of pi's sessions and the processes that
+//! write them are both "sessions", and they are two different things.
 //!
 //! Every read and every command of one session goes through the protocol client
 //! that speaks to its process, so a failure below this type belongs to the layer
@@ -13,9 +12,7 @@
 //! of them is wrapped here.
 
 use pi_rpc::client::{BashReq, Client, Config, PromptReq};
-use pi_rpc::response::{
-    BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats, SessionSwitch,
-};
+use pi_rpc::response::{BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats};
 use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
 use crate::channel::{Channel, Handle};
@@ -24,7 +21,6 @@ use crate::host::HostPath;
 
 use super::SessionInfo;
 use super::id::Id;
-use super::store::checked_session_path;
 use super::wire::{AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData};
 
 /// The time for pi to stop before pie kills it.
@@ -157,37 +153,6 @@ impl Session {
     /// The same as [`Session::state`].
     pub async fn stats(&self) -> Result<SessionStats, PieError> {
         Ok(self.client.get_session_stats().await?)
-    }
-
-    /// Makes this session continue the conversation in another session file.
-    ///
-    /// The process stays where it is; the conversation it holds does not. Pi
-    /// opens the file, takes its leaf as the point to continue from, and
-    /// re-binds the extensions to the new session (the `switch_session` arm of
-    /// `rpc-mode.ts`, pinned). Its answer carries one fact: `cancelled` says
-    /// that an extension's `before_switch` hook refused the switch, and then
-    /// this session is the one it was.
-    ///
-    /// Nothing in the answer describes the new transcript, and no event
-    /// announces the change: the caller reads it again with
-    /// [`Session::entries`].
-    ///
-    /// A path that holds no session file is opened rather than refused (pi
-    /// reads a header only when the file is there). Therefore the caller hands
-    /// out the paths of
-    /// [`SessionManager::summaries`](super::SessionManager::summaries) and builds
-    /// none: pi would continue in its own directory and write a new conversation
-    /// there.
-    ///
-    /// # Errors
-    ///
-    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a
-    /// relative path, and the failure of the protocol - including a refusal of
-    /// pi itself: neither a session file whose working directory is gone nor a
-    /// file of the host that is not a session is one pi opens.
-    pub async fn switch_session(&self, session_path: &HostPath) -> Result<SessionSwitch, PieError> {
-        let path = checked_session_path(session_path)?;
-        Ok(self.client.switch_session(path).await?)
     }
 
     /// Sends a message to this session: it starts a run when nothing streams, and

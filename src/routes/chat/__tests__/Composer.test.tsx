@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createActor } from "xstate";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
+import { sessionMachine } from "@/machines/session.machine";
 import { Composer } from "@/routes/chat/composer/Composer";
-import { useTranscriptStore } from "@/stores/transcript.store";
 import { bashExecution, chain, messageEntry, slashCommand } from "@/preview/fixtures";
 
 type Call = (...args: unknown[]) => Promise<unknown>;
@@ -36,19 +37,38 @@ function refusal(message: string) {
 }
 
 /**
+ * The chart of the box's session: no listeners and no reads - the box reads its card from
+ * the context, and a test sends the events a record would.
+ */
+function chart() {
+    const actor = createActor(sessionMachine, {
+        input: {
+            listen: () => new Promise<never>(() => undefined),
+            reRead: () => undefined,
+            notice: () => undefined,
+        },
+    }).start();
+    // The feed is live: the composer stands only where a session is open, and a record
+    // draws only there.
+    actor.send({ type: "FEED_OPEN", at: 10 });
+    return actor;
+}
+
+/**
  * The composer with a client above it and the run phase the workspace hands it.
  * Nothing here starts pi: the bridge is what a test tells it to be.
  */
 function renderComposer(phase: "idle" | "working" = "idle") {
     const client = new QueryClient(queryDefaults);
+    const machine = chart();
     const view = render(
         <QueryClientProvider client={client}>
             <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
-                <Composer session="main:1" working={phase !== "idle"} />
+                <Composer session="main:1" working={phase !== "idle"} machine={machine} />
             </div>
         </QueryClientProvider>,
     );
-    return { ...view, client };
+    return { ...view, client, machine };
 }
 
 /** The box of the composer, which is where a person types. */
@@ -66,7 +86,6 @@ function press(key: string, options: { altKey?: boolean } = {}) {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    useTranscriptStore.getState().clear();
     bridge.getState.mockResolvedValue({
         model: null,
         thinkingLevel: "off",
@@ -147,8 +166,8 @@ describe("the composer sends what was typed", () => {
         // The run is over (the chart said so) and a shell command of the reader runs:
         // the key stops that one now.
         cleanup();
-        useTranscriptStore.getState().startBash({ command: "ls", excludeFromContext: false });
-        renderComposer("idle");
+        const second = renderComposer("idle");
+        second.machine.send({ type: "BASH_START", run: { command: "ls", excludeFromContext: false } });
         fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
 
         await waitFor(() => expect(bridge.abortBash).toHaveBeenCalledWith("main:1"));
@@ -163,13 +182,13 @@ describe("the composer runs a command of the reader's own shell", () => {
                 ran = resolve;
             }),
         );
-        renderComposer();
+        const { machine } = renderComposer();
 
         type("!ls -la");
         press("Enter");
         expect(bridge.bash).toHaveBeenNthCalledWith(1, "main:1", "ls -la", false);
         // The run stands above the card while pi has not recorded it.
-        expect(useTranscriptStore.getState().runningBash).toMatchObject({
+        expect(machine.getSnapshot().context.bash).toMatchObject({
             command: "ls -la",
             excludeFromContext: false,
         });
@@ -178,25 +197,25 @@ describe("the composer runs a command of the reader's own shell", () => {
         ran({ output: "one\n", cancelled: false, truncated: false });
         // Pi may hold the record back while a turn streams (its own
         // `_pendingBashMessages`): the card stays until the record arrives.
-        await waitFor(() => expect(useTranscriptStore.getState().runningBash).not.toBeNull());
+        await waitFor(() => expect(machine.getSnapshot().context.bash).not.toBeNull());
 
         // The record of the run supersedes the card.
         const [entry] = chain(messageEntry(bashExecution("ls -la", "one\n")));
-        useTranscriptStore.getState().appendEntry(entry);
-        await waitFor(() => expect(useTranscriptStore.getState().runningBash).toBeNull());
+        machine.send({ type: "RECORD", at: 0, record: { type: "entry_appended", entry } });
+        await waitFor(() => expect(machine.getSnapshot().context.bash).toBeNull());
 
         type("!!make test");
         press("Enter");
         expect(bridge.bash).toHaveBeenNthCalledWith(2, "main:1", "make test", true);
-        expect(useTranscriptStore.getState().runningBash).toMatchObject({
+        expect(machine.getSnapshot().context.bash).toMatchObject({
             command: "make test",
             excludeFromContext: true,
         });
     });
 
     it("refuses a second command while one runs", () => {
-        renderComposer();
-        useTranscriptStore.getState().startBash({ command: "sleep 60", excludeFromContext: false });
+        const { machine } = renderComposer();
+        machine.send({ type: "BASH_START", run: { command: "sleep 60", excludeFromContext: false } });
 
         type("!ls");
         press("Enter");
@@ -207,13 +226,13 @@ describe("the composer runs a command of the reader's own shell", () => {
 
     it("keeps the command when pi refuses it", async () => {
         bridge.bash.mockRejectedValue(refusal("pi rejected `bash`: no shell"));
-        renderComposer();
+        const { machine } = renderComposer();
 
         type("!cat notes.txt");
         press("Enter");
 
         await waitFor(() => expect(box()).toHaveValue("!cat notes.txt"));
-        expect(useTranscriptStore.getState().runningBash).toBeNull();
+        expect(machine.getSnapshot().context.bash).toBeNull();
     });
 });
 

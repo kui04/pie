@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createActor } from "xstate";
+import { sessionMachine } from "@/machines/session.machine";
 import { queryDefaults } from "@/lib/query";
 import { transcriptRows } from "@/lib/transcript";
 import { sampleTranscript, sessionState, slashCommand, storeOf } from "@/preview/fixtures";
@@ -35,6 +37,18 @@ function Seeded({ children }: { children: ReactNode }) {
 const store = storeOf(sampleTranscript());
 const rows = transcriptRows(store, store.order.length > 0 ? store.order[store.order.length - 1] : null);
 
+/**
+ * The chart of the story's session: no listeners, no reads - the box reads its card from
+ * the context, and the seeded cache answers everything else.
+ */
+const machine = createActor(sessionMachine, {
+    input: {
+        listen: () => new Promise<never>(() => undefined),
+        reRead: () => undefined,
+        notice: () => undefined,
+    },
+}).start();
+
 const meta = {
     title: "Chat/Foot",
     component: Composer,
@@ -53,6 +67,7 @@ const meta = {
     args: {
         session: "main:1",
         working: false,
+        machine,
     },
 } satisfies Meta<typeof Composer>;
 

@@ -48,18 +48,33 @@ const queryCache = new QueryCache({
 export const queryClient = new QueryClient({ ...queryDefaults, queryCache });
 
 /**
+ * The keys of one session's reads, in one place: the machine invalidates them by name, and
+ * a drifted string would leave a screen reading a cache that nobody refills.
+ */
+export const sessionKeys = {
+    /** Every read of the session: the prefix of the keys below. */
+    whole: (session: string) => ["session", session] as const,
+    state: (session: string) => [...sessionKeys.whole(session), "state"] as const,
+    entries: (session: string) => [...sessionKeys.whole(session), "entries"] as const,
+    stats: (session: string) => [...sessionKeys.whole(session), "stats"] as const,
+    commands: (session: string) => [...sessionKeys.whole(session), "commands"] as const,
+    models: (session: string) => [...sessionKeys.whole(session), "models"] as const,
+    thinkingLevels: (session: string) => [...sessionKeys.whole(session), "thinkingLevels"] as const,
+};
+
+/**
  * The reads of one session, by the name of the session.
  *
- * None of them retries. A read fails with the named reason that the command
- * failed (`closed` when pi is gone, `unknown_session` for a name that is not
- * there): asking three more times makes that reason arrive seconds later and
- * changes nothing else. TanStack's default is three tries.
+ * None of them retries. A read fails with the named reason that the command failed (`closed`
+ * when pi is gone, `unknown_session` for a name that is not there): asking three more times
+ * makes that reason arrive seconds later and changes nothing else. TanStack's default is
+ * three tries.
  */
 export const sessionQueries = {
     /** The state of a session: its model, its run, its name, its counts. */
     state: (session: string) =>
         queryOptions({
-            queryKey: ["session", session, "state"] as const,
+            queryKey: sessionKeys.state(session),
             queryFn: () => bridge.getState(session),
             retry: false,
         }),
@@ -67,7 +82,7 @@ export const sessionQueries = {
     /** Every entry of a session and the leaf it points at. */
     entries: (session: string) =>
         queryOptions({
-            queryKey: ["session", session, "entries"] as const,
+            queryKey: sessionKeys.entries(session),
             queryFn: () => bridge.getEntries(session),
             retry: false,
         }),
@@ -81,7 +96,7 @@ export const sessionQueries = {
      */
     stats: (session: string) =>
         queryOptions({
-            queryKey: ["session", session, "stats"] as const,
+            queryKey: sessionKeys.stats(session),
             queryFn: () => bridge.getSessionStats(session),
             retry: false,
         }),
@@ -89,7 +104,7 @@ export const sessionQueries = {
     /** The commands that a prompt of this session can invoke, for the command menu. */
     commands: (session: string) =>
         queryOptions({
-            queryKey: ["session", session, "commands"] as const,
+            queryKey: sessionKeys.commands(session),
             queryFn: () => bridge.getCommands(session),
             retry: false,
         }),
@@ -97,7 +112,7 @@ export const sessionQueries = {
     /** The models this session can use. */
     models: (session: string) =>
         queryOptions({
-            queryKey: ["session", session, "models"] as const,
+            queryKey: sessionKeys.models(session),
             queryFn: () => bridge.getAvailableModels(session),
             retry: false,
         }),
@@ -105,7 +120,7 @@ export const sessionQueries = {
     /** The thinking levels this session accepts. */
     thinkingLevels: (session: string) =>
         queryOptions({
-            queryKey: ["session", session, "thinkingLevels"] as const,
+            queryKey: sessionKeys.thinkingLevels(session),
             queryFn: () => bridge.getAvailableThinkingLevels(session),
             retry: false,
         }),

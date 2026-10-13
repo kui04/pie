@@ -1,66 +1,57 @@
 /**
- * The chat's stages: no pi yet, nothing open, one on its way, one shown.
+ * The chat's stages: the landing, a pi on its way, the page that says it could not start,
+ * and the session in view.
  *
- * This is the screen's own flow, beside the session's chart
- * (`session.machine.ts`): a session's chart owns the feed, the run and the switch
- * of one conversation, while this one owns which conversation the window shows at
- * all. Three stages show the window, and a switch is the same passage as an open:
- * the conversation on screen is given up and the page that says a conversation is
- * coming stands until the answer of the new one arrives.
+ * This is the screen's own flow, beside the session's chart (`session.machine.ts`). A
+ * session is one pi process with one conversation (`commands/session.rs`): a pick attaches
+ * a session on that file, or views the one that already holds it, and the session that was
+ * in view is ended when the new one answers - one process at a time, until a milestone keeps
+ * several.
  *
- * `attaching` comes before them, because a connection is a machine and a session
- * is a pi process: the workspace starts one when it appears. The read of the
- * connection is what says whether it must - Rust holds the process - so the
- * screen sends `ATTACH` or `HELD` from that answer, and the chart waits for both.
- * A `HELD` that arrives first leaves `attaching` before the actor runs, which is
- * the reload whose pi is still speaking: nothing is started twice.
- *
- * `ARRIVED` comes from the session subtree, because only it holds the reads: the
- * feed is live and the snapshot of the conversation has answered. A switch pi
- * refuses or one that fails needs no event of its own - the conversation that
- * stayed is still in the reads, so the same answer arrives for it.
+ * `attaching` carries what the attempt is for: `path` names the conversation to load (pi
+ * reads the file itself), and `dropping` names the session to end when the new one is up.
+ * A retry after a failure asks for the same thing again.
  */
 
 import { assign, fromPromise, setup } from "xstate";
-import { asPieError, type PieError } from "@/lib/bridge";
+import { asPieError, type PieError, type SessionInfo } from "@/lib/bridge";
 
 /** What this machine needs from the outside world. */
 export interface ChatDeps {
-    /**
-     * Starts a pi on the connected machine.
-     *
-     * What it answers is not carried: Rust holds the process, so the session comes
-     * back through the read of the connection, and this call is what makes that
-     * read stale.
-     */
-    attach: () => Promise<void>;
+    /** Starts a pi, on the conversation in `path` when one is named. */
+    attach: (path: string | null) => Promise<SessionInfo>;
+    /** Ends one pi. The conversation file stays. */
+    detach: (session: string) => Promise<void>;
 }
 
 /** The stage the chat is in, as the screen and its tests read it. */
-export type ChatStage = "landing" | "attaching" | "unattached" | "loading" | "loaded";
+export type ChatStage = "landing" | "attaching" | "unattached" | "viewing";
 
 export interface ChatContext {
     deps: ChatDeps;
-    /** The session the window shows, or `null` while it shows the landing. */
+    /** The session the window shows, or `null` while the landing stands. */
     session: string | null;
-    /** Why the workspace has no pi to speak through, while the page says so. */
+    /** What the attempt on its way is for: the file to load, or `null` for a new conversation. */
+    path: string | null;
+    /** The session the attempt replaces; it is ended when the new one answers. */
+    dropping: string | null;
+    /** Why the last attempt failed, while the page says so. */
     error: PieError | null;
 }
 
 export type ChatEvent =
-    /** The read of the connection answered that no pi speaks on it. */
+    /** A new conversation, with no file yet. */
     | { type: "ATTACH" }
-    /** The read of the connection shows a session: an attach is not needed. */
-    | { type: "HELD" }
-    /** A session was chosen on the landing. */
+    /**
+     * A conversation file was chosen. `dropping` names the session to end when it opens;
+     * without one, the session in view is the one replaced.
+     */
+    | { type: "FOCUS"; path: string; dropping?: string | null }
+    /** A session that already speaks was chosen. */
     | { type: "OPEN"; session: string }
-    /** Another conversation of the shown session was chosen. */
-    | { type: "SWITCH" }
-    /** The feed is live and the snapshot of the conversation has answered. */
-    | { type: "ARRIVED" }
-    /** The screen gave the conversation up (`Detach`, not built yet). */
+    /** The screen gives the conversation up: the process ends (`Detach`, not built yet). */
     | { type: "CLOSE" }
-    /** The page that says pi could not be started asks again. */
+    /** The page that says pi could not start asks again. */
     | { type: "RETRY" };
 
 export const chatMachine = setup({
@@ -70,62 +61,80 @@ export const chatMachine = setup({
         input: {} as ChatDeps,
     },
     actors: {
-        attach: fromPromise<void, ChatDeps>(async ({ input }) => {
-            await input.attach();
-        }),
+        attach: fromPromise<SessionInfo, { deps: ChatDeps; path: string | null }>(async ({ input }) =>
+            input.deps.attach(input.path),
+        ),
     },
     actions: {
-        keep: assign({ session: ({ event }) => (event.type === "OPEN" ? event.session : null) }),
-        forget: assign({ session: null }),
+        /** What the attempt on its way is for: the file to load, and the session it replaces. */
+        pending: assign({
+            path: ({ event }) => (event.type === "FOCUS" ? event.path : null),
+            dropping: ({ context, event }) =>
+                event.type === "FOCUS" ? (event.dropping ?? context.session) : context.session,
+            error: null,
+        }),
+        /** Ends the process the new session replaces, before the new one is written down. */
+        dropReplaced: ({ context }) => {
+            if (context.dropping !== null) void context.deps.detach(context.dropping);
+        },
+        /** Ends the session in view, for a close. */
+        dropViewed: ({ context }) => {
+            if (context.session !== null) void context.deps.detach(context.session);
+        },
+        /** Writes down the session that was chosen. */
+        view: assign({ session: ({ event }) => (event.type === "OPEN" ? event.session : null) }),
     },
 }).createMachine({
     id: "chat",
     initial: "landing",
-    context: ({ input }) => ({ deps: input, session: null, error: null }),
+    context: ({ input }) => ({ deps: input, session: null, path: null, dropping: null, error: null }),
     states: {
         landing: {
             on: {
-                OPEN: { target: "loading", actions: "keep" },
-                // Nothing speaks on this connection, so the workspace starts a pi.
-                ATTACH: { target: "attaching", actions: "forget" },
+                ATTACH: { target: "attaching", actions: "pending" },
+                FOCUS: { target: "attaching", actions: "pending" },
+                OPEN: { target: "viewing", actions: "view" },
             },
         },
-        // Pi is on its way. No page of the window stands here: every one of them
-        // names a session, and this stage is the one that has none.
+        // Pi is on its way. No page of the window stands here: every one of them names a
+        // session, and this stage is the one that has none.
         attaching: {
             invoke: {
                 src: "attach",
-                input: ({ context }) => context.deps,
-                onError: { target: "unattached", actions: assign({ error: ({ event }) => asPieError(event.error) }) },
-            },
-            on: {
-                // The attach answered and the read of the connection shows it. The
-                // landing takes over, and the window speaks through that session.
-                HELD: { target: "landing", actions: "forget" },
+                input: ({ context }) => ({ deps: context.deps, path: context.path }),
+                onDone: {
+                    target: "viewing",
+                    actions: [
+                        "dropReplaced",
+                        assign({
+                            session: ({ event }) => event.output.id,
+                            path: null,
+                            dropping: null,
+                            error: null,
+                        }),
+                    ],
+                },
+                onError: {
+                    target: "unattached",
+                    actions: assign({ error: ({ event }) => asPieError(event.error) }),
+                },
             },
         },
-        // The machine is reached and no pi runs on it. The page says so and offers
-        // the attempt again; a second `ATTACH` from the read changes nothing here.
+        // The machine is reached and pi did not start. The page says so and offers the
+        // attempt again, on the same conversation.
         unattached: {
             on: {
                 RETRY: { target: "attaching", actions: assign({ error: null }) },
             },
         },
-        // A conversation is on its way: nothing of it is drawn yet, and the page
-        // says so - a feed that never opened says why there instead of guessing at
-        // words, and a read that fails leaves the reader where the retry is.
-        loading: {
+        // A conversation is in view. A pick attaches another session on the file, and the
+        // one in view is ended when the new one answers.
+        viewing: {
             on: {
-                ARRIVED: "loaded",
-            },
-        },
-        // A conversation is on screen. A pick hands the window back to `loading`,
-        // which is the same page an open lands on: the words of the one that is
-        // leaving are given up at once, and the answer brings the new ones.
-        loaded: {
-            on: {
-                SWITCH: "loading",
-                CLOSE: { target: "landing", actions: "forget" },
+                ATTACH: { target: "attaching", actions: "pending" },
+                FOCUS: { target: "attaching", actions: "pending" },
+                OPEN: { target: "viewing", actions: "view" },
+                CLOSE: { target: "landing", actions: ["dropViewed", assign({ session: null })] },
             },
         },
     },
@@ -144,7 +153,12 @@ export function sessionOf(snapshot: ChatSnapshot): string | null {
     return snapshot.context.session;
 }
 
-/** Why the workspace has no pi, or `null` while it has one or is getting one. */
+/** What the attempt on its way loads, or `null` for a new conversation. */
+export function pathOf(snapshot: ChatSnapshot): string | null {
+    return snapshot.context.path;
+}
+
+/** Why pi did not start, or `null`. */
 export function errorOf(snapshot: ChatSnapshot): PieError | null {
     return snapshot.context.error;
 }

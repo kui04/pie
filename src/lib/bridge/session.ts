@@ -3,12 +3,14 @@
  * what it says while it runs.
  *
  * The mirror of `src-tauri/src/commands/session.rs` — one session is asked to
- * read, to switch, and to speak — plus the events of `commands/pipe.rs`, which
+ * read, to speak, and to end — plus the events of `commands/pipe.rs`, which
  * carry what pi says.
  *
  * A session is named by the id that `attachSession` answered with — pie's id for
  * the process, which is the id its events arrive under. That is not the id of
- * pi's session file: the same process moves between those (see `switchSession`).
+ * pi's session file: `sessionId` of the state names the conversation the process
+ * opened with. One process holds one conversation, and a pick attaches a session
+ * on the file it names.
  *
  * A dialog of an extension and a failure of an extension have channels of their
  * own, and nothing consumes them yet (that belongs to the extension milestone). A
@@ -50,7 +52,6 @@ import type {
     SessionState,
     SessionStats,
     StreamingBehavior,
-    SwitchSessionData,
 } from "@/lib/rpc-protocol";
 import { call, type Unsubscribe } from "./invoke";
 import type { SessionInfo } from "./host";
@@ -96,9 +97,13 @@ export function listSessions(): Promise<SessionSummary[]> {
  * two different things, and only the second one needs a process. The id of the
  * answer is pie's own for that process (`main:1`), and it is what every other
  * function here names, and what the events arrive under.
+ *
+ * `path` names the conversation file of pi to load at the start. Without one pi
+ * starts a new conversation. The path is a path of the host, as the listing
+ * wrote it; pi reads the file itself.
  */
-export function attachSession(): Promise<SessionInfo> {
-    return call<SessionInfo>("attach_session");
+export function attachSession(path?: string): Promise<SessionInfo> {
+    return call<SessionInfo>("attach_session", { path });
 }
 
 /**
@@ -119,8 +124,8 @@ export function detachSession(session: string): Promise<void> {
 /**
  * The state of one session: its model, its run, its name, its counts.
  *
- * `sessionId` here is the id of pi's session file, which is what tells one
- * conversation of a process from another (see `switchSession`).
+ * `sessionId` here is the id of pi's session file: the conversation this process
+ * opened with, and the id that `listSessions` lists.
  */
 export function getState(session: string): Promise<SessionState> {
     return call<SessionState>("get_state", { session });
@@ -131,7 +136,7 @@ export function getState(session: string): Promise<SessionState> {
  *
  * The answer is the raw set: the other branches of a fork are in it, and the
  * entries that a compaction summarized stay in it. The view of the transcript is
- * built from it on this side (see `stores/transcript.store.ts`).
+ * built from it on this side (see `lib/transcript-merge.ts`).
  */
 export function getEntries(session: string): Promise<EntriesData> {
     return call<EntriesData>("get_entries", { session });
@@ -141,21 +146,6 @@ export function getEntries(session: string): Promise<EntriesData> {
 export function getSessionStats(session: string): Promise<SessionStats> {
     return call<SessionStats>("get_session_stats", { session });
 }
-
-/**
- * Makes a session continue the conversation of a session file.
- *
- * `path` is the `path` of a row that {@link listSessions} answered with (the
- * frontend builds none of them: pi opens a path that holds no file as a new
- * conversation in its own directory). The pi process keeps running; the
- * conversation it holds does not. No event announces the change, so the caller
- * reads the transcript again — `cancelled` says that an extension of pi refused
- * the switch, and then nothing changed at all.
- */
-export function switchSession(session: string, path: string): Promise<SwitchSessionData> {
-    return call<SwitchSessionData>("switch_session", { session, path });
-}
-
 // What pi says about a running session, as it says it.
 
 /** How the pi of a session ended. */
@@ -163,18 +153,28 @@ export type Termination =
     { type: "exited"; code: number; success: boolean } | { type: "signalled"; signal: number } | { type: "unknown" };
 
 /** What the frontend hears about the life of a session. */
-export type SessionLifecycle = {
-    type: "ended";
-    /** How the process ended; `success` separates an orderly end from a crash. */
-    termination: Termination;
-};
+export type SessionLifecycle =
+    | {
+          type: "ended";
+          /** How the process ended; `success` separates an orderly end from a crash. */
+          termination: Termination;
+      }
+    | {
+          /**
+           * Records of the session were dropped before they reached this side: the pipe of
+           * that session fell behind. The session itself is unchanged, and the reads are the
+           * repair. No count travels: what a screen does with the fact does not depend on
+           * how many records went.
+           */
+          type: "lagged";
+      };
 
 /** One event of a session, on `pi://session/{id}/event`. */
 export function onSessionEvent(session: string, onEvent: (event: Event) => void): Promise<Unsubscribe> {
     return listen<Event>(`pi://session/${session}/event`, (event) => onEvent(event.payload));
 }
 
-/** The end of a session. No record of that session follows. */
+/** The end of a session, or a gap in its records. No record of that session follows an end. */
 export function onSessionState(session: string, onState: (state: SessionLifecycle) => void): Promise<Unsubscribe> {
     return listen<SessionLifecycle>(`pi://session/${session}/state`, (event) => onState(event.payload));
 }

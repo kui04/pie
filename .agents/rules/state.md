@@ -275,6 +275,25 @@ of a snapshot.
 10. NEVER introduce a new state library or a second pattern for something an
     existing owner already covers.
 
+### Documented exceptions
+
+Two exceptions to the rules above are approved for the session transcript. Each
+exception holds only under its conditions; remove it when the conditions no
+longer hold.
+
+**1. The session transcript overlay (exception to prohibition 1).** A session
+machine may hold in its context the entries that arrive as records between two
+reads (the overlay). Conditions: the values are stream data only; they are never
+fetched; a base read prunes them; the base itself stays in Query. Reason: the
+event bus has no replay, and a new base answer must merge with the entries that
+arrived after the request.
+
+**2. A Query answer sent to a machine (exception to prohibition 3).** A
+component effect may observe a Query answer and send it to a machine as an
+event. The effect does not fetch; Query fetches. The machine applies the answer
+under its own ordering guards. This is the Component -> XState edge, with Query
+as the source.
+
 ---
 
 ## 6. Escalation / demotion triggers
@@ -349,4 +368,7 @@ Responsibilities, not paths. Wherever the files live:
 - Machines stay pure: I/O arrives via `input` and actors, never via imports.
 - Stores stay sliced per domain, with actions inside and selectors outside.
 - Screens own their machines and their local `useState`; shared actors get an
-  explicit provider scope, never an implicit global.
+  explicit scope, never an implicit global. The session actors live in one
+  module registry (`src/lib/sessions.ts`): it holds one actor per attached
+  session, counts the screens that hold it, and a screen selects an actor rather
+  than creating one.

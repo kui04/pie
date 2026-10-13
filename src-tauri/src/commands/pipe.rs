@@ -61,6 +61,14 @@ pub enum SessionLifecycle {
         /// How the process ended.
         termination: Termination,
     },
+    /// Records of this session were dropped before this pipe could forward them.
+    ///
+    /// The pipe fell so far behind the records of its session that the stream
+    /// dropped the oldest of them rather than wait for it. Which ones went is not
+    /// knowable from here, and the frontend cannot see a hole either: it reads the
+    /// transcript and the state of the session again, and the reads are the repair.
+    /// The pipe itself carries on with the records that follow.
+    Lagged,
 }
 
 /// Where a pipe delivers what it forwards.
@@ -146,14 +154,16 @@ pub async fn forward_loop<S: Sink, E: Future<Output = Termination>>(
             biased;
             record = records.recv() => match record {
                 Ok(event) => spread(&sink, session, &event),
-                // This pipe fell behind the records of its session. The frontend
-                // reads the state again on its own - the snapshot of the
-                // transcript is the authority - so the pipe says what happened
-                // and carries on. The stream reports falling behind as a
-                // protocol failure and the end as a closed one, and those are
-                // the only two it reports.
+                // This pipe fell behind the records of its session: the stream drops
+                // the oldest of them rather than wait for a slow reader, and it reports
+                // that as a protocol failure. The frontend is told, so that it reads
+                // again - the snapshot of the transcript is the authority, and the
+                // reads are the repair - and this pipe carries on. The count of what
+                // went is in the error message and stays in the log; the frontend
+                // needs the fact, not the number.
                 Err(error) if error.kind() == ErrorKind::Protocol => {
                     tracing::warn!(%error, session, "a pipe fell behind the records of its session");
+                    sink.send(&state_channel(session), SessionLifecycle::Lagged);
                 }
                 // The stream is over: the records are drained and the end is the
                 // only fact left to report.

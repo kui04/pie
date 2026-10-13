@@ -1,9 +1,9 @@
-//! What a session of pi is asked to do: read it, move it, and speak through it.
+//! What a session of pi is asked to do: read it, speak through it, and end it.
 //!
 //! Everything here names one session, and every name is the id that the connect
 //! answered with (`ConnectionInfo.sessions[].id`). That id is pie's own for a
 //! pi process (`main:1`); it is not the session id of pi, which is the id of the
-//! session file - the file that [`switch_session`] moves a process between.
+//! conversation file that a session was attached on.
 //!
 //! The reads and the commands of one session are in one file because one
 //! responsible thing answers them: the session, and behind it its pi process. A
@@ -23,9 +23,7 @@ use crate::error::PieError;
 use crate::host::HostPath;
 use crate::session::{self, CommandsData, LastAssistantTextData, PromptData, Session, SessionInfo, SessionSummary};
 
-use pi_rpc::response::{
-    BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats, SessionSwitch,
-};
+use pi_rpc::response::{BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats};
 use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
 use super::Error;
@@ -79,6 +77,10 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
 /// a person opens a conversation. Nothing about the connection is needed for the
 /// listing of conversations, so a machine that is only browsed runs no pi.
 ///
+/// `path` names the conversation file of pi to load at the start (`--session`).
+/// Without one pi starts a new conversation; it creates the file at the first
+/// message. A conversation belongs to one process: a pi that moved between files
+/// would leave records of the left file in the machine of the next one.
 /// The id of the answer is pie's own for this pi process (`main:1`), and it is
 /// the name of the events of the session (`pi://session/{id}/...`). It is not the
 /// session id of pi, which is the id of the conversation file.
@@ -89,11 +91,18 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
 /// [`PieError::Channel`] when pi cannot be started.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn attach_session(state: State<'_, AppState>, app: AppHandle) -> Result<SessionInfo, PieError> {
+pub async fn attach_session(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    path: Option<String>,
+) -> Result<SessionInfo, PieError> {
     let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
         doing: "starting pi".to_string(),
     })?;
-    let session = sessions.attach(state.next_session_number()).await?;
+    let conversation = path.map(HostPath::new);
+    let session = sessions
+        .attach(state.next_session_number(), conversation.as_ref())
+        .await?;
     // The subscription happens before the task starts, not inside it, so the pipe
     // itself misses nothing that pi writes after this line.
     //
@@ -109,8 +118,8 @@ pub async fn attach_session(state: State<'_, AppState>, app: AppHandle) -> Resul
 /// Ends one pi. The machine stays reached, and the conversation file stays.
 ///
 /// The frontend asks for this when it is done speaking through that session. A
-/// new session speaks again: pi reads the conversation file that
-/// [`switch_session`] names.
+/// new session speaks again: a pick attaches one on the conversation file it
+/// names, so a process never leaves the conversation it opened with.
 ///
 /// # Errors
 ///
@@ -180,32 +189,6 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 /// that conversation. Pie never builds such a path: pi opens one that holds no file
 /// as a new conversation in its own directory.
 ///
-/// The answer says whether the switch happened. An extension of pi may refuse one,
-/// and then `cancelled` is true and the session is the one it was.
-///
-/// The frontend reads the transcript again after a switch that happened: nothing of
-/// the new conversation comes over the events of the session.
-///
-/// # Errors
-///
-/// [`Error::NotConnected`], [`session::Error::UnknownSession`], the failure of the
-/// protocol - including a refusal of pi itself: neither a session file whose
-/// working directory is gone nor a file of the machine that is not a session is one
-/// pi opens - and [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for
-/// a relative path.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, path = %path))]
-pub async fn switch_session(
-    state: State<'_, AppState>,
-    session: String,
-    path: String,
-) -> Result<SessionSwitch, PieError> {
-    named_session(&state, &session, "switching a session to another conversation")
-        .await?
-        .switch_session(&HostPath::new(path))
-        .await
-}
-
 /// Sends a message to one session.
 ///
 /// `behavior` names how the message joins a run that streams: `steer` interrupts
