@@ -1,33 +1,21 @@
 import type { ReactNode } from "react";
 import { Kbd, KbdGroup } from "@/components/ui";
-import { ChatFrame } from "@/routes/chat/ChatFrame";
-import { SessionSidebar, type SessionList } from "@/routes/chat/sidebar/SessionSidebar";
+import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 
 export interface SessionLandingProps {
-    list: SessionList;
     wide: boolean;
     column: boolean;
-    sheet: boolean;
-    onOpenSheet: (open: boolean) => void;
     onToggleSessions: () => void;
 }
 
-export function SessionLanding({ list, wide, column, sheet, onOpenSheet, onToggleSessions }: SessionLandingProps) {
+/** The page that stands while no conversation is open: the keys, and nothing else. */
+export function SessionLanding({ wide, column, onToggleSessions }: SessionLandingProps) {
     return (
-        <ChatFrame
-            sidebar={
-                <SessionSidebar
-                    id="session"
-                    {...list}
-                    wide={wide}
-                    column={column}
-                    sheet={sheet}
-                    onOpenSheet={onOpenSheet}
-                />
-            }
-            topbar={<SidebarToggle expanded={wide ? column : undefined} onToggleSessions={onToggleSessions} />}
-        >
+        <>
+            <ChatTopbar>
+                <SidebarToggle expanded={wide ? column : undefined} onToggleSessions={onToggleSessions} />
+            </ChatTopbar>
             <div id="chat-landing" className="m-auto flex flex-col items-center gap-10 p-6">
                 <p className="text-body-lg text-muted-foreground text-center">
                     There are many agent harnesses,
@@ -43,7 +31,7 @@ export function SessionLanding({ list, wide, column, sheet, onOpenSheet, onToggl
                     </Shortcut>
                 </dl>
             </div>
-        </ChatFrame>
+        </>
     );
 }
 

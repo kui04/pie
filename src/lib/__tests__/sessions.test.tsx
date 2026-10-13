@@ -1,15 +1,16 @@
 /**
- * The registry of session charts: one actor per session, counted by the screens that hold
- * it. Nothing here talks to pi - the actors do that through their deps.
+ * The registry of session charts: one actor per session the connection holds, started and
+ * stopped by the list Rust answers with. Nothing here talks to pi - the actors do that through
+ * their deps.
  */
 
 import { QueryClient } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { StrictMode, useEffect } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionEntry } from "@/lib/rpc-protocol";
-import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/sessions";
+import { forgetSession, phases, sessionOf, subscribeSessions, syncSessions, type SessionRef } from "@/lib/sessions";
 import { user } from "@/preview/fixtures";
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -24,96 +25,92 @@ const B = "main:2";
 
 let client: QueryClient;
 
-/** The hands a test took, so that the end of it gives back every one of them. */
-const held = new Map<string, number>();
-
-/** Takes one hand on the chart of a session, as a screen does when it mounts. */
-function hold(session: string): void {
-    ensureSession(session, client);
-    held.set(session, (held.get(session) ?? 0) + 1);
-}
+beforeEach(() => {
+    client = new QueryClient();
+});
 
 /** Waits until the listeners of a chart opened the feed: a record draws only there. */
 async function live(actor: SessionRef | null): Promise<void> {
     await vi.waitFor(() => expect(actor?.getSnapshot().value).toMatchObject({ feed: "live" }));
 }
 
-beforeEach(() => {
-    client = new QueryClient();
-    held.clear();
-});
-
-afterEach(async () => {
-    // A slot that a test left behind would answer the next test's `ensureSession` with a
-    // chart of its own.
-    for (const [session, count] of held) {
-        for (let hand = 0; hand < count; hand += 1) forgetSession(session);
-    }
-    held.clear();
-    await Promise.resolve();
-});
-
 describe("the charts of the sessions", () => {
-    it("answers the same chart for a second hand on one session", () => {
-        hold(A);
-        const first = sessionOf(A);
+    it("starts one chart per session of the connection, and forgets the rest", () => {
+        syncSessions([A, B], client);
+        const a = sessionOf(A);
+        const b = sessionOf(B);
+        expect(a).not.toBeNull();
+        expect(b).not.toBeNull();
 
-        hold(A);
+        // The connection that comes after this one holds another session, and nothing else.
+        syncSessions([B], client);
 
-        expect(sessionOf(A)).toBe(first);
+        expect(sessionOf(A)).toBeNull();
+        expect(sessionOf(B)).toBe(b);
+    });
+
+    it("keeps the chart of a session the list still names", async () => {
+        // The sync runs on every change of the list, and StrictMode runs its effect twice:
+        // the second run must find the charts the first one left, with their records in them.
+        syncSessions([A], client);
+        const a = sessionOf(A);
+        await live(a);
+        a?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } });
+
+        syncSessions([A], client);
+
+        expect(sessionOf(A)).toBe(a);
+        expect(a?.getSnapshot().value).toMatchObject({ run: "waiting" });
+    });
+
+    it("forgets every chart when the connection is gone", () => {
+        syncSessions([A, B], client);
+
+        // A window that holds no connection holds no session: a chart speaks for a process
+        // that is gone with it.
+        syncSessions([], client);
+
+        expect(sessionOf(A)).toBeNull();
+        expect(sessionOf(B)).toBeNull();
+    });
+
+    it("reads the phase of every session it holds", async () => {
+        const heard: string[] = [];
+        const stop = subscribeSessions(() => heard.push("changed"));
+        syncSessions([A, B], client);
+        await live(sessionOf(A));
+
+        expect(phases().get(A)).toBe("idle");
+        expect(phases().get(B)).toBe("idle");
+
+        sessionOf(A)?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } });
+
+        // A run that continues while the session is off screen still lights its row.
+        expect(phases().get(A)).toBe("waiting");
+        expect(heard.length).toBeGreaterThan(0);
+
+        forgetSession(A);
+        expect(phases().has(A)).toBe(false);
+        expect(phases().get(B)).toBe("idle");
+        stop();
     });
 
     it("keeps the two sessions apart", async () => {
-        hold(A);
-        hold(B);
-        const a = sessionOf(A);
-        const b = sessionOf(B);
-        expect(a).not.toBe(b);
-        await live(a);
-        await live(b);
+        syncSessions([A, B], client);
+        await live(sessionOf(A));
+        await live(sessionOf(B));
 
-        b?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } });
+        sessionOf(B)?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } });
 
-        expect(b?.getSnapshot().value).toMatchObject({ run: "waiting" });
-        expect(a?.getSnapshot().value).toMatchObject({ run: "idle" });
+        expect(sessionOf(B)?.getSnapshot().value).toMatchObject({ run: "waiting" });
+        expect(sessionOf(A)?.getSnapshot().value).toMatchObject({ run: "idle" });
     });
 
-    it("stops the chart of a session at the last hand, and not the other session's", async () => {
-        hold(A);
-        hold(B);
-        const a = sessionOf(A);
-
-        forgetSession(A);
-        held.delete(A);
-        await Promise.resolve();
-
-        expect(sessionOf(A)).toBeNull();
-        expect(sessionOf(B)).not.toBeNull();
-        expect(a?.getSnapshot().status).toBe("stopped");
-    });
-
-    it("keeps the chart when a hand comes back in the same task, as a double mount does", async () => {
-        // React's StrictMode runs the effects of a mount twice: start, stop, start. The
-        // chart is what the whole screen waits on, so the stop waits for the task to end.
-        hold(A);
-        const first = sessionOf(A);
-
-        forgetSession(A);
-        hold(A);
-
-        expect(sessionOf(A)).toBe(first);
-        expect(first?.getSnapshot().status).toBe("active");
-        await Promise.resolve();
-
-        expect(first?.getSnapshot().status).toBe("active");
-    });
-
-    it("drops a record that arrives after the chart was stopped, without a throw", async () => {
-        hold(A);
+    it("drops a record that arrives after the chart was stopped, without a throw", () => {
+        syncSessions([A], client);
         const actor = sessionOf(A);
+
         forgetSession(A);
-        held.delete(A);
-        await Promise.resolve();
 
         expect(actor?.getSnapshot().status).toBe("stopped");
         expect(() => actor?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } })).not.toThrow();
@@ -121,8 +118,7 @@ describe("the charts of the sessions", () => {
     });
 
     it("hands a record of one session to that session alone", async () => {
-        hold(A);
-        hold(B);
+        syncSessions([A, B], client);
         await live(sessionOf(A));
         await live(sessionOf(B));
         const entry: SessionEntry = {
@@ -140,36 +136,36 @@ describe("the charts of the sessions", () => {
     });
 });
 
-describe("the screen of a session under StrictMode", () => {
-    it("holds one chart through the double mount, and gives it up when the screen goes", async () => {
+describe("the sync of a connection under StrictMode", () => {
+    it("finds the same charts when the effect runs twice", () => {
         const seen: (SessionRef | null)[] = [];
-        function Slot() {
+        function Sync() {
             useEffect(() => {
-                ensureSession(A, client);
-                seen.push(sessionOf(A));
-                return () => {
-                    seen.push(sessionOf(A));
-                    forgetSession(A);
-                };
+                // The connection effect of `use-session-sync.ts`, without the query: one run
+                // per mount, and no cleanup - leaving the screen does not end a session.
+                syncSessions([A, B], client);
+                seen.push(sessionOf(A), sessionOf(B));
             }, []);
             return null;
         }
 
         const screen = render(
             <StrictMode>
-                <Slot />
+                <Sync />
             </StrictMode>,
         );
 
-        // StrictMode starts the effect, stops it and starts it again: the second start finds
-        // the chart the first one left, the transcript and the run with it.
-        expect(seen).toHaveLength(3);
-        expect(seen.every((chart) => chart === seen[0])).toBe(true);
-        expect(sessionOf(A)).toBe(seen[0]);
+        expect(seen).toHaveLength(4);
+        // The second run finds the charts of the first, session by session.
+        expect(seen[0]).not.toBeNull();
+        expect(seen[2]).toBe(seen[0]);
+        expect(seen[3]).toBe(seen[1]);
 
         screen.unmount();
-        await Promise.resolve();
+        expect(sessionOf(A)).not.toBeNull();
 
+        // The tests of this file end here: the app ends its charts with the connection.
+        syncSessions([], client);
         expect(sessionOf(A)).toBeNull();
     });
 });

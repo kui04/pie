@@ -75,9 +75,10 @@ describe("the chat's stages", () => {
         expect(attached).toEqual([]);
     });
 
-    it("ends the session in view when another conversation opens", async () => {
-        // A session is one process with one conversation: the pick attaches the new one and
-        // the one in view goes, so the machine never holds two.
+    it("views the session that answered, and ends nothing", async () => {
+        // A session is one process with one conversation: the pick attaches another one, and
+        // the process that was in view keeps running - it is another session of the same
+        // connection, and only a close ends one.
         const { actor, detached } = started();
         actor.send({ type: "OPEN", session: "main:1" });
 
@@ -85,17 +86,18 @@ describe("the chat's stages", () => {
         await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
 
         expect(sessionOf(actor.getSnapshot())).toBe("made:1");
-        expect(detached).toEqual(["main:1"]);
+        expect(detached).toEqual([]);
     });
 
-    it("ends the session the landing was holding when a file opens from the list", async () => {
-        // After a reload the connection still holds a pi. A pick of another file attaches a
-        // session on it, and the held process goes with the pick.
-        const { actor, detached } = started();
-        actor.send({ type: "FOCUS", path: "/sessions/three.jsonl", dropping: "main:9" });
+    it("attaches on the file that was picked, and keeps the session that was in view", async () => {
+        // The landing after a reload: the connection still holds a pi. A pick of another file
+        // attaches a session on it; the held process is a session of its own.
+        const { actor, attached, detached } = started();
+        actor.send({ type: "FOCUS", path: "/sessions/three.jsonl" });
         await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
 
-        expect(detached).toEqual(["main:9"]);
+        expect(attached).toEqual(["/sessions/three.jsonl"]);
+        expect(detached).toEqual([]);
         expect(sessionOf(actor.getSnapshot())).toBe("made:1");
     });
 

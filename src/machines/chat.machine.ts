@@ -2,15 +2,14 @@
  * The chat's stages: the landing, a pi on its way, the page that says it could not start,
  * and the session in view.
  *
- * This is the screen's own flow, beside the session's chart (`session.machine.ts`). A
- * session is one pi process with one conversation (`commands/session.rs`): a pick attaches
- * a session on that file, or views the one that already holds it, and the session that was
- * in view is ended when the new one answers - one process at a time, until a milestone keeps
- * several.
+ * This is the screen's own flow, beside the session's chart (`session.machine.ts`). A session
+ * is one pi process with one conversation (`commands/session.rs`): a pick views the session
+ * that already holds that file, or attaches another one on it. The sessions that are not in
+ * view keep running - their charts follow the connection, not this screen
+ * (`lib/sessions.ts`) - and only a close ends one.
  *
  * `attaching` carries what the attempt is for: `path` names the conversation to load (pi
- * reads the file itself), and `dropping` names the session to end when the new one is up.
- * A retry after a failure asks for the same thing again.
+ * reads the file itself). A retry after a failure asks for the same thing again.
  */
 
 import { assign, fromPromise, setup } from "xstate";
@@ -33,8 +32,6 @@ export interface ChatContext {
     session: string | null;
     /** What the attempt on its way is for: the file to load, or `null` for a new conversation. */
     path: string | null;
-    /** The session the attempt replaces; it is ended when the new one answers. */
-    dropping: string | null;
     /** Why the last attempt failed, while the page says so. */
     error: PieError | null;
 }
@@ -42,14 +39,11 @@ export interface ChatContext {
 export type ChatEvent =
     /** A new conversation, with no file yet. */
     | { type: "ATTACH" }
-    /**
-     * A conversation file was chosen. `dropping` names the session to end when it opens;
-     * without one, the session in view is the one replaced.
-     */
-    | { type: "FOCUS"; path: string; dropping?: string | null }
+    /** A conversation file was chosen: a session of its own, or one that already holds it. */
+    | { type: "FOCUS"; path: string }
     /** A session that already speaks was chosen. */
     | { type: "OPEN"; session: string }
-    /** The screen gives the conversation up: the process ends (`Detach`, not built yet). */
+    /** The screen gives the conversation up: the process ends. */
     | { type: "CLOSE" }
     /** The page that says pi could not start asks again. */
     | { type: "RETRY" };
@@ -66,17 +60,11 @@ export const chatMachine = setup({
         ),
     },
     actions: {
-        /** What the attempt on its way is for: the file to load, and the session it replaces. */
+        /** What the attempt on its way is for: the file to load, or none for a new conversation. */
         pending: assign({
             path: ({ event }) => (event.type === "FOCUS" ? event.path : null),
-            dropping: ({ context, event }) =>
-                event.type === "FOCUS" ? (event.dropping ?? context.session) : context.session,
             error: null,
         }),
-        /** Ends the process the new session replaces, before the new one is written down. */
-        dropReplaced: ({ context }) => {
-            if (context.dropping !== null) void context.deps.detach(context.dropping);
-        },
         /** Ends the session in view, for a close. */
         dropViewed: ({ context }) => {
             if (context.session !== null) void context.deps.detach(context.session);
@@ -87,7 +75,7 @@ export const chatMachine = setup({
 }).createMachine({
     id: "chat",
     initial: "landing",
-    context: ({ input }) => ({ deps: input, session: null, path: null, dropping: null, error: null }),
+    context: ({ input }) => ({ deps: input, session: null, path: null, error: null }),
     states: {
         landing: {
             on: {
@@ -104,15 +92,11 @@ export const chatMachine = setup({
                 input: ({ context }) => ({ deps: context.deps, path: context.path }),
                 onDone: {
                     target: "viewing",
-                    actions: [
-                        "dropReplaced",
-                        assign({
-                            session: ({ event }) => event.output.id,
-                            path: null,
-                            dropping: null,
-                            error: null,
-                        }),
-                    ],
+                    actions: assign({
+                        session: ({ event }) => event.output.id,
+                        path: null,
+                        error: null,
+                    }),
                 },
                 onError: {
                     target: "unattached",
@@ -127,8 +111,9 @@ export const chatMachine = setup({
                 RETRY: { target: "attaching", actions: assign({ error: null }) },
             },
         },
-        // A conversation is in view. A pick attaches another session on the file, and the
-        // one in view is ended when the new one answers.
+        // A conversation is in view. A pick attaches another session on the file that is
+        // chosen; the session that was in view keeps running, and the window shows the one
+        // that answers. CLOSE is the way one ends.
         viewing: {
             on: {
                 ATTACH: { target: "attaching", actions: "pending" },

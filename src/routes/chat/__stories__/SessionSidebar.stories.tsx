@@ -51,9 +51,8 @@ const meta = {
     args: {
         id: "session",
         endpoint: "local",
-        currentSessionId: sessions[0].id,
-        working: false,
-        busy: false,
+        // The first row's conversation is held by a session, and that session is not running.
+        attached: new Map([[sessions[0].path, { session: "main:1", working: false }]]),
         onPick: () => undefined,
         wide: true,
         column: true,
@@ -69,11 +68,11 @@ type Story = StoryObj<typeof meta>;
 export const Sessions: Story = {};
 
 /**
- * The conversation of this window works: its own mark covers the attached one, and
- * the rows hold still while a switch would have to abort the run.
+ * A session works: the mark of the row it holds says so, and the breathing light is the only
+ * thing in the row that moves.
  */
 export const Working: Story = {
-    args: { working: true, busy: true },
+    args: { attached: new Map([[sessions[0].path, { session: "main:1", working: true }]]) },
 };
 
 /** A host that has said nothing yet: pi writes a session file only at a first turn. */

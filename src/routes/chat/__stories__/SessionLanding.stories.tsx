@@ -5,7 +5,9 @@ import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SessionSummary } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
+import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { SessionLanding } from "@/routes/chat/SessionLanding";
+import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { sessionSummary } from "@/preview/fixtures";
 
 /**
@@ -46,24 +48,32 @@ const meta = {
                     the gate needs. */}
                 <div className="fixed inset-0 flex font-sans">
                     <MemoryRouter>
-                        <Story />
+                        {/* The frame and the list belong to the workspace, and a story of the
+                            landing draws the same window it does (`ChatScreen`). */}
+                        <ChatFrame
+                            sidebar={
+                                <SessionSidebar
+                                    id="session"
+                                    endpoint="local"
+                                    attached={new Map()}
+                                    onPick={() => undefined}
+                                    wide
+                                    column
+                                    sheet={false}
+                                    onOpenSheet={() => undefined}
+                                />
+                            }
+                        >
+                            <Story />
+                        </ChatFrame>
                     </MemoryRouter>
                 </div>
             </Seeded>
         ),
     ],
     args: {
-        list: {
-            endpoint: "local",
-            currentSessionId: null,
-            working: false,
-            busy: false,
-            onPick: () => undefined,
-        },
         wide: true,
         column: true,
-        sheet: false,
-        onOpenSheet: () => undefined,
         onToggleSessions: () => undefined,
     },
 } satisfies Meta<typeof SessionLanding>;

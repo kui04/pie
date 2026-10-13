@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { AppRoutes } from "@/routes/AppRoutes";
 import { Toaster } from "@/components/ui";
 import { usePlatformResource } from "@/hooks/use-platform";
+import { useSessionSync } from "@/hooks/use-session-sync";
 
 function App() {
     return (
@@ -14,6 +15,9 @@ function App() {
 
 function AppShell() {
     const platform = usePlatformResource();
+    // The charts of the sessions follow the connection, not a screen: they live here, beside
+    // the routes, so a run continues while another conversation is in view.
+    useSessionSync();
 
     // TODO: Handle the case where the platform is null (e.g., show an error message or a fallback UI)
     if (platform === null) return null;

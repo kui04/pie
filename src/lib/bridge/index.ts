@@ -8,11 +8,10 @@
  *
  * One file for each area of the product, and each one mirrors the file of the
  * same name in `src-tauri/src/commands/`: [`host`] is the one machine that pie
- * holds, [`session`] is one session of pi (its reads, the switch between its
- * conversations, the conversations of the machine, and what it says while it
- * runs), [`app`] is the app itself, [`pick`] is what a person selects with a
- * system dialog, [`log`] is where a line of the frontend goes, and [`error`] /
- * [`invoke`] are the machinery of this layer. Import from this file.
+ * holds, [`session`] is one session of pi (its reads, its conversations, and what
+ * it says while it runs), [`app`] is the app itself, [`pick`] is what a person
+ * selects with a system dialog, [`log`] is where a line of the frontend goes, and
+ * [`error`] / [`invoke`] are the machinery of this layer. Import from this file.
  *
  * The types mirror what `src-tauri/src/commands/` and `src-tauri/src/host/` accept
  * and return. They are hand-written, so a change on the Rust side has to be made

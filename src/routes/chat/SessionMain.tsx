@@ -1,13 +1,16 @@
 /**
  * The main region of a session: the bar above the words, the transcript, and the composer
- * under it — and the list beside them, where the window holds a column.
+ * under it.
  *
- * The chart of the session lives in the registry (`lib/sessions.ts`): this screen holds one
- * hand on it while it is on screen, and reads the transcript as the fold of the base read
- * and the records that arrived after it (`lib/transcript-merge.ts`).
+ * The chart of the session lives in the registry (`lib/sessions.ts`), which follows the
+ * sessions of the connection: this region selects it and never creates it. The transcript is
+ * the fold of the base read and the records that arrived after it (`lib/transcript-merge.ts`).
+ *
+ * The list and the window's frame belong to the workspace (`ChatScreen`), so a pick rebuilds
+ * this region alone.
  */
 
-import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { QueryClient } from "@tanstack/react-query";
@@ -17,55 +20,51 @@ import { Button } from "@/components/ui";
 import { useSession } from "@/hooks/use-session";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
-import { ensureSession, forgetSession, sessionOf, subscribeSessions, type SessionRef } from "@/lib/sessions";
+import { sessionOf, subscribeSessions, type SessionRef } from "@/lib/sessions";
 import { queuedRows, transcriptRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/stream";
 import { mergedTranscript } from "@/lib/transcript-merge";
-import { ChatFrame } from "@/routes/chat/ChatFrame";
+import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { Composer } from "@/routes/chat/composer/Composer";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
-import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
+import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
 
 export interface SessionMainProps {
     session: string;
+    /** Where pi of this session started, for a session pi has no name for. */
     cwd: string | null;
-    endpoint: string;
-    wide: boolean;
-    column: boolean;
-    sheet: boolean;
-    onOpenSheet: (open: boolean) => void;
+    /** Whether the list is out beside the chat; undefined where it is a sheet. */
+    expanded: boolean | undefined;
     onToggleSessions: () => void;
-    /** A conversation of the list was chosen: the chat chart attaches a session on it. */
-    onFocus: (path: string) => void;
     client: QueryClient;
 }
 
 /**
- * The slot of one session: it holds the chart of the registry for as long as the screen
- * shows it, and hands the body the actor. The body is rendered only when the chart is
- * there, so its hooks are unconditional.
+ * The slot of one session: it selects the chart of the registry and hands the body that actor.
+ * The body is rendered only when the chart is there, so its hooks are unconditional.
  */
 export function SessionMain(props: SessionMainProps) {
-    const { session, client } = props;
-    useEffect(() => {
-        ensureSession(session, client);
-        return () => forgetSession(session);
-    }, [session, client]);
+    const { session } = props;
     const machine = useSyncExternalStore(
         subscribeSessions,
         () => sessionOf(session),
         () => null,
     );
     if (machine === null) {
+        // The registry has the charts of the connection, and this session is one of them;
+        // this is the frame or two before it arrived.
         return (
-            <ChatFrame>
+            <>
+                <ChatTopbar>
+                    <SidebarToggle expanded={props.expanded} onToggleSessions={props.onToggleSessions} />
+                </ChatTopbar>
                 <div className="relative flex min-h-0 flex-1">
                     <SessionLoading />
                 </div>
-            </ChatFrame>
+            </>
         );
     }
     return <SessionBody {...props} machine={machine} />;
@@ -75,16 +74,11 @@ function SessionBody({
     machine,
     session,
     cwd,
-    endpoint,
-    wide,
-    column,
-    sheet,
-    onOpenSheet,
+    expanded,
     onToggleSessions,
-    onFocus,
     client,
 }: SessionMainProps & { machine: SessionRef }) {
-    const { phase, working, state, entries, stats, ready, listening, error, reopen } = useSession(session, machine);
+    const { phase, working, state, entries, stats, ready, error, reopen } = useSession(session, machine);
     const still = useReducedMotion();
     const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
     const live = useSelector(machine, (snapshot) => snapshot.context.live);
@@ -115,8 +109,6 @@ function SessionBody({
     // reports, and a read, which the query holds. They are read in that order.
     const failure = error ?? entries.error ?? state.error ?? stats.error;
 
-    const currentSessionId = state.data?.sessionId ?? null;
-
     const retry = () => {
         reopen();
         void client.invalidateQueries({ queryKey: ["connection"] });
@@ -132,26 +124,6 @@ function SessionBody({
                 toast(count === 1 ? "The queued message was dropped." : `${count} queued messages were dropped.`);
             })
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
-    }
-
-    /**
-     * Opens the conversation of the row that was chosen.
-     *
-     * A session holds one conversation, so this is not a switch: the chat chart attaches a
-     * session on the file and ends the one in view when the new one answers.
-     */
-    function pick(path: string) {
-        if (!listening || working) {
-            bridge.log.debug("a pick was not taken", { path, listening, working });
-            return;
-        }
-        onOpenSheet(false);
-        if (path === state.data?.sessionFile) {
-            bridge.log.debug("a pick was already the open conversation", { path });
-            return;
-        }
-        bridge.log.info("a conversation was picked", { path });
-        onFocus(path);
     }
 
     const transcript = <SessionTranscript rows={rows} onRetractQueued={retractQueue} />;
@@ -214,33 +186,18 @@ function SessionBody({
     }
 
     return (
-        <ChatFrame
-            sidebar={
-                <SessionSidebar
-                    id="session"
-                    endpoint={endpoint}
-                    currentSessionId={currentSessionId}
-                    working={working}
-                    busy={!listening || working}
-                    onPick={pick}
-                    wide={wide}
-                    column={column}
-                    sheet={sheet}
-                    onOpenSheet={onOpenSheet}
-                />
-            }
-            topbar={
+        <>
+            <ChatTopbar>
                 <SessionTopbar
                     name={state.data?.sessionName ?? null}
                     cwd={cwd}
                     stats={withLiveUsage(stats.data ?? null, liveUsage?.usage ?? null)}
                     auto={state.data?.autoCompactionEnabled ?? false}
-                    expanded={wide ? column : undefined}
+                    expanded={expanded}
                     onToggleSessions={onToggleSessions}
                     ready={loaded}
                 />
-            }
-        >
+            </ChatTopbar>
             <AnimatePresence mode="wait" initial={false}>
                 {content}
             </AnimatePresence>
@@ -268,6 +225,6 @@ function SessionBody({
                     </motion.div>
                 )}
             </AnimatePresence>
-        </ChatFrame>
+        </>
     );
 }

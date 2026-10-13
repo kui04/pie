@@ -18,6 +18,7 @@ import { cn } from "cn";
 
 import { Button, InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui";
 import { SafeArea, ScrollPane, Sheet, SheetContent, SheetTitle } from "@/components";
+import type { AttachedConversation } from "@/hooks/use-attached-conversations";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import * as bridge from "@/lib/bridge";
 import { sessionsQueries } from "@/lib/query";
@@ -27,15 +28,11 @@ import { breatheAt, groupSessions, matchesSearch, pathKey, relativeTime, session
 export interface SessionList {
     /** The host whose sessions these are (`local`, or `user@host:port`). */
     endpoint: string;
-    /** The id of the conversation this window shows, as pi names it. */
-    currentSessionId: string | null;
-    /** Whether that conversation is working now. */
-    working: boolean;
     /**
-     * A switch is on its way, or that conversation is working: a row that is chosen
-     * now would be a second switch on top of the first.
+     * The conversations that running sessions hold, by the path of pi's session file. A row
+     * lights when one of them holds it, and the light says whether that session works now.
      */
-    busy: boolean;
+    attached: ReadonlyMap<string, AttachedConversation>;
     /** Continue the conversation of the row that was chosen. */
     onPick: (path: string) => void;
 }
@@ -83,7 +80,7 @@ export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClas
 
 /** The list itself, whatever holds it: the search, the refresh, the groups, the rows. */
 function SessionListPanel({ id, className, ...list }: SessionList & { id: string; className?: string }) {
-    const { endpoint, currentSessionId, working, busy, onPick } = list;
+    const { endpoint, attached, onPick } = list;
     const client = useQueryClient();
     const sessions = useQuery(sessionsQueries.list(endpoint));
     const [search, setSearch] = useState("");
@@ -196,9 +193,7 @@ function SessionListPanel({ id, className, ...list }: SessionList & { id: string
                                             id={id}
                                             session={session}
                                             now={now}
-                                            current={session.id === currentSessionId}
-                                            working={working}
-                                            busy={busy}
+                                            held={attached.get(session.path) ?? null}
                                             onPick={onPick}
                                         />
                                     ))}
@@ -275,30 +270,27 @@ function SessionSheet({
  *
  * A row says its name, or the words that opened it, or the time it was last
  * written when it has neither. The light of a row is a fact of a process: the
- * session this window shows has one behind it, and `working` says that process is
- * in a run now — the light covers the same slot and changes colour. Either way it
+ * conversation it names is held by a running session, and the colour says whether
+ * that session is in a run now - the light covers the same slot either way, and it
  * breathes: a light that is there is a light that is alive.
  */
 function SessionRow({
     id,
     session,
     now,
-    current,
-    working,
-    busy,
+    held,
     onPick,
 }: {
     id: string;
     session: bridge.SessionSummary;
     now: number;
-    current: boolean;
-    working: boolean;
-    busy: boolean;
+    /** The session that holds this conversation, or `null` when no process holds it. */
+    held: AttachedConversation | null;
     onPick: (path: string) => void;
 }) {
     const title = sessionTitle(session);
     const when = relativeTime(session.modified, now);
-    const mark = current ? (working ? "working" : "attached") : null;
+    const mark = held === null ? null : held.working ? "working" : "attached";
 
     return (
         <button
@@ -307,15 +299,9 @@ function SessionRow({
             // of a session file carries the same id in its header (see `pathKey`).
             id={`${id}-row-${pathKey(session.path)}`}
             data-path={session.path}
-            aria-current={current ? "true" : undefined}
-            disabled={busy}
+            aria-current={held !== null ? "true" : undefined}
             onClick={() => onPick(session.path)}
-            className={cn(
-                "hover:bg-accent flex w-full items-center gap-1.5",
-                "rounded-md px-1 py-1.5 text-left",
-                "disabled:pointer-events-none disabled:opacity-60",
-                current && "bg-accent",
-            )}
+            className={cn("hover:bg-accent flex w-full items-center gap-1.5", "rounded-md px-1 py-1.5 text-left")}
         >
             <span className="size-4 shrink-0" aria-hidden />
             <span className="text-body-md min-w-0 flex-1 truncate">{title ?? when}</span>

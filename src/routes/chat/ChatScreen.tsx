@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
+import { useAttachedConversations } from "@/hooks/use-attached-conversations";
 import { useConnection } from "@/hooks/use-connection";
 import { useWideWindow } from "@/hooks/use-wide-window";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
-import { sessionQueries } from "@/lib/query";
 import * as bridge from "@/lib/bridge";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
+import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SessionLanding } from "@/routes/chat/SessionLanding";
+import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
 import { SessionMain } from "@/routes/chat/SessionMain";
 
@@ -39,9 +41,11 @@ export function ChatScreen() {
     const session = sessionOf(chat);
     const loading = pathOf(chat);
     const detached = errorOf(chat);
-    // A connection holds one session today, so the one in the list is the one.
-    const held = connection.data?.sessions[0] ?? null;
+    // Every session the connection holds runs its own process, and any of them may hold the
+    // conversation of a row: the match is what a pick and the list light read.
+    const sessions = connection.data?.sessions ?? [];
     const endpoint = connection.data?.endpoint ?? "local";
+    const attached = useAttachedConversations(sessions);
 
     // A workspace with no host is not a workspace: the gate is where a connection is made,
     // so the window returns to it rather than sit on a page no command can answer. The read
@@ -62,14 +66,6 @@ export function ChatScreen() {
     const [column, setColumn] = useState(true);
     const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
 
-    // What the landing shows while no conversation is open: the file pi holds, so the row it
-    // belongs to is the one in use, and a pick of it views the session that already speaks
-    // (no second process is started for the conversation pi holds).
-    const heldState = useQuery({
-        ...sessionQueries.state(held?.id ?? ""),
-        enabled: stage === "landing" && held !== null,
-    });
-
     // Which stage the window reached, and for which conversation: the shape of a report
     // about a window that would not open, where nothing else on this side of the boundary
     // says how far it got.
@@ -78,91 +74,109 @@ export function ChatScreen() {
     }, [stage, session]);
 
     /**
-     * Opens a conversation from the landing: the session that holds it, or a new one on the
-     * file. A session is one process with one conversation, so the process that was held is
-     * ended when the new one answers.
+     * Opens a conversation from a list, for the landing and for the sidebar.
+     *
+     * The session that already holds the file is the one to show; without one, another session
+     * is attached on it. A session is one process with one conversation, and the sessions that
+     * are not in view keep running: only a close ends one.
      */
     function open(path: string) {
         setSheet(false);
-        if (held !== null && heldState.data?.sessionFile === path) {
-            bridge.log.info("the conversation is the one pi already holds", { path, session: held.id });
-            machine.send({ type: "OPEN", session: held.id });
+        const held = attached.get(path);
+        if (held !== undefined) {
+            if (held.session === session) return;
+            bridge.log.info("the conversation is held by a session already", { path, session: held.session });
+            machine.send({ type: "OPEN", session: held.session });
             return;
         }
-        bridge.log.info("a conversation was picked from the landing", { path, held: held?.id ?? null });
-        machine.send({ type: "FOCUS", path, dropping: held?.id ?? null });
-    }
-
-    /** Opens another conversation of the list, for the session in view. */
-    function focus(path: string) {
-        setSheet(false);
+        bridge.log.info("a conversation was picked", { path, sessions: sessions.length });
         machine.send({ type: "FOCUS", path });
     }
 
-    if (connection.isPending) return <ChatFrame />;
-    if (connection.data === null || connection.data === undefined) return <ChatFrame />;
-    if (stage === "attaching") {
+    if (connection.isPending)
         return (
-            <ChatFrame bodyClassName="items-center justify-center">
-                <SessionLoading label={loading === null ? "Starting pi…" : "Opening the conversation…"} />
+            <ChatFrame>
+                <ChatTopbar />
             </ChatFrame>
         );
-    }
-
-    if (stage === "unattached" && detached !== null) {
+    if (connection.data === null || connection.data === undefined)
         return (
-            <ChatFrame bodyClassName="items-center justify-center">
-                <div
-                    id="chat-unattached"
-                    role="alert"
-                    className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
-                >
-                    <p>{detached.message}</p>
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
-                            Try again
-                        </Button>
-                        <Button asChild variant="ghost" size="sm">
-                            <Link to="/">Connect</Link>
-                        </Button>
-                    </div>
-                </div>
+            <ChatFrame>
+                <ChatTopbar />
             </ChatFrame>
         );
-    }
 
-    if (stage === "viewing" && session !== null) {
-        return (
-            <SessionMain
-                key={session}
-                session={session}
-                cwd={held?.cwd ?? null}
-                endpoint={endpoint}
-                wide={wide}
-                column={column}
-                sheet={sheet}
-                onOpenSheet={setSheet}
-                onToggleSessions={toggleSessions}
-                onFocus={focus}
-                client={client}
-            />
-        );
-    }
-
+    const expanded = wide ? column : undefined;
+    // One frame for every stage: the list and the window around it belong to the workspace,
+    // so opening a conversation - or moving between two of them - rebuilds the region under
+    // the bar, not the window.
     return (
-        <SessionLanding
-            list={{
-                endpoint,
-                currentSessionId: heldState.data?.sessionId ?? null,
-                working: false,
-                busy: false,
-                onPick: open,
-            }}
-            wide={wide}
-            column={column}
-            sheet={sheet}
-            onOpenSheet={setSheet}
-            onToggleSessions={toggleSessions}
-        />
+        <ChatFrame
+            sidebar={
+                <SessionSidebar
+                    id="session"
+                    endpoint={endpoint}
+                    attached={attached}
+                    onPick={open}
+                    wide={wide}
+                    column={column}
+                    sheet={sheet}
+                    onOpenSheet={setSheet}
+                />
+            }
+        >
+            {body()}
+        </ChatFrame>
     );
+
+    function body() {
+        if (stage === "attaching") {
+            return (
+                <>
+                    <ChatTopbar />
+                    <div className="relative flex min-h-0 flex-1 items-center justify-center">
+                        <SessionLoading label={loading === null ? "Starting pi…" : "Opening the conversation…"} />
+                    </div>
+                </>
+            );
+        }
+
+        if (stage === "unattached" && detached !== null) {
+            return (
+                <>
+                    <ChatTopbar />
+                    <div
+                        id="chat-unattached"
+                        role="alert"
+                        className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
+                    >
+                        <p>{detached.message}</p>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
+                                Try again
+                            </Button>
+                            <Button asChild variant="ghost" size="sm">
+                                <Link to="/">Connect</Link>
+                            </Button>
+                        </div>
+                    </div>
+                </>
+            );
+        }
+
+        if (stage === "viewing" && session !== null) {
+            return (
+                <SessionMain
+                    key={session}
+                    session={session}
+                    cwd={sessions.find((running) => running.id === session)?.cwd ?? null}
+                    expanded={expanded}
+                    onToggleSessions={toggleSessions}
+                    client={client}
+                />
+            );
+        }
+
+        return <SessionLanding wide={wide} column={column} onToggleSessions={toggleSessions} />;
+    }
 }

@@ -31,9 +31,7 @@ function renderSidebar(props: Partial<SessionSidebarProps> = {}) {
                 <SessionSidebar
                     id="session"
                     endpoint="local"
-                    currentSessionId={null}
-                    working={false}
-                    busy={false}
+                    attached={new Map()}
                     onPick={() => undefined}
                     wide
                     column
@@ -133,12 +131,13 @@ describe("SessionSidebar", () => {
         expect(picked).toHaveBeenCalledWith(session.path);
     });
 
-    it("marks the conversation this window shows, and whether it works", async () => {
+    it("marks the conversations that running sessions hold, and whether they work", async () => {
         const mine = sessionSummary({ name: "Mine" });
         const other = sessionSummary({ name: "Other" });
         bridge.listSessions.mockResolvedValue([mine, other]);
 
-        const { rerender } = renderSidebar({ currentSessionId: mine.id, working: false });
+        const held = new Map([[mine.path, { session: "main:1", working: false }]]);
+        const { rerender } = renderSidebar({ attached: held });
 
         const selector = `[data-path="${mine.path}"]`;
         await waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
@@ -151,6 +150,9 @@ describe("SessionSidebar", () => {
         expect(mark).not.toBeNull();
         expect(time).not.toBeNull();
         expect(mark!.compareDocumentPosition(time!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // The light is what says a conversation is held: a row that is held is not filled,
+        // and only a press on it fills it (the hover of the list).
+        expect(row.className.split(" ")).not.toContain("bg-accent");
 
         rerender(
             <QueryClientProvider client={new QueryClient(queryDefaults)}>
@@ -158,9 +160,7 @@ describe("SessionSidebar", () => {
                     <SessionSidebar
                         id="session"
                         endpoint="local"
-                        currentSessionId={mine.id}
-                        working
-                        busy
+                        attached={new Map([[mine.path, { session: "main:1", working: true }]])}
                         onPick={() => undefined}
                         wide
                         column
@@ -232,18 +232,6 @@ describe("SessionSidebar", () => {
 
         answer([]);
         expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
-    });
-
-    it("holds every row still while a switch or a run is in the way", async () => {
-        const picked = vi.fn();
-        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "Fix the parser" })]);
-
-        renderSidebar({ busy: true, onPick: picked });
-
-        const row = await screen.findByRole("button", { name: /Fix the parser/ });
-        expect(row).toBeDisabled();
-        fireEvent.click(row);
-        expect(picked).not.toHaveBeenCalled();
     });
 
     it("shows the message Rust sent when the listing failed", async () => {

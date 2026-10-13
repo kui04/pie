@@ -1,18 +1,15 @@
 /**
- * The session actors of the app, by the id of the session they speak for, and the deps one
- * of them is built with.
+ * The session actors of the app, by the id of the session they speak for, and the deps one of
+ * them is built with.
  *
- * A session's chart lives as long as the screen holds it (v1: `ensureSession` on the mount
- * of a session, `forgetSession` on the leave; a later milestone syncs the map with the
- * sessions of the connection, so an actor outlives the screen that opened it). The map is
- * app-wide infrastructure, like the query client of `lib/query.ts`: it hands out actor refs,
- * and it holds no state of its own.
+ * The actors follow the sessions of the connection, not the screen: `syncSessions` runs for the
+ * list that Rust answers with, so a session that is not on screen keeps its listeners, its
+ * overlay, its rows and its phase - the screen that selects it later shows the run as it is. The
+ * map is app-wide infrastructure, like the query client of `lib/query.ts`: it hands out actor
+ * refs and the phase of each, and it holds no state of its own.
  *
- * The deps are a module factory: every part of them - the query client, the bridge,
- * the toast - is a singleton, so no React hook is involved, and a screen never creates
- * an actor. A chart stops when the last hand goes, at the end of that task: React's
- * StrictMode runs the effects of a mount twice (start, stop, start), and the screen that
- * starts again must find the chart, the transcript and the run it left.
+ * The deps are a module factory: every part of them - the query client, the bridge, the toast -
+ * is a singleton, so no React hook is involved, and a screen never creates an actor.
  */
 
 import { createActor, type ActorRefFrom } from "xstate";
@@ -21,8 +18,9 @@ import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
 import type { Event as SessionRecord } from "@/lib/rpc-protocol";
+import type { RunPhase } from "@/lib/stream";
 import { toastNotice, type Notice, type ReadTarget } from "@/lib/session-records";
-import { sessionMachine, type SessionDeps } from "@/machines/session.machine";
+import { phaseOf, sessionMachine, type SessionDeps } from "@/machines/session.machine";
 
 /** One running chart of one session. */
 export type SessionRef = ActorRefFrom<typeof sessionMachine>;
@@ -64,58 +62,77 @@ export function sessionDeps(session: string, client: QueryClient): SessionDeps {
     };
 }
 
-/** One slot: the actor, how many screens hold it, and the stop that waits for the task. */
-interface Slot {
-    actor: SessionRef;
-    count: number;
-    /** The token of the stop that is waiting; a hand that comes back clears it. */
-    pending: symbol | null;
-}
-
-const slots = new Map<string, Slot>();
+const slots = new Map<string, SessionRef>();
 const readers = new Set<() => void>();
+/** One subscription per slot, to the changes of that actor. */
+const watching = new Map<string, () => void>();
+/** The phases of every session, rebuilt only when one of them changes. */
+let phaseMap: ReadonlyMap<string, RunPhase> = new Map();
 
-/** Tells every reader of the map that it changed. */
+/** Tells every reader of the registry that it changed. */
 function notify(): void {
     for (const read of readers) read();
 }
 
-/** Starts the chart of a session, or counts another hand on the one that runs. */
-export function ensureSession(session: string, client: QueryClient): void {
-    const held = slots.get(session);
-    if (held !== undefined) {
-        held.count += 1;
-        held.pending = null;
-        return;
-    }
-    const actor = createActor(sessionMachine, { input: sessionDeps(session, client) });
-    actor.start();
-    slots.set(session, { actor, count: 1, pending: null });
+/** The phase of each session the registry holds, as one value a list can light its rows by. */
+export function phases(): ReadonlyMap<string, RunPhase> {
+    return phaseMap;
+}
+
+/** Keeps the phase map in step with one actor, and tells the readers when it moved. */
+function hearPhase(session: string, actor: SessionRef): void {
+    const phase = phaseOf(actor.getSnapshot());
+    if (phaseMap.get(session) === phase) return;
+    const next = new Map(phaseMap);
+    next.set(session, phase);
+    phaseMap = next;
     notify();
 }
 
-/** Drops one hand; the chart stops when the last one goes, and the task it went in ends. */
+/** Starts the chart of a session, or nothing when its chart is already running. */
+export function ensureSession(session: string, client: QueryClient): void {
+    if (slots.has(session)) return;
+    const actor = createActor(sessionMachine, { input: sessionDeps(session, client) });
+    actor.start();
+    slots.set(session, actor);
+    const subscription = actor.subscribe(() => hearPhase(session, actor));
+    watching.set(session, () => subscription.unsubscribe());
+    hearPhase(session, actor);
+}
+
+/** Stops the chart of a session: the connection no longer holds it. */
 export function forgetSession(session: string): void {
-    const held = slots.get(session);
-    if (held === undefined) return;
-    held.count = Math.max(0, held.count - 1);
-    if (held.count > 0) return;
-    const token: symbol = Symbol(session);
-    held.pending = token;
-    queueMicrotask(() => {
-        if (held.pending !== token) return;
-        held.actor.stop();
-        if (slots.get(session) === held) slots.delete(session);
-        notify();
-    });
+    const actor = slots.get(session);
+    if (actor === undefined) return;
+    watching.get(session)?.();
+    watching.delete(session);
+    slots.delete(session);
+    actor.stop();
+    const next = new Map(phaseMap);
+    next.delete(session);
+    phaseMap = next;
+    notify();
+}
+
+/**
+ * Keeps the charts in step with the sessions of one connection: one for each, and none for the
+ * rest. A connection that holds no session - and a window that holds no connection - forgets
+ * every chart, because a chart speaks for a process that is gone.
+ */
+export function syncSessions(sessions: readonly string[], client: QueryClient): void {
+    const held = new Set(sessions);
+    for (const session of sessions) ensureSession(session, client);
+    for (const session of [...slots.keys()]) {
+        if (!held.has(session)) forgetSession(session);
+    }
 }
 
 /** The chart of a session, or `null` while none runs for it. */
 export function sessionOf(session: string): SessionRef | null {
-    return slots.get(session)?.actor ?? null;
+    return slots.get(session) ?? null;
 }
 
-/** Reads the ids of the running charts, for a component that renders them. */
+/** Reads the registry, for a component that shows a session or a list of them. */
 export function subscribeSessions(read: () => void): () => void {
     readers.add(read);
     return () => {
