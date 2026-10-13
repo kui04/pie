@@ -48,11 +48,9 @@ beforeEach(() => {
     bridge.providerLogo.mockResolvedValue(null);
 });
 
-/** A host that offers `count` models of one provider. */
-const catalogue = (count: number) =>
-    Array.from({ length: count }, (_, index) =>
-        model({ id: `model-${index}`, name: `Model ${index}`, provider: "opencode" }),
-    );
+/** A host that offers `count` models of one provider, named after it. */
+const catalogue = (count: number, provider: string, label: string) =>
+    Array.from({ length: count }, (_, index) => model({ id: `model-${index}`, name: `${label} ${index}`, provider }));
 
 describe("the model of the session", () => {
     it("shows the active model, and marks it in the list", async () => {
@@ -127,38 +125,137 @@ describe("the model of the session", () => {
         expect(bridge.providerLogo).toHaveBeenCalledTimes(1);
     });
 
-    it("draws forty rows of a catalog of hundreds, led by the model in use", async () => {
+    it("holds the shape of the list while the models are on their way", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600) });
+        // A read that never answers: the popup is opened before the catalog is here.
+        bridge.getAvailableModels.mockReturnValue(new Promise(() => undefined));
 
-        renderPicker({ current: model({ id: "model-500", name: "Model 500", provider: "opencode" }) });
+        renderPicker({ current: model() });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
 
-        // Every model is offered, and forty of them are drawn: the row in use leads
-        // them, because it may sit anywhere in the catalog.
-        const options = await screen.findAllByRole("option");
-        expect(options).toHaveLength(40);
-        expect(options[0]).toHaveTextContent("Model 500");
-        expect(options[0]).toHaveAttribute("aria-selected", "true");
+        expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(10);
+        expect(screen.getByRole("status", { name: "Loading the models" })).toBeInTheDocument();
+        expect(screen.queryAllByRole("option")).toEqual([]);
     });
 
-    it("finds a model that lies past the rows it draws", async () => {
+    it("says what happened when the models cannot be read", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600) });
+        bridge.getAvailableModels.mockRejectedValue(new Error("the session is gone"));
+
+        renderPicker({ current: model() });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+
+        // A read that failed is not a search that found nothing.
+        expect(await screen.findByText("Could not read the models.")).toBeInTheDocument();
+        expect(screen.queryByText("No match.")).toBeNull();
+        expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    });
+
+    it("draws every model of a catalog of hundreds, led by the model in use", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({
+            models: [...catalogue(300, "anthropic", "Claude"), ...catalogue(300, "deepseek", "DeepSeek")],
+        });
+
+        renderPicker({ current: model({ id: "model-150", name: "DeepSeek 150", provider: "deepseek" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+
+        // Every model of the host is offered, not the first of them alone: the row in
+        // use leads, and the rest follow one provider after another, as pi lists them.
+        const options = await screen.findAllByRole("option");
+        expect(options).toHaveLength(600);
+        expect(options[0]).toHaveTextContent("DeepSeek 150");
+        expect(options[0]).toHaveAttribute("aria-selected", "true");
+        expect(options[1]).toHaveTextContent("Claude 0");
+        expect(options[300]).toHaveTextContent("Claude 299");
+        expect(options[301]).toHaveTextContent("DeepSeek 0");
+        expect(options[599]).toHaveTextContent("DeepSeek 299");
+        // The row in use is in the list once, where it leads it.
+        expect(screen.getAllByRole("option", { name: /DeepSeek 150/ })).toHaveLength(1);
+    });
+
+    it("finds a model by any way it is named", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
 
         renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
         await screen.findAllByRole("option");
 
-        // The search reads the whole catalog, not the forty rows drawn: a model the
-        // cap leaves out is reached by typing its name.
-        await user.type(screen.getByPlaceholderText("Search models"), "Model 555");
+        // The search reads the whole catalog and ranks it by pi's own matching: the words
+        // of the query may come in any order, and the rows follow the ranking.
+        await user.type(screen.getByPlaceholderText("Search models"), "555 model");
 
-        const found = await screen.findByRole("option", { name: /Model 555/ });
-        expect(found).toHaveAttribute("aria-selected", "true");
+        const options = await screen.findAllByRole("option");
+        expect(options[0]).toHaveTextContent("Model 555");
+        // The cursor is on the best match, which is the row the keyboard is on - the
+        // mark of the model in use is a different thing and stays on that row.
+        expect(screen.getByRole("combobox", { name: "Search models" })).toHaveAttribute(
+            "aria-activedescendant",
+            options[0]?.id,
+        );
 
         // And Enter takes the row the keyboard is on, which is the first match.
         await user.keyboard("{Enter}");
         await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "opencode", "model-555"));
+    });
+
+    it("ranks a provider's own model over a proxy that spells the same model out", async () => {
+        const user = userEvent.setup();
+        // One host that reaches the same model twice: its own provider, and a proxy whose id
+        // spells the provider's name out. This is the pair pi's search text is built for.
+        bridge.getAvailableModels.mockResolvedValue({
+            models: [
+                model({ provider: "openrouter", id: "openai/gpt-5", name: "GPT-5 (proxy)" }),
+                model({ provider: "openai", id: "gpt-5", name: "GPT-5" }),
+                model({ provider: "openai", id: "gpt-5-codex", name: "GPT-5 Codex" }),
+                model({ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }),
+            ],
+        });
+        const names = () => screen.queryAllByRole("option").map((row) => row.textContent);
+
+        renderPicker({ current: model({ provider: "openai", id: "gpt-5", name: "GPT-5" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        const search = screen.getByRole("combobox", { name: "Search models" });
+
+        // `provider/id` leads with the provider's own model, and a slash splits the query
+        // like a space does.
+        await user.type(search, "openai/gpt-5");
+        expect(names()).toEqual(["GPT-5", "GPT-5 Codex", "GPT-5 (proxy)"]);
+
+        // The words of a query may come in any order, and either case.
+        await user.clear(search);
+        await user.type(search, "CODEX openai");
+        expect(names()).toEqual(["GPT-5 Codex"]);
+
+        // A word of the name of a model finds it too.
+        await user.clear(search);
+        await user.type(search, "sonnet");
+        expect(names()).toEqual(["Claude Sonnet 4.5"]);
+
+        // A word that no model holds empties the list rather than halving it.
+        await user.clear(search);
+        await user.type(search, "openai llama");
+        expect(names()).toEqual([]);
+        expect(screen.getByText("No match.")).toBeInTheDocument();
+    });
+
+    it("moves the cursor over the whole list with the arrows", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
+
+        renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        const options = await screen.findAllByRole("option");
+        const cursor = screen.getByRole("combobox", { name: "Search models" });
+        expect(cursor).toHaveAttribute("aria-activedescendant", options[0]?.id);
+
+        // The list is one cursor deep, whatever its length: the arrows walk it and the
+        // keyboard takes what it stands on.
+        await user.keyboard("{ArrowDown}{ArrowDown}");
+        expect(cursor).toHaveAttribute("aria-activedescendant", options[2]?.id);
+        await user.keyboard("{Enter}");
+
+        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "opencode", "model-2"));
     });
 });

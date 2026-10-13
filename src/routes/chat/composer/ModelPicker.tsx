@@ -8,20 +8,20 @@
  * the active value comes from the state of the session. The value a row shows is the
  * value of pi, verbatim.
  *
- * A host with every provider configured offers some six hundred models, which is far
- * more than the popup can show: the search reads the whole catalog, and the list draws
- * the rows it ranks first (see `MODEL_ROWS`).
+ * A host with every provider configured offers some six hundred models, so the popup draws
+ * every one of them, ordered as pi orders them, and searches them by pi's own matching
+ * (`lib/fuzzy.ts`): a model that typing finds in pi is found by typing the same here.
  */
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Command as CommandPrimitive, defaultFilter } from "cmdk";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useState } from "react";
 import { Bot, Check, Search } from "lucide-react";
-import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button, Popover, PopoverContent, PopoverTrigger } from "@/components/ui";
+import { Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
 import { ScrollPane } from "@/components";
 import * as bridge from "@/lib/bridge";
+import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 
@@ -38,17 +38,30 @@ export interface ModelPickerProps {
 export function ModelPicker({ session, current, open, onOpenChange }: ModelPickerProps) {
     const client = useQueryClient();
     const models = useQuery({ ...sessionQueries.models(session), enabled: open });
+    const mark = useProviderLogo(current?.provider ?? null);
     const catalogue = models.data?.models;
     const value = current === null ? null : choiceOf(current);
 
-    const choose = (chosen: string) => {
-        const model = catalogue?.find((candidate) => choiceOf(candidate) === chosen);
-        if (model === undefined || chosen === value) return;
-        void bridge
-            .setModel(session, model.provider, model.id)
-            .then(() => client.invalidateQueries({ queryKey: sessionQueries.state(session).queryKey }))
-            .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
-    };
+    const choose = useCallback(
+        (chosen: string) => {
+            const model = catalogue?.find((candidate) => choiceOf(candidate) === chosen);
+            if (model === undefined || chosen === value) return;
+            void bridge
+                .setModel(session, model.provider, model.id)
+                .then(() => client.invalidateQueries({ queryKey: sessionQueries.state(session).queryKey }))
+                .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
+        },
+        // The rows hold this, and a fresh one would redraw all of them.
+        [catalogue, client, session, value],
+    );
+
+    const pick = useCallback(
+        (chosen: string) => {
+            onOpenChange(false);
+            choose(chosen);
+        },
+        [choose, onOpenChange],
+    );
 
     return (
         <Popover open={open} onOpenChange={onOpenChange}>
@@ -68,7 +81,7 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                         "max-sm:justify-center max-sm:px-0",
                     )}
                 >
-                    <ProviderMark provider={current?.provider ?? null} />
+                    <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} />
                     <span className="text-label-lg hidden max-w-40 truncate sm:block">{current?.name ?? "Model"}</span>
                 </Button>
             </PopoverTrigger>
@@ -87,11 +100,9 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
             >
                 <ModelMenu
                     catalogue={catalogue ?? []}
+                    state={models.isPending ? "loading" : models.isError ? "failed" : "ready"}
                     value={value}
-                    onChoose={(chosen) => {
-                        onOpenChange(false);
-                        choose(chosen);
-                    }}
+                    onChoose={pick}
                 />
             </PopoverContent>
         </Popover>
@@ -101,52 +112,58 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
 interface ModelMenuProps {
     /** Every model the session can use, as pi named it. */
     catalogue: readonly Model[];
+    /** Where the catalog is: on its way, here, or not to be had. */
+    state: "loading" | "failed" | "ready";
     /** The model in use, by `choiceOf`, which leads the rows while nothing is typed. */
     value: string | null;
     onChoose: (choice: string) => void;
 }
 
 /**
- * The list of the popup: the search, the rows it draws, and the keyboard over them.
+ * The list of the popup: the search, the rows it draws, and the cursor over them.
+ *
+ * The rows are pi's own shape and not a list widget's: pi's terminal selector keeps one
+ * cursor and draws every row itself. The shape matters at this size - the same catalog
+ * through a list widget took 150ms to open on a desktop, and a cap on the drawn rows was
+ * what hid the rest of it instead.
  *
  * A closed popup keeps nothing of it: Radix draws the content only while it is open, so
- * the list mounts with it and forgets the search it was left with.
+ * the list mounts with it and forgets what was typed in it.
  */
-function ModelMenu({ catalogue, value, onChoose }: ModelMenuProps) {
+function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     const [query, setQuery] = useState("");
+    const [cursor, setCursor] = useState(0);
+    const marks = useProviderMarks(catalogue);
+    const listId = `${useId()}-models`;
 
-    // What the popup draws: the whole catalog while nothing is typed, the rows the
-    // search ranks first once something is, and never more than `MODEL_ROWS` of them.
+    // What the popup draws: the whole catalog, ordered by provider while nothing is
+    // typed and ranked by pi's own matching once something is.
     const shown = useMemo(() => {
         const search = query.trim();
-        if (search === "") {
-            // The model in use leads the list: the popup opens on it.
-            const rest = catalogue.filter((model) => choiceOf(model) !== value);
-            const inUse = catalogue.find((model) => choiceOf(model) === value);
-            return (inUse === undefined ? rest : [inUse, ...rest]).slice(0, MODEL_ROWS);
-        }
-        return (
-            catalogue
-                .map((model) => ({ model, score: defaultFilter(choiceOf(model), search, [model.name]) }))
-                .filter((row) => row.score > 0)
-                // The sort is stable, so rows of one score keep the catalog's own order.
-                .sort((left, right) => right.score - left.score)
-                .slice(0, MODEL_ROWS)
-                .map((row) => row.model)
-        );
+        return search === "" ? orderedByProvider(catalogue, value) : searchModels(catalogue, search);
     }, [catalogue, query, value]);
 
+    // A search of its own leaves the cursor on the first row, the best match, as pi does;
+    // and the cursor never points past a row that exists.
+    const at = shown.length === 0 ? -1 : Math.min(cursor, shown.length - 1);
+    const move = (step: number) => {
+        if (shown.length === 0) return;
+        setCursor((current) => (current + step + shown.length) % shown.length);
+    };
+
+    useLayoutEffect(() => {
+        if (at < 0) return;
+        document.getElementById(`${listId}-${at}`)?.scrollIntoView({ block: "nearest" });
+    }, [at, listId, query]);
+
+    // A catalog that could not be read is not a search that found nothing: the popup says
+    // what happened instead of offering a list of nothing, and there is nothing to search.
+    if (state === "failed") {
+        return <p className="text-muted-foreground text-body-md px-2 py-4 text-center">Could not read the models.</p>;
+    }
+
     return (
-        <CommandPrimitive
-            // The rows arrive ranked and counted: the search reads the whole catalog,
-            // which cmdk cannot see, because it filters what is drawn. Its own keyboard
-            // keeps up with them: it takes the first row as the search changes, and the
-            // arrows move it from there.
-            shouldFilter={false}
-            defaultValue={value ?? undefined}
-            label="Choose the model"
-            className="flex min-h-0 flex-1 flex-col gap-1"
-        >
+        <div className="flex min-h-0 flex-1 flex-col gap-1">
             <div
                 className={cn(
                     "border-border-strong bg-surface-container-highest",
@@ -154,57 +171,172 @@ function ModelMenu({ catalogue, value, onChoose }: ModelMenuProps) {
                 )}
             >
                 <Search className="text-muted-foreground size-4 shrink-0" aria-hidden />
-                <CommandPrimitive.Input
+                <input
+                    role="combobox"
+                    aria-expanded
+                    aria-controls={listId}
+                    aria-activedescendant={at < 0 ? undefined : `${listId}-${at}`}
+                    aria-autocomplete="list"
+                    aria-label="Search models"
+                    // The search is what a model is found by, so the popup opens on it.
+                    autoFocus
                     value={query}
-                    onValueChange={setQuery}
+                    onChange={(event) => {
+                        setQuery(event.target.value);
+                        setCursor(0);
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key === "ArrowDown") {
+                            event.preventDefault();
+                            move(1);
+                        } else if (event.key === "ArrowUp") {
+                            event.preventDefault();
+                            move(-1);
+                        } else if (event.key === "Enter") {
+                            const picked = at < 0 ? undefined : shown[at];
+                            if (picked !== undefined) {
+                                event.preventDefault();
+                                onChoose(choiceOf(picked));
+                            }
+                        }
+                    }}
                     placeholder="Search models"
                     className="text-body-md placeholder:text-outline min-w-0 flex-1 bg-transparent outline-hidden"
                 />
             </div>
             <ScrollPane id="composer-model-scroll" className="min-h-0 flex-1">
-                <CommandPrimitive.List className="flex min-h-0 flex-col outline-none [&>div]:flex [&>div]:flex-col [&>div]:gap-1">
-                    <CommandPrimitive.Empty className="text-muted-foreground text-body-md py-2 text-center">
-                        No match.
-                    </CommandPrimitive.Empty>
-                    {shown.map((model) => {
-                        const choice = choiceOf(model);
-                        const inUse = choice === value;
-                        return (
-                            <CommandPrimitive.Item
-                                key={choice}
-                                value={choice}
-                                onSelect={() => onChoose(choice)}
-                                className={cn(
-                                    "text-muted-foreground flex cursor-default items-center gap-2",
-                                    "rounded-lg px-2 py-2 outline-hidden select-none",
-                                    "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
-                                    inUse && "bg-accent text-accent-foreground font-medium",
-                                )}
-                            >
-                                <ProviderMark provider={model.provider} />
-                                <span className="text-body-md min-w-0 flex-1 truncate">{model.name}</span>
-                                {inUse && <Check className="text-primary-text size-4 shrink-0" aria-label="In use" />}
-                            </CommandPrimitive.Item>
-                        );
-                    })}
-                </CommandPrimitive.List>
+                {state === "loading" ? (
+                    <ModelSkeleton />
+                ) : (
+                    <div role="listbox" id={listId} aria-label="Models" className="flex flex-col gap-1 outline-none">
+                        {shown.length === 0 && (
+                            <p className="text-muted-foreground text-body-md py-2 text-center">No match.</p>
+                        )}
+                        {shown.map((model, index) => (
+                            <ModelRow
+                                key={choiceOf(model)}
+                                id={`${listId}-${index}`}
+                                model={model}
+                                mark={marks.get(model.provider) ?? null}
+                                at={index}
+                                inUse={choiceOf(model) === value}
+                                selected={index === at}
+                                onCursor={setCursor}
+                                onChoose={onChoose}
+                            />
+                        ))}
+                    </div>
+                )}
             </ScrollPane>
-        </CommandPrimitive>
+        </div>
     );
 }
 
+interface ModelRowProps {
+    id: string;
+    model: Model;
+    /** The mark of this row's provider. */
+    mark: string | null;
+    /** Where the row sits in the list, which is what the cursor moves over. */
+    at: number;
+    /** Whether this is the model in use. */
+    inUse: boolean;
+    /** Whether the cursor is on this row. */
+    selected: boolean;
+    onCursor: (at: number) => void;
+    onChoose: (choice: string) => void;
+}
+
 /**
- * How many matches the popup draws at once.
- *
- * The popup is 240px of a column, about six rows of it, while a host with every
- * provider configured offers some six hundred models: drawing all of them is a wait
- * on every open, and the same wait on every key pressed.
+ * One row. It is drawn again only when it changes: the props of a row that stays in the list
+ * are the same objects and numbers on every keystroke, so typing does not redraw six hundred
+ * rows - the cursor moving between two of them redraws two.
  */
-const MODEL_ROWS = 40;
+const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, selected, onCursor, onChoose }: ModelRowProps) {
+    const choice = choiceOf(model);
+    return (
+        <div
+            id={id}
+            role="option"
+            aria-selected={inUse}
+            data-selected={selected}
+            onClick={() => onChoose(choice)}
+            onMouseMove={() => onCursor(at)}
+            className={cn(
+                "text-muted-foreground flex cursor-default items-center gap-2",
+                "rounded-lg px-2 py-2 select-none",
+                // The list is far longer than the popup: a row outside it is left unlaid,
+                // and its own height is what the scrollbar counts it as.
+                "[contain-intrinsic-size:auto_2.25rem] [content-visibility:auto]",
+                // The cursor is what a keyboard moves; the row in use keeps its own tint.
+                "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+                inUse && "bg-accent text-accent-foreground font-medium",
+            )}
+        >
+            <ProviderMark provider={model.provider} mark={mark} />
+            <span className="text-body-md min-w-0 flex-1 truncate">{model.name}</span>
+            {inUse && <Check className="text-primary-text size-4 shrink-0" aria-label="In use" />}
+        </div>
+    );
+});
+
+/**
+ * The rows of the popup before the catalog arrives: the layout a row takes, drawn as bars, so
+ * the popup opens at the height it keeps and does not move when the models land. Five of them
+ * fill it, each with the mark of a provider and a name, and a row of a reader who asked for
+ * less motion stands still.
+ */
+function ModelSkeleton() {
+    return (
+        <div role="status" aria-label="Loading the models" className="flex flex-col gap-1">
+            {WIDTHS.map((width, row) => (
+                <div key={row} aria-hidden className="flex items-center gap-2 rounded-lg px-2 py-2">
+                    <Skeleton className="size-4 shrink-0 motion-reduce:animate-none" />
+                    <Skeleton className={cn("h-5", width, "motion-reduce:animate-none")} />
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/** The width of each name bar, so the rows do not read as one bar repeated. */
+const WIDTHS = ["w-3/5", "w-2/5", "w-1/2", "w-1/3", "w-4/5"];
+
+/**
+ * The rows while nothing is typed: the model in use first, then by provider, as pi's own
+ * selector lists them. pi also lifts its saved default model second, which pie has no
+ * notion of - the default of a session is what pi was started with.
+ */
+function orderedByProvider(catalogue: readonly Model[], value: string | null): readonly Model[] {
+    const rest = catalogue
+        .filter((model) => choiceOf(model) !== value)
+        .sort((left, right) => left.provider.localeCompare(right.provider));
+    const inUse = catalogue.find((model) => choiceOf(model) === value);
+    return inUse === undefined ? rest : [inUse, ...rest];
+}
 
 /** What a row is worth: provider and id, the way a model is named here and in pi. */
 function choiceOf(model: Model) {
     return `${model.provider}/${model.id}`;
+}
+
+/**
+ * The text a query is matched against, as pi's own `/model` selector builds it
+ * (`packages/coding-agent/src/modes/interactive/model-search.ts` of the pinned release).
+ *
+ * The provider leads, and the bare id does not: a query naming a provider must find the
+ * provider's own model before a proxy's, whose id spells the same model out
+ * (`openrouter/openai/gpt-5` against `openai/gpt-5`).
+ */
+function getModelSearchText(model: Model): string {
+    const { id, provider } = model;
+    const name = model.name ? ` ${model.name}` : "";
+    return `${provider} ${provider}/${id} ${provider} ${id}${name}`;
+}
+
+/** The models the query finds, best first, by pi's matching and pi's ranking. */
+function searchModels(models: readonly Model[], query: string): readonly Model[] {
+    return fuzzyFilter(models, query, (model) => getModelSearchText(model));
 }
 
 /**
@@ -228,6 +360,29 @@ function useProviderLogo(provider: string | null) {
 }
 
 /**
+ * The marks of every provider of the catalog, asked for once for the whole list.
+ *
+ * One question per provider and not one per row: a row that asked for its own mark would
+ * put a subscription into each of six hundred rows, and opening the popup would wait on all
+ * of them.
+ */
+function useProviderMarks(catalogue: readonly Model[]): ReadonlyMap<string, string | null> {
+    const providers = useMemo(() => [...new Set(catalogue.map((model) => model.provider))], [catalogue]);
+    const marks = useQueries({
+        queries: providers.map((provider) => ({
+            queryKey: ["provider-logo", provider],
+            queryFn: () => bridge.providerLogo(provider),
+            staleTime: LOGO_TTL,
+            retry: false,
+        })),
+    });
+    return useMemo(
+        () => new Map(providers.map((provider, index) => [provider, marks[index]?.data ?? null])),
+        [marks, providers],
+    );
+}
+
+/**
  * The mark of a provider: the logo of models.dev, or the key of the composer
  * when the provider has none.
  *
@@ -235,9 +390,8 @@ function useProviderLogo(provider: string | null) {
  * and lets the theme supply the ink, which an `<img>` cannot: inside an image,
  * `currentColor` is black whatever the page says.
  */
-function ProviderMark({ provider }: { provider: string | null }) {
-    const logo = useProviderLogo(provider);
-    if (logo.data === null || logo.data === undefined) {
+function ProviderMark({ provider, mark }: { provider: string | null; mark: string | null }) {
+    if (mark === null) {
         return <Bot className="size-4 shrink-0" aria-hidden />;
     }
     return (
@@ -246,11 +400,11 @@ function ProviderMark({ provider }: { provider: string | null }) {
             aria-hidden
             className="size-4 shrink-0 bg-current"
             style={{
-                maskImage: `url(${logo.data})`,
+                maskImage: `url(${mark})`,
                 maskPosition: "center",
                 maskRepeat: "no-repeat",
                 maskSize: "contain",
-                WebkitMaskImage: `url(${logo.data})`,
+                WebkitMaskImage: `url(${mark})`,
                 WebkitMaskPosition: "center",
                 WebkitMaskRepeat: "no-repeat",
                 WebkitMaskSize: "contain",

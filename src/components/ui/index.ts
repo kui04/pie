@@ -53,6 +53,7 @@ export {
 } from "./popover";
 export { RadioGroup, RadioGroupItem } from "./radio-group";
 export { Separator } from "./separator";
+export { Skeleton } from "./skeleton";
 export { Toaster } from "./sonner";
 export { Spinner } from "./spinner";
 export { Textarea } from "./textarea";

@@ -632,14 +632,16 @@ the message box with it: the composer's own plane (`card`) in the composer's
 shape — the `lg` corner and the raised elevation, `space-sm` of padding,
 `space-xs` between the rows, 17rem wide for the models and 11rem for the levels,
 and a fixed 240px where a host may offer more models than fit — six hundred of
-them on a host with every provider configured, of which the popup draws the
-forty the search ranks first, led by the model in use. The search reads all of
-them, so a model past those rows is reached by typing, not by scrolling. The
-mark of a model's provider leads its key and its row — 16px, the shape of
-models.dev in the ink of the surface under it, and the key of the composer where
-models.dev has no mark — fetched once and kept for a day. The command menu's
-panel is the same plane and shape, as wide as the card it stands above, and
-shows ten rows before it scrolls. Its rows take the menu's accent
+them on a host with every provider configured, and it draws every one of them
+and scrolls rather than cutting the list short: the model in use leads, the rest
+follow one provider after another, and a search ranks them by pi's own matching,
+so a model that typing finds in pi is found by typing the same here. While the
+catalog is on its way the popup holds those rows as bars, so it opens at the
+height it keeps. The mark of a model's provider leads its key and its row —
+16px, the shape of models.dev in the ink of the surface under it, and the key of
+the composer where models.dev has no mark — fetched once and kept for a day. The
+command menu's panel is the same plane and shape, as wide as the card it stands
+above, and shows ten rows before it scrolls. Its rows take the menu's accent
 (`selected-row`) — the row under the pointer or the keyboard, and the row in use
 with its check in `primary-text` — and a row of the command menu reads in two
 inks: the name in the plane's own (`foreground`), and what the command says
