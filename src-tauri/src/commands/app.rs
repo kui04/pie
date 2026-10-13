@@ -200,13 +200,15 @@ fn logo_failure(provider: &str, source: ureq::Error) -> Error {
 /// none.
 ///
 /// The frontend draws it beside the model in use and at the left of every row of
-/// the picker. models.dev is the source; a request that fails answers `None`
-/// within [`LOGO_RETRY`], where the frontend draws its own icon.
+/// the picker. models.dev is the source; a request that fails answers `None` for
+/// as long as that failure is remembered (`LOGO_RETRY` of this file), and the
+/// frontend draws its own icon until then.
 ///
 /// # Errors
 ///
 /// [`Error::LogoFetch`] when models.dev cannot be reached or answers badly. The
-/// failure is remembered for [`LOGO_RETRY`].
+/// failure stands for the same while, so a popup opened again does not ask again
+/// at once.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(provider = %provider))]
 pub async fn provider_logo(provider: String) -> Result<Option<String>, PieError> {

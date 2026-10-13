@@ -7,9 +7,9 @@
 //!   (`main:1`) is pie's own, and it is the name of the events of that session.
 //!   It lives as long as the process does, and [`SessionManager::close`] ends it.
 //! - a **conversation file** is a session of pi: the JSONL file it appends to,
-//!   with an id of its own. One process moves between them without restarting
-//!   ([`Session::switch_session`]), and they outlive the process - a disconnect
-//!   stops pi, and the files stay where pi wrote them.
+//!   with an id of its own. One process holds the one it was attached on, and
+//!   they outlive the process - a disconnect stops pi, and the files stay where
+//!   pi wrote them.
 //!
 //! [`SessionManager`] is the app's one handle to both. It owns the [`Host`] it
 //! reached, because the two live and die together, and it owns the pi processes
