@@ -74,7 +74,7 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 // The draft's model popup is a fixed 240px (its own max-height), so the
                 // popup is the same shape whether a host offers three models or six
                 // hundred.
-                className="elevation-raised bg-card text-foreground mx-2 flex h-60 max-h-60 w-68 flex-col gap-1 overflow-hidden p-2 shadow-none ring-0"
+                className="elevation-raised bg-card text-foreground mx-2 flex h-60 max-h-60 w-68 flex-col gap-1 overflow-hidden p-2"
             >
                 <ModelMenu
                     catalogue={catalogue ?? []}

@@ -217,9 +217,9 @@ components:
     rounded: "{rounded.lg}"
     padding: 8px
   composer-popup:
-    backgroundColor: "{colors.popover}"
+    backgroundColor: "{colors.card}"
     textColor: "{colors.foreground}"
-    rounded: "{rounded.xl}"
+    rounded: "{rounded.lg}"
     padding: 8px
   dialog:
     backgroundColor: "{colors.popover}"
@@ -398,25 +398,34 @@ divider inside a tile is a 1px hairline in `divider`; a tile's footer is
 separated from its body by that hairline, never by a gap alone. This is what
 keeps a long transcript readable: no edges accumulate down the column.
 
-**Raised and inset — where two surfaces meet.** The composer is set into the
-page: the window lies above it along its top edge, and the light catches its
-bottom one (`elevation-inset`). The layers over it — its command list and its
-two pickers — are raised: the light catches their top edge and their shadow
-falls below (`elevation-raised`), on the composer's own plane and with the `lg`
-corner, so the family reads as one. Both take their two colours from the theme
-(`--elevation-highlight`, `--elevation-shadow`), because dark and light disagree
-about a highlight and about a shadow.
+**Raised — where two surfaces meet.** The composer is a surface of its own at
+the foot of the page, and the layers over it — its command list and its two
+pickers — stand on the same plane: `card`, the `lg` corner, and
+`elevation-raised`, so the family reads as one. That utility is the whole
+treatment: a small, dark shadow under the surface and a 0.5px hairline along its
+own edge, drawn inside the box. The shadow is one tight layer that wraps the
+whole shape, which a shadow this small affords — the shape of it is an fcitx5
+theme's, drawn in SVG: about 1.4px down and to the right, 3px of blur, in black
+at half opacity. The hairline is a shadow and not a border, so a surface keeps
+the size it was given; and it is drawn inside because the surface already stands
+a step above the page, so a line outside that step is a second edge rather than
+a crisper one. Its two colours come from the theme (`--elevation-shadow`,
+`--elevation-edge`), because dark and light disagree about both: a dark page
+reads a depth by a lighter line, a light page by a darker one. The way back to
+the end of the transcript is a key of the same family.
 
 **Floating — what the scrim does not.** A layer that leaves the page carries the
-theme's shadow: `shadow-sm` for the gate card, `shadow-md` for a pill, a menu or
-a popover, `shadow-lg` for a submenu. A toast brings the library's own. Its edge
-is a 1px hairline — `foreground` at 10% as a `ring` where the layer is a bare
-surface, the theme's `border` where it has a frame of its own. A layer with a
-scrim behind it shows no shadow at all: the scrim is what separates it, and a
-shadow on top of one answers the same question twice. A dialog dims the page
-with `bg-black/10`, a sheet with `surface-container-highest` at 70%, and each
-shows only its hairline. Nothing else is allowed a shadow: a shadow on an
-in-flow tile reads as a mistake, because the tile is not above anything.
+theme's shadow: `shadow-sm` for the gate card, `shadow-md` for a menu or a
+popover, `shadow-lg` for a submenu, and `elevation-raised` for the composer's
+own layers and for a key that floats over the transcript. A toast brings the
+library's own. Its edge is a 1px hairline — `foreground` at 10% as a `ring`
+where the layer is a bare surface, the theme's `border` where it has a frame of
+its own. A layer with a scrim behind it shows no shadow at all: the scrim is
+what separates it, and a shadow on top of one answers the same question twice. A
+dialog dims the page with `bg-black/10`, a sheet with
+`surface-container-highest` at 70%, and each shows only its hairline. Nothing
+else is allowed a shadow: a shadow on an in-flow tile reads as a mistake,
+because the tile is not above anything.
 
 ## Shapes
 
@@ -453,14 +462,16 @@ is zero, so the frame is one tree.
 
 The body under the bar is the chat, and it is a column: the transcript, then the
 composer at its foot. Both are capped to one content column, 64rem wide at most
-and centred. The composer's box stands 8px outside a row's content line on each
-side, and the 8px is its own corner: `rounded-lg` curves over exactly that much,
-so the curve ends where a row's words begin. The composer is a row of its own on
-the window's surface, not a layer over the words: the transcript ends where the
-band begins, so no row passes under it. The band takes the region's whole width,
-because the transcript's bar floats over the scroller's edge (see **Scrollbar**)
-rather than taking room of its own. And it shows itself only while the list
-moves, so a reader who is not scrolling sees no bar at all.
+and centred, and both keep 16px inside it, so the composer's box and the words
+of the transcript stand on one line: the 8px of its own corner curves over
+exactly where the content of the list ends on the same 8px (`rounded-b-lg` on
+the pane, so what leaves the list leaves along that curve). The composer is a
+row of its own on the window's surface, not a layer over the words: the
+transcript ends where the band begins, so no row passes under it. The band takes
+the region's whole width, because the transcript's bar floats over the
+scroller's edge (see **Scrollbar**) rather than taking room of its own. And it
+shows itself only while the list moves, so a reader who is not scrolling sees no
+bar at all.
 
 A column that opens — the session list above `lg` — is revealed by a clip: its
 wrapper owns the width the transcript gives up (256px), and the column inside it
@@ -568,7 +579,11 @@ models.dev has no mark — fetched once and kept for a day. The command menu's
 panel is the same plane and shape, as wide as the card it stands above, and
 shows ten rows before it scrolls. Its rows take the menu's accent
 (`selected-row`) — the row under the pointer or the keyboard, and the row in use
-with its check in `primary-text`.
+with its check in `primary-text` — and a row of the command menu reads in two
+inks: the name in the plane's own (`foreground`), and what the command says
+about itself in `muted-foreground`. The selected row reads in the selection's
+ink alone, because the muted ink on the accent fill is 4.37:1 — under what a
+sentence needs.
 
 **Field** — `input` fill, no visible stroke until focus, then a `ring` focus
 ring and a caret; 48px tall on a touch pointer.
@@ -616,7 +631,8 @@ visible only while the region moves, and costs the region's width nothing:
 ## Do's and Don'ts
 
 - **Do** tell surfaces apart with the surface ladder, and **don't** put an
-  outline or a shadow on something that is in the flow of the page.
+  outline or a shadow on a tile in the flow of the page — a depth belongs to the
+  composer and to what floats over it.
 - **Do** keep a tile's internals to one hairline; **don't** draw a frame inside
   a frame to group things — a heading is cheaper.
 - **Do** keep the accent for actions; **don't** colour a tool name with a status

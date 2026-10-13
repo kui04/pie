@@ -186,7 +186,7 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                 // whole width stays with the words.
                 viewportRef={viewport}
                 viewportClassName="pt-2"
-                className={cn("min-h-0 flex-1", className)}
+                className={cn("mx-auto min-h-0 w-full max-w-5xl flex-1 rounded-b-lg px-4", className)}
             >
                 <Virtualizer
                     ref={list}
@@ -218,11 +218,10 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                     {(row) => (
                         // Keyed by the row: virtua draws rows by position, and React
                         // would otherwise keep a card's state (an open body, a clock)
-                        // with the next row that lands in that position. The row
-                        // carries the content column, so it lines up with the composer
-                        // band below it, and the air under it is what separates one
-                        // entry from the next.
-                        <div key={row.id} className="mx-auto w-full max-w-5xl px-4 pb-3">
+                        // with the next row that lands in that position. The scroller
+                        // carries the content column, so a row is the entry and the air
+                        // under it, and the air is what separates one entry from the next.
+                        <div key={row.id} className="w-full pb-3">
                             <TranscriptEntry row={row} onRetractQueued={onRetractQueued} />
                         </div>
                     )}
@@ -236,13 +235,17 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                     aria-label="To bottom"
                     // The design's key: a 32px circle at the list's end edge on a
                     // narrow screen, a pill with its label from `sm`, either one a
-                    // step above that edge.
+                    // step above that edge. `border-0` is not tidying: a button brings
+                    // a transparent 1px border and clips its fill to the padding box,
+                    // so that ring would show the page through it and the hairline of
+                    // `elevation-raised` would read as a second edge beside it.
                     className={cn(
                         // Its own hover, not the variant's: the pill brings an opaque
-                        // background, so its hover has to be one too (`surface-bright`,
-                        // the plane the composer's keys hover on) - and one class, so
-                        // nothing of the variant survives beside it.
-                        "border-border bg-surface-container hover:bg-surface-bright text-foreground absolute right-2 bottom-2 size-8 rounded-full border p-0 shadow-md",
+                        // background, while the variant's dark hover is `muted` at half
+                        // alpha - translucent, and it outranks a plain `hover:` class -
+                        // so both are written out (`surface-bright`, the plane the
+                        // composer's keys hover on).
+                        "elevation-raised bg-surface-container hover:bg-surface-bright dark:hover:bg-surface-bright text-foreground absolute right-2 bottom-2 size-8 rounded-full border-0 p-0",
                         "sm:right-auto sm:left-1/2 sm:h-auto sm:w-max sm:-translate-x-1/2",
                         "sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2",
                     )}

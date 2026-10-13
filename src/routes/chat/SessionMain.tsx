@@ -238,10 +238,10 @@ export function SessionMain({
                         transition={leaving}
                         className="my-2 mt-auto flex shrink-0 items-center justify-center"
                     >
-                        {/* The composer's box stands 8px outside the transcript's
-                            content line on each side (`px-4` there), which is where
-                            its own 8px corner ends. */}
-                        <div className="mx-2 w-full max-w-5xl">
+                        {/* The composer's box and the transcript's content share one
+                            line, so its corner curves over exactly where the transcript
+                            ends on a curve of the same 8px (`rounded-b-lg` there). */}
+                        <div className="mx-auto w-full max-w-5xl px-4">
                             {empty && (
                                 <p className="text-body-md text-muted-foreground pb-3 text-center">
                                     Nothing has been said yet.

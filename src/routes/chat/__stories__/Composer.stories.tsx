@@ -35,9 +35,9 @@ const meta = {
         (Story) => (
             <Seeded>
                 {/* The box covers the foot of the transcript in the app; the story
-                    pins it to the same place, with the band's own 8px between the box
-                    and the pane's edge. */}
-                <div className="fixed inset-x-0 bottom-0 mx-auto w-full max-w-[64rem] p-2 font-sans">
+                    pins it to the same place, on the same content column, with the
+                    band's own air around it. */}
+                <div className="fixed inset-x-0 bottom-0 mx-auto w-full max-w-[64rem] px-4 py-2 font-sans">
                     <Story />
                 </div>
             </Seeded>

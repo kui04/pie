@@ -128,7 +128,7 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
             // of the spacing unit - so the list scrolls past what the panel shows and
             // no further.
             className={cn(
-                "elevation-raised bg-card text-foreground max-h-103 w-(--radix-popover-trigger-width) gap-1 overflow-hidden p-2 shadow-none ring-0",
+                "elevation-raised bg-card text-foreground max-h-103 w-(--radix-popover-trigger-width) gap-1 overflow-hidden p-2",
                 className,
             )}
         >
@@ -152,15 +152,22 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
                                     else items.current.delete(row.id);
                                 }}
                                 onSelect={() => onChoose(row)}
-                                // The row's shape is the primitive's; what it says about itself is the
-                                // draft's: a quiet word, and the row under the keyboard in the ink the
-                                // row in use would wear. The type ramp sits on the spans, where no
-                                // colour class is there for tailwind-merge to lose it to.
-                                className="text-muted-foreground"
+                                // The row's shape is the primitive's; the ink is the draft's,
+                                // and it is two tones: the name is what the reader reads, so
+                                // it stays on the panel's own ink (`foreground`), while the
+                                // description recedes. The type ramp sits on the spans,
+                                // where no colour class is there for tailwind-merge to lose
+                                // it to.
+                                className="group/item"
                             >
                                 <span className="text-body-md shrink-0 whitespace-nowrap">/{row.name}</span>
                                 {row.description !== null && (
-                                    <span className="text-body-md min-w-0 truncate">{row.description}</span>
+                                    // The description follows the selection too, and not as a
+                                    // decoration: `muted-foreground` on the `accent` fill is
+                                    // 4.37:1, under the 4.5 a sentence needs.
+                                    <span className="text-body-md text-muted-foreground group-data-[selected=true]/item:text-accent-foreground min-w-0 truncate">
+                                        {row.description}
+                                    </span>
                                 )}
                             </CommandItem>
                         ))}

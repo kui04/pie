@@ -220,7 +220,7 @@ export function Composer({ session, working }: ComposerProps) {
             {/* The card is the anchor of the panel and no trigger: the text typed in
                 it is what opens the list, and the list stands above it. */}
             <PopoverAnchor asChild>
-                <div id="composer" className="bg-card relative flex flex-col gap-3 rounded-lg p-4">
+                <div id="composer" className="elevation-raised bg-card relative flex flex-col gap-3 rounded-lg p-4">
                     {runningBash !== null && (
                         // The reader's own run, above the card where the command panel comes
                         // from. Pi records it as an entry when it can (its own
@@ -230,7 +230,7 @@ export function Composer({ session, working }: ComposerProps) {
                             <ToolResultCard
                                 id="composer-run-card"
                                 presentation={presentRunningExecution(runningBash)}
-                                className="shadow-md"
+                                className="elevation-raised"
                             />
                         </div>
                     )}
