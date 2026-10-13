@@ -47,7 +47,7 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
                     )}
                 </button>
             </CollapsibleTrigger>
-            <CardBody id={`${id}-body`} open={open} transition={{ type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] }}>
+            <CardBody id={`${id}-body`} open={open}>
                 <div className="mt-2 px-3 pb-2">
                     <Markdown id={`${id}-reasoning`} className="text-body-md text-muted-foreground">
                         {thinking}

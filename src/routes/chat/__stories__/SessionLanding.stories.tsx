@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SessionSummary } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
+import { ChatTopbar } from "@/routes/chat/ChatTopbar";
+import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 import { SessionLanding } from "@/routes/chat/SessionLanding";
 import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { sessionSummary } from "@/preview/fixtures";
@@ -64,6 +66,11 @@ const meta = {
                                 />
                             }
                         >
+                            {/* The bar is the window's, and no conversation is open: it carries
+                                only the way to the list and the window's own keys. */}
+                            <ChatTopbar>
+                                <SidebarToggle onToggleSessions={() => undefined} />
+                            </ChatTopbar>
                             <Story />
                         </ChatFrame>
                     </MemoryRouter>
@@ -71,11 +78,7 @@ const meta = {
             </Seeded>
         ),
     ],
-    args: {
-        wide: true,
-        column: true,
-        onToggleSessions: () => undefined,
-    },
+    args: {},
 } satisfies Meta<typeof SessionLanding>;
 
 export default meta;

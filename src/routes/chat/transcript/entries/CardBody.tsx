@@ -1,12 +1,11 @@
-import { AnimatePresence, motion, type Transition } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useMotion } from "@/hooks/use-motion";
 
 export interface CardBodyProps {
     /** Whether the card is open. */
     open: boolean;
     /** The id a trigger points at with `aria-controls`. */
     id?: string;
-    /** How the height moves, which depends on the machine's motion setting. */
-    transition: Transition;
     children: React.ReactNode;
 }
 
@@ -17,18 +16,13 @@ export interface CardBodyProps {
  * card is closed it does not exist at all, so a closed card holds no text for a
  * search to find or a thumb to reach.
  */
-export function CardBody({ open, id, transition, children }: CardBodyProps) {
+export function CardBody({ open, id, children }: CardBodyProps) {
+    const { reveal } = useMotion();
+
     return (
         <AnimatePresence initial={false}>
             {open && (
-                <motion.div
-                    id={id}
-                    className="overflow-hidden"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={transition}
-                >
+                <motion.div id={id} className="overflow-hidden" {...reveal}>
                     {children}
                 </motion.div>
             )}

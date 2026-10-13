@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SafeArea, WindowControls } from "@/components";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
+import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 import { sessionStats } from "@/preview/fixtures";
 
 /**
@@ -23,6 +24,7 @@ const meta = {
                         data-tauri-drag-region="deep"
                         className="flex min-h-11 shrink-0 items-center gap-1 px-3"
                     >
+                        <SidebarToggle onToggleSessions={() => undefined} />
                         <Story />
                         <WindowControls />
                     </div>
@@ -35,7 +37,6 @@ const meta = {
         cwd: "/home/kui/Projects/pie",
         stats: sessionStats(),
         auto: false,
-        onToggleSessions: () => undefined,
     },
 } satisfies Meta<typeof SessionTopbar>;
 
@@ -44,16 +45,6 @@ type Story = StoryObj<typeof meta>;
 
 /** A session with the name its owner gave it, beside the list of sessions. */
 export const Named: Story = {};
-
-/** The list out beside the chat: the key carries the fold that a press would do. */
-export const Expanded: Story = {
-    args: { expanded: true },
-};
-
-/** The list folded away: the key carries the open that a press would do, and the name takes the room it left. */
-export const Folded: Story = {
-    args: { expanded: false },
-};
 
 /** A session pi holds no name for: the bar falls back to its directory. */
 export const Unnamed: Story = {

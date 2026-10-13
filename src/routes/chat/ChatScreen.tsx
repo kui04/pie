@@ -1,26 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, useNavigate } from "react-router";
+import { AnimatePresence, motion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
 import { useAttachedConversations } from "@/hooks/use-attached-conversations";
 import { useConnection } from "@/hooks/use-connection";
+import { useMotion } from "@/hooks/use-motion";
 import { useWideWindow } from "@/hooks/use-wide-window";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
+import { sessionOf as chartOf, subscribeSessions } from "@/lib/sessions";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SessionLanding } from "@/routes/chat/SessionLanding";
 import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
+import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
+import { SessionSlots } from "@/routes/chat/topbar/SessionSlots";
 import { SessionMain } from "@/routes/chat/SessionMain";
+
+/** The page fills the column the frame gives it, and nothing of it scrolls as a whole. */
+const COLUMN = "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 
 export function ChatScreen() {
     const connection = useConnection();
     const client = useQueryClient();
     const wide = useWideWindow();
     const navigate = useNavigate();
+    const { stage: pageOf } = useMotion();
 
     const deps = useMemo<ChatDeps>(
         () => ({
@@ -46,6 +55,14 @@ export function ChatScreen() {
     const sessions = connection.data?.sessions ?? [];
     const endpoint = connection.data?.endpoint ?? "local";
     const attached = useAttachedConversations(sessions);
+    // The chart of the session in view, for the bar's own slots: the registry holds it, and a
+    // screen only selects it.
+    const chart = useSyncExternalStore(
+        subscribeSessions,
+        () => (session === null ? null : chartOf(session)),
+        () => null,
+    );
+    const cwd = sessions.find((running) => running.id === session)?.cwd ?? null;
 
     // A workspace with no host is not a workspace: the gate is where a connection is made,
     // so the window returns to it rather than sit on a page no command can answer. The read
@@ -107,9 +124,11 @@ export function ChatScreen() {
         );
 
     const expanded = wide ? column : undefined;
-    // One frame for every stage: the list and the window around it belong to the workspace,
-    // so opening a conversation - or moving between two of them - rebuilds the region under
-    // the bar, not the window.
+    // The bar belongs to the window, and so does the list: the way to the list and the
+    // window's own keys stand still for every stage and every conversation. What changes is
+    // the region under the bar and the session's own slots in it - its name and its context -
+    // and the region that is leaving goes first (`mode="wait"`).
+    const page = session !== null && stage === "viewing" ? `${stage}:${session}` : stage;
     return (
         <ChatFrame
             sidebar={
@@ -125,58 +144,56 @@ export function ChatScreen() {
                 />
             }
         >
-            {body()}
+            {/* The bar is the window's: only the conversation's own slots in it change. */}
+            <ChatTopbar>
+                <SidebarToggle expanded={expanded} onToggleSessions={toggleSessions} />
+                {/* A conversation that is on its way has nothing to say about itself: its slots
+                    arrive with its words, and the bar keeps the window's own keys until then. */}
+                {stage === "viewing" && chart !== null && session !== null && (
+                    <SessionSlots session={session} machine={chart} cwd={cwd} />
+                )}
+            </ChatTopbar>
+            <AnimatePresence mode="wait" initial={false}>
+                <motion.div id="session-page" key={page} {...pageOf} className={COLUMN}>
+                    {body()}
+                </motion.div>
+            </AnimatePresence>
         </ChatFrame>
     );
 
     function body() {
         if (stage === "attaching") {
             return (
-                <>
-                    <ChatTopbar />
-                    <div className="relative flex min-h-0 flex-1 items-center justify-center">
-                        <SessionLoading label={loading === null ? "Starting pi…" : "Opening the conversation…"} />
-                    </div>
-                </>
+                <div className="relative flex min-h-0 flex-1 items-center justify-center">
+                    <SessionLoading label={loading === null ? "Starting pi…" : "Opening the conversation…"} />
+                </div>
             );
         }
 
         if (stage === "unattached" && detached !== null) {
             return (
-                <>
-                    <ChatTopbar />
-                    <div
-                        id="chat-unattached"
-                        role="alert"
-                        className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
-                    >
-                        <p>{detached.message}</p>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
-                                Try again
-                            </Button>
-                            <Button asChild variant="ghost" size="sm">
-                                <Link to="/">Connect</Link>
-                            </Button>
-                        </div>
+                <div
+                    id="chat-unattached"
+                    role="alert"
+                    className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
+                >
+                    <p>{detached.message}</p>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
+                            Try again
+                        </Button>
+                        <Button asChild variant="ghost" size="sm">
+                            <Link to="/">Connect</Link>
+                        </Button>
                     </div>
-                </>
+                </div>
             );
         }
 
         if (stage === "viewing" && session !== null) {
-            return (
-                <SessionMain
-                    key={session}
-                    session={session}
-                    cwd={sessions.find((running) => running.id === session)?.cwd ?? null}
-                    expanded={expanded}
-                    onToggleSessions={toggleSessions}
-                    client={client}
-                />
-            );
+            return <SessionMain session={session} client={client} />;
         }
 
-        return <SessionLanding wide={wide} column={column} onToggleSessions={toggleSessions} />;
+        return <SessionLanding />;
     }
 }

@@ -1,5 +1,6 @@
 import { cn } from "cn";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useMotion } from "@/hooks/use-motion";
 import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
 import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
 import { OptionRow } from "@/components";
@@ -44,7 +45,7 @@ export function ConnectionCard({
     onPickKey,
 }: ConnectionCardProps) {
     const ssh = form.transport === "ssh";
-    const still = useReducedMotion();
+    const { slot, swap, reveal, fade } = useMotion();
 
     return (
         <Card
@@ -76,8 +77,7 @@ export function ConnectionCard({
                         disabled={connecting}
                         className={cn("flex min-w-0 flex-col gap-6", connecting && "pointer-events-none")}
                         initial={false}
-                        animate={{ opacity: connecting ? 0.6 : 1 }}
-                        transition={{ type: "tween", duration: 0.2, ease: "easeInOut" }}
+                        {...fade(connecting ? 0.6 : 1)}
                     >
                         <RadioGroup
                             id="connection-card-transports"
@@ -140,14 +140,7 @@ export function ConnectionCard({
 
                         <AnimatePresence initial={false}>
                             {ssh && (
-                                <motion.div
-                                    key="ssh"
-                                    className="flex flex-col gap-6 overflow-hidden"
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: "auto" }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    transition={{ type: "tween", duration: 0.15 }}
-                                >
+                                <motion.div key="ssh" className="flex flex-col gap-6 overflow-hidden" {...reveal}>
                                     <div id="connection-card-address-row" className="flex flex-col gap-2">
                                         <Label
                                             id="connection-card-address-label"
@@ -328,10 +321,7 @@ export function ConnectionCard({
                             key="missing"
                             id="connection-card-missing"
                             className="text-body-sm text-muted-foreground"
-                            initial={still ? false : { opacity: 0, y: 4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ type: "tween", duration: 0.18, ease: "easeOut" }}
+                            {...slot}
                         >
                             {missing}
                         </motion.p>
@@ -345,28 +335,14 @@ export function ConnectionCard({
                 >
                     <AnimatePresence initial={false} mode="popLayout">
                         {connecting ? (
-                            <motion.span
-                                key="busy"
-                                className="flex items-center gap-1.5"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ type: "tween", duration: 0.15 }}
-                            >
+                            <motion.span key="busy" className="flex items-center gap-1.5" {...swap}>
                                 <Loader2 id="connection-card-connect-spinner" className="size-4 animate-spin" />
                                 <span id="connection-card-connect-busy" className="text-label-lg font-medium">
                                     Connecting
                                 </span>
                             </motion.span>
                         ) : (
-                            <motion.span
-                                key="idle"
-                                className="flex items-center gap-1.5"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ type: "tween", duration: 0.15 }}
-                            >
+                            <motion.span key="idle" className="flex items-center gap-1.5" {...swap}>
                                 <Plug aria-hidden className="size-4" />
                                 <span id="connection-card-connect-label" className="text-label-lg font-medium">
                                     Connect

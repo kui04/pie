@@ -11,6 +11,7 @@
  */
 
 import type { SessionSummary } from "@/lib/bridge";
+import { MOTION } from "@/lib/motion";
 
 // The rows of the list, from the flat listing that Rust wrote.
 
@@ -132,7 +133,7 @@ export function pathKey(path: string): string {
  * and its speed both come back to where the cycle started.
  */
 export function breatheAt(ms: number): number {
-    const phase = (ms % 2400) / 2400;
+    const phase = (ms % MOTION.breath) / MOTION.breath;
     return DIM + (1 - DIM) * (0.5 - 0.5 * Math.cos(2 * Math.PI * phase));
 }
 

@@ -1,25 +1,21 @@
 import { AnimatePresence, motion } from "motion/react";
+import { useMotion } from "@/hooks/use-motion";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
-import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 import type { SessionStats } from "@/lib/rpc-protocol";
 
 /**
- * The session's slots of the window's bar: the way to the session list, what the
- * session is called, and how full its context is.
+ * The session's own slots of the bar: what it is called, and how full its context is.
  *
- * The bar itself, and the window's own keys at its end, are drawn by the chat's
- * own frame (`src/routes/chat/ChatFrame.tsx`); this is what a session puts in it.
- * While the conversation is still on its way it has nothing to say
- * about itself, so only the way to the list stands: its slots arrive with the
- * words.
+ * The rest of the bar belongs to the window - the way to the list, and the window's own
+ * keys - so it stands still; these two belong to the conversation in view, and they are the
+ * only part of the bar that changes when another conversation opens. A session that is
+ * still on its way has nothing to say about itself, so its slots arrive with its words.
  */
 export function SessionTopbar({
     name,
     cwd,
     stats,
     auto,
-    expanded,
-    onToggleSessions,
     ready = true,
 }: {
     name: string | null;
@@ -27,35 +23,30 @@ export function SessionTopbar({
     cwd: string | null;
     stats: SessionStats | null;
     auto: boolean;
-    /** Whether the list is out beside the chat; undefined where it is a sheet. */
-    expanded?: boolean;
-    /** Folds the column away, or opens the sheet that holds the list. */
-    onToggleSessions: () => void;
     /** Whether the conversation has arrived; its slots wait for it until it has. */
     ready?: boolean;
 }) {
+    const { slot } = useMotion();
+
     return (
-        <>
-            <SidebarToggle expanded={expanded} onToggleSessions={onToggleSessions} />
-            <AnimatePresence initial={false}>
-                {ready && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ type: "tween", duration: 0.22, ease: [0.2, 0, 0, 1] }}
-                        className="flex min-w-0 flex-1 items-center gap-1"
-                    >
-                        <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
-                            {title(name, cwd)}
-                        </h1>
-                        <span id="session_controllers" className="flex shrink-0 items-center gap-1">
-                            <UsagePopover id="session-usage" stats={stats} auto={auto} />
-                        </span>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </>
+        <AnimatePresence initial={false}>
+            {ready && (
+                <motion.div
+                    {...slot}
+                    // The words are the identity: another session brings other ones, and the
+                    // block that says them fades rather than swapping its text in place.
+                    key={name ?? cwd ?? "session"}
+                    className="flex min-w-0 flex-1 items-center gap-1"
+                >
+                    <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
+                        {title(name, cwd)}
+                    </h1>
+                    <span id="session_controllers" className="flex shrink-0 items-center gap-1">
+                        <UsagePopover id="session-usage" stats={stats} auto={auto} />
+                    </span>
+                </motion.div>
+            )}
+        </AnimatePresence>
     );
 }
 

@@ -357,7 +357,10 @@ describe("ChatScreen", () => {
         // a row of the column and not a layer over the list, so no row can pass
         // under it.
         const band = container.querySelector("#composer-band");
-        expect(band?.parentElement?.id).toBe("session-column");
+        // The band is a row of the page under the bar, under the words: it leaves and
+        // arrives with them, and no row can pass under it.
+        expect(band?.parentElement?.id).toBe("session-page");
+        expect(band?.parentElement?.parentElement?.id).toBe("session-column");
         expect(band?.className).toContain("shrink-0");
         expect(band?.className).not.toContain("absolute");
         expect(container.querySelector("#session-loading")).toBeNull();
@@ -438,16 +441,23 @@ describe("ChatScreen", () => {
         await screen.findByText(/There are many agent harnesses/);
         const sidebar = container.querySelector("#sidebar");
         const drawer = container.querySelector("#session-drawer");
+        const bar = container.querySelector("#topbar");
+        const toggles = container.querySelector("#sidebar_toggle");
+        const keys = container.querySelector("#window_controllers");
 
         fireEvent.click(await screen.findByRole("button", { name: /Fix the parser/ }));
         await screen.findByText("hello");
 
-        // The window and the list belong to the workspace, and the conversation in view is
-        // the region under the bar: opening one swaps that region and rebuilds nothing else,
-        // so the list the reader was looking at - its search, its scroll, its rows - is the
-        // same one.
+        // The window, the list and the bar belong to the workspace: opening a conversation
+        // replaces the region under the bar and the session's own slots in it - its name and
+        // its context - and rebuilds nothing else. The list the reader was looking at keeps
+        // its search, its scroll and its rows, and the way to it and the window's own keys
+        // stand where they were.
         expect(container.querySelector("#sidebar")).toBe(sidebar);
         expect(container.querySelector("#session-drawer")).toBe(drawer);
+        expect(container.querySelector("#topbar")).toBe(bar);
+        expect(container.querySelector("#sidebar_toggle")).toBe(toggles);
+        expect(container.querySelector("#window_controllers")).toBe(keys);
         restore();
     });
 

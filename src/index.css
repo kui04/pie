@@ -468,6 +468,8 @@
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
+  /* Two seconds, the shimmer of `lib/motion.ts`; a reader who asked for less motion
+     gets the word alone (below). */
   animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
 
   @variant dark {

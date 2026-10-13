@@ -1,10 +1,11 @@
 import { Check, ChevronDown, LoaderCircle, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { motion, useReducedMotion, type Transition } from "motion/react";
+import { motion } from "motion/react";
 import { cn } from "cn";
 import { Hourglass } from "@/components";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui";
 import type { NumberedLine } from "@/lib/text";
+import { useMotion } from "@/hooks/use-motion";
 import { CardBody } from "@/routes/chat/transcript/entries/CardBody";
 import { ScrollPane } from "@/components";
 import type { ToolNote, ToolPresentation, ToolStatus } from "@/routes/chat/transcript/tool-presentation";
@@ -81,7 +82,6 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
     const keptCount = Math.min(lines.length, closed);
     const kept = tail ? lines.slice(lines.length - keptCount) : lines.slice(0, keptCount);
     const rest = tail ? lines.slice(0, lines.length - keptCount) : lines.slice(keptCount);
-    const grow = { type: "tween", duration: 0.2, ease: [0.2, 0, 0, 1] } as const;
 
     // The status mark is at the end of the header and is centered on the whole
     // of it, and it is for the calls of the model alone: a command the reader ran
@@ -125,11 +125,11 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                     {body.kind === "log" ? (
                         <ScrollPane bars="horizontal" viewportClassName="px-3 pb-2">
                             <div className="text-code whitespace-pre">
-                                {tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
+                                {tail && <Arriving open={open} lines={rest as string[]} />}
                                 {(kept as string[]).map((line, index) => (
                                     <div key={index}>{line}</div>
                                 ))}
-                                {!tail && <Arriving open={open} transition={grow} lines={rest as string[]} />}
+                                {!tail && <Arriving open={open} lines={rest as string[]} />}
                             </div>
                         </ScrollPane>
                     ) : (
@@ -139,7 +139,6 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                             rest={rest as NumberedLine[]}
                             tail={tail}
                             open={open}
-                            transition={grow}
                         />
                     )}
                 </div>
@@ -169,17 +168,13 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
 
 /** Where the call stands: a check, a cross, a turning hourglass, or a ring. */
 function StatusMark({ status }: { status: ToolStatus }) {
-    const still = useReducedMotion();
+    const { turn } = useMotion();
 
     if (status === "ok") return <Check className="text-success size-4 shrink-0" aria-label="Succeeded" />;
     if (status === "failed") return <X className="text-destructive size-4 shrink-0" aria-label="Failed" />;
     if (status === "running") {
         return (
-            <motion.span
-                className="text-primary-text flex shrink-0"
-                animate={still ? undefined : { rotate: 360 }}
-                transition={{ type: "tween", duration: 1, ease: "linear", repeat: Infinity }}
-            >
+            <motion.span className="text-primary-text flex shrink-0" {...turn}>
                 <LoaderCircle className="size-4" aria-label="Running" />
             </motion.span>
         );
@@ -207,14 +202,12 @@ function NumberedBody({
     rest,
     tail,
     open,
-    transition,
 }: {
     id: string;
     kept: NumberedLine[];
     rest: NumberedLine[];
     tail: boolean;
     open: boolean;
-    transition: Transition;
 }) {
     let digits = 1;
     for (const line of [...kept, ...rest]) digits = Math.max(digits, (line.number ?? "").length);
@@ -236,11 +229,7 @@ function NumberedBody({
                 {line.text}
             </div>
         ));
-    const arriving = (rows: (lines: NumberedLine[]) => ReactNode) => (
-        <CardBody open={open} transition={transition}>
-            {rows(rest)}
-        </CardBody>
-    );
+    const arriving = (rows: (lines: NumberedLine[]) => ReactNode) => <CardBody open={open}>{rows(rest)}</CardBody>;
 
     return (
         <div className="text-code mt-2 flex pb-2 font-mono">
@@ -258,9 +247,9 @@ function NumberedBody({
     );
 }
 
-function Arriving({ open, transition, lines }: { open: boolean; transition: Transition; lines: string[] }) {
+function Arriving({ open, lines }: { open: boolean; lines: string[] }) {
     return (
-        <CardBody open={open} transition={transition}>
+        <CardBody open={open}>
             {lines.map((line, index) => (
                 <div key={index}>{line}</div>
             ))}

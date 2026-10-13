@@ -13,12 +13,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Folder, RefreshCw, Search } from "lucide-react";
-import { AnimatePresence, motion, useAnimationFrame, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
 import { cn } from "cn";
 
 import { Button, InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui";
 import { SafeArea, ScrollPane, Sheet, SheetContent, SheetTitle } from "@/components";
 import type { AttachedConversation } from "@/hooks/use-attached-conversations";
+import { useMotion } from "@/hooks/use-motion";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import * as bridge from "@/lib/bridge";
 import { sessionsQueries } from "@/lib/query";
@@ -52,7 +53,7 @@ export interface SessionSidebarProps extends SessionList {
 }
 
 export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClassName, ...list }: SessionSidebarProps) {
-    const still = useReducedMotion();
+    const { frame } = useMotion();
 
     return (
         <>
@@ -62,25 +63,28 @@ export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClas
                         id="sidebar"
                         key="session-list"
                         className="bg-surface-dim border-border flex min-h-0 flex-none flex-col overflow-hidden border-r"
-                        initial={{ width: 0 }}
-                        animate={{ width: 256 }}
-                        exit={{ width: 0 }}
-                        transition={still ? { duration: 0 } : { type: "tween", duration: 0.28, ease: [0.2, 0, 0, 1] }}
+                        {...frame(256)}
                     >
-                        <SessionListPanel id={`${id}-drawer`} className="w-64 flex-1" {...list} />
+                        <SessionListPanel id={`${id}-drawer`} className="w-64 flex-1" breathing {...list} />
                     </motion.div>
                 )}
             </AnimatePresence>
             <SessionSheet id={`${id}-sheet`} open={sheet} onOpenChange={onOpenSheet} className={sheetClassName}>
-                <SessionListPanel id={`${id}-sheet-drawer`} className="h-full" {...list} />
+                <SessionListPanel id={`${id}-sheet-drawer`} className="h-full" breathing={sheet} {...list} />
             </SessionSheet>
         </>
     );
 }
 
 /** The list itself, whatever holds it: the search, the refresh, the groups, the rows. */
-function SessionListPanel({ id, className, ...list }: SessionList & { id: string; className?: string }) {
+function SessionListPanel({
+    id,
+    className,
+    breathing,
+    ...list
+}: SessionList & { id: string; className?: string; breathing: boolean }) {
     const { endpoint, attached, onPick } = list;
+    const { turn, still } = useMotion();
     const client = useQueryClient();
     const sessions = useQuery(sessionsQueries.list(endpoint));
     const [search, setSearch] = useState("");
@@ -88,7 +92,6 @@ function SessionListPanel({ id, className, ...list }: SessionList & { id: string
     // The turn of the key, counted rather than held: every press is one turn of its
     // own, and two presses in a row play two (the `key` of the icon is this number).
     const [turns, setTurns] = useState(0);
-    const still = useReducedMotion();
     const now = useMinutes();
 
     const filtered = useMemo(
@@ -143,8 +146,7 @@ function SessionListPanel({ id, className, ...list }: SessionList & { id: string
                         key={turns}
                         className="flex"
                         initial={turns === 0 || still ? false : { rotate: 0 }}
-                        animate={{ rotate: 360 }}
-                        transition={still ? { duration: 0 } : { type: "tween", duration: 0.6, ease: "easeInOut" }}
+                        {...turn}
                     >
                         <RefreshCw className="size-4" />
                     </motion.span>
@@ -194,6 +196,7 @@ function SessionListPanel({ id, className, ...list }: SessionList & { id: string
                                             session={session}
                                             now={now}
                                             held={attached.get(session.path) ?? null}
+                                            breathing={breathing}
                                             onPick={onPick}
                                         />
                                     ))}
@@ -279,6 +282,7 @@ function SessionRow({
     session,
     now,
     held,
+    breathing,
     onPick,
 }: {
     id: string;
@@ -286,6 +290,8 @@ function SessionRow({
     now: number;
     /** The session that holds this conversation, or `null` when no process holds it. */
     held: AttachedConversation | null;
+    /** Whether the list this row belongs to is on screen, and its light is driven. */
+    breathing: boolean;
     onPick: (path: string) => void;
 }) {
     const title = sessionTitle(session);
@@ -308,6 +314,7 @@ function SessionRow({
             {mark !== null && (
                 <>
                     <Light
+                        breathing={breathing}
                         // The light of the row, and the only thing here that moves:
                         // the colour says which state it reports.
                         className={cn(
@@ -332,14 +339,22 @@ function SessionRow({
  *
  * The brightness is written on Motion's frame clock rather than handed to Motion as
  * a transition: the browser's own animation of `opacity` leaves a rejected promise
- * when a row goes away mid-breath (the breath runs a 2400ms cycle in `session-list.ts`
- * beside this file). Under `prefers-reduced-motion` the dot is simply lit.
+ * when a row goes away mid-breath (the breath runs a `MOTION.breath` cycle in
+ * `session-list.ts` beside this file). A light is breathed only while its list is on
+ * screen - the column that is out, or the sheet that is open - and a reader who asked
+ * for less motion gets a dot that is simply lit. Both are asked once, by the light.
  */
-function Light({ className }: { className?: string }) {
+function Light({ className, breathing }: { className?: string; breathing: boolean }) {
     const dot = useRef<HTMLSpanElement>(null);
-    const still = useReducedMotion();
+    const { still } = useMotion();
     useAnimationFrame((ms) => {
-        if (still || dot.current === null) return;
+        if (dot.current === null) return;
+        if (still || !breathing) {
+            // Not driven: the light stands at its full brightness, and nothing is written
+            // on a frame for a list nobody is looking at.
+            if (dot.current.style.opacity !== "") dot.current.style.opacity = "";
+            return;
+        }
         dot.current.style.opacity = breatheAt(ms).toFixed(3);
     });
     return <span ref={dot} aria-hidden className={className} />;

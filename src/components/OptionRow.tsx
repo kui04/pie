@@ -2,6 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import { Check } from "lucide-react";
 import { motion } from "motion/react";
+import { useMotion } from "@/hooks/use-motion";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 
 const optionRowVariants = cva(
@@ -37,6 +38,8 @@ function OptionRow({
     children,
     ...props
 }: React.ComponentProps<typeof RadioGroupPrimitive.Item> & VariantProps<typeof optionRowVariants>) {
+    const { swap } = useMotion();
+
     return (
         <RadioGroupPrimitive.Item
             data-slot="radio-group-item"
@@ -48,12 +51,7 @@ function OptionRow({
                 data-slot="radio-group-indicator"
                 className="text-primary-text flex size-4 items-center justify-center"
             >
-                <motion.span
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ type: "tween", duration: 0.15 }}
-                    className="flex"
-                >
+                <motion.span className="flex" {...swap}>
                     <Check className="size-4" />
                 </motion.span>
             </RadioGroupPrimitive.Indicator>

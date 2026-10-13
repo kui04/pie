@@ -440,6 +440,48 @@ because the tile is not above anything.
 A divider is a hairline, not a shape. Nothing else is rounded, and a radius
 never grows with the size of the surface it is on.
 
+## Motion
+
+One file answers how fast a thing moves (`src/lib/motion.ts`), and a component
+names a token from it rather than a duration. Five kinds of change cover the
+app:
+
+| Change                             | Token          | Rule                                                                                                                                                |
+| ---------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The shell of the app opening       | `SHELL`        | 150ms of opacity; nothing travels, for a window that rose would be the window jumping                                                               |
+| A page replacing a page            | `STAGE`        | 240ms arriving, 160ms leaving, no travel; two conversations are peers, so it fades through, and the page that is leaving goes first (`mode="wait"`) |
+| A part arriving, leaving, changing | `SLOT`, `SWAP` | 150ms arriving, 120ms leaving; a slot slides 4px into place, a part replaced in the box it holds shrinks and grows                                  |
+| A body moving its own height       | `REVEAL`       | 200ms arriving, 160ms leaving; the height itself moves, so nothing under it jumps                                                                   |
+| The window's geometry              | `FRAME`        | 300ms on the list's column                                                                                                                          |
+| Something endless                  | `TURN`         | One speed: the ring of a run at work and a spinner (1s), the sand (3s), the light of a row (2400ms), the shimmer of a thought (2s)                  |
+
+A conversation giving up its place for another is a page replacing a page: it
+fades through. The bar is the window's — the way to the list and the window's
+own keys stand still for every stage and every conversation — and only a
+session's own slots in it, its name and its context, change, fading between the
+two. A page never travels — a rise would say "forward" about a move that has no
+direction — and only a small part does, four pixels into its place. A form
+dimmed where it stands (`FADE`) moves on the same clock as a slot that changes.
+
+Three curves, one job each: an arrival is confident and fast off the mark, a
+small part settles in gently, a leaving gathers speed and is gone — a leaving is
+not an arrival backwards. Nothing bounces, and nothing elastic.
+
+A reader who asked for less motion keeps the same page and loses only its
+movement: no travel, no scale, no turn, and every fade cut to a tenth of a
+second, because a thing that appears must still be seen to appear. The endless
+things hold their place, and so does a light whose list is not on screen: the
+column that is out, or the sheet that is open, is the one that breathes. The
+test environment answers for less motion (`src/test/setup.ts`), which is why
+nothing in the suite waits on an animation.
+
+What the app does not move itself: a picker's panel, a menu and a toast follow
+their library (Radix, sonner), and the sheet's slide is Vaul's own half second —
+a drawer the library draws for a phone, beside a column that is this app's
+layout. The transcript's own scroll is a distance over time rather than a
+transition: it glides, and a reader who asked for less motion takes the end at
+once.
+
 ## Components
 
 **The window's frame** — no component holds it: each screen draws its own. The

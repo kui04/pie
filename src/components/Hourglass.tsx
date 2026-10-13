@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
-import { animate, useReducedMotion } from "motion/react";
+import { animate } from "motion/react";
+import { useMotion } from "@/hooks/use-motion";
+import { EASE, MOTION } from "@/lib/motion";
 
 /**
  * One clock for every hourglass on screen: one Motion animation drives the cycle
@@ -11,8 +13,8 @@ let stop: (() => void) | null = null;
 function subscribe(listener: (progress: number) => void): () => void {
     if (listeners.size === 0) {
         const cycle = animate(0, 1, {
-            duration: 3,
-            ease: "linear",
+            duration: MOTION.sand,
+            ease: EASE.loop,
             repeat: Infinity,
             onUpdate: (progress) => {
                 for (const each of listeners) each(progress);
@@ -71,7 +73,7 @@ function turnAt(progress: number): number {
  * the element rather than units of the viewBox.
  */
 export function Hourglass({ label }: { label: string }) {
-    const still = useReducedMotion();
+    const { still } = useMotion();
     const glass = useRef<SVGGElement>(null);
     const above = useRef<SVGPathElement>(null);
     const below = useRef<SVGPathElement>(null);

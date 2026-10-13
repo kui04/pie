@@ -1,37 +1,24 @@
 import type { ReactNode } from "react";
 import { Kbd, KbdGroup } from "@/components/ui";
-import { ChatTopbar } from "@/routes/chat/ChatTopbar";
-import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 
-export interface SessionLandingProps {
-    wide: boolean;
-    column: boolean;
-    onToggleSessions: () => void;
-}
-
-/** The page that stands while no conversation is open: the keys, and nothing else. */
-export function SessionLanding({ wide, column, onToggleSessions }: SessionLandingProps) {
+/** The page that stands while no conversation is open: the words of pi, and the keys. */
+export function SessionLanding() {
     return (
-        <>
-            <ChatTopbar>
-                <SidebarToggle expanded={wide ? column : undefined} onToggleSessions={onToggleSessions} />
-            </ChatTopbar>
-            <div id="chat-landing" className="m-auto flex flex-col items-center gap-10 p-6">
-                <p className="text-body-lg text-muted-foreground text-center">
-                    There are many agent harnesses,
-                    <br />
-                    but this one is yours.
-                </p>
-                <dl className="grid grid-cols-[1fr_auto] items-center gap-x-8 gap-y-2">
-                    <Shortcut label="Sessions">
-                        <Kbd>Ctrl</Kbd>+<Kbd>B</Kbd>
-                    </Shortcut>
-                    <Shortcut label="New session">
-                        <Kbd>Ctrl</Kbd>+<Kbd>N</Kbd>
-                    </Shortcut>
-                </dl>
-            </div>
-        </>
+        <div id="chat-landing" className="m-auto flex flex-col items-center gap-10 p-6">
+            <p className="text-body-lg text-muted-foreground text-center">
+                There are many agent harnesses,
+                <br />
+                but this one is yours.
+            </p>
+            <dl className="grid grid-cols-[1fr_auto] items-center gap-x-8 gap-y-2">
+                <Shortcut label="Sessions">
+                    <Kbd>Ctrl</Kbd>+<Kbd>B</Kbd>
+                </Shortcut>
+                <Shortcut label="New session">
+                    <Kbd>Ctrl</Kbd>+<Kbd>N</Kbd>
+                </Shortcut>
+            </dl>
+        </div>
     );
 }
 

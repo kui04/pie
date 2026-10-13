@@ -10,6 +10,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
 import { useMaximized } from "@/hooks/use-maximized";
+import { useMotion } from "@/hooks/use-motion";
 import { windowControls } from "@/lib/bridge";
 import { cn } from "cn";
 
@@ -19,6 +20,7 @@ import { cn } from "cn";
  */
 export function WindowControls() {
     const maximized = useMaximized();
+    const { swap } = useMotion();
 
     return (
         <span id="window_controllers" className="ms-auto flex shrink-0 items-center gap-1">
@@ -51,10 +53,7 @@ export function WindowControls() {
                         key={maximized ? "maximized" : "restored"}
                         id="window-maximize-icon"
                         className="flex"
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 1.1 }}
-                        transition={{ type: "tween", duration: 0.15 }}
+                        {...swap}
                     >
                         {maximized ? (
                             <Copy className="size-4" aria-hidden />
