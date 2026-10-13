@@ -190,46 +190,51 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                 // whole width stays with the words.
                 viewportRef={viewport}
                 viewportClassName="pt-2"
-                className={cn("mx-auto min-h-0 w-full max-w-5xl flex-1 rounded-b-lg px-4", className)}
+                // The scroll area is the pane, not the content column: the bar Radix draws
+                // belongs to the region it scrolls, so a column-sized one puts the bar out
+                // in the middle of a wide window. The column is inside it instead.
+                className={cn("min-h-0 w-full flex-1 rounded-b-lg", className)}
             >
-                <Virtualizer
-                    ref={list}
-                    data={rows}
-                    itemSize={ROW}
-                    scrollRef={viewport}
-                    onScroll={onScroll}
-                    // A glide can be stopped short by a row that grows while it runs,
-                    // and the reader who asked for the end still has to get there.
-                    onScrollEnd={() => {
-                        if (seeking.current && !gliding.current) seekEnd();
-                    }}
-                    // Every height virtua learns moves the end, so a jump of ours is
-                    // taken again until the sizes settle. This is what the library's
-                    // own correction cannot be trusted to finish: it stops after a
-                    // quiet spell and the browser may drop the notifications it was
-                    // waiting for. The pin waits for the next frame because virtua
-                    // calls this from its own ResizeObserver, and a scroll written
-                    // inside an observer's delivery is the loop the browser reports
-                    // as "undelivered notifications".
-                    onResize={() => {
-                        if (!atEnd.current || gliding.current || resize.current !== undefined) return;
-                        resize.current = requestAnimationFrame(() => {
-                            resize.current = undefined;
-                            if (atEnd.current && !gliding.current) seekEnd();
-                        });
-                    }}
-                >
-                    {(row) => (
-                        // Keyed by the row: virtua draws rows by position, and React
-                        // would otherwise keep a card's state (an open body, a clock)
-                        // with the next row that lands in that position. The scroller
-                        // carries the content column, so a row is the entry and the air
-                        // under it, and the air is what separates one entry from the next.
-                        <div key={row.id} className="w-full pb-3">
-                            <TranscriptEntry row={row} onRetractQueued={onRetractQueued} />
-                        </div>
-                    )}
-                </Virtualizer>
+                <div className="mx-auto w-full max-w-5xl px-4">
+                    <Virtualizer
+                        ref={list}
+                        data={rows}
+                        itemSize={ROW}
+                        scrollRef={viewport}
+                        onScroll={onScroll}
+                        // A glide can be stopped short by a row that grows while it runs,
+                        // and the reader who asked for the end still has to get there.
+                        onScrollEnd={() => {
+                            if (seeking.current && !gliding.current) seekEnd();
+                        }}
+                        // Every height virtua learns moves the end, so a jump of ours is
+                        // taken again until the sizes settle. This is what the library's
+                        // own correction cannot be trusted to finish: it stops after a
+                        // quiet spell and the browser may drop the notifications it was
+                        // waiting for. The pin waits for the next frame because virtua
+                        // calls this from its own ResizeObserver, and a scroll written
+                        // inside an observer's delivery is the loop the browser reports
+                        // as "undelivered notifications".
+                        onResize={() => {
+                            if (!atEnd.current || gliding.current || resize.current !== undefined) return;
+                            resize.current = requestAnimationFrame(() => {
+                                resize.current = undefined;
+                                if (atEnd.current && !gliding.current) seekEnd();
+                            });
+                        }}
+                    >
+                        {(row) => (
+                            // Keyed by the row: virtua draws rows by position, and React
+                            // would otherwise keep a card's state (an open body, a clock)
+                            // with the next row that lands in that position. The scroller
+                            // carries the content column, so a row is the entry and the air
+                            // under it, and the air is what separates one entry from the next.
+                            <div key={row.id} className="w-full pb-3">
+                                <TranscriptEntry row={row} onRetractQueued={onRetractQueued} />
+                            </div>
+                        )}
+                    </Virtualizer>
+                </div>
             </ScrollPane>
             {away && (
                 <Button
