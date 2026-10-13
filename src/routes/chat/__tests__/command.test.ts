@@ -73,11 +73,25 @@ describe("the rows of the command menu", () => {
         });
     });
 
-    it("keeps the rows whose name starts with what was typed", () => {
-        expect(commandRows("f", commands).map((row) => row.name)).toEqual(["fix-test"]);
-        expect(commandRows("rev", commands).map((row) => row.name)).toEqual(["review"]);
+    it("finds a command by the letters of its name, in order", () => {
+        expect(commandRows("fix", commands).map((row) => row.name)).toEqual(["fix-test"]);
+        expect(commandRows("fx", commands).map((row) => row.name)).toEqual(["fix-test"]);
+        // The letters have to come in order, and each of them has to be there.
+        expect(commandRows("xft", commands)).toEqual([]);
         expect(commandRows("zzz", commands)).toEqual([]);
         // The commands of pie itself are not in this list yet.
         expect(commandRows("comp", commands)).toEqual([]);
+    });
+
+    it("reads a skill by the name of the skill, and by its full name too", () => {
+        const skills: SlashCommand[] = [
+            slashCommand("foo-bar", "A command with those letters in it", "extension"),
+            slashCommand("skill:foo", "Do the foo thing", "skill"),
+        ];
+
+        // `foo` is the skill's own name, which is the name a person thinks of; `skil` is
+        // only in the `skill:` pi puts in front of it, and finds it as well.
+        expect(commandRows("foo", skills).map((row) => row.name)).toEqual(["skill:foo", "foo-bar"]);
+        expect(commandRows("skil", skills).map((row) => row.name)).toEqual(["skill:foo"]);
     });
 });

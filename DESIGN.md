@@ -675,8 +675,7 @@ visible only while the region moves, and costs the region's width nothing:
   scrolls sideways, a transcript down). The viewport carries no native bar, so
   no engine draws its own inside one, and the bar costs the words nothing
   wherever it appears.
-- Three scrollers are still the engine's own: the composer's two cmdk lists
-  (cmdk owns the element it scrolls) and a `textarea`. There
+- One scroller is still the engine's own: a `textarea`. There
   `::-webkit-scrollbar` gives Blink and WebKit the same pill, and Firefox is
   handed the same two colours through `scrollbar-width` and `scrollbar-color`,
   where it shows the platform's thin bar — whose lane Blink keeps, so such a

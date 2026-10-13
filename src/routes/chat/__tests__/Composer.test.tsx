@@ -309,6 +309,28 @@ describe("the command menu", () => {
         expect(box()).toHaveValue("/review ");
         expect(bridge.prompt).not.toHaveBeenCalled();
     });
+
+    it("takes the row under the keyboard with Tab", async () => {
+        bridge.getCommands.mockResolvedValue({
+            commands: [
+                slashCommand("review", "Review the tree", "extension"),
+                slashCommand("deploy", "Deploy the app", "skill"),
+            ],
+        });
+        renderComposer();
+
+        type("/");
+        await screen.findByText("/review");
+
+        // `de` is in the second name only, so the highlight is on it: Tab takes it into
+        // the box, as it does in pi's own editor, and sends nothing.
+        type("/de");
+        await screen.findByText("/deploy");
+        press("Tab");
+
+        expect(box()).toHaveValue("/deploy ");
+        expect(bridge.prompt).not.toHaveBeenCalled();
+    });
 });
 
 describe("the pictures of a message", () => {

@@ -44,6 +44,30 @@ beforeEach(() => {
 });
 
 describe("the thinking level of the session", () => {
+    it("holds the shape of the list while the levels are on their way", async () => {
+        const user = userEvent.setup();
+        // A read that never answers: the popup is opened before the levels are here.
+        bridge.getAvailableThinkingLevels.mockReturnValue(new Promise(() => undefined));
+
+        renderPicker({ current: "low" });
+        await user.click(screen.getByRole("button", { name: "Choose the thinking level" }));
+
+        expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(4);
+        expect(screen.getByRole("status", { name: "Loading the thinking levels" })).toBeInTheDocument();
+        expect(screen.queryAllByRole("option")).toEqual([]);
+    });
+
+    it("says what happened when the levels cannot be read", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableThinkingLevels.mockRejectedValue(new Error("the session is gone"));
+
+        renderPicker({ current: "low" });
+        await user.click(screen.getByRole("button", { name: "Choose the thinking level" }));
+
+        expect(await screen.findByText("Could not read the thinking levels.")).toBeInTheDocument();
+        expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    });
+
     it("sets the level that was chosen", async () => {
         const user = userEvent.setup();
         const { client } = renderPicker({ current: "off" });

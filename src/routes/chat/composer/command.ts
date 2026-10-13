@@ -11,6 +11,7 @@
  */
 
 import type { SlashCommand } from "@/lib/rpc-protocol";
+import { fuzzyFilter } from "@/lib/fuzzy";
 
 /**
  * Where a command of pi's terminal UI lives in pie, or why it lives nowhere yet.
@@ -83,22 +84,33 @@ export interface CommandRow {
  * The commands of pie itself are not here yet. When they land, they follow the
  * same shape as these.
  *
- * The typed name is a prefix of a row, which is what the person is still writing:
- * the menu closes once the name is chosen.
+ * The name is matched the way pi's own editor matches one
+ * (`packages/tui/src/autocomplete.ts` of the pinned release): the fuzzy filter of its
+ * selectors over the name of the command, and a skill first by its bare name, so that
+ * `foo` ranks `/skill:foo` over any command that merely holds those letters. An empty
+ * name keeps every row in pi's order, which is what a bare `/` shows.
  */
 export function commandRows(name: string, piCommands: readonly SlashCommand[]): CommandRow[] {
-    const typed = name.toLowerCase();
-    const matches = (candidate: string) => candidate.toLowerCase().startsWith(typed);
-    const rows: CommandRow[] = [];
+    const rows: CommandRow[] = piCommands.map((command) => ({
+        id: `pi-${command.name}`,
+        name: command.name,
+        description: command.description ?? null,
+    }));
 
-    for (const command of piCommands) {
-        if (!matches(command.name)) continue;
-        rows.push({
-            id: `pi-${command.name}`,
-            name: command.name,
-            description: command.description ?? null,
-        });
-    }
+    const bare = fuzzyFilter(rows, name, (row) => bareName(row.name));
+    const found = new Set(bare.map((row) => row.id));
+    const full = fuzzyFilter(
+        rows.filter((row) => row.name.startsWith(SKILL_PREFIX) && !found.has(row.id)),
+        name,
+        (row) => row.name,
+    );
+    return [...bare, ...full];
+}
 
-    return rows;
+/** What pi calls a skill command, before the name of the skill itself. */
+const SKILL_PREFIX = "skill:";
+
+/** The name a command is matched by, which for a skill is the skill's own. */
+function bareName(name: string): string {
+    return name.startsWith(SKILL_PREFIX) ? name.slice(SKILL_PREFIX.length) : name;
 }

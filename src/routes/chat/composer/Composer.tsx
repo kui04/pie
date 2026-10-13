@@ -169,6 +169,13 @@ export function Composer({ session, working, machine }: ComposerProps) {
             setDismissed(true);
             return;
         }
+        // Tab takes the row under the keyboard, as it does in pi's own editor, and does
+        // not move the focus the way a bare Tab would.
+        if (event.key === "Tab" && commandListOpen && highlightedRow !== null) {
+            event.preventDefault();
+            choose(highlightedRow);
+            return;
+        }
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             if (commandListOpen && !event.altKey && highlightedRow !== null) {
