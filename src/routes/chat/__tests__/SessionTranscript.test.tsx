@@ -234,6 +234,20 @@ describe("SessionTranscript", () => {
         expect(handle.scrollToIndex).toHaveBeenCalledWith(29, { align: "end" });
     });
 
+    it("keeps the pill away while its own run is still going", async () => {
+        motion(false);
+        const view = show();
+        land(0); // the reader left, so the pill stands
+
+        await act(async () => pill(view.container)?.click());
+        expect(pill(view.container)).toBeNull();
+
+        frame(100); // the run is under way
+        land(300); // and the list hears its own scroll part way there
+
+        expect(pill(view.container)).toBeNull();
+    });
+
     it("jumps at once where the reader asked for less motion", async () => {
         motion(true);
         const view = show();

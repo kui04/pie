@@ -118,8 +118,12 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
         ) {
             seeking.current = false;
         }
-        if (!seeking.current) atEnd.current = end;
-        setAway(!end);
+        // Where the list is during a run of ours is not where the reader is, so the
+        // pill follows the reading only once the run has settled.
+        if (!seeking.current) {
+            atEnd.current = end;
+            setAway(!end);
+        }
     };
 
     const toEnd = () => {
