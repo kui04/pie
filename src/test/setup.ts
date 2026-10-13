@@ -2,6 +2,9 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach } from "vitest";
+import { pretendLayout } from "./layout";
+
+pretendLayout();
 
 // Testing Library unmounts whatever a test rendered, so that the next test
 // starts with an empty document. It registers that itself only when the runner

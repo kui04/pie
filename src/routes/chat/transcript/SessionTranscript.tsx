@@ -17,11 +17,11 @@ export interface SessionTranscriptProps {
 }
 
 /**
- * A rough height of one row. Virtua measures every row it has drawn and corrects
- * this, so the number only has to be near enough for the first pass: too small
- * and the first screen holds too few rows, too large and it holds too many.
+ * How much of the list beyond the viewport is drawn, in pixels: virtua's
+ * `bufferSize`, which its own note raises "to avoid showing blank items in fast
+ * scrolling". Its default of 200 is about one of these rows.
  */
-const ROW = 88;
+const AHEAD = 800;
 
 /** How close to the end counts as being at the end, in pixels. */
 const NEAR = 24;
@@ -199,7 +199,7 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                     <Virtualizer
                         ref={list}
                         data={rows}
-                        itemSize={ROW}
+                        bufferSize={AHEAD}
                         scrollRef={viewport}
                         onScroll={onScroll}
                         // A glide can be stopped short by a row that grows while it runs,

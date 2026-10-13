@@ -1,6 +1,6 @@
 import { isValidElement, memo, type ReactNode } from "react";
 import { cn } from "cn";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { openUrl } from "@/lib/bridge";
@@ -20,12 +20,47 @@ export interface MarkdownProps {
 
 export const Markdown = memo(MarkdownInner);
 
+/**
+ * The last parse of each row, so that a row drawn again is not parsed again:
+ * react-markdown parses the whole string on every render - a typical answer costs
+ * about three milliseconds of that - and a screenful of rows in one scroll frame is
+ * a frame the reader waits for.
+ *
+ * Keyed by the row's id, with the source kept beside it, so a reply still being
+ * written replaces its own entry instead of filling the cache.
+ */
+const CACHED = 200;
+const parses = new Map<string, { source: string; node: ReactNode }>();
+
+/** What react-markdown draws for one source, from the cache when it can be. */
+function parsed(id: string | undefined, options: Options): ReactNode {
+    const source = options.children ?? "";
+    const kept = id === undefined ? undefined : parses.get(id);
+    if (kept !== undefined && kept.source === source) return kept.node;
+
+    // Called rather than rendered: this component is a plain function with no hooks
+    // (`MarkdownHooks` is the other one), so its result can be kept and drawn again.
+    const node = ReactMarkdown(options);
+    if (id !== undefined) {
+        parses.delete(id);
+        parses.set(id, { source, node });
+        if (parses.size > CACHED) {
+            for (const oldest of parses.keys()) {
+                parses.delete(oldest);
+                break;
+            }
+        }
+    }
+    return node;
+}
+
 function MarkdownInner({ children, id, className }: MarkdownProps) {
     return (
         <div className={cn("text-body-md text-foreground space-y-3", className)}>
-            <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
+            {parsed(id, {
+                children,
+                remarkPlugins: [remarkGfm],
+                components: {
                     h1: ({ children: content }) => <h1 className="text-headline-md font-semibold">{content}</h1>,
                     h2: ({ children: content }) => <h2 className="text-title-lg font-semibold">{content}</h2>,
                     h3: ({ children: content }) => <h3 className="text-title-md font-semibold">{content}</h3>,
@@ -98,10 +133,8 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                     code: ({ children: content }) => (
                         <code className="bg-muted text-code rounded-sm px-1 py-0.5 font-mono">{content}</code>
                     ),
-                }}
-            >
-                {children}
-            </ReactMarkdown>
+                },
+            })}
         </div>
     );
 }

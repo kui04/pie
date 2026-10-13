@@ -36,6 +36,7 @@ const spies: {
     onScroll?: (offset: number) => void;
     onResize?: () => void;
     onScrollEnd?: () => void;
+    props?: { bufferSize?: number; itemSize?: number };
 } = {};
 
 /** The end of the mock's list, as the list itself computes it. */
@@ -60,6 +61,8 @@ vi.mock("virtua", () => ({
         children,
         data,
         scrollRef,
+        bufferSize,
+        itemSize,
         onScroll,
         onResize,
         onScrollEnd,
@@ -68,11 +71,14 @@ vi.mock("virtua", () => ({
         children: (row: TranscriptRow) => ReactNode;
         data: TranscriptRow[];
         scrollRef?: RefObject<HTMLElement | null>;
+        bufferSize?: number;
+        itemSize?: number;
         onScroll?: (offset: number) => void;
         onResize?: () => void;
         onScrollEnd?: () => void;
         ref?: RefObject<unknown>;
     }) => {
+        spies.props = { bufferSize, itemSize };
         spies.onScroll = onScroll;
         spies.onResize = onResize;
         spies.onScrollEnd = onScrollEnd;
@@ -138,6 +144,7 @@ beforeEach(() => {
     spies.onScroll = undefined;
     spies.onResize = undefined;
     spies.onScrollEnd = undefined;
+    spies.props = undefined;
     box.top = 0;
     frames.clear();
     frameId = 1;
@@ -153,6 +160,16 @@ beforeEach(() => {
 });
 
 describe("SessionTranscript", () => {
+    it("leaves the size of a row to virtua, and draws ahead of the reader", () => {
+        // A size of pie's own would turn off the library's estimate of unmeasured
+        // rows, which is what these rows need; the buffer is what a fast scroll draws
+        // from before it is asked.
+        show();
+
+        expect(spies.props?.itemSize).toBeUndefined();
+        expect(spies.props?.bufferSize).toBeGreaterThan(0);
+    });
+
     it("follows the end from the first frame, and again whenever a row changes", () => {
         const view = show();
         expect(handle.scrollToIndex).toHaveBeenCalledWith(29, { align: "end" });
