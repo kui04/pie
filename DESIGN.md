@@ -559,6 +559,24 @@ outline, no shadow, 12px of padding at the header's and the footer's ends. The
 header is one line, truncated, with the status mark at its end and centred in
 it; the footer is a full-width button over a hairline.
 
+**Markdown** — what a model writes is read as a model writes it. GFM carries the
+tables, the task lists and the footnotes; `$x^2$` and a `$$ … $$` block are set
+as formulas by KaTeX; and a single newline ends a line, because that is what a
+model means by it (pi's own renderer answers the same way). A dollar sign is not
+always a formula: a pair whose content ends in whitespace, or is followed by a
+digit, or is a shell variable joined to a word, stays the text it is
+(`lib/remark-dollars.ts`, the same questions pi's renderer asks). An HTML tag
+stays the text it is too, as it does in pi.
+
+A fenced block is a tile of this page, so it keeps `bg-card`: only the ink comes
+from the theme. That theme is VS Code's own pair, Dark+ and Light+ — the colours
+the app's palette was cut from, so a block looks like its editor's. Every token
+carries both palettes at once as custom properties and one rule in
+`src/index.css` picks the one in force, which is why a scheme change recolours
+code without a render. The colours arrive when the words stop: a block still
+being written is drawn plain, because colouring a long one costs a frame of its
+own.
+
 **Stream** — what a model is doing while it works. A thought that is still
 arriving says `Thinking…` in shadcn's **marker** with its **`shimmer`** utility
 (vendored into `src/index.css`): the light is pure CSS off the text's own

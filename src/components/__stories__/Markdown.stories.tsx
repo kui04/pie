@@ -66,3 +66,32 @@ export function greet(name: string): string {
 Done.`,
     },
 };
+
+/** The formulas, the code and the line breaks a model actually writes. */
+export const MathAndCode: Story = {
+    args: {
+        children: `A run is a lock the reader takes with their own hand.
+While they hold it, the words arrive without dragging them down.
+
+The energy is $E = mc^2$, and the whole integral is
+
+$$
+\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}
+$$
+
+Then the code, which arrives uncoloured and settles into colour:
+
+\`\`\`typescript
+export async function fold(rows: Row[], keep = 24): Promise<string[]> {
+    const seen = new Set<string>(); // a row is named by its own id
+    return rows.slice(-keep).map((row) => \`\${row.id} at \${row.size}px\`);
+}
+\`\`\`
+
+A dollar sign is not always a formula: it costs $5 and then $10 more, and $HOME/config is a path.
+
+| Row | Kind      | Height  |
+| --- | --------- | ------- |
+| 42  | assistant | 88 px   |`,
+    },
+};

@@ -45,6 +45,30 @@ describe("Markdown", () => {
         expect(parser).toHaveBeenCalledTimes(2);
     });
 
+    it("sets a formula as a formula", () => {
+        const view = render(
+            <Markdown id="math">
+                {"The energy is $E = mc^2$ exactly.\n\n$\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}$"}
+            </Markdown>,
+        );
+
+        // KaTeX's own markup, not the TeX source: `rehype-katex` drew it. The TeX itself
+        // stays in the MathML annotation a screen reader reads, which is why the drawn part
+        // is what is asked about.
+        expect(view.container.querySelectorAll(".katex").length).toBe(2);
+        expect(view.container.querySelector(".katex-html")?.textContent).not.toContain("\\frac");
+    });
+
+    it("ends the line a model ended", () => {
+        // A model writes one newline where it means a line break; rendering it as a space
+        // would run two lines together. pi's own renderer answers the same way.
+        const view = render(<Markdown id="lines">{"one\ntwo"}</Markdown>);
+
+        expect(view.container.querySelector("br")).not.toBeNull();
+        expect(view.container.textContent).toContain("one");
+        expect(view.container.textContent).toContain("two");
+    });
+
     it("keeps nothing of a row it cannot name", () => {
         // Without an id there is nothing to key the parse by, so nothing is kept.
         const first = render(<Markdown>Anonymous</Markdown>);

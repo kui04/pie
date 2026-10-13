@@ -1,7 +1,12 @@
 import { isValidElement, memo, useMemo, type ReactNode } from "react";
+import "katex/dist/katex.min.css";
 import { cn } from "cn";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import { remarkDollars } from "@/lib/remark-dollars";
 import { toast } from "sonner";
 import { openUrl } from "@/lib/bridge";
 import { CodeBlock } from "@/components/CodeBlock";
@@ -135,7 +140,16 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
 
     return (
         <div className={cn("text-body-md text-foreground space-y-3", className)}>
-            {parsed(id, { children, remarkPlugins: [remarkGfm], components })}
+            {parsed(id, {
+                children,
+                // GFM for the tables and the task lists a model writes; math for the formulas,
+                // which `rehype-katex` turns into the same markup the reader of a paper sees;
+                // breaks because a model's single newline is a line it means to end - pi's own
+                // renderer answers the same way.
+                remarkPlugins: [remarkGfm, remarkMath, remarkDollars, remarkBreaks],
+                rehypePlugins: [[rehypeKatex, { errorColor: "var(--destructive)" }]],
+                components,
+            })}
         </div>
     );
 }

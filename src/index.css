@@ -565,3 +565,49 @@
     1.4px 1.4px 3px 0 var(--elevation-shadow),
     inset 0 0 0 0.5px var(--elevation-edge);
 }
+
+/**
+ * The colours inside a code block.
+ *
+ * A token carries both palettes at once, as the custom properties the highlighter wrote on
+ * it, and this rule says which of the two the reader's scheme gets - the dark one by default,
+ * as for the whole sheet. The highlighter's own background is not used: a block is a tile of
+ * this page and keeps `--card`, with only the ink coming from the theme.
+ */
+[data-code] span {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style, inherit);
+  font-weight: var(--shiki-dark-font-weight, inherit);
+  text-decoration: var(--shiki-dark-text-decoration, inherit);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-code] span {
+    color: var(--shiki-light);
+    font-style: var(--shiki-light-font-style, inherit);
+    font-weight: var(--shiki-light-font-weight, inherit);
+    text-decoration: var(--shiki-light-text-decoration, inherit);
+  }
+}
+
+/**
+ * A display formula is set on one line and cannot wrap, so on a phone it is wider than the
+ * column: it scrolls sideways like a table rather than being cut off or squeezed.
+ */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/**
+ * A formula KaTeX cannot read: KaTeX hands back the source it could not parse, and one line
+ * of LaTeX runs off the side of a phone. Drawn as the source it is - mono, wrapped, small.
+ */
+.katex-error {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

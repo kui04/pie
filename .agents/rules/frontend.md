@@ -54,9 +54,9 @@ forked layout.
 - A primitive nothing in the app imports is not vendored: `scroll-area`,
   `drawer` and `dropdown-menu` were removed once pie's own components took their
   job.
-- Transcript rendering: react-markdown + remark-gfm, virtualized (virtua), no
-  heavy highlighters (shiki) in the initial bundle; diffs get a dedicated
-  renderer.
+- Transcript rendering: react-markdown + remark-gfm, virtualized (virtua), and
+  `shiki` only through the lazy chunk of `src/lib/shiki-bundle.ts` — a
+  highlighter never reaches the initial bundle; diffs get a dedicated renderer.
 - The only way out of React is the Tauri `invoke` bridge in `src/lib/bridge/` —
   no fetch, no WebSocket, no Tauri event listeners outside the bridge, and no
   `@tauri-apps/plugin-*` import: anything the frontend needs from a plugin, Rust
