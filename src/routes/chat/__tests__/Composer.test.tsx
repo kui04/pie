@@ -310,6 +310,59 @@ describe("the command menu", () => {
         expect(bridge.prompt).not.toHaveBeenCalled();
     });
 
+    it("lights the row under the pointer, and gives it back to the keyboard when it leaves", async () => {
+        bridge.getCommands.mockResolvedValue({
+            commands: [
+                slashCommand("review", "Review the tree", "extension"),
+                slashCommand("deploy", "Deploy the app", "skill"),
+                slashCommand("release", "Prepare a release", "prompt"),
+            ],
+        });
+        renderComposer();
+
+        type("/");
+        const first = await screen.findByRole("option", { name: /review/ });
+        const third = screen.getByRole("option", { name: /release/ });
+        expect(first).toHaveAttribute("data-lit", "true");
+
+        // The pointer lights the row it is over...
+        fireEvent.mouseMove(third);
+        expect(third).toHaveAttribute("data-lit", "true");
+        expect(first).toHaveAttribute("data-lit", "false");
+
+        // ...and leaving the list gives the light back to the row the keyboard is on.
+        fireEvent.mouseLeave(screen.getByRole("listbox", { name: "Commands" }));
+        expect(first).toHaveAttribute("data-lit", "true");
+        expect(third).toHaveAttribute("data-lit", "false");
+
+        // The keyboard takes the row the light is on, as the popup lists do.
+        fireEvent.mouseMove(third);
+        press("Enter");
+        expect(box()).toHaveValue("/release ");
+        expect(bridge.prompt).not.toHaveBeenCalled();
+    });
+
+    it("starts the light over on the best match of what is typed now", async () => {
+        bridge.getCommands.mockResolvedValue({
+            commands: [
+                slashCommand("review", "Review the tree", "extension"),
+                slashCommand("deploy", "Deploy the app", "skill"),
+                slashCommand("release", "Prepare a release", "prompt"),
+            ],
+        });
+        renderComposer();
+
+        type("/re");
+        const release = await screen.findByRole("option", { name: /release/ });
+        fireEvent.mouseMove(release);
+        expect(release).toHaveAttribute("data-lit", "true");
+
+        // New words: the light is the keyboard s again, and it stands on the best match.
+        type("/r");
+        expect(await screen.findByRole("option", { name: /review/ })).toHaveAttribute("data-lit", "true");
+        expect(screen.getByRole("option", { name: /release/ })).toHaveAttribute("data-lit", "false");
+    });
+
     it("takes the row under the keyboard with Tab", async () => {
         bridge.getCommands.mockResolvedValue({
             commands: [

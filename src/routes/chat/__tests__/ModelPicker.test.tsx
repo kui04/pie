@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { VirtualizerHandle } from "virtua";
 import type * as Bridge from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
+import type { Model } from "@/lib/rpc-protocol";
 import { ModelPicker, type ModelPickerProps } from "@/routes/chat/composer/ModelPicker";
 import { model } from "@/preview/fixtures";
 
@@ -19,6 +21,46 @@ const bridge = vi.hoisted(() => ({
 vi.mock("@/lib/bridge", async (importOriginal) => ({
     ...(await importOriginal<typeof Bridge>()),
     ...bridge,
+}));
+
+/**
+ * What the picker asks of the list of the rows, and what it says to it. virtua draws a window
+ * of the list, which happy-dom cannot lay out, so the list is drawn whole here - the picker's
+ * own reading of the rows is what these tests are about.
+ */
+const asked = vi.hoisted(() => ({
+    bufferSize: 0,
+    itemSize: 0,
+    scrolls: [] as { index: number; align?: string }[],
+}));
+
+vi.mock("virtua", () => ({
+    Virtualizer: ({
+        children,
+        data,
+        itemSize,
+        bufferSize,
+        ref,
+    }: {
+        children: (row: Model, index: number) => ReactNode;
+        data: readonly Model[];
+        itemSize?: number;
+        bufferSize?: number;
+        ref?: RefObject<VirtualizerHandle | null>;
+    }) => {
+        asked.bufferSize = bufferSize ?? 0;
+        asked.itemSize = itemSize ?? 0;
+        useLayoutEffect(() => {
+            if (ref) {
+                ref.current = {
+                    scrollToIndex: (index: number, opts?: { align?: string }) => {
+                        asked.scrolls.push({ index, align: opts?.align });
+                    },
+                } as unknown as VirtualizerHandle;
+            }
+        }, [ref]);
+        return <>{data.map((row, index) => children(row, index))}</>;
+    },
 }));
 
 /**
@@ -41,6 +83,9 @@ function renderPicker(props: Partial<ModelPickerProps> = {}) {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    asked.scrolls.length = 0;
+    asked.bufferSize = 0;
+    asked.itemSize = 0;
     bridge.getAvailableModels.mockResolvedValue({
         models: [model(), model({ id: "deepseek-flash", name: "DeepSeek Flash", provider: "deepseek" })],
     });
@@ -61,10 +106,29 @@ describe("the model of the session", () => {
 
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
 
-        // The list holds every model, and the one in use is the one the select marks as
-        // chosen - the check the select draws beside it.
-        expect(await screen.findByRole("option", { name: /DeepSeek Flash/ })).toHaveAttribute("aria-selected", "true");
+        // Nothing is lit until the pointer or a key moves the light: the list leads with the
+        // model in use, and it wears the check that says so - and no light of its own.
+        const inUse = await screen.findByRole("option", { name: /DeepSeek Flash/ });
+        expect(inUse).toContainElement(screen.getByLabelText("In use"));
+        expect(inUse).toHaveAttribute("aria-selected", "false");
         expect(screen.getByRole("option", { name: /Claude Sonnet 4.5/ })).toHaveAttribute("aria-selected", "false");
+    });
+
+    it("puts aria-selected on the row the light is on, not on the model in use", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(6, "opencode", "Model") });
+
+        renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        const options = await screen.findAllByRole("option");
+        expect(options[0]).toHaveAttribute("aria-selected", "false");
+
+        // The pointer moves the light - and the selection with it, because the light is the
+        // row Enter would take - while the check stays on the model in use.
+        fireEvent.mouseMove(options[4]!);
+        expect(options[4]).toHaveAttribute("aria-selected", "true");
+        expect(options[0]).toHaveAttribute("aria-selected", "false");
+        expect(options[0]).toContainElement(screen.getByLabelText("In use"));
     });
 
     it("sets the model that was chosen, and reads the state again", async () => {
@@ -165,7 +229,7 @@ describe("the model of the session", () => {
         const options = await screen.findAllByRole("option");
         expect(options).toHaveLength(600);
         expect(options[0]).toHaveTextContent("DeepSeek 150");
-        expect(options[0]).toHaveAttribute("aria-selected", "true");
+        expect(options[0]).toHaveAttribute("aria-selected", "false");
         expect(options[1]).toHaveTextContent("Claude 0");
         expect(options[300]).toHaveTextContent("Claude 299");
         expect(options[301]).toHaveTextContent("DeepSeek 0");
@@ -240,6 +304,66 @@ describe("the model of the session", () => {
         expect(screen.getByText("No match.")).toBeInTheDocument();
     });
 
+    it("lights the row under the pointer, and gives the light back when the pointer leaves", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(20, "opencode", "Model") });
+
+        renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        const options = await screen.findAllByRole("option");
+        const search = screen.getByRole("combobox", { name: "Search models" });
+        expect(search).not.toHaveAttribute("aria-activedescendant");
+
+        // The pointer lights the row it is over.
+        const fourth = options[3];
+        fireEvent.mouseMove(fourth!);
+        expect(search).toHaveAttribute("aria-activedescendant", fourth?.id);
+        expect(fourth).toHaveAttribute("data-lit", "true");
+        expect(options[0]).toHaveAttribute("data-lit", "false");
+
+        // Leaving the list takes the light with it, and the keyboard has not moved it.
+        fireEvent.mouseLeave(screen.getByRole("listbox", { name: "Models" }));
+        expect(search).not.toHaveAttribute("aria-activedescendant");
+        expect(options[0]).toHaveAttribute("data-lit", "false");
+        expect(fourth).toHaveAttribute("data-lit", "false");
+    });
+
+    it("reads every row in the same ink, and marks the model in use with its check alone", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(4, "opencode", "Model") });
+
+        renderPicker({ current: model({ id: "model-2", name: "Model 2", provider: "opencode" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        const options = await screen.findAllByRole("option");
+
+        // One shape and one ink for all of them: what tells the row in use apart is its
+        // check, and what tells the light apart is the light.
+        expect(new Set(options.map((row) => row.className)).size).toBe(1);
+        expect(options[0]).toContainElement(screen.getByLabelText("In use"));
+        expect(screen.getAllByLabelText("In use")).toHaveLength(1);
+    });
+
+    it("draws the rows past the popup ahead of a scroll, and keeps the cursor in view", async () => {
+        const user = userEvent.setup();
+        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
+
+        renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
+        await user.click(screen.getByRole("button", { name: "Choose the model" }));
+        await screen.findAllByRole("option");
+
+        // Six hundred rows are never drawn at once: the list is a window, and the rows either
+        // side of it are drawn ahead so a fast scroll does not arrive before them.
+        expect(asked.bufferSize).toBe(800);
+        expect(asked.itemSize).toBe(40);
+
+        // The row the keyboard stands on is a position in the list, not an element to find:
+        // the list is what brings it into view. The first key down stands on the first row.
+        await user.keyboard("{ArrowDown}");
+        expect(asked.scrolls[asked.scrolls.length - 1]).toEqual({ index: 0, align: "nearest" });
+        await user.keyboard("{ArrowDown}");
+        expect(asked.scrolls[asked.scrolls.length - 1]).toEqual({ index: 1, align: "nearest" });
+    });
+
     it("moves the cursor over the whole list with the arrows", async () => {
         const user = userEvent.setup();
         bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
@@ -248,14 +372,16 @@ describe("the model of the session", () => {
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
         const options = await screen.findAllByRole("option");
         const cursor = screen.getByRole("combobox", { name: "Search models" });
-        expect(cursor).toHaveAttribute("aria-activedescendant", options[0]?.id);
+        expect(cursor).not.toHaveAttribute("aria-activedescendant");
 
-        // The list is one cursor deep, whatever its length: the arrows walk it and the
-        // keyboard takes what it stands on.
-        await user.keyboard("{ArrowDown}{ArrowDown}");
-        expect(cursor).toHaveAttribute("aria-activedescendant", options[2]?.id);
+        // Nothing is lit until a key moves the light, and the first one down stands on the
+        // first row: the list is one cursor deep, whatever its length.
+        await user.keyboard("{ArrowDown}");
+        expect(cursor).toHaveAttribute("aria-activedescendant", options[0]?.id);
+        await user.keyboard("{ArrowDown}");
+        expect(cursor).toHaveAttribute("aria-activedescendant", options[1]?.id);
         await user.keyboard("{Enter}");
 
-        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "opencode", "model-2"));
+        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "opencode", "model-1"));
     });
 });

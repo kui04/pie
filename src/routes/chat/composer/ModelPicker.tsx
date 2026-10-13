@@ -14,7 +14,8 @@
  */
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useCallback, useId, useLayoutEffect, useMemo, useState } from "react";
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { Bot, Check, Search } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -132,8 +133,11 @@ interface ModelMenuProps {
  */
 function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     const [query, setQuery] = useState("");
-    const [cursor, setCursor] = useState(0);
+    const [cursor, setCursor] = useState<number | null>(null);
+    const [hovered, setHovered] = useState<number | null>(null);
     const marks = useProviderMarks(catalogue);
+    const list = useRef<VirtualizerHandle>(null);
+    const viewport = useRef<HTMLDivElement>(null);
     const listId = `${useId()}-models`;
 
     // What the popup draws: the whole catalog, ordered by provider while nothing is
@@ -143,18 +147,30 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
         return search === "" ? orderedByProvider(catalogue, value) : searchModels(catalogue, search);
     }, [catalogue, query, value]);
 
-    // A search of its own leaves the cursor on the first row, the best match, as pi does;
-    // and the cursor never points past a row that exists.
-    const at = shown.length === 0 ? -1 : Math.min(cursor, shown.length - 1);
+    // The row the keyboard stands on, once a key has moved it: nothing is lit before that,
+    // and a row of the catalog is not lit for being the model in use - its check says so.
+    const at = cursor ?? -1;
+    // What is lit: the row under the pointer while there is one, the keyboard's row when it
+    // is not, and neither once the pointer has left a list nothing has moved in.
+    const lit = shown.length === 0 ? -1 : Math.min(hovered ?? at, shown.length - 1);
     const move = (step: number) => {
         if (shown.length === 0) return;
-        setCursor((current) => (current + step + shown.length) % shown.length);
+        // A key takes the light from the pointer, and stands where the keyboard left it -
+        // the first row down, the last one up.
+        setHovered(null);
+        setCursor((current) => {
+            if (current === null) return step > 0 ? 0 : shown.length - 1;
+            return (current + step + shown.length) % shown.length;
+        });
     };
 
+    // The cursor is brought into view by the list itself: six hundred rows are not drawn, so
+    // a row to scroll to is a position and not an element. The pointer does not scroll the
+    // list: a row it is over is already under it.
     useLayoutEffect(() => {
-        if (at < 0) return;
-        document.getElementById(`${listId}-${at}`)?.scrollIntoView({ block: "nearest" });
-    }, [at, listId, query]);
+        if (at < 0 || shown.length === 0) return;
+        list.current?.scrollToIndex(Math.min(at, shown.length - 1), { align: "nearest" });
+    }, [at, query, shown.length]);
 
     // A catalog that could not be read is not a search that found nothing: the popup says
     // what happened instead of offering a list of nothing, and there is nothing to search.
@@ -175,7 +191,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     role="combobox"
                     aria-expanded
                     aria-controls={listId}
-                    aria-activedescendant={at < 0 ? undefined : `${listId}-${at}`}
+                    aria-activedescendant={lit < 0 ? undefined : `${listId}-${lit}`}
                     aria-autocomplete="list"
                     aria-label="Search models"
                     // The search is what a model is found by, so the popup opens on it.
@@ -183,6 +199,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     value={query}
                     onChange={(event) => {
                         setQuery(event.target.value);
+                        // The best match of the new search, as pi's selector lights it.
                         setCursor(0);
                     }}
                     onKeyDown={(event) => {
@@ -193,7 +210,13 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                             event.preventDefault();
                             move(-1);
                         } else if (event.key === "Enter") {
-                            const picked = at < 0 ? undefined : shown[at];
+                            // With nothing lit, the key keeps the model in use.
+                            const picked =
+                                lit < 0
+                                    ? value === null
+                                        ? shown[0]
+                                        : catalogue.find((model) => choiceOf(model) === value)
+                                    : shown[lit];
                             if (picked !== undefined) {
                                 event.preventDefault();
                                 onChoose(choiceOf(picked));
@@ -204,27 +227,45 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     className="text-body-md placeholder:text-outline min-w-0 flex-1 bg-transparent outline-hidden"
                 />
             </div>
-            <ScrollPane id="composer-model-scroll" className="min-h-0 flex-1">
+            <ScrollPane id="composer-model-scroll" viewportRef={viewport} className="min-h-0 flex-1">
                 {state === "loading" ? (
                     <ModelSkeleton />
                 ) : (
-                    <div role="listbox" id={listId} aria-label="Models" className="flex flex-col gap-1 outline-none">
+                    <div
+                        role="listbox"
+                        id={listId}
+                        aria-label="Models"
+                        // The pointer leaving takes its light with it.
+                        onMouseLeave={() => setHovered(null)}
+                        className="outline-none"
+                    >
                         {shown.length === 0 && (
                             <p className="text-muted-foreground text-body-md py-2 text-center">No match.</p>
                         )}
-                        {shown.map((model, index) => (
-                            <ModelRow
-                                key={choiceOf(model)}
-                                id={`${listId}-${index}`}
-                                model={model}
-                                mark={marks.get(model.provider) ?? null}
-                                at={index}
-                                inUse={choiceOf(model) === value}
-                                selected={index === at}
-                                onCursor={setCursor}
-                                onChoose={onChoose}
-                            />
-                        ))}
+                        <Virtualizer
+                            ref={list}
+                            data={shown}
+                            itemSize={ROW}
+                            // The rows past the window are drawn ahead of it, which is what
+                            // keeps a fast scroll from arriving before them.
+                            bufferSize={AHEAD}
+                            scrollRef={viewport}
+                        >
+                            {(model, index) => (
+                                <div key={choiceOf(model)} className="pb-1">
+                                    <ModelRow
+                                        id={`${listId}-${index}`}
+                                        model={model}
+                                        mark={marks.get(model.provider) ?? null}
+                                        at={index}
+                                        inUse={choiceOf(model) === value}
+                                        lit={index === lit}
+                                        onPoint={setHovered}
+                                        onChoose={onChoose}
+                                    />
+                                </div>
+                            )}
+                        </Virtualizer>
                     </div>
                 )}
             </ScrollPane>
@@ -237,40 +278,40 @@ interface ModelRowProps {
     model: Model;
     /** The mark of this row's provider. */
     mark: string | null;
-    /** Where the row sits in the list, which is what the cursor moves over. */
+    /** Where the row sits in the list, which is what the pointer reports. */
     at: number;
     /** Whether this is the model in use. */
     inUse: boolean;
-    /** Whether the cursor is on this row. */
-    selected: boolean;
-    onCursor: (at: number) => void;
+    /** Whether this row is lit: the pointer is on it, or the cursor stands on it. */
+    lit: boolean;
+    onPoint: (at: number) => void;
     onChoose: (choice: string) => void;
 }
 
 /**
  * One row. It is drawn again only when it changes: the props of a row that stays in the list
  * are the same objects and numbers on every keystroke, so typing does not redraw six hundred
- * rows - the cursor moving between two of them redraws two.
+ * rows - the light moving between two of them redraws two.
+ *
+ * Every row reads in the plane's own ink, and only its light changes: `aria-selected` is the
+ * row Enter would take, which is the lit row - the pointer's while the pointer is in the
+ * list, the keyboard's when it is not. The model in use is marked by its check and by
+ * nothing else.
  */
-const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, selected, onCursor, onChoose }: ModelRowProps) {
+const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoint, onChoose }: ModelRowProps) {
     const choice = choiceOf(model);
     return (
         <div
             id={id}
             role="option"
-            aria-selected={inUse}
-            data-selected={selected}
+            aria-selected={lit}
+            data-lit={lit}
             onClick={() => onChoose(choice)}
-            onMouseMove={() => onCursor(at)}
+            onMouseMove={() => onPoint(at)}
             className={cn(
-                "text-muted-foreground flex cursor-default items-center gap-2",
-                "rounded-lg px-2 py-2 select-none",
-                // The list is far longer than the popup: a row outside it is left unlaid,
-                // and its own height is what the scrollbar counts it as.
-                "[contain-intrinsic-size:auto_2.25rem] [content-visibility:auto]",
-                // The cursor is what a keyboard moves; the row in use keeps its own tint.
-                "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
-                inUse && "bg-accent text-accent-foreground font-medium",
+                "text-foreground flex cursor-default items-center gap-2",
+                "h-9 rounded-lg px-2 select-none",
+                "data-[lit=true]:bg-accent",
             )}
         >
             <ProviderMark provider={model.provider} mark={mark} />
@@ -301,6 +342,19 @@ function ModelSkeleton() {
 
 /** The width of each name bar, so the rows do not read as one bar repeated. */
 const WIDTHS = ["w-3/5", "w-2/5", "w-1/2", "w-1/3", "w-4/5"];
+
+/**
+ * The height of one row with the air under it: a line of `text-body-md` in 8px of padding is
+ * the row, and the list keeps 4px between rows. The skeleton rows are the same size.
+ */
+const ROW = 40;
+
+/**
+ * How much of the list beyond the popup is drawn, in pixels: virtua's `bufferSize`, which its
+ * own note raises "to avoid showing blank items in fast [scrolling]". A row is 40px, so this
+ * stands in for twenty rows either side of the window.
+ */
+const AHEAD = 800;
 
 /**
  * The rows while nothing is typed: the model in use first, then by provider, as pi's own

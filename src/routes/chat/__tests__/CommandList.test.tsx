@@ -24,7 +24,7 @@ const rows = (count: number): CommandRow[] =>
         description: null,
     }));
 
-const show = (highlighted: string) => (
+const show = (highlighted: string, count = 20) => (
     // The panel is a popover content, so a root stands around it: the box is its
     // anchor, which a test does not lay out.
     <Popover open>
@@ -33,15 +33,27 @@ const show = (highlighted: string) => (
         </PopoverAnchor>
         <CommandList
             id="menu"
-            rows={rows(20)}
+            rows={rows(count)}
             highlighted={highlighted}
-            onHighlight={() => undefined}
+            lit="row-1"
+            onPoint={() => undefined}
             onChoose={() => undefined}
         />
     </Popover>
 );
 
 describe("CommandList", () => {
+    it("is as tall as ten rows when there are more of them, and as tall as its rows when not", () => {
+        // A panel that is taller than its rows is ten rows of air; one that is taller than
+        // the ten it shows hides the rest, because the scroll area takes its height from
+        // the panel and a capped parent leaves it as tall as its content.
+        const { rerender } = render(show("row-1"));
+        expect(document.querySelector("#menu")).toHaveClass("h-103");
+
+        rerender(show("row-1", 3));
+        expect(document.querySelector("#menu")).not.toHaveClass("h-103");
+    });
+
     it("keeps the row under the keyboard in view, from the first draw on", () => {
         render(show("row-1"));
 

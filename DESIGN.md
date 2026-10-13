@@ -637,17 +637,24 @@ and scrolls rather than cutting the list short: the model in use leads, the rest
 follow one provider after another, and a search ranks them by pi's own matching,
 so a model that typing finds in pi is found by typing the same here. While the
 catalog is on its way the popup holds those rows as bars, so it opens at the
-height it keeps. The mark of a model's provider leads its key and its row —
-16px, the shape of models.dev in the ink of the surface under it, and the key of
-the composer where models.dev has no mark — fetched once and kept for a day. The
-command menu's panel is the same plane and shape, as wide as the card it stands
-above, and shows ten rows before it scrolls. Its rows take the menu's accent
-(`selected-row`) — the row under the pointer or the keyboard, and the row in use
-with its check in `primary-text` — and a row of the command menu reads in two
-inks: the name in the plane's own (`foreground`), and what the command says
-about itself in `muted-foreground`. The selected row reads in the selection's
-ink alone, because the muted ink on the accent fill is 4.37:1 — under what a
-sentence needs.
+height it keeps. A model row reads in the plane's own ink (`foreground`), every
+row the same, and only its light changes: nothing is lit until the pointer or a
+key moves the light, a search lights its best match, and the light leaves with
+the pointer. A row of a level list follows the same rule. The model in use, and
+the level in use, are marked by their check in `primary-text` and by nothing
+else — not by a fill of their own. The mark of a model's provider leads its key
+and its row — 16px, the shape of models.dev in the ink of the surface under it,
+and the key of the composer where models.dev has no mark — fetched once and kept
+for a day. The command menu's panel is the same plane and shape, as wide as the
+card it stands above, and it is ten rows tall past the tenth of them and as tall
+as its rows while there are fewer, so the rows past the ten are scrolled to
+rather than clipped. Its rows take the menu's accent (`selected-row`) — the
+light is the pointer's while the pointer is in the list and the keyboard's when
+it is not, and it leaves with the pointer — and a row of the command menu reads
+in two inks: the name in the plane's own (`foreground`), and what the command
+says about itself in `muted-foreground`. The lit row reads in the accent's own
+ink, because the muted ink on the accent fill is 4.37:1 — under what a sentence
+needs.
 
 **Field** — `input` fill, no visible stroke until focus, then a `ring` focus
 ring and a caret; 48px tall on a touch pointer.

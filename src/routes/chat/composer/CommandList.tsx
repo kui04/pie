@@ -1,18 +1,10 @@
 /**
- * The command panel of the composer: a list that floats above the message box while the
- * person types a command.
+ * The command panel of the composer: a list that floats above the message box while the person
+ * types a command.
  *
- * The list is pie's own and not a list widget's: the keyboard lives in the message box,
- * whose text is the filter, so the panel takes no input of its own and the highlight
- * arrives as a controlled id (the arrows of the message box move it, and Enter chooses it -
- * `composer/command.ts` builds the rows). A widget would be asked for one thing here, a row
- * with a highlight on it, which is the same thing the model popup's rows draw themselves.
- *
- * The highlight arrives from outside, so the list scrolls to it itself.
- *
- * The panel is the design's: the surface of the composer's other popovers - the
- * composer's own plane, a `rounded-lg` corner, `space-sm` of padding and the raised
- * elevation - with a scroll pane inside, and ten rows before it scrolls.
+ * The keyboard lives in the message box, whose text is the filter: the panel takes no input of
+ * its own, the row that is lit is the pointer's or the keyboard's, and the row the keyboard is
+ * on is the one it keeps in view.
  */
 
 import { useRef } from "react";
@@ -26,20 +18,30 @@ export interface CommandListProps {
     id: string;
     /** The rows to show, already filtered by what was typed. */
     rows: CommandRow[];
-    /** The id of the row under the keyboard. */
+    /** The id of the row under the keyboard, which is the row kept in view. */
     highlighted: string;
-    onHighlight: (id: string | null) => void;
+    /** The id of the row that is lit: the row under the pointer, or the keyboard's. */
+    lit: string;
+    /** Called with the row the pointer entered, and with `null` when it leaves the list. */
+    onPoint: (id: string | null) => void;
     onChoose: (row: CommandRow) => void;
     /** Merged into the panel last, for a caller that moves it. */
     className?: string;
 }
 
-export function CommandList({ id, rows, highlighted, onHighlight, onChoose, className }: CommandListProps) {
+/**
+ * How many rows the panel shows before it scrolls: ten of them, 36px each with 4px
+ * between, which is what the height below is made of.
+ */
+const TEN_ROWS = 10;
+
+export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, className }: CommandListProps) {
     /**
      * The row the list has already brought into view. The rows mount with the popup's
      * portal, a commit after this panel does, so a layout effect of its own would run
      * before there is a row to scroll to: a row scrolls itself into view as it is
-     * attached instead, once for each highlight.
+     * attached instead, once for each row the keyboard moves to. The pointer never scrolls
+     * the list: a row it is over is already under it.
      */
     const brought = useRef<string | null>(null);
 
@@ -61,13 +63,16 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
             // the message box, and a popover that took the focus would end the typing.
             onOpenAutoFocus={(event) => event.preventDefault()}
             onCloseAutoFocus={(event) => event.preventDefault()}
-            // The panel is as wide as the card it stands above, which is what the
-            // composer anchors this popover to. The height is ten rows (36px each),
-            // the nine 4px gaps between them, and this padding - 412px, the 103 steps
-            // of the spacing unit - so the list scrolls past what the panel shows and
-            // no further.
+            // The panel is as wide as the card it stands above. Ten rows (36px each), the
+            // nine 4px gaps between them and this padding are 412px, the 103 steps of the
+            // spacing unit: the height is set past the tenth row and left off while there are
+            // fewer, so a short panel is not ten rows of air. A cap alone would not do - the
+            // scroll area's viewport takes its height from the panel, and a percentage against
+            // a capped parent stays as tall as its content, so the rows past the tenth would be
+            // clipped rather than scrolled to.
             className={cn(
-                "elevation-raised bg-card text-foreground max-h-103",
+                "elevation-raised bg-card text-foreground",
+                rows.length > TEN_ROWS && "h-103",
                 "w-(--radix-popover-trigger-width) gap-1 overflow-hidden p-2",
                 className,
             )}
@@ -78,6 +83,7 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
                         role="listbox"
                         id={`${id}-list`}
                         aria-label="Commands"
+                        onMouseLeave={() => onPoint(null)}
                         className="flex min-h-0 flex-col gap-1 outline-none"
                     >
                         {rows.map((row) => (
@@ -88,11 +94,11 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
                                 // with it.
                                 id={`${id}-${row.id}`}
                                 role="option"
-                                aria-selected={row.id === highlighted}
-                                data-selected={row.id === highlighted}
+                                aria-selected={row.id === lit}
+                                data-lit={row.id === lit}
                                 ref={(element) => hold(row, element)}
                                 onClick={() => onChoose(row)}
-                                onMouseMove={() => onHighlight(row.id)}
+                                onMouseMove={() => onPoint(row.id)}
                                 // The row is two tones: the name is what the reader reads,
                                 // so it stays on the panel's own ink (`foreground`), while
                                 // the description recedes. The type ramp sits on the spans,
@@ -100,7 +106,7 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
                                 // it to.
                                 className={cn(
                                     "group/item",
-                                    "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+                                    "data-[lit=true]:bg-accent data-[lit=true]:text-accent-foreground",
                                     "relative flex cursor-default items-center gap-2",
                                     "rounded-lg px-2 py-2 text-sm select-none",
                                 )}
@@ -110,7 +116,7 @@ export function CommandList({ id, rows, highlighted, onHighlight, onChoose, clas
                                     // The description follows the selection too, and not as a
                                     // decoration: `muted-foreground` on the `accent` fill is
                                     // 4.37:1, under the 4.5 a sentence needs.
-                                    <span className="text-body-md text-muted-foreground group-data-[selected=true]/item:text-accent-foreground min-w-0 truncate">
+                                    <span className="text-body-md text-muted-foreground group-data-[lit=true]/item:text-accent-foreground min-w-0 truncate">
                                         {row.description}
                                     </span>
                                 )}

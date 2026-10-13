@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,6 +79,28 @@ describe("the thinking level of the session", () => {
 
         await waitFor(() => expect(bridge.setThinkingLevel).toHaveBeenCalledWith("main:1", "high"));
         expect(client.getQueryState(["session", "main:1", "state"])?.isInvalidated).toBe(true);
+    });
+
+    it("puts aria-selected on the row the light is on, not on the level in use", async () => {
+        const user = userEvent.setup();
+        renderPicker({ current: "low" });
+
+        await user.click(screen.getByRole("button", { name: "Choose the thinking level" }));
+        const list = await screen.findByRole("listbox", { name: "Choose the thinking level" });
+        const options = screen.getAllByRole("option");
+        // Nothing is lit: the level in use wears its check and no light of its own.
+        for (const option of options) expect(option).toHaveAttribute("aria-selected", "false");
+        expect(options[1]).toContainElement(screen.getByLabelText("In use"));
+
+        // The pointer moves the light, and the selection with it.
+        fireEvent.mouseMove(options[2]!);
+        expect(options[2]).toHaveAttribute("aria-selected", "true");
+        expect(options[1]).toHaveAttribute("aria-selected", "false");
+        expect(options[1]).toContainElement(screen.getByLabelText("In use"));
+
+        // Leaving the list takes the light away again, and the keyboard has not moved it.
+        fireEvent.mouseLeave(list);
+        for (const option of options) expect(option).toHaveAttribute("aria-selected", "false");
     });
 
     it("does not call for the level that is already in use", async () => {

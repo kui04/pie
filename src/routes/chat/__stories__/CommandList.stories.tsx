@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { Popover, PopoverAnchor } from "@/components/ui";
-import { CommandList } from "@/routes/chat/composer/CommandList";
+import { CommandList, type CommandListProps } from "@/routes/chat/composer/CommandList";
 import { commandRows } from "@/routes/chat/composer/command";
 import { slashCommand } from "@/preview/fixtures";
 
@@ -10,6 +11,16 @@ const commands = [
     slashCommand("fix-test", "Fix a failing test", "prompt"),
     slashCommand("deploy", "Deploy the app", "skill"),
 ];
+
+/**
+ * The story holds the light the way the composer holds it: the row under the pointer while
+ * there is one, the row of the keyboard otherwise, and back to the keyboard's when the
+ * pointer leaves the list.
+ */
+function Lit({ lit, ...props }: Omit<CommandListProps, "lit" | "onPoint"> & { lit: string }) {
+    const [pointed, setPointed] = useState<string | null>(null);
+    return <CommandList {...props} lit={pointed ?? lit} onPoint={setPointed} />;
+}
 
 const meta = {
     title: "Chat/CommandList",
@@ -33,9 +44,11 @@ const meta = {
         id: "composer-command-menu",
         rows: commandRows("", commands),
         highlighted: "pi-review",
-        onHighlight: () => undefined,
+        lit: "pi-review",
+        onPoint: () => undefined,
         onChoose: () => undefined,
     },
+    render: (args) => <Lit {...args} />,
 } satisfies Meta<typeof CommandList>;
 
 export default meta;
@@ -45,7 +58,9 @@ type Story = StoryObj<typeof meta>;
 export const Commands: Story = {};
 
 /** What `/re` leaves: the commands whose names start with it. */
-export const Filtered: Story = { args: { rows: commandRows("re", commands), highlighted: "pi-review" } };
+export const Filtered: Story = {
+    args: { rows: commandRows("re", commands), highlighted: "pi-review", lit: "pi-review" },
+};
 
 /**
  * A host that registered more commands than fit: the list scrolls, and it opens on the
@@ -59,5 +74,6 @@ export const ManyRows: Story = {
             description: "A command of a host that registered many",
         })),
         highlighted: "row-24",
+        lit: "row-24",
     },
 };

@@ -42,6 +42,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
     const [value, setValue] = useState("");
     const [staged, setStaged] = useState<Staged[]>([]);
     const [highlighted, setHighlighted] = useState<string | null>(null);
+    const [pointed, setPointed] = useState<string | null>(null);
     const [dismissed, setDismissed] = useState(false);
     const [panel, setPanel] = useState<"model" | "thinking" | null>(null);
     const input = useRef<HTMLTextAreaElement>(null);
@@ -59,6 +60,10 @@ export function Composer({ session, working, machine }: ComposerProps) {
         [commandListOpen, name, piCommands],
     );
     const highlightedRow = rows.find((row) => row.id === highlighted) ?? rows[0] ?? null;
+    // The row that is lit is the row under the pointer while there is one, and the row the
+    // keyboard is on otherwise - the same rule as the popup lists. A pointer that has left, or
+    // that points at a row a new search has taken away, leaves the light with the keyboard.
+    const litRow = rows.find((row) => row.id === pointed) ?? highlightedRow;
 
     /** Sends the words and the pictures, and takes the box back when pi refuses. */
     function send(text: string, sent: Staged[], behavior: StreamingBehavior | undefined) {
@@ -156,6 +161,8 @@ export function Composer({ session, working, machine }: ComposerProps) {
     /** Moves the highlight of the list by `step` rows, around its ends. */
     function move(step: number) {
         if (rows.length === 0) return;
+        // A key takes the light from the pointer, as it does in the popup lists.
+        setPointed(null);
         // From where the highlight is drawn, which is the first row while the keyboard
         // has not moved it: a step from nothing would land on the row it is already on.
         const at = rows.findIndex((row) => row.id === highlightedRow?.id);
@@ -169,17 +176,17 @@ export function Composer({ session, working, machine }: ComposerProps) {
             setDismissed(true);
             return;
         }
-        // Tab takes the row under the keyboard, as it does in pi's own editor, and does
+        // Tab takes the row the light is on, as it does in pi's own editor, and does
         // not move the focus the way a bare Tab would.
-        if (event.key === "Tab" && commandListOpen && highlightedRow !== null) {
+        if (event.key === "Tab" && commandListOpen && litRow !== null) {
             event.preventDefault();
-            choose(highlightedRow);
+            choose(litRow);
             return;
         }
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            if (commandListOpen && !event.altKey && highlightedRow !== null) {
-                choose(highlightedRow);
+            if (commandListOpen && !event.altKey && litRow !== null) {
+                choose(litRow);
                 return;
             }
             submit(event.altKey);
@@ -285,6 +292,10 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         onChange={(event) => {
                             setValue(event.target.value);
                             setDismissed(false);
+                            // Words of the panel's own: the row under the keyboard starts
+                            // over, so the light is on the best match of the new search.
+                            setHighlighted(null);
+                            setPointed(null);
                         }}
                         onKeyDown={onKeyDown}
                         placeholder={
@@ -351,12 +362,13 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     </div>
                 </div>
             </PopoverAnchor>
-            {highlightedRow !== null && (
+            {litRow !== null && highlightedRow !== null && (
                 <CommandList
                     id="composer-command-list"
                     rows={rows}
                     highlighted={highlightedRow.id}
-                    onHighlight={setHighlighted}
+                    lit={litRow.id}
+                    onPoint={setPointed}
                     onChoose={choose}
                 />
             )}
