@@ -5,10 +5,10 @@
 #
 # The registry's files are the project's, untouched: a look is a call site's
 # `className`, the theme's, or another component's - never an edit in there. This
-# is what holds that rule, because `shadcn add --diff` cannot: it reports the
-# repo's prettier formatting as a change on every file. So the registry is asked
-# for a fresh install in a scratch project beside the repo, both sides go through
-# the same prettier, and the two trees are compared.
+# is what holds that rule. `.prettierignore` keeps prettier off them, so they
+# stay byte-identical to the CLI's output and a fresh install of the same pinned
+# version is compared directly. (`shadcn add --diff` reports a hand-edit too,
+# but exits 0 either way, so it cannot fail a run.)
 #
 # Two things this comparison deliberately ignores.
 #
@@ -53,12 +53,6 @@ ln -s "$root/node_modules" "$scratch/node_modules"
 
 # shellcheck disable=SC2086
 (cd "$scratch" && pnpm dlx "shadcn@${shadcn_version}" add $names --overwrite -y >/dev/null)
-
-prettier="node_modules/.bin/prettier --config .prettierrc --write"
-# shellcheck disable=SC2086
-$prettier "$scratch/ours/"*.tsx >/dev/null
-# shellcheck disable=SC2086
-$prettier "$scratch/src/components/ui/"*.tsx >/dev/null
 
 # Drop `"use client"` from the head of both trees (see the top of this file).
 # The directive is always line 1, and the blank line under it is its own.
