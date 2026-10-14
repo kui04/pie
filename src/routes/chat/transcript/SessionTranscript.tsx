@@ -16,6 +16,8 @@ import { TranscriptEntry } from "@/routes/chat/transcript/TranscriptEntry";
 export interface SessionTranscriptProps {
     /** The transcript, as the store and the fold read it. */
     rows: TranscriptRow[];
+    /** Whether a run of this session is in flight, and the region is still being written. */
+    working?: boolean;
     /** Placement of the scroller, for the pane that holds it. */
     className?: string;
     /** Passed to the retract of a queued row. */
@@ -38,7 +40,7 @@ const AHEAD = 800;
  * scrolls, the following of its end and the way back are `message-scroller`'s, and the bar
  * over it is `ScrollPane`'s.
  */
-export function SessionTranscript({ rows, className, onRetractQueued }: SessionTranscriptProps) {
+export function SessionTranscript({ rows, working = false, className, onRetractQueued }: SessionTranscriptProps) {
     const viewport = useRef<HTMLDivElement>(null);
 
     return (
@@ -51,7 +53,10 @@ export function SessionTranscript({ rows, className, onRetractQueued }: SessionT
                     // and two answers to one shift are a fight.
                     viewport={<MessageScrollerViewport ref={viewport} className="pt-2 [overflow-anchor:none]" />}
                 >
-                    <MessageScrollerContent>
+                    {/* A run in flight is a region still being written: `aria-busy` holds the
+                        log's additions until it settles, or a screen reader would read an
+                        answer that is still growing, and read it again once it is whole. */}
+                    <MessageScrollerContent aria-busy={working || undefined}>
                         <div className="mx-auto w-full max-w-5xl px-4">
                             <Virtualizer data={rows} bufferSize={AHEAD} scrollRef={viewport}>
                                 {(row) => (

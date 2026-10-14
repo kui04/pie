@@ -103,7 +103,7 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
     }
 
-    const transcript = <SessionTranscript rows={rows} onRetractQueued={retractQueue} />;
+    const transcript = <SessionTranscript rows={rows} working={working} onRetractQueued={retractQueue} />;
     let content: ReactNode;
     if (failure !== null) {
         content = (

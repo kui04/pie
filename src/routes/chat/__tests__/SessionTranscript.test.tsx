@@ -113,6 +113,17 @@ describe("SessionTranscript", () => {
         expect(content).toHaveAttribute("role", "log");
     });
 
+    it("holds the additions of a run that is still writing", () => {
+        // A log announces what is added to it, and an answer arrives part by part: without
+        // this, a screen reader would read one answer as it grows, and read it again once it
+        // is whole. A session that stands still is not busy.
+        const writing = slot(show({ working: true }).container, "message-scroller-content");
+        const still = slot(show().container, "message-scroller-content");
+
+        expect(writing).toHaveAttribute("aria-busy", "true");
+        expect(still).not.toHaveAttribute("aria-busy");
+    });
+
     it("shows the list as soon as the end it opens at is applied", () => {
         // The region stays out of sight until that position is written: a list left
         // pending is a blank screen.

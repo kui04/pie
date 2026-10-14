@@ -47,12 +47,15 @@ export const Empty: Story = {
     args: { rows: [] },
 };
 
-/** A reader has sent words: the app waits for the model's first output. */
+/** A reader has sent words: the app waits for the model's first output, and the region is busy. */
 export const Waiting: Story = {
-    args: { rows: [{ kind: "activity", id: "activity", state: "waiting" }] },
+    args: { rows: [{ kind: "activity", id: "activity", state: "waiting" }], working: true },
 };
 
-/** The same run once the model writes, or once a call of it runs. */
+/** The same run once the model writes, or once a call of it runs: still busy. */
 export const Working: Story = {
-    args: { rows: [...rows(sampleTranscript()), { kind: "activity", id: "activity", state: "working" }] },
+    args: {
+        rows: [...rows(sampleTranscript()), { kind: "activity", id: "activity", state: "working" }],
+        working: true,
+    },
 };
