@@ -335,12 +335,15 @@
  * The shorthand variants the registry items are written in, vendored from the
  * same `shadcn` package's `tailwind.css` (4.21.3) as the shimmer below.
  *
- * The `radix-nova` style writes `data-open:`, `data-vertical:` and their
- * neighbours, and those names mean nothing to Tailwind on their own - it
- * compiles them to `[data-open]` and friends, which no Radix element carries.
- * Radix writes `data-state` and `data-orientation`, so without this block the
- * classes in eight of pie's primitives silently do nothing: a separator has no
- * height, a scroll area's bar has no width.
+ * Two jobs, since the primitives moved to Base UI. `data-open:` and its
+ * neighbours still carry the `[data-state]` clause the radix-nova style
+ * needed, but Base UI writes presence attributes (`data-open`, `data-checked`,
+ * `data-disabled`), which the same definitions already match. And the
+ * orientation names are still a translation: the components say
+ * `data-vertical:` and Base UI writes `data-orientation="vertical"`, which
+ * Tailwind alone would compile to `[data-vertical]` - an attribute no element
+ * carries. Without this block a separator has no height and a scroll area's
+ * bar has no width.
  *
  * Left out of the copy: `no-scrollbar` (pie has its own) and the accordion
  * keyframes (pie uses no accordion).
