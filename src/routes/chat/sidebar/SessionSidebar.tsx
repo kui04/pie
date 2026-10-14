@@ -65,7 +65,10 @@ export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClas
                         className="bg-surface-dim border-border flex min-h-0 flex-none flex-col overflow-hidden border-r"
                         {...frame(256)}
                     >
-                        <SessionListPanel id={`${id}-drawer`} className="w-64 flex-1" breathing {...list} />
+                        {/* The frame states the width, and the panel takes it. A panel stating
+                            its own would stand a pixel wider - the hairline is part of the width
+                            the frame animates - and the frame clips what does not fit. */}
+                        <SessionListPanel id={`${id}-drawer`} className="flex-1" breathing {...list} />
                     </motion.div>
                 )}
             </AnimatePresence>
