@@ -36,7 +36,14 @@ function ScrollPane({
                         viewportClassName,
                     )}
                 >
-                    <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
+                    {/* Base UI's content wrapper carries `min-width: fit-content`, which inside a
+                        scroll container is the content's *min-content*: one line of text that cannot
+                        wrap - a truncated row - is a whole pane wide, and the wrapper, and every
+                        `w-full` row that fills it, grows past the pane with it. A pane that stands
+                        its ground sideways is that wide on purpose and keeps it. */}
+                    <ScrollAreaPrimitive.Content className={cn(bars === "vertical" && "min-w-0!")}>
+                        {children}
+                    </ScrollAreaPrimitive.Content>
                 </ScrollAreaPrimitive.Viewport>
             )}
             {bars !== "horizontal" && <ScrollBar />}

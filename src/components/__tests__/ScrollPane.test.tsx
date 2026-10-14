@@ -20,6 +20,13 @@ afterEach(cleanup);
 
 const bar = (container: HTMLElement) => container.querySelector("[data-slot=scroll-area-scrollbar]");
 
+/** Base UI's own wrapper around a pane's children, which is what a width reaches. */
+const contentOf = (container: HTMLElement) => {
+    const content = container.querySelector("[data-slot=scroll-area-viewport]")?.firstElementChild;
+    if (!(content instanceof HTMLElement)) throw new Error("no content wrapper");
+    return content;
+};
+
 describe("ScrollPane", () => {
     it("keeps the design's 8px lane, holding a 4px pill", () => {
         const { container } = render(<ScrollPane>a row</ScrollPane>);
@@ -56,5 +63,19 @@ describe("ScrollPane", () => {
         // The viewport is inside the scroll area's own Root, so a class from the
         // call site can only reach it through this prop.
         expect(container.querySelector("[data-slot=scroll-area-viewport]")?.className).toContain("pt-2");
+    });
+
+    it("holds its rows inside the pane, unless the pane is meant to run wide", () => {
+        // Base UI's content wrapper carries `min-width: fit-content`, which inside a
+        // scroll container is the content's *min-content*: one line that cannot wrap -
+        // a truncated row - is a whole pane wide, and the wrapper, and every `w-full`
+        // row filling it, grows past the pane with it. A pane that scrolls sideways
+        // wants that width. The width itself is the engine's to measure, so the rule
+        // is pinned here and the measurement is checked in a browser.
+        const standing = render(<ScrollPane>a row</ScrollPane>);
+        const sideways = render(<ScrollPane bars="horizontal">a row</ScrollPane>);
+
+        expect(contentOf(standing.container).className).toContain("min-w-0!");
+        expect(contentOf(sideways.container).className).not.toContain("min-w-0!");
     });
 });
