@@ -61,8 +61,8 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
             sideOffset={8}
             // The box keeps the keyboard: the text that filters this list is typed in
             // the message box, and a popover that took the focus would end the typing.
-            onOpenAutoFocus={(event) => event.preventDefault()}
-            onCloseAutoFocus={(event) => event.preventDefault()}
+            initialFocus={false}
+            finalFocus={false}
             // The panel is as wide as the card it stands above. Ten rows (36px each), the
             // nine 4px gaps between them and this padding are 412px, the 103 steps of the
             // spacing unit: the height is set past the tenth row and left off while there are
@@ -73,7 +73,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
             className={cn(
                 "elevation-raised bg-card text-foreground",
                 rows.length > TEN_ROWS && "h-103",
-                "w-(--radix-popover-trigger-width) gap-1 overflow-hidden p-2",
+                "w-(--anchor-width) gap-1 overflow-hidden p-2",
                 className,
             )}
         >

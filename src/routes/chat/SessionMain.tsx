@@ -118,8 +118,8 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                         <Button variant="outline" size="sm" onClick={retry}>
                             Try again
                         </Button>
-                        <Button asChild variant="ghost" size="sm">
-                            <Link to="/">Connect</Link>
+                        <Button variant="ghost" size="sm" render={<Link to="/" />} nativeButton={false}>
+                            Connect
                         </Button>
                     </div>
                 </div>

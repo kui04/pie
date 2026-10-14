@@ -79,16 +79,14 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
                 bubble
             ) : (
                 <ContextMenu>
-                    <ContextMenuTrigger asChild className="select-text">
-                        {bubble}
-                    </ContextMenuTrigger>
+                    <ContextMenuTrigger render={bubble} className="select-text" />
                     <ContextMenuContent>
-                        <ContextMenuItem onSelect={copy}>
+                        <ContextMenuItem onClick={copy}>
                             <Copy className="size-4" />
                             Copy
                         </ContextMenuItem>
                         {queued !== undefined && onRetract !== undefined && (
-                            <ContextMenuItem onSelect={onRetract}>
+                            <ContextMenuItem onClick={onRetract}>
                                 <Undo2 className="size-4" />
                                 Retract queued message
                             </ContextMenuItem>

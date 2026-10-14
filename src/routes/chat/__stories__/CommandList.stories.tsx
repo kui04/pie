@@ -32,8 +32,8 @@ const meta = {
             // for its anchor, where the message box would be in the app.
             <div className="fixed inset-x-0 bottom-40 px-3 font-sans">
                 <Popover open>
-                    <PopoverAnchor asChild>
-                        <span className="text-body-md text-muted-foreground">The message box stands here.</span>
+                    <PopoverAnchor render={<span className="text-body-md text-muted-foreground" />}>
+                        The message box stands here.
                     </PopoverAnchor>
                     <Story />
                 </Popover>

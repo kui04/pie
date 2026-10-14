@@ -182,8 +182,8 @@ export function ChatScreen() {
                         <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
                             Try again
                         </Button>
-                        <Button asChild variant="ghost" size="sm">
-                            <Link to="/">Connect</Link>
+                        <Button variant="ghost" size="sm" render={<Link to="/" />} nativeButton={false}>
+                            Connect
                         </Button>
                     </div>
                 </div>

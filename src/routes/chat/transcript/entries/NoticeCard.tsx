@@ -38,14 +38,16 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
 
     return (
         <Collapsible open={open} onOpenChange={setOpen} className="bg-card rounded-md">
-            <CollapsibleTrigger asChild>
-                <button
-                    id={`${id}-notice`}
-                    className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
-                    aria-controls={`${id}-body`}
-                >
-                    {header}
-                </button>
+            <CollapsibleTrigger
+                render={
+                    <button
+                        id={`${id}-notice`}
+                        className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
+                        aria-controls={`${id}-body`}
+                    />
+                }
+            >
+                {header}
             </CollapsibleTrigger>
             <CardBody id={`${id}-body`} open={open}>
                 <div className="mt-2 px-3 pb-2">
@@ -54,14 +56,16 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
                     </Markdown>
                 </div>
             </CardBody>
-            <CollapsibleTrigger asChild>
-                <button
-                    className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 py-2 text-left"
-                    aria-controls={`${id}-body`}
-                >
-                    <span className="flex-1">{open ? "Collapse to hide" : "Expand to read it all"}</span>
-                    <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
-                </button>
+            <CollapsibleTrigger
+                render={
+                    <button
+                        className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 py-2 text-left"
+                        aria-controls={`${id}-body`}
+                    />
+                }
+            >
+                <span className="flex-1">{open ? "Collapse to hide" : "Expand to read it all"}</span>
+                <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
             </CollapsibleTrigger>
         </Collapsible>
     );

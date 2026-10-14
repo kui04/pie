@@ -28,9 +28,7 @@ const show = (highlighted: string, count = 20) => (
     // The panel is a popover content, so a root stands around it: the box is its
     // anchor, which a test does not lay out.
     <Popover open>
-        <PopoverAnchor asChild>
-            <span>the box</span>
-        </PopoverAnchor>
+        <PopoverAnchor render={<span />}>the box</PopoverAnchor>
         <CommandList
             id="menu"
             rows={rows(count)}

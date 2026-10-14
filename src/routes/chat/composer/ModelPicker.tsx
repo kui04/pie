@@ -66,25 +66,27 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
 
     return (
         <Popover open={open} onOpenChange={onOpenChange}>
-            <PopoverTrigger asChild>
-                <Button
-                    id="composer-model"
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Choose the model"
-                    // The pill grows with its label; below `sm` the label is gone
-                    // and the key is the 32px circle of the other composer keys.
-                    className={cn(
-                        "border-border-strong bg-surface-container-highest",
-                        "text-foreground hover:bg-surface-bright",
-                        "aria-expanded:bg-surface-container-highest h-8",
-                        "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
-                        "max-sm:justify-center max-sm:px-0",
-                    )}
-                >
-                    <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} />
-                    <span className="text-label-lg hidden max-w-40 truncate sm:block">{current?.name ?? "Model"}</span>
-                </Button>
+            <PopoverTrigger
+                render={
+                    <Button
+                        id="composer-model"
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Choose the model"
+                        // The pill grows with its label; below `sm` the label is gone
+                        // and the key is the 32px circle of the other composer keys.
+                        className={cn(
+                            "border-border-strong bg-surface-container-highest",
+                            "text-foreground hover:bg-surface-bright",
+                            "aria-expanded:bg-surface-container-highest h-8",
+                            "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
+                            "max-sm:justify-center max-sm:px-0",
+                        )}
+                    />
+                }
+            >
+                <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} />
+                <span className="text-label-lg hidden max-w-40 truncate sm:block">{current?.name ?? "Model"}</span>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-model-popup"

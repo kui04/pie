@@ -47,11 +47,13 @@ export function UsagePopover({
     const label = percent === null ? "Context usage" : `Context usage ${percentText(percent)}`;
     return (
         <Popover>
-            <PopoverTrigger asChild>
-                <Button id={id} variant="ghost" size="icon-xs" aria-label={label}>
-                    <Ring percent={percent} stroke={tone.stroke} />
-                </Button>
-            </PopoverTrigger>
+            <PopoverTrigger
+                render={
+                    <Button id={id} variant="ghost" size="icon-xs" aria-label={label}>
+                        <Ring percent={percent} stroke={tone.stroke} />
+                    </Button>
+                }
+            />
             <PopoverContent align="end" className="w-60 gap-2">
                 <PopoverHeader>
                     <PopoverTitle className="text-label-md">Context usage</PopoverTitle>

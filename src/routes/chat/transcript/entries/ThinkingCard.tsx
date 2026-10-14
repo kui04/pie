@@ -30,22 +30,22 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
 
     return (
         <Collapsible open={open} onOpenChange={setOpen} className="bg-card overflow-hidden rounded-md">
-            <CollapsibleTrigger asChild>
-                <button
-                    id={`${id}-thinking`}
-                    className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
-                    aria-controls={`${id}-body`}
-                >
-                    {stillThinking ? (
-                        <Marker asChild role="status">
-                            <span>
-                                <MarkerContent className="shimmer text-body-md font-medium">Thinking…</MarkerContent>
-                            </span>
-                        </Marker>
-                    ) : (
-                        <span className="text-body-md text-muted-foreground font-medium">Thoughts</span>
-                    )}
-                </button>
+            <CollapsibleTrigger
+                render={
+                    <button
+                        id={`${id}-thinking`}
+                        className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
+                        aria-controls={`${id}-body`}
+                    />
+                }
+            >
+                {stillThinking ? (
+                    <Marker render={<span />} role="status">
+                        <MarkerContent className="shimmer text-body-md font-medium">Thinking…</MarkerContent>
+                    </Marker>
+                ) : (
+                    <span className="text-body-md text-muted-foreground font-medium">Thoughts</span>
+                )}
             </CollapsibleTrigger>
             <CardBody id={`${id}-body`} open={open}>
                 <div className="mt-2 px-3 pb-2">
@@ -54,16 +54,18 @@ export function ThinkingCard({ id, thinking, stillThinking = false }: ThinkingCa
                     </Markdown>
                 </div>
             </CardBody>
-            <CollapsibleTrigger asChild>
-                <button
-                    className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 pt-2 pb-2 text-left"
-                    aria-controls={`${id}-body`}
-                >
-                    <span className="flex-1">
-                        {open ? "Collapse to hide model thoughts" : "Expand to view model thoughts"}
-                    </span>
-                    <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
-                </button>
+            <CollapsibleTrigger
+                render={
+                    <button
+                        className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 pt-2 pb-2 text-left"
+                        aria-controls={`${id}-body`}
+                    />
+                }
+            >
+                <span className="flex-1">
+                    {open ? "Collapse to hide model thoughts" : "Expand to view model thoughts"}
+                </span>
+                <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
             </CollapsibleTrigger>
         </Collapsible>
     );

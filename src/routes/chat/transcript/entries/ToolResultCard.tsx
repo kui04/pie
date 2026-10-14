@@ -106,14 +106,16 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
             className={cn("bg-card overflow-hidden rounded-md", className)}
         >
             {expandable ? (
-                <CollapsibleTrigger asChild>
-                    <button
-                        id={`${id}-header`}
-                        className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
-                        aria-controls={`${id}-body`}
-                    >
-                        {header}
-                    </button>
+                <CollapsibleTrigger
+                    render={
+                        <button
+                            id={`${id}-header`}
+                            className="mb-2 flex w-full items-center gap-2 px-3 pt-2 text-left"
+                            aria-controls={`${id}-body`}
+                        />
+                    }
+                >
+                    {header}
                 </CollapsibleTrigger>
             ) : (
                 <div id={`${id}-header`} className="mb-2 flex items-center gap-2 px-3 pt-2">
@@ -144,17 +146,17 @@ export function ToolResultCard({ id, presentation, className }: ToolResultCardPr
                 </div>
             )}
             {expandable && (
-                <CollapsibleTrigger asChild>
-                    <button
-                        id={`${id}-footer`}
-                        aria-controls={`${id}-body`}
-                        className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 py-2 text-left"
-                    >
-                        <span className="flex-1">
-                            {open ? "Collapse to hide" : `Expand to view ${hidden} more lines`}
-                        </span>
-                        <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
-                    </button>
+                <CollapsibleTrigger
+                    render={
+                        <button
+                            id={`${id}-footer`}
+                            aria-controls={`${id}-body`}
+                            className="border-divider text-body-sm text-muted-foreground flex w-full items-center gap-2 border-t px-3 py-2 text-left"
+                        />
+                    }
+                >
+                    <span className="flex-1">{open ? "Collapse to hide" : `Expand to view ${hidden} more lines`}</span>
+                    <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
                 </CollapsibleTrigger>
             )}
             {notes.map((note, index) => (
