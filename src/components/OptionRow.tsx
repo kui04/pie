@@ -3,7 +3,7 @@ import { cn } from "cn";
 import { Check } from "lucide-react";
 import { motion } from "motion/react";
 import { useMotion } from "@/hooks/use-motion";
-import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
+import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 
 const optionRowVariants = cva(
     [
@@ -17,11 +17,11 @@ const optionRowVariants = cva(
     {
         variants: {
             variant: {
-                row: "rounded-lg py-2 px-3 data-[state=checked]:bg-surface-container-highest",
+                row: "rounded-lg py-2 px-3 data-checked:bg-surface-container-highest",
                 pill: [
-                    "rounded-md py-2 px-3 data-[state=checked]:bg-surface-container-highest",
-                    "data-[state=unchecked]:bg-surface-container-high",
-                    "data-[state=unchecked]:text-muted-foreground",
+                    "rounded-md py-2 px-3 data-checked:bg-surface-container-highest",
+                    "data-unchecked:bg-surface-container-high",
+                    "data-unchecked:text-muted-foreground",
                     "[&_[data-slot=radio-group-indicator]]:hidden",
                 ],
             },
@@ -37,25 +37,30 @@ function OptionRow({
     variant,
     children,
     ...props
-}: React.ComponentProps<typeof RadioGroupPrimitive.Item> & VariantProps<typeof optionRowVariants>) {
+}: RadioPrimitive.Root.Props & VariantProps<typeof optionRowVariants>) {
     const { swap } = useMotion();
 
     return (
-        <RadioGroupPrimitive.Item
+        // A real button, not the primitive's span: the card locks the form
+        // with a disabled fieldset, which only reaches a form control. A span
+        // would stay focused and clickable behind the lock.
+        <RadioPrimitive.Root
             data-slot="radio-group-item"
             className={cn(optionRowVariants({ variant, className }))}
+            render={<button type="button" />}
+            nativeButton
             {...props}
         >
             {children}
-            <RadioGroupPrimitive.Indicator
+            <RadioPrimitive.Indicator
                 data-slot="radio-group-indicator"
                 className="text-primary-text flex size-4 items-center justify-center"
             >
                 <motion.span className="flex" {...swap}>
                     <Check className="size-4" />
                 </motion.span>
-            </RadioGroupPrimitive.Indicator>
-        </RadioGroupPrimitive.Item>
+            </RadioPrimitive.Indicator>
+        </RadioPrimitive.Root>
     );
 }
 
