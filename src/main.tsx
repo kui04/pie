@@ -30,21 +30,42 @@ window.addEventListener("unhandledrejection", (event) => {
     log.error("a promise was rejected with nobody to catch it", { reason: String(event.reason) });
 });
 
-// When the scroll bar shows itself; how it looks is `index.css`'s business. `scroll`
-// does not bubble, so the capture phase is the one listener that hears every region.
-const REVEALED = "is-scrolling";
-const HOLD_MS = 700;
-let hold: ReturnType<typeof setTimeout> | undefined;
+/**
+ * The bar of the region that is moving shows itself; how it looks is `index.css`'s business.
+ *
+ * `scroll` does not bubble, so the capture phase is the one listener that hears every
+ * region - and each event's own target is the region that moved, which is the element this
+ * marks. Marking the document instead would light up the bar of every region in the app for
+ * a scroll in one of them.
+ */
+(() => {
+    /** The class a moving region wears, and how long it keeps it after its last move. */
+    const REVEALED = "is-scrolling";
+    const HOLD_MS = 700;
 
-document.addEventListener(
-    "scroll",
-    () => {
-        document.documentElement.classList.add(REVEALED);
-        clearTimeout(hold);
-        hold = setTimeout(() => document.documentElement.classList.remove(REVEALED), HOLD_MS);
-    },
-    { capture: true, passive: true },
-);
+    /** The region holding the mark. */
+    let shown: Element | null = null;
+    let hold: ReturnType<typeof setTimeout> | undefined;
+
+    document.addEventListener(
+        "scroll",
+        (event) => {
+            const region = event.target;
+            if (!(region instanceof Element)) return;
+            if (region !== shown) {
+                shown?.classList.remove(REVEALED);
+                shown = region;
+                region.classList.add(REVEALED);
+            }
+            clearTimeout(hold);
+            hold = setTimeout(() => {
+                shown?.classList.remove(REVEALED);
+                shown = null;
+            }, HOLD_MS);
+        },
+        { capture: true, passive: true },
+    );
+})();
 
 // Asked for before the first render, so no screen draws on an unknown platform.
 void loadPlatform();
