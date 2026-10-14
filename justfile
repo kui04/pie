@@ -18,9 +18,9 @@ build:
 android-dev:
     pnpm tauri android dev
 
-# android release build
+# android release build: arm64 only, the architecture a phone really is
 android-build:
-    pnpm tauri android build
+    pnpm tauri android build --target aarch64
 
 # eslint
 lint:

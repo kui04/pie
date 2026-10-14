@@ -33,12 +33,14 @@ android {
             isMinifyEnabled = false
             packaging {
                 jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
-                jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
             }
         }
         getByName("release") {
+            // The release ships for arm64 alone.
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
             optimization {
                enable = true
             }
