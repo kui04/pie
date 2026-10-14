@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { Popover, PopoverAnchor } from "@/components/ui";
+import { AnchoredPopover, AnchoredPopoverAnchor } from "@/components";
 import { CommandList, type CommandListProps } from "@/routes/chat/composer/CommandList";
 import { commandRows } from "@/routes/chat/composer/command";
 import { slashCommand } from "@/preview/fixtures";
@@ -31,12 +31,12 @@ const meta = {
             // The panel is a popover content, so the story stands its root and a box
             // for its anchor, where the message box would be in the app.
             <div className="fixed inset-x-0 bottom-40 px-3 font-sans">
-                <Popover open>
-                    <PopoverAnchor render={<span className="text-body-md text-muted-foreground" />}>
+                <AnchoredPopover open>
+                    <AnchoredPopoverAnchor render={<span className="text-body-md text-muted-foreground" />}>
                         The message box stands here.
-                    </PopoverAnchor>
+                    </AnchoredPopoverAnchor>
                     <Story />
-                </Popover>
+                </AnchoredPopover>
             </div>
         ),
     ],

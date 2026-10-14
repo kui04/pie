@@ -42,15 +42,7 @@ export { Input } from "./input";
 export { Kbd, KbdGroup } from "./kbd";
 export { Label } from "./label";
 export { Marker, MarkerContent, MarkerIcon, markerVariants } from "./marker";
-export {
-    Popover,
-    PopoverAnchor,
-    PopoverContent,
-    PopoverDescription,
-    PopoverHeader,
-    PopoverTitle,
-    PopoverTrigger,
-} from "./popover";
+export { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "./popover";
 export { RadioGroup, RadioGroupItem } from "./radio-group";
 export { Separator } from "./separator";
 export { Skeleton } from "./skeleton";

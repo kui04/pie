@@ -1,3 +1,4 @@
+export { AnchoredPopover, AnchoredPopoverAnchor, AnchoredPopoverContent } from "./AnchoredPopover";
 export { CodeBlock, type CodeBlockProps } from "./CodeBlock";
 export { Hourglass } from "./Hourglass";
 export { Markdown, type MarkdownProps } from "./Markdown";

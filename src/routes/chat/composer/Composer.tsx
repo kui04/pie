@@ -3,7 +3,8 @@ import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button, Popover, PopoverAnchor, Textarea } from "@/components/ui";
+import { AnchoredPopover, AnchoredPopoverAnchor } from "@/components";
+import { Button, Textarea } from "@/components/ui";
 import { useIsMobile } from "@/hooks/use-platform";
 import * as bridge from "@/lib/bridge";
 import type { ImageContent, StreamingBehavior } from "@/lib/rpc-protocol";
@@ -223,7 +224,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
     const shellMode = bashCommandOf(value) !== null;
 
     return (
-        <Popover
+        <AnchoredPopover
             open={commandListOpen && highlightedRow !== null}
             onOpenChange={(open) => {
                 // A popover that closed itself - an outside click, an Escape - is the
@@ -234,7 +235,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
         >
             {/* The card is the anchor of the panel and no trigger: the text typed in
                 it is what opens the list, and the list stands above it. */}
-            <PopoverAnchor
+            <AnchoredPopoverAnchor
                 render={
                     <div
                         id="composer"
@@ -366,7 +367,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         </Button>
                     </div>
                 </div>
-            </PopoverAnchor>
+            </AnchoredPopoverAnchor>
             {litRow !== null && highlightedRow !== null && (
                 <CommandList
                     id="composer-command-list"
@@ -377,7 +378,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     onChoose={choose}
                 />
             )}
-        </Popover>
+        </AnchoredPopover>
     );
 }
 

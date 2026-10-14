@@ -6,3 +6,7 @@ src-tauri/target
 .devenv
 pnpm-lock.yaml
 src/lib/protocol
+
+# The registry's own files: the shadcn CLI writes them and `add --diff` checks
+# them. Reformatting one here reads as a change against the registry.
+src/components/ui/*.tsx

@@ -9,8 +9,7 @@
 
 import { useRef } from "react";
 import { cn } from "cn";
-import { PopoverContent } from "@/components/ui";
-import { ScrollPane } from "@/components";
+import { AnchoredPopoverContent, ScrollPane } from "@/components";
 import type { CommandRow } from "@/routes/chat/composer/command";
 
 export interface CommandListProps {
@@ -54,7 +53,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
     };
 
     return (
-        <PopoverContent
+        <AnchoredPopoverContent
             id={id}
             side="top"
             align="center"
@@ -125,6 +124,6 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                     </div>
                 </ScrollPane>
             </div>
-        </PopoverContent>
+        </AnchoredPopoverContent>
     );
 }
