@@ -42,6 +42,13 @@ export { Input } from "./input";
 export { Kbd, KbdGroup } from "./kbd";
 export { Label } from "./label";
 export { Marker, MarkerContent, MarkerIcon, markerVariants } from "./marker";
+export {
+    MessageScroller,
+    MessageScrollerButton,
+    MessageScrollerContent,
+    MessageScrollerProvider,
+    MessageScrollerViewport,
+} from "./message-scroller";
 export { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "./popover";
 export { RadioGroup, RadioGroupItem } from "./radio-group";
 export { Separator } from "./separator";

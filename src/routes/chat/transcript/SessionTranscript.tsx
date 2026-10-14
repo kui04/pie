@@ -1,9 +1,15 @@
+import { useRef } from "react";
 import { ArrowDown } from "lucide-react";
-import { Virtualizer } from "virtua";
 import { cn } from "cn";
-import { Button } from "@/components/ui";
+import { Virtualizer } from "virtua";
 import { ScrollPane } from "@/components";
-import { useFollowEnd } from "@/hooks/use-follow-end";
+import {
+    MessageScroller,
+    MessageScrollerButton,
+    MessageScrollerContent,
+    MessageScrollerProvider,
+    MessageScrollerViewport,
+} from "@/components/ui";
 import type { TranscriptRow } from "@/lib/transcript";
 import { TranscriptEntry } from "@/routes/chat/transcript/TranscriptEntry";
 
@@ -26,84 +32,61 @@ const AHEAD = 800;
 /**
  * The transcript, as a list that draws only what is on screen.
  *
- * A transcript grows without bound, so the list virtualizes it. The reader stays where they
- * were while rows arrive: the list follows its end only while they are there, and the pill
- * under it is the way back for when they are not - the rule itself is `useFollowEnd`'s.
+ * A transcript grows without bound, so virtua draws it, and no row here is a
+ * `MessageScrollerItem`: the primitive anchors the rows it is handed by their place among
+ * the children of the content, and a virtualized list has no such place. The region that
+ * scrolls, the following of its end and the way back are `message-scroller`'s, and the bar
+ * over it is `ScrollPane`'s.
  */
 export function SessionTranscript({ rows, className, onRetractQueued }: SessionTranscriptProps) {
-    const { list, viewport, away, toEnd, onScroll, onResize, onScrollEnd, onWheel, onTouchStart, onTouchMove } =
-        useFollowEnd(rows);
+    const viewport = useRef<HTMLDivElement>(null);
 
     return (
-        <div
-            className="relative flex min-h-0 flex-1 flex-col"
-            onWheel={onWheel}
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-        >
-            <ScrollPane
-                id="transcript-list"
-                // The bar floats over the pane and fades in while the list moves: the
-                // whole width stays with the words.
-                viewportRef={viewport}
-                viewportClassName="pt-2 [overflow-anchor:none]"
-                // The scroll area is the pane, not the content column: the bar Radix draws
-                // belongs to the region it scrolls, so a column-sized one puts the bar out
-                // in the middle of a wide window. The column is inside it instead.
-                className={cn("min-h-0 w-full flex-1 rounded-b-lg", className)}
-            >
-                <div className="mx-auto w-full max-w-5xl px-4">
-                    <Virtualizer
-                        ref={list}
-                        data={rows}
-                        bufferSize={AHEAD}
-                        scrollRef={viewport}
-                        onScroll={onScroll}
-                        onScrollEnd={onScrollEnd}
-                        onResize={onResize}
-                    >
-                        {(row) => (
-                            // Keyed by the row: virtua draws rows by position, and React
-                            // would otherwise keep a card's state (an open body, a clock)
-                            // with the next row that lands in that position. The scroller
-                            // carries the content column, so a row is the entry and the air
-                            // under it, and the air is what separates one entry from the next.
-                            <div key={row.id} className="w-full pb-3">
-                                <TranscriptEntry row={row} onRetractQueued={onRetractQueued} />
-                            </div>
-                        )}
-                    </Virtualizer>
-                </div>
-            </ScrollPane>
-            {away && (
-                <Button
+        <MessageScrollerProvider autoScroll>
+            <MessageScroller id="transcript-list" className={cn("min-h-0 flex-1", className)}>
+                <ScrollPane
+                    className="min-h-0 w-full flex-1 rounded-b-lg"
+                    // The scroller's own viewport, so that the element that scrolls is the one
+                    // virtua measures. Its anchor is off because virtua moves the list itself,
+                    // and two answers to one shift are a fight.
+                    viewport={<MessageScrollerViewport ref={viewport} className="pt-2 [overflow-anchor:none]" />}
+                >
+                    <MessageScrollerContent>
+                        <div className="mx-auto w-full max-w-5xl px-4">
+                            <Virtualizer data={rows} bufferSize={AHEAD} scrollRef={viewport}>
+                                {(row) => (
+                                    // Keyed by the row: virtua draws by position, and React would
+                                    // otherwise keep a card's state (an open body, a clock) with the
+                                    // next row that lands there.
+                                    <div key={row.id} className="w-full pb-3">
+                                        <TranscriptEntry row={row} onRetractQueued={onRetractQueued} />
+                                    </div>
+                                )}
+                            </Virtualizer>
+                        </div>
+                    </MessageScrollerContent>
+                </ScrollPane>
+                <MessageScrollerButton
                     id="transcript-jump"
                     variant="ghost"
-                    onClick={toEnd}
+                    size="sm"
                     aria-label="To bottom"
-                    // The design's key: a 32px circle at the list's end edge on a
-                    // narrow screen, a pill with its label from `sm`, either one a
-                    // step above that edge. `border-0` is not tidying: a button brings
-                    // a transparent 1px border and clips its fill to the padding box,
-                    // so that ring would show the page through it and the hairline of
-                    // `elevation-raised` would read as a second edge beside it.
+                    // One control at every width, a pill that says what it does. `border-0` is
+                    // not tidying: a button's transparent 1px border would clip the hairline of
+                    // `elevation-raised` into a second edge beside it. Both hovers are written
+                    // out, because the variant's own dark hover is `muted` at half alpha and
+                    // outranks a plain `hover:`. The registry's own height and placement are
+                    // answered in the variants it wrote them in.
                     className={cn(
-                        // Its own hover, not the variant's: the pill brings an opaque
-                        // background, while the variant's dark hover is `muted` at half
-                        // alpha - translucent, and it outranks a plain `hover:` class -
-                        // so both are written out (`surface-bright`, the plane the
-                        // composer's keys hover on).
                         "elevation-raised bg-surface-container hover:bg-surface-bright",
-                        "dark:hover:bg-surface-bright text-foreground absolute right-2 bottom-2",
-                        "size-8 rounded-full border-0 p-0",
-                        "sm:right-auto sm:left-1/2 sm:h-auto sm:w-max sm:-translate-x-1/2",
-                        "sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2",
+                        "dark:hover:bg-surface-bright text-foreground border-0",
+                        "h-auto gap-2 rounded-xl px-3 py-2 data-[direction=end]:bottom-2",
                     )}
                 >
                     <ArrowDown className="text-muted-foreground size-4" />
-                    <span className="text-body-md hidden sm:block">To bottom</span>
-                </Button>
-            )}
-        </div>
+                    <span className="text-body-md">To bottom</span>
+                </MessageScrollerButton>
+            </MessageScroller>
+        </MessageScrollerProvider>
     );
 }

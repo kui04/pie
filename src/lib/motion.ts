@@ -4,8 +4,7 @@
  * Every builder takes `still`: a reader who asked for less motion keeps the page and loses its
  * movement - no travel, no scale, no turn, and every fade cut to `MOTION.reduce`.
  *
- * Not here: the transcript's own glide (`SessionTranscript`, a distance over time rather than a
- * transition), the class-based motions - Tailwind's `transition`, `animate-spin`, the shimmer of
+ * Not here: the class-based motions - Tailwind's `transition`, `animate-spin`, the shimmer of
  * `index.css` - whose numbers are the `MOTION` entries below, and what Radix, Vaul and sonner
  * move in their own files.
  */

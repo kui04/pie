@@ -4,30 +4,41 @@ import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 
 function ScrollPane({
     className,
+    viewport,
     viewportRef,
     viewportClassName,
     bars = "vertical",
     children,
     ...props
 }: ScrollAreaPrimitive.Root.Props & {
+    /**
+     * The element that scrolls, for a region whose own part draws it: the pane's bar and
+     * corner stay here and read the region through it, and the children go inside it.
+     * `viewportRef` and `viewportClassName` are the pane's own viewport and do not apply.
+     */
+    viewport?: React.ReactElement;
     viewportRef?: React.Ref<HTMLDivElement>;
     viewportClassName?: string;
     bars?: "vertical" | "horizontal" | "both";
 }) {
     return (
         <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn("relative", className)} {...props}>
-            <ScrollAreaPrimitive.Viewport
-                ref={viewportRef}
-                data-slot="scroll-area-viewport"
-                className={cn(
-                    "focus-visible:ring-ring/50 size-full rounded-[inherit]",
-                    "transition-[color,box-shadow] outline-none focus-visible:ring-3",
-                    "focus-visible:outline-1 [&>div]:block!",
-                    viewportClassName,
-                )}
-            >
-                <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
-            </ScrollAreaPrimitive.Viewport>
+            {viewport ? (
+                <ScrollAreaPrimitive.Viewport render={viewport}>{children}</ScrollAreaPrimitive.Viewport>
+            ) : (
+                <ScrollAreaPrimitive.Viewport
+                    ref={viewportRef}
+                    data-slot="scroll-area-viewport"
+                    className={cn(
+                        "focus-visible:ring-ring/50 size-full rounded-[inherit]",
+                        "transition-[color,box-shadow] outline-none focus-visible:ring-3",
+                        "focus-visible:outline-1 [&>div]:block!",
+                        viewportClassName,
+                    )}
+                >
+                    <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
+                </ScrollAreaPrimitive.Viewport>
+            )}
             {bars !== "horizontal" && <ScrollBar />}
             {bars !== "vertical" && <ScrollBar orientation="horizontal" />}
             <ScrollAreaPrimitive.Corner />
