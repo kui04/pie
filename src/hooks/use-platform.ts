@@ -6,8 +6,8 @@
  * answer. A media query would answer a different question — how wide this window
  * is — and get a phone-shaped desktop window and a landscape tablet wrong.
  *
- * Module state rather than a context because there is one value and no provider
- * to thread through the router.
+ * Module state rather than a context because there is one value and no provider to thread
+ * through the router.
  */
 
 import { use, useSyncExternalStore } from "react";
@@ -15,8 +15,29 @@ import type { Platform } from "@/lib/bridge";
 import * as bridge from "@/lib/bridge";
 
 let answered: Platform | null = null;
-let asking: Promise<Platform | null> | null = null;
 const readers = new Set<() => void>();
+
+/**
+ * The round trip, asked for as this module loads.
+ *
+ * The app imports this before its first render, so the shell below has an answer in hand
+ * rather than a blank frame the reader watches arrive.
+ *
+ * It never rejects: a failure resolves to `null` and says why on the way past, so the shell
+ * can wait on it without an error boundary around it, and a blank window is still
+ * explainable.
+ */
+const asked: Promise<Platform | null> = bridge
+    .platform()
+    .then((platform) => {
+        answered = platform;
+        for (const read of readers) read();
+        return platform;
+    })
+    .catch((thrown: unknown) => {
+        console.error("pie could not read its own platform; is this running outside Tauri?", thrown);
+        return null;
+    });
 
 function subscribe(read: () => void): () => void {
     readers.add(read);
@@ -26,48 +47,15 @@ function subscribe(read: () => void): () => void {
 }
 
 /**
- * Asks once and never rejects.
- *
- * A failure resolves to `null` and says why on the way past, so the shell can
- * wait on this without an error boundary around it and a blank window is still
- * explainable.
- */
-function ask(): Promise<Platform | null> {
-    asking ??= bridge
-        .platform()
-        .then((platform) => {
-            answered = platform;
-            for (const read of readers) read();
-            return platform;
-        })
-        .catch((thrown: unknown) => {
-            console.error("pie could not read its own platform; is this running outside Tauri?", thrown);
-            return null;
-        });
-    return asking;
-}
-
-/**
- * Starts the round trip, early.
- *
- * Called before React mounts: the answer is a hop to Rust, and the boundary
- * below should have something to show by the time it is asked rather than a
- * blank frame the reader watches arrive.
- */
-export function loadPlatform(): Promise<Platform | null> {
-    return ask();
-}
-
-/**
  * The platform, suspending until Rust has answered.
  *
  * Separate from {@link useIsMobile} because suspending is only legal below a
  * boundary: with no `Suspense` above it React throws instead of falling back,
  * and a story renders its subject at the root. A story is not left waiting,
- * though — {@link ask} settles on failure too, just as `null`.
+ * though — {@link asked} settles on failure too, just as `null`.
  */
 export function usePlatformResource(): Platform | null {
-    return use(ask());
+    return use(asked);
 }
 
 /**
