@@ -50,6 +50,15 @@ export interface ConnectionInfo {
     /** `local`, or `user@host:port`. */
     endpoint: string;
     sessions: SessionInfo[];
+    /**
+     * Whether the reach to the machine is still open.
+     *
+     * A connection that ended is still the one Rust holds, so the answer being there says
+     * nothing about the link. A read that failed against the reach asks again, and this is
+     * what the answer says: the failure itself is not a verdict, because it can have another
+     * reason.
+     */
+    open: boolean;
 }
 
 /** One row of the directory picker: a name, the whole path, and whether it is a directory. */
@@ -69,8 +78,13 @@ export interface PresentedKey {
     fingerprint: string;
 }
 
-/** What the frontend hears about a connection during the handshake. */
-export type ConnectionState = { type: "host_key"; key: PresentedKey };
+/** What the frontend hears about a connection. */
+export type ConnectionState =
+    | { type: "host_key"; key: PresentedKey }
+    /** The reach to the machine ended, and the connection is still pie's. Nothing on it
+     * answers any more, and nothing else announces it: no command need be in flight when
+     * a network goes away. */
+    | { type: "ended" };
 
 /**
  * Opens a machine: the reach to it, and the conversations it holds.
@@ -96,6 +110,17 @@ export function connect(id: string, spec: ConnectSpec): Promise<ConnectionInfo> 
  */
 export function getConnection(): Promise<ConnectionInfo | null> {
     return call<ConnectionInfo | null>("get_connection");
+}
+
+/**
+ * Brings the connection back, with what Rust already holds.
+ *
+ * The machine, the address and the credential are the ones of the connection that ended,
+ * which Rust kept in its own memory: no secret crosses this boundary a second time, and a
+ * person types nothing again. Answers the new connection, or the reason a dial failed.
+ */
+export function reconnect(): Promise<ConnectionInfo> {
+    return call<ConnectionInfo>("reconnect");
 }
 
 /**
@@ -137,8 +162,10 @@ export function listDirs(path?: string): Promise<DirEntry[]> {
 /**
  * Listens to `pi://connection/{id}/state` until the returned function is called.
  *
- * Today, this channel carries host-key questions only. If the connection ends,
- * the next command that finds it gone reports the end.
+ * This channel carries two things that no command reports: a host-key question during a
+ * handshake, and the end of the reach to the machine. A lost reach is not a failed
+ * command - the link is gone while nothing is being asked - so the app keeps one listener
+ * for the whole run of the window.
  */
 export function onConnectionState(id: string, onState: (state: ConnectionState) => void): Promise<Unsubscribe> {
     return listen<ConnectionState>(`pi://connection/${id}/state`, (event) => onState(event.payload));

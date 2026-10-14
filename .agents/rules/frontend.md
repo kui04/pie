@@ -47,10 +47,10 @@ forked layout.
   lucide-react.
 - Every directory called `components/` has an `index.ts`, and that barrel is the
   only door a caller outside it uses: a primitive from `@/components/ui`, pie's
-  own from `@/components`, a route's own from `@/routes/<screen>/components`
-  (pie's components live under `src/components/`, in `layout/` when they are the
-  window's frame). A file inside a folder imports its neighbours by path, never
-  from a barrel: a barrel must never be imported by a file it re-exports.
+  own from `@/components` (pie's components live under `src/components/`, in
+  `layout/` when they are the window's frame), a route's own from
+  `@/routes/<screen>/`. A file inside a folder imports its neighbours by path,
+  never from a barrel: a barrel must never be imported by a file it re-exports.
 - A primitive nothing in the app imports is not vendored: `scroll-area`,
   `drawer` and `dropdown-menu` were removed once pie's own components took their
   job.

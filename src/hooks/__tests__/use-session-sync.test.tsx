@@ -28,6 +28,7 @@ function connected(sessions: string[]): ConnectionInfo {
         id: "main",
         endpoint: "local",
         sessions: sessions.map((id) => ({ id, cwd: null })),
+        open: true,
     };
 }
 

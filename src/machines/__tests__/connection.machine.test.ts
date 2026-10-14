@@ -20,6 +20,7 @@ function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
             id: "main",
             endpoint: "local",
             sessions: [{ id: "main:0", cwd: "/home/pie" }],
+            open: true,
         })),
         trustHostKey: vi.fn(async () => true),
         onConnectionState: vi.fn(async (id, onState) => {
@@ -64,7 +65,8 @@ function pendingDeps(overrides: Partial<ConnectionDeps> = {}) {
     });
     return {
         ...harness,
-        settle: (info: bridge.ConnectionInfo = { id: "main", endpoint: "local", sessions: [] }) => release?.(info),
+        settle: (info: bridge.ConnectionInfo = { id: "main", endpoint: "local", sessions: [], open: true }) =>
+            release?.(info),
         failWith: (thrown: unknown) => fail?.(thrown),
     };
 }
@@ -103,7 +105,7 @@ describe("connectionMachine", () => {
             },
             connect: async () => {
                 order.push("connect");
-                return { id: "main", endpoint: "local", sessions: [] };
+                return { id: "main", endpoint: "local", sessions: [], open: true };
             },
         });
         const actor = createActor(connectionMachine, { input: harness.deps }).start();

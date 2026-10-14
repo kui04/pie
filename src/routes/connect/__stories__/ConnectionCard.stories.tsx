@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ConnectionCard, type ConnectionCardProps, type ConnectionForm } from "@/routes/connect/components";
+import { ConnectionCard, type ConnectionCardProps, type ConnectionForm } from "@/routes/connect/ConnectionCard";
 
 /** Each situation is reachable from props alone: the card holds no connection. */
 

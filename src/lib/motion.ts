@@ -62,10 +62,10 @@ export const EASE = {
  * How far a small part travels while it fades. A page does not travel: it is replaced, and the
  * thing it is replaced by is its peer.
  */
-export const RISE = 4;
+const RISE = 4;
 
 /** How far a part that is replaced in its own box shrinks and grows. */
-export const SCALE = { in: 0.9, out: 1.1 } as const;
+const SCALE = { in: 0.9, out: 1.1 } as const;
 
 /** One move at a stated pace, or - for a reader who asked for less motion - one short fade. */
 function tween(duration: number, still: boolean, ease: Transition["ease"]): Transition {

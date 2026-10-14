@@ -13,6 +13,7 @@
 
 import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
+import { isReachFailure, reportReachFailure } from "@/lib/connection-health";
 
 /**
  * The defaults every read of this app runs under, and the client they build.
@@ -31,16 +32,22 @@ export const queryDefaults = {
 };
 
 /**
- * Where a failed read is said out loud.
+ * Where a failed read is said out loud, and where the boundary hears about the reach.
  *
  * A read that fails is drawn where it was read - the failure sentence, the alert,
  * the disabled rows - and nowhere else: a webview is not a terminal, so nothing
  * of it would reach a log. This is the one place every read of the app passes
  * through, so one line here covers all of them, whichever screen asked.
+ *
+ * A failure of the reach is also the earliest news of a connection that ended: the reads
+ * fail the moment the link goes, and the watch that ticks behind them is a tick late. The
+ * boundary is told, and asks Rust what the reach is doing - the failure alone is not a
+ * verdict (`lib/connection-health.ts`).
  */
 const queryCache = new QueryCache({
     onError: (error, query) => {
         bridge.log.error("a read failed", { key: query.queryHash, reason: bridge.asPieError(error).message });
+        if (isReachFailure(error)) reportReachFailure();
     },
 });
 

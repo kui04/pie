@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ComponentType } from "react";
-import { HostKeyPrompt } from "@/routes/connect/components";
+import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
 
 /**
  * The host-key question in both of its shapes.

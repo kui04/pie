@@ -34,6 +34,8 @@ pub fn run() {
             commands::host::connect,
             commands::host::disconnect,
             commands::host::get_connection,
+            commands::host::reconnect,
+            commands::host::close_the_reach,
             commands::host::list_dirs,
             commands::host::trust_host_key,
             commands::log::log,

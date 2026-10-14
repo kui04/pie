@@ -46,7 +46,11 @@ export type ChatEvent =
     /** The screen gives the conversation up: the process ends. */
     | { type: "CLOSE" }
     /** The page that says pi could not start asks again. */
-    | { type: "RETRY" };
+    | { type: "RETRY" }
+    /** The connection that held this session was replaced: the session is gone in Rust, and
+     * the screen leaves the conversation behind without ending a process that is already
+     * gone. */
+    | { type: "GONE" };
 
 export const chatMachine = setup({
     types: {
@@ -119,6 +123,10 @@ export const chatMachine = setup({
                 ATTACH: { target: "attaching", actions: "pending" },
                 FOCUS: { target: "attaching", actions: "pending" },
                 OPEN: { target: "viewing", actions: "view" },
+                // The session was attached on a connection that is no longer there, and the one
+                // that replaced it never held it. Nothing is detached - there is nothing left to
+                // detach - and the person is back at the list.
+                GONE: { target: "landing", actions: assign({ session: null, path: null, error: null }) },
                 CLOSE: { target: "landing", actions: ["dropViewed", assign({ session: null })] },
             },
         },

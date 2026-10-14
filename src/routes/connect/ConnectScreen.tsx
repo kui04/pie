@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useIsMobile } from "@/hooks/use-platform";
 
-import { ConnectionCard, type ConnectionForm, HostKeyPrompt } from "@/routes/connect/components";
+import { ConnectionCard, type ConnectionForm } from "@/routes/connect/ConnectionCard";
+import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
 import { SafeArea, WindowControls } from "@/components";
 import { toast } from "sonner";

@@ -214,7 +214,7 @@ export const modelChange = (modelId = "claude-sonnet-4-5"): Unlinked<SessionEntr
     modelId,
 });
 
-export const thinkingLevelChange = (thinkingLevel = "medium"): Unlinked<SessionEntry> => ({
+const thinkingLevelChange = (thinkingLevel = "medium"): Unlinked<SessionEntry> => ({
     type: "thinking_level_change",
     timestamp: AT,
     thinkingLevel,
@@ -229,7 +229,7 @@ export const usageEntry = (): Unlinked<SessionEntry> => ({
     usage: usage(),
 });
 
-export const sessionInfo = (name: string | undefined = undefined): Unlinked<SessionEntry> => ({
+const sessionInfo = (name: string | undefined = undefined): Unlinked<SessionEntry> => ({
     type: "session_info",
     timestamp: AT,
     name,

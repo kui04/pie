@@ -20,7 +20,7 @@ export function stripAnsi(text: string): string {
 }
 
 /** The control characters of an output that are not text: a bell, a null, a backspace. */
-export function stripBinary(text: string): string {
+function stripBinary(text: string): string {
     return text.replace(BINARY, "");
 }
 

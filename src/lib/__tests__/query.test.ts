@@ -1,0 +1,99 @@
+/**
+ * The one place every failed read passes, and the one thing it does beyond saying so: a
+ * failure of the reach is also the earliest news of a connection that ended, and the boundary
+ * hears it here.
+ *
+ * The join is what this file pins. What the boundary then does with it is tested where the
+ * boundary lives (`hooks/__tests__/use-connection-watch.test.tsx`).
+ */
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Query } from "@tanstack/react-query";
+import type * as Bridge from "@/lib/bridge";
+import { subscribeToReachFailures } from "@/lib/connection-health";
+import { connectionQueries, queryClient } from "@/lib/query";
+
+const fake = vi.hoisted(() => ({
+    getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo | null>>(),
+}));
+
+vi.mock("@/lib/bridge", async (importOriginal) => ({
+    ...(await importOriginal<typeof Bridge>()),
+    ...fake,
+}));
+
+/** A failure as the boundary really receives one: the plain object Rust rejected with. */
+function aFailure(type: string, message: string): Error {
+    return { type, message } as unknown as Error;
+}
+
+/** What the cache is handed when it reports: only the hash is read. */
+const aQuery = { queryHash: `["session","main:1","entries"]` } as unknown as Query<
+    unknown,
+    unknown,
+    unknown,
+    readonly unknown[]
+>;
+
+describe("a read that failed", () => {
+    let stop: (() => void) | undefined;
+
+    afterEach(() => {
+        stop?.();
+        stop = undefined;
+    });
+
+    it("tells the boundary when the failure is the reach to the machine", () => {
+        const heard = vi.fn();
+        stop = subscribeToReachFailures(heard);
+
+        queryClient.getQueryCache().config.onError?.(aFailure("host", "the host never answered"), aQuery);
+
+        expect(heard).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves the boundary alone when the failure is behind a live reach", () => {
+        const heard = vi.fn();
+        stop = subscribeToReachFailures(heard);
+
+        // A session that ended is not a connection that ended: pi is gone, the machine is not.
+        queryClient.getQueryCache().config.onError?.(aFailure("session", "unknown session"), aQuery);
+
+        expect(heard).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * The one read whose answer can change with nobody announcing it: the gate dials a connection
+ * and the workspace reads it back. Time is what makes it news, and a failure is not worth a
+ * second ask - Rust says what is there, now.
+ */
+describe("the read of the connection", () => {
+    it("is the app's one connection, under the key its invalidations use", () => {
+        expect(connectionQueries.current().queryKey).toEqual(["connection"]);
+    });
+
+    it("is read again when it is asked for, because nothing announces a new connection", () => {
+        expect(connectionQueries.current().staleTime).toBe(0);
+    });
+
+    it("answers what Rust holds, and `null` is an answer and not a failure", async () => {
+        // What TanStack hands a query function, and this read uses none of it.
+        const asked = {} as never;
+        fake.getConnection.mockResolvedValue(null);
+        expect(await connectionQueries.current().queryFn?.(asked)).toBeNull();
+
+        const info: Bridge.ConnectionInfo = {
+            id: "main",
+            endpoint: "local",
+            sessions: [{ id: "main:0", cwd: "/home/pie" }],
+            open: true,
+        };
+        fake.getConnection.mockResolvedValue(info);
+        expect(await connectionQueries.current().queryFn?.(asked)).toEqual(info);
+    });
+
+    it("does not ask a second time when it fails", () => {
+        expect(connectionQueries.current().retry).toBe(false);
+    });
+});

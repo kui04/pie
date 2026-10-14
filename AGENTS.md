@@ -101,11 +101,11 @@ the key point directly; add a body only for a non-obvious why. Types used here:
   `drawer` and `dropdown-menu` were removed when pie's own components took their
   job. Every directory called `components/` has an `index.ts`, and that barrel
   is the only door a caller outside it uses - so a folder move does not touch a
-  caller: a primitive from `@/components/ui`, pie's own from `@/components`, a
-  route's own from `@/routes/<screen>/components` (`layout/` holds the window's
-  frame and what keeps a region clear of the system bars). A file inside a
-  folder imports its neighbours by path, so a barrel is never imported by a file
-  it re-exports.
+  caller: a primitive from `@/components/ui`, pie's own from `@/components`
+  (`layout/` holds the window's frame and what keeps a region clear of the
+  system bars), a route's own from `@/routes/<screen>/`. A file inside a folder
+  imports its neighbours by path, so a barrel is never imported by a file it
+  re-exports.
 - The app layer keeps its own shape: `src-tauri/src/error.rs` is the boundary
   aggregation (`PieError`, holding the `pi_rpc` crate's error, `channel::Error`,
   `host::Error`, `session::Error` and `commands::Error` of the layer that

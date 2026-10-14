@@ -11,7 +11,7 @@
 import { useSyncExternalStore } from "react";
 
 /** Tailwind's `lg`, as `matchMedia` spells it. */
-export const WIDE_WINDOW = "(min-width: 64rem)";
+const WIDE_WINDOW = "(min-width: 64rem)";
 
 function subscribe(read: () => void): () => void {
     const query = window.matchMedia(WIDE_WINDOW);

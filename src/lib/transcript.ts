@@ -33,7 +33,7 @@ export interface TranscriptEntries {
  * that no entry carries falls back to the last of the file order, and a missing
  * parent ends the walk.
  */
-export function sessionPath(store: TranscriptEntries, leafId: string | null): SessionEntry[] {
+function sessionPath(store: TranscriptEntries, leafId: string | null): SessionEntry[] {
     if (leafId === null) return [];
 
     const last = store.order.length > 0 ? store.entries.get(store.order[store.order.length - 1]) : undefined;
@@ -54,7 +54,7 @@ export function sessionPath(store: TranscriptEntries, leafId: string | null): Se
  * the compaction stands for what it replaced, the entries from `firstKeptEntryId`
  * on stay (its system messages drop), and everything after it stays.
  */
-export function contextEntries(store: TranscriptEntries, leafId: string | null): SessionEntry[] {
+function contextEntries(store: TranscriptEntries, leafId: string | null): SessionEntry[] {
     const path = sessionPath(store, leafId);
 
     let compaction: Extract<SessionEntry, { type: "compaction" }> | undefined;

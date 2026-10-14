@@ -54,7 +54,7 @@ async function openListeners(
  * The client is the one the screen reads through, so an invalidation reaches the same
  * cache the reads fill: the app mounts one client, and a test mounts its own.
  */
-export function sessionDeps(session: string, client: QueryClient): SessionDeps {
+function sessionDeps(session: string, client: QueryClient): SessionDeps {
     return {
         listen: (onRecord, onLifecycle) => openListeners(session, onRecord, onLifecycle),
         reRead: (target: ReadTarget) => void client.invalidateQueries({ queryKey: sessionKeys[target](session) }),

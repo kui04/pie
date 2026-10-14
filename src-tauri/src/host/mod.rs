@@ -70,6 +70,18 @@ impl std::fmt::Debug for Host {
 }
 
 impl Host {
+    /// Whether the reach to the machine is still open.
+    ///
+    /// The local machine cannot go away: it is this process. An SSH reach can, and
+    /// its handle already knows, so nothing crosses the network to ask. Everything
+    /// on an ended reach stops answering, sessions included.
+    pub fn is_open(&self) -> bool {
+        match self {
+            Self::Local(_) => true,
+            Self::Ssh(ssh) => ssh.session().is_open(),
+        }
+    }
+
     /// Reaches the machine that `spec` names, and reads the pi that runs there.
     ///
     /// The check happens before any session exists, because a `pi` that is not
@@ -273,11 +285,34 @@ pub enum ConnectionState {
         /// The key in the values that a person compares.
         key: PresentedKey,
     },
+
+    /// The reach to the machine ended. Pie holds the connection, and nothing on
+    /// it answers any more: a network that went away, a host that slept. The
+    /// frontend decides what happens next - a person may bring the reach back, or
+    /// leave for the connect screen.
+    Ended,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The local machine is this process: a reach to it cannot end, so the watch of a reach has
+    /// nothing to say about it.
+    #[test]
+    fn the_local_machine_is_always_open() {
+        assert!(Host::Local(LocalHost::new(None)).is_open());
+    }
+
+    /// The frontend tells the two things it hears on the connection channel by this tag, and the
+    /// end of a reach is what the overlay of a lost link answers.
+    #[test]
+    fn the_end_of_a_reach_travels_under_a_tag_of_its_own() {
+        assert_eq!(
+            serde_json::to_value(ConnectionState::Ended).expect("an end serializes"),
+            serde_json::json!({ "type": "ended" })
+        );
+    }
 
     #[test]
     fn a_remote_pi_loads_a_conversation_through_a_quoted_path() {

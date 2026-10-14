@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
 import { useAttachedConversations } from "@/hooks/use-attached-conversations";
-import { useConnection } from "@/hooks/use-connection";
+import { connectionQueries } from "@/lib/query";
 import { useMotion } from "@/hooks/use-motion";
 import { useWideWindow } from "@/hooks/use-wide-window";
 
@@ -25,10 +25,9 @@ import { SessionMain } from "@/routes/chat/SessionMain";
 const COLUMN = "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 
 export function ChatScreen() {
-    const connection = useConnection();
+    const connection = useQuery(connectionQueries.current());
     const client = useQueryClient();
     const wide = useWideWindow();
-    const navigate = useNavigate();
     const { stage: pageOf } = useMotion();
 
     const deps = useMemo<ChatDeps>(
@@ -51,8 +50,10 @@ export function ChatScreen() {
     const loading = pathOf(chat);
     const detached = errorOf(chat);
     // Every session the connection holds runs its own process, and any of them may hold the
-    // conversation of a row: the match is what a pick and the list light read.
-    const sessions = connection.data?.sessions ?? [];
+    // conversation of a row: the match is what a pick and the list light read. The list is one
+    // value across a render: the readers below keep it in their dependencies, and a fresh array
+    // every render would run their effects again.
+    const sessions = useMemo(() => connection.data?.sessions ?? [], [connection.data]);
     const endpoint = connection.data?.endpoint ?? "local";
     const attached = useAttachedConversations(sessions);
     // The chart of the session in view, for the bar's own slots: the registry holds it, and a
@@ -64,24 +65,23 @@ export function ChatScreen() {
     );
     const cwd = sessions.find((running) => running.id === session)?.cwd ?? null;
 
-    // A workspace with no host is not a workspace: the gate is where a connection is made,
-    // so the window returns to it rather than sit on a page no command can answer. The read
-    // is fresh on every mount (`connectionQueries.current`), so this is also where a reload
-    // that finds the connection gone lands.
-    useEffect(() => {
-        if (connection.isPending || connection.isFetching) return;
-        if (connection.data !== null && connection.data !== undefined) return;
-        bridge.log.info("the workspace has no connection, so the window returns to the gate", {
-            reason: connection.isError ? bridge.asPieError(connection.error).message : "no connection is held",
-        });
-        navigate("/", { replace: true });
-    }, [connection.isPending, connection.isFetching, connection.data, connection.isError, connection.error, navigate]);
-
     // The sheet is a narrow window's way to the list; the column is a wide one's.
     // Pure UI, so the two live here, above both stages that draw a list.
     const [sheet, setSheet] = useState(false);
     const [column, setColumn] = useState(true);
     const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
+
+    // A connection that was replaced never held the session in view: the reach was brought
+    // back, and every pi of the old one went with it. The list of the connection says so, and
+    // the screen goes back to that list. The read must have answered - while it is in flight
+    // the answer in hand is the one from before the attach that opened this session.
+    useEffect(() => {
+        if (stage !== "viewing" || session === null) return;
+        if (connection.isFetching || connection.data == null) return;
+        if (sessions.some((running) => running.id === session)) return;
+        bridge.log.info("the connection no longer holds the session in view", { session });
+        machine.send({ type: "GONE" });
+    }, [stage, connection.data, connection.isFetching, session, sessions, machine]);
 
     // Which stage the window reached, and for which conversation: the shape of a report
     // about a window that would not open, where nothing else on this side of the boundary

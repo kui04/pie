@@ -126,7 +126,7 @@ describe("ConnectScreen", () => {
 
     it("connects to a local pi and hands over to the workspace", async () => {
         const user = userEvent.setup();
-        const connect = vi.fn(async () => ({ id: "main", endpoint: "local", sessions: [] }));
+        const connect = vi.fn(async () => ({ id: "main", endpoint: "local", sessions: [], open: true }));
         renderGate(stubBridge({ connect }).deps);
 
         await user.click(CONNECT());
@@ -428,6 +428,7 @@ describe("ConnectScreen", () => {
             id: "main",
             endpoint: "pi@box.example:2222",
             sessions: [],
+            open: true,
         }));
         const { unmount } = renderGate(stubBridge({ connect }).deps);
 

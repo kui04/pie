@@ -59,6 +59,10 @@ struct Inner {
     /// The machine. It stays here: a session cannot outlive the reach that runs
     /// it, and nothing outside this module reaches a machine on its own.
     host: Host,
+    /// What the machine was reached with, kept for the day the reach ends: pie dials
+    /// it again without asking a person for the credential a second time. It lives in
+    /// this process and nowhere else - no store, no file, no frontend.
+    spec: Spec,
     /// The reader of the conversation files on that machine. One host, one
     /// store: it is built with the host and kept, because the root of pi's
     /// sessions is resolved once per connection, not once per drawer.
@@ -110,6 +114,7 @@ impl SessionManager {
             inner: Arc::new(Inner {
                 id,
                 host,
+                spec: spec.clone(),
                 store,
                 live: Mutex::new(Vec::new()),
             }),
@@ -227,12 +232,52 @@ impl SessionManager {
         self.sessions().iter().any(|session| session.handle().is_alive())
     }
 
+    /// Whether the reach to the machine is still open.
+    ///
+    /// Every session of an ended reach stops with it, so this is the question to ask
+    /// before speaking through any of them.
+    pub fn is_open(&self) -> bool {
+        self.inner.host.is_open()
+    }
+
+    /// Closes the reach to the machine, as a network that goes away does.
+    ///
+    /// A test affordance, and it exists in a debug build alone: a release has no code that can
+    /// close a reach this way. It is here because the failure this app has to answer - a link that
+    /// ends while no command is asking - cannot be produced on a device by cutting the network of
+    /// an emulator or a container, and a path that cannot be reached cannot be tested. The
+    /// connection stays pie's: the watch of it reports the end, and the credential for another dial
+    /// is still in memory.
+    #[cfg(debug_assertions)]
+    pub async fn close_the_reach(&self) {
+        self.inner.host.close().await;
+    }
+
+    /// What this connection was reached with.
+    ///
+    /// Kept in memory for a reach that has to be dialled again. A credential is in
+    /// it, so it never leaves this process: nothing writes it down, and no command
+    /// answers with it.
+    pub fn spec(&self) -> &Spec {
+        &self.inner.spec
+    }
+
+    /// Whether this is the same connection as another hand, not one that carries the
+    /// same name.
+    ///
+    /// A task that watches a connection must not announce the end of one the app has
+    /// already replaced.
+    pub fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     /// What the frontend is told about this connection.
     pub fn info(&self) -> ConnectionInfo {
         ConnectionInfo {
             id: self.inner.id.clone(),
             endpoint: self.inner.host.endpoint(),
             sessions: self.sessions().iter().map(Session::info).collect(),
+            open: self.is_open(),
         }
     }
 
@@ -283,6 +328,13 @@ pub struct ConnectionInfo {
     pub endpoint: crate::host::Endpoint,
     /// The sessions that operate on the machine.
     pub sessions: Vec<SessionInfo>,
+    /// Whether the reach to the machine is still open.
+    ///
+    /// A connection that ended is still the one pie holds, so the frontend cannot read this
+    /// off the answer being there at all. A read that failed against the reach is what makes
+    /// it ask, and this is what the answer says: the alternative - trusting the failure itself
+    /// - would veil the window for a failure that had another reason.
+    pub open: bool,
 }
 
 /// What the frontend receives about one session.

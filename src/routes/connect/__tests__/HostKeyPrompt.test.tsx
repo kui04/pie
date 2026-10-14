@@ -11,7 +11,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HostKeyPrompt } from "@/routes/connect/components";
+import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
 import type { PresentedKey } from "@/lib/bridge";
 
 const KEY: PresentedKey = {

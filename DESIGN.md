@@ -477,14 +477,28 @@ that is out, or the sheet that is open, is the one that breathes. The test
 environment answers for less motion (`src/test/setup.ts`), which is why nothing
 in the suite waits on an animation.
 
-What the app does not move itself: a picker's panel, a menu and a toast follow
-their library (Radix, sonner), and the sheet's slide is Vaul's own half second —
-a drawer the library draws for a phone, beside a column that is this app's
-layout. The transcript's own scroll is a distance over time rather than a
-transition: it glides, and a reader who asked for less motion takes the end at
-once.
+What the app does not move itself: a picker's panel, a dialog, a menu and a
+toast follow their library (Radix, sonner), and the sheet's slide is Vaul's own
+half second — a drawer the library draws for a phone, beside a column that is
+this app's layout. The transcript's own scroll is a distance over time rather
+than a transition: it glides, and a reader who asked for less motion takes the
+end at once.
 
 ## Components
+
+**A lost connection** (`src/routes/connect/ConnectionLostOverlay.tsx`) — the one
+surface that says the connection is gone. It stands over whichever page is up,
+because the connection is not a page's business, and it is the only place that
+says it: a read that fails says so where it was read, and a transcript that
+stops says nothing at all, so neither can tell a quiet model from a host that
+went away. The plane behind it stays visible through a blur — the window is not
+replaced, it is veiled — and the card is the gate's own shape, so the app does
+not look like another product mid-conversation. It offers the two things a
+person can do: **Reconnect**, which dials the same machine with what Rust still
+holds, so nothing is typed again and no secret crosses the boundary a second
+time, and **Go to the gate**. `Escape` is the gate, and never a silent
+dismissal: a dead connection nobody named is what this surface exists to
+prevent.
 
 **The window's frame** — no component holds it: each screen draws its own. The
 window's shape is the screen's, so nothing fixes a side column or a bar as a

@@ -9,12 +9,12 @@
  */
 
 import { useEffect, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useConnection } from "@/hooks/use-connection";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { connectionQueries } from "@/lib/query";
 import { syncSessions } from "@/lib/sessions";
 
 export function useSessionSync(): void {
-    const connection = useConnection();
+    const connection = useQuery(connectionQueries.current());
     const client = useQueryClient();
 
     // `undefined` is a read that has not answered yet: the registry keeps what it holds. A

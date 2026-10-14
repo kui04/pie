@@ -96,6 +96,15 @@ impl SshSession {
         &self.endpoint
     }
 
+    /// Whether the connection is still open.
+    ///
+    /// The handle reports on the task that drives the connection, and nothing
+    /// crosses the network to ask. An SSH connection that ended - the network gone,
+    /// the host asleep - answers `false` from here on.
+    pub fn is_open(&self) -> bool {
+        !self.handle.is_closed()
+    }
+
     /// Reaches `target`, authenticates as `auth`, and keeps the connection open.
     ///
     /// The host key is submitted to `trust` during the handshake, which is why

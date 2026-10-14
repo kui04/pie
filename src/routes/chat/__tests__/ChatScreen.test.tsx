@@ -216,41 +216,8 @@ async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
 }
 
 describe("ChatScreen", () => {
-    it("returns to the gate when no connection is held", async () => {
-        bridge.getConnection.mockResolvedValue(null);
-
-        renderScreen();
-
-        // The workspace is not a page to stay on with no host to speak through:
-        // the gate is where one is made, and `replace` is what keeps the back
-        // gesture from landing on the empty workspace again.
-        expect(await screen.findByText("the gate stands here")).toBeInTheDocument();
-    });
-
-    it("returns to the gate when the read of the connection fails", async () => {
-        bridge.getConnection.mockRejectedValue({
-            type: "commands",
-            message: "pie could not reach its own backend",
-        });
-
-        renderScreen();
-
-        expect(await screen.findByText("the gate stands here")).toBeInTheDocument();
-    });
-
-    it("stays when a cached answer says no connection but the fresh read holds one", async () => {
-        // The gate sends the window here after a connect, and this read may still
-        // hold the `null` of a visit before it. The answer being fetched is the
-        // truth; a return to the gate on the cached one would be a bounce.
-        bridge.listSessions.mockResolvedValue([HELD]);
-        const client = new QueryClient(queryDefaults);
-        client.setQueryData(["connection"], null);
-
-        renderScreen(client);
-
-        expect(await screen.findByText(/There are many agent harnesses/)).toBeInTheDocument();
-        expect(screen.queryByText("the gate stands here")).toBeNull();
-    });
+    // A window with no connection at all is the boundary's business and not this screen's: the
+    // three tests of that decision live in `hooks/__tests__/use-connection-watch.test.tsx`.
 
     it("draws no page of the chat while it has no connection to speak through", () => {
         // The read that will answer is still on its way: the window is its frame
