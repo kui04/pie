@@ -1,22 +1,21 @@
 import * as React from "react";
 import { cn } from "cn";
-import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
+import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 
 function ScrollPane({
     className,
     viewportRef,
     viewportClassName,
-    type = "always",
     bars = "vertical",
     children,
     ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
+}: ScrollAreaPrimitive.Root.Props & {
     viewportRef?: React.Ref<HTMLDivElement>;
     viewportClassName?: string;
     bars?: "vertical" | "horizontal" | "both";
 }) {
     return (
-        <ScrollAreaPrimitive.Root data-slot="scroll-area" type={type} className={cn("relative", className)} {...props}>
+        <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn("relative", className)} {...props}>
             <ScrollAreaPrimitive.Viewport
                 ref={viewportRef}
                 data-slot="scroll-area-viewport"
@@ -27,7 +26,7 @@ function ScrollPane({
                     viewportClassName,
                 )}
             >
-                {children}
+                <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
             </ScrollAreaPrimitive.Viewport>
             {bars !== "horizontal" && <ScrollBar />}
             {bars !== "vertical" && <ScrollBar orientation="horizontal" />}
@@ -36,15 +35,15 @@ function ScrollPane({
     );
 }
 
-function ScrollBar({
-    className,
-    orientation = "vertical",
-    ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>) {
+function ScrollBar({ className, orientation = "vertical", ...props }: ScrollAreaPrimitive.Scrollbar.Props) {
     return (
-        <ScrollAreaPrimitive.ScrollAreaScrollbar
+        <ScrollAreaPrimitive.Scrollbar
             data-slot="scroll-area-scrollbar"
             orientation={orientation}
+            // The stylesheet fades this bar in and out, and a bar that only
+            // mounts when the region overflows could not be faded: it would
+            // appear. It stays mounted for that reason.
+            keepMounted
             className={cn(
                 "flex touch-none select-none",
                 "data-vertical:w-2 data-vertical:px-0.5 data-vertical:py-px",
@@ -53,11 +52,11 @@ function ScrollBar({
             )}
             {...props}
         >
-            <ScrollAreaPrimitive.ScrollAreaThumb
+            <ScrollAreaPrimitive.Thumb
                 data-slot="scroll-area-thumb"
                 className="bg-outline hover:bg-foreground relative flex-1 rounded-full"
             />
-        </ScrollAreaPrimitive.ScrollAreaScrollbar>
+        </ScrollAreaPrimitive.Scrollbar>
     );
 }
 

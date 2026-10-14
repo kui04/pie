@@ -34,9 +34,9 @@ describe("ScrollPane", () => {
     });
 
     it("mounts the bar before anyone points at the pane", () => {
-        // The stylesheet fades this bar in and out, and a bar Radix only mounts on
-        // hover could not be faded: it would appear. `type="always"` is the default
-        // here for that reason, and not the registry's `hover`.
+        // The stylesheet fades this bar in and out, and a bar that only mounts
+        // when the region overflows could not be faded: it would appear. The
+        // bar stays mounted for that reason, and not the registry default.
         const { container } = render(<ScrollPane>a row</ScrollPane>);
 
         expect(bar(container)).not.toBeNull();
@@ -53,8 +53,8 @@ describe("ScrollPane", () => {
     it("scrolls the viewport, and lets the caller name it", () => {
         const { container } = render(<ScrollPane viewportClassName="pt-2">a row</ScrollPane>);
 
-        // The viewport is inside Radix's own Root, so a class from the call site
-        // can only reach it through this prop.
-        expect(container.querySelector("[data-radix-scroll-area-viewport]")?.className).toContain("pt-2");
+        // The viewport is inside the scroll area's own Root, so a class from the
+        // call site can only reach it through this prop.
+        expect(container.querySelector("[data-slot=scroll-area-viewport]")?.className).toContain("pt-2");
     });
 });
