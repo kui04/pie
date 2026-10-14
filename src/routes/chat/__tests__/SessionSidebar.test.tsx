@@ -186,7 +186,9 @@ describe("SessionSidebar", () => {
         const search = await screen.findByLabelText("Search sessions");
         fireEvent.change(search, { target: { value: "drawer" } });
 
-        expect(screen.getByText("Rewrite the drawer")).toBeInTheDocument();
+        // The rows arrive through the panel's own switch, which is a fade of the page it
+        // reads: one frame of it is the content leaving.
+        expect(await screen.findByText("Rewrite the drawer")).toBeInTheDocument();
         expect(screen.queryByText("Fix the parser")).toBeNull();
     });
 
@@ -227,11 +229,44 @@ describe("SessionSidebar", () => {
 
         renderSidebar();
 
-        expect(screen.getByText("Looking for sessions…")).toBeInTheDocument();
+        // The rows are held as bars while the read is on its way: the list says what it is
+        // waiting for without saying words, and a blank pane is not one of the answers.
+        expect(screen.getByRole("status", { name: "Loading the sessions" })).toBeInTheDocument();
         expect(screen.queryByText("No sessions yet")).toBeNull();
 
         answer([]);
         expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+    });
+
+    it("leaves the list standing while it reads the host again", async () => {
+        // The press is a read of a list the reader already has: the rows stay where they are,
+        // at the position they were read to, and the key that asked is the whole of the
+        // progress. Bars are for a list that has nothing yet.
+        const before = [sessionSummary({ name: "Fix the parser" })];
+        const after = [sessionSummary({ name: "Rewrite the drawer" })];
+        let answer: (rows: unknown[]) => void = () => undefined;
+        bridge.listSessions.mockResolvedValueOnce(before);
+        bridge.listSessions.mockReturnValueOnce(
+            new Promise((resolve) => {
+                answer = resolve;
+            }),
+        );
+
+        renderSidebar();
+        await screen.findByText("Fix the parser");
+
+        const key = screen.getByRole("button", { name: "Refresh the session list" });
+        fireEvent.click(key);
+        await waitFor(() => expect(key).toBeDisabled());
+
+        expect(screen.getByText("Fix the parser")).toBeInTheDocument();
+        expect(screen.queryByRole("status", { name: "Loading the sessions" })).toBeNull();
+
+        // What arrives replaces what is there, in place: no bars, and nothing to wait on
+        // after the words are in.
+        answer(after);
+        expect(await screen.findByText("Rewrite the drawer")).toBeInTheDocument();
+        expect(screen.queryByText("Fix the parser")).toBeNull();
     });
 
     it("shows the message Rust sent when the listing failed", async () => {
@@ -246,16 +281,36 @@ describe("SessionSidebar", () => {
         await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("There is no connection."));
     });
 
-    it("asks the host again when the reader refreshes", async () => {
+    it("asks the host again when the reader refreshes, and only once", async () => {
         renderSidebar();
         await screen.findByText("No sessions yet");
         expect(bridge.listSessions).toHaveBeenCalledTimes(1);
 
-        fireEvent.click(screen.getByRole("button", { name: "Refresh the session list" }));
+        // The second press lands before the first read has started, which is the gap the
+        // key's own guard closes: two presses of one key are one read.
+        const again = screen.getByRole("button", { name: "Refresh the session list" });
+        fireEvent.click(again);
+        fireEvent.click(again);
 
         // The list is not stale on its own: a session file changes with no event to
         // say so, and this key is the only thing that asks again.
         await waitFor(() => expect(bridge.listSessions).toHaveBeenCalledTimes(2));
+    });
+
+    it("stands its key out of reach while a read is in flight", () => {
+        renderSidebar();
+
+        // A key of the window's own kind (the three at the end of the bar): the same 24px
+        // box, corner and padding, and the same hover. A key that a second press reached
+        // while the first was still reading would ask the host twice.
+        const key = screen.getByRole("button", { name: "Refresh the session list" });
+        expect(key).toBeDisabled();
+        for (const each of ["size-6", "rounded-sm", "p-1", "hover:bg-muted", "bg-transparent"]) {
+            expect(key.className.split(" ")).toContain(each);
+        }
+        // The row the key and the heading share parts the pane's own air, so the key ends
+        // where the field and the rows end.
+        expect(key.parentElement?.className.split(" ")).toContain("px-2");
     });
 
     it("lets go of the sheet when the window reaches the width of the column", async () => {

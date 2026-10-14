@@ -10,13 +10,13 @@
  * workspace knows which session pi holds.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Folder, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Loader2, RefreshCw, Search } from "lucide-react";
 import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
 import { cn } from "cn";
 
-import { Button, InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui";
+import { InputGroup, InputGroupAddon, InputGroupInput, Skeleton } from "@/components/ui";
 import { SafeArea, ScrollPane, Sheet, SheetContent, SheetTitle } from "@/components";
 import type { AttachedConversation } from "@/hooks/use-attached-conversations";
 import { useMotion } from "@/hooks/use-motion";
@@ -62,13 +62,17 @@ export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClas
                     <motion.div
                         id="sidebar"
                         key="session-list"
-                        className="bg-surface-dim border-border flex min-h-0 flex-none flex-col overflow-hidden border-r"
+                        className={cn(
+                            "bg-surface-dim border-border flex min-h-0 flex-none flex-col overflow-hidden border-r",
+                            // The width the frame animates is the list's own, and the hairline that
+                            // parts it from the chat sits outside that (`box-content`), so the panel
+                            // below keeps the width it was drawn at and the frame reveals it by
+                            // clipping: what moves is the edge, not the rows.
+                            "box-content",
+                        )}
                         {...frame(256)}
                     >
-                        {/* The frame states the width, and the panel takes it. A panel stating
-                            its own would stand a pixel wider - the hairline is part of the width
-                            the frame animates - and the frame clips what does not fit. */}
-                        <SessionListPanel id={`${id}-drawer`} className="flex-1" breathing {...list} />
+                        <SessionListPanel id={`${id}-drawer`} className="w-64 flex-1" breathing {...list} />
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -87,15 +91,35 @@ function SessionListPanel({
     ...list
 }: SessionList & { id: string; className?: string; breathing: boolean }) {
     const { endpoint, attached, onPick } = list;
-    const { spin } = useMotion();
+    const { stage, swap, turn } = useMotion();
     const client = useQueryClient();
     const sessions = useQuery(sessionsQueries.list(endpoint));
     const [search, setSearch] = useState("");
     const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
-    // The turn of the key, counted rather than held: every press is one turn of its
-    // own, and two presses in a row play two (the `key` of the icon is this number).
-    const [turns, setTurns] = useState(0);
     const now = useMinutes();
+    const reading = sessions.isFetching;
+    // The element that scrolls, as state rather than a ref: its height is read from a value the
+    // compiler can follow, and it arrives with the pane's first layout.
+    const [pane, setPane] = useState<HTMLDivElement | null>(null);
+    const held = usePaneHeight(pane);
+    // Whether the key itself is reading: the read the reader asked for, and not a read of the
+    // window's own (a window that came back to the front).
+    const [asked, setAsked] = useState(false);
+    // The read this key started, held until it settles: the key is out of reach while a read
+    // is in flight, and this closes the frame before the flag it draws from comes back.
+    const asking = useRef(false);
+
+    async function refresh() {
+        if (asking.current) return;
+        asking.current = true;
+        setAsked(true);
+        try {
+            await client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+        } finally {
+            asking.current = false;
+            setAsked(false);
+        }
+    }
 
     const filtered = useMemo(
         () => (sessions.data ?? []).filter((session) => matchesSearch(session, search)),
@@ -132,81 +156,186 @@ function SessionListPanel({
                     />
                 </InputGroup>
             </div>
-            <div className="flex items-center justify-between py-1 pr-1 pl-1">
-                <span className="text-body-md text-muted-foreground px-1">Recent</span>
-                <Button
+            <div className="flex items-center justify-between px-2 py-1">
+                <span className="text-body-md text-muted-foreground">Sessions</span>
+                {/* A key is a key wherever it stands: the box, the corner, the hover and the
+                    focus ring are the window controls' own. */}
+                <button
                     id={`${id}-refresh`}
-                    variant="ghost"
-                    size="icon-xs"
+                    type="button"
                     aria-label="Refresh the session list"
-                    disabled={sessions.isFetching}
-                    onClick={() => {
-                        setTurns((before) => before + 1);
-                        void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
-                    }}
-                >
-                    {/* One turn of the key per press, not a ring that keeps turning: the words
-                        of the list arrive on their own, and a spinning key would say nothing. */}
-                    <motion.span key={turns} className="flex" {...(turns === 0 ? {} : spin)}>
-                        <RefreshCw className="size-4" />
-                    </motion.span>
-                </Button>
-            </div>
-            <ScrollPane className="min-h-0 flex-1" viewportClassName="p-2">
-                <div className="space-y-2">
-                    {sessions.isError ? (
-                        <p id={`${id}-failure`} role="alert" className="text-body-md text-muted-foreground px-1 py-2">
-                            {bridge.asPieError(sessions.error).message}
-                        </p>
-                    ) : sessions.isPending ? (
-                        <p id={`${id}-pending`} className="text-body-md text-muted-foreground px-1 py-2">
-                            Looking for sessions…
-                        </p>
-                    ) : groups.length === 0 ? (
-                        <p id={`${id}-empty`} className="text-body-md text-muted-foreground px-1 py-2">
-                            {search.trim() === "" ? "No sessions yet" : "No session matches"}
-                        </p>
-                    ) : (
-                        groups.map((group) => (
-                            <section key={group.cwd} className="space-y-0.5">
-                                <button
-                                    type="button"
-                                    aria-expanded={!folded.has(group.cwd)}
-                                    onClick={() => toggle(group.cwd)}
-                                    className={cn(
-                                        "text-muted-foreground hover:text-foreground flex",
-                                        "w-full items-center gap-1.5 rounded-md px-1 py-1.5 text-left",
-                                    )}
-                                >
-                                    <Folder className="size-4 shrink-0" aria-hidden />
-                                    <span className="text-body-md min-w-0 flex-1 truncate">
-                                        {group.cwd || "No directory"}
-                                    </span>
-                                    {folded.has(group.cwd) ? (
-                                        <ChevronRight className="size-4 shrink-0" aria-hidden />
-                                    ) : (
-                                        <ChevronDown className="size-4 shrink-0" aria-hidden />
-                                    )}
-                                </button>
-                                {!folded.has(group.cwd) &&
-                                    group.sessions.map((session) => (
-                                        <SessionRow
-                                            key={session.path}
-                                            id={id}
-                                            session={session}
-                                            now={now}
-                                            held={attached.get(session.path) ?? null}
-                                            breathing={breathing}
-                                            onPick={onPick}
-                                        />
-                                    ))}
-                            </section>
-                        ))
+                    disabled={reading}
+                    onClick={() => void refresh()}
+                    className={cn(
+                        "hover:bg-muted focus-visible:outline-primary text-foreground",
+                        "size-6 shrink-0 rounded-sm bg-transparent p-1",
+                        "disabled:pointer-events-none disabled:opacity-50",
+                        "transition-colors duration-50 ease-in-out",
                     )}
-                </div>
+                >
+                    {/* A turning ring while the key itself reads, and out as the words land -
+                        and no `initial={false}`, which reaches the whole subtree and would leave
+                        the turn standing at the end it never ran. The glyph arrives with a swap
+                        of its own: a part arriving is a slot. */}
+                    <AnimatePresence mode="wait">
+                        <motion.span key={asked ? "reading" : "done"} className="flex" {...swap}>
+                            {asked ? (
+                                <motion.span className="flex" {...turn}>
+                                    <Loader2 className="size-4" aria-hidden />
+                                </motion.span>
+                            ) : (
+                                <RefreshCw className="size-4" aria-hidden />
+                            )}
+                        </motion.span>
+                    </AnimatePresence>
+                </button>
+            </div>
+            <ScrollPane className="min-h-0 flex-1" viewportRef={setPane} viewportClassName="p-2">
+                {/* The panel holds one of four things, and a change of one for another is a
+                    change of the page it reads: it fades through (`stage`), and what is
+                    leaving goes first. A read the reader asked for is not such a change: the
+                    rows stay where they are, at the position they were read to, and the key
+                    that asked is the whole of the progress. */}
+                <AnimatePresence mode="wait" initial={false}>
+                    {sessions.isError ? (
+                        <motion.div key="failure" className="space-y-2" {...stage}>
+                            <p
+                                id={`${id}-failure`}
+                                role="alert"
+                                className="text-body-md text-muted-foreground px-1 py-2"
+                            >
+                                {bridge.asPieError(sessions.error).message}
+                            </p>
+                        </motion.div>
+                    ) : sessions.isPending ? (
+                        <motion.div key="pending" className="space-y-2" {...stage}>
+                            <SessionSkeleton id={`${id}-pending`} height={Math.max(0, held - AIR)} />
+                        </motion.div>
+                    ) : groups.length === 0 ? (
+                        <motion.div key="empty" className="space-y-2" {...stage}>
+                            <p id={`${id}-empty`} className="text-body-md text-muted-foreground px-1 py-2">
+                                {search.trim() === "" ? "No sessions yet" : "No session matches"}
+                            </p>
+                        </motion.div>
+                    ) : (
+                        <motion.div key="rows" className="space-y-2" {...stage}>
+                            {groups.map((group) => (
+                                <section key={group.cwd} className="space-y-0.5">
+                                    <button
+                                        type="button"
+                                        aria-expanded={!folded.has(group.cwd)}
+                                        onClick={() => toggle(group.cwd)}
+                                        className={cn(
+                                            "text-muted-foreground hover:text-foreground flex",
+                                            // The icon leads from the heading's own left edge, and
+                                            // the directory's words keep the line the names keep.
+                                            "w-full items-center gap-2.5 rounded-md py-1.5 pr-1 text-left",
+                                        )}
+                                    >
+                                        <Folder className="size-4 shrink-0" aria-hidden />
+                                        <span className="text-body-md min-w-0 flex-1 truncate">
+                                            {group.cwd || "No directory"}
+                                        </span>
+                                        {folded.has(group.cwd) ? (
+                                            <ChevronRight className="size-4 shrink-0" aria-hidden />
+                                        ) : (
+                                            <ChevronDown className="size-4 shrink-0" aria-hidden />
+                                        )}
+                                    </button>
+                                    {!folded.has(group.cwd) &&
+                                        group.sessions.map((session) => (
+                                            <SessionRow
+                                                key={session.path}
+                                                id={id}
+                                                session={session}
+                                                now={now}
+                                                held={attached.get(session.path) ?? null}
+                                                breathing={breathing}
+                                                onPick={onPick}
+                                            />
+                                        ))}
+                                </section>
+                            ))}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </ScrollPane>
         </div>
     );
+}
+
+/**
+ * The list before the host answers: the shape of a directory and its sessions, drawn as bars,
+ * so nothing moves when the words land. A group's bar leads where its folder leads and a
+ * session's where its name stands, and the bars stand as far down as the pane reaches - a
+ * skeleton covers the area the content will cover, and a pane of bars half full would say the
+ * list is half the size it may be. A reader who asked for less motion gets bars that stand
+ * still.
+ */
+function SessionSkeleton({ id, height }: { id: string; height: number }) {
+    return (
+        <div id={id} role="status" aria-label="Loading the sessions" className="flex flex-col gap-2">
+            {shapeFor(height).map((group, at) => (
+                <div key={at} className="flex flex-col gap-0.5">
+                    {/* The folder stands where the directory's folder stands, from the edge the
+                        heading starts at. */}
+                    <div aria-hidden className="flex items-center gap-2.5 py-1.5 pr-1">
+                        <Skeleton className="size-4 shrink-0 motion-reduce:animate-none" />
+                        <Skeleton className={cn("h-5", group.heading, "motion-reduce:animate-none")} />
+                    </div>
+                    {group.sessions.map((width, row) => (
+                        <div key={row} aria-hidden className="flex items-center gap-1.5 px-1 py-1.5">
+                            {/* Where a session's light stands, and a name beside it. */}
+                            <span className="size-4 shrink-0" />
+                            <Skeleton className={cn("h-5", width, "motion-reduce:animate-none")} />
+                        </div>
+                    ))}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/** The height of one bar's row: a line of `text-body-md` in its 6px of padding, and the 2px under it. */
+const BAR = 34;
+
+/** One directory's heading row, and the 6px more that its group stands apart by. */
+const HEAD = 40;
+
+/** The pane's own air: the 8px above and below the bars that its height includes (`p-2`). */
+const AIR = 16;
+
+/** How many sessions one directory's heading stands over before the next directory begins. */
+const PER_GROUP = 4;
+
+/** The shape a pane that has not been measured yet holds: a directory, and four of its sessions. */
+const BEFORE_MEASURED = HEAD + PER_GROUP * BAR;
+
+/** The widths of the bars, so a column of them does not read as one row repeated. */
+const HEADS = ["w-3/5", "w-2/5", "w-1/2", "w-4/5"];
+const NAMES = ["w-1/2", "w-2/3", "w-2/5", "w-4/5", "w-1/3", "w-3/5"];
+
+/**
+ * The shape of the list as far as a pane of this height reaches: a directory, the sessions under
+ * it, and the next directory. Nothing is drawn that the pane cannot hold - the bars stand where
+ * the words will stand, down to its foot - and a directory stands only if one of its
+ * conversations stands under it.
+ */
+function shapeFor(height: number): Array<{ heading: string; sessions: string[] }> {
+    const groups: Array<{ heading: string; sessions: string[] }> = [];
+    let left = Math.max(BEFORE_MEASURED, height);
+    let drawn = 0;
+    while (left >= HEAD + BAR) {
+        const group = { heading: HEADS[groups.length % HEADS.length], sessions: [] as string[] };
+        left -= HEAD;
+        while (left >= BAR && (group.sessions.length < PER_GROUP || left < HEAD + BAR)) {
+            group.sessions.push(NAMES[drawn % NAMES.length]);
+            drawn += 1;
+            left -= BAR;
+        }
+        groups.push(group);
+    }
+    return groups;
 }
 
 /**
@@ -358,6 +487,28 @@ function Light({ className, breathing }: { className?: string; breathing: boolea
         dot.current.style.opacity = breatheAt(ms).toFixed(3);
     });
     return <span ref={dot} aria-hidden className={className} />;
+}
+
+/**
+ * The height of a pane, on the frames it changes: how far down its bars reach is the pane's own
+ * business, and the pane has more than one size (the column beside the chat, the sheet over it).
+ * A pane that is not there yet is as tall as nothing.
+ */
+function usePaneHeight(pane: HTMLDivElement | null): number {
+    const subscribe = useCallback(
+        (read: () => void) => {
+            if (pane === null || typeof ResizeObserver === "undefined") return () => undefined;
+            const watch = new ResizeObserver(read);
+            watch.observe(pane);
+            return () => watch.disconnect();
+        },
+        [pane],
+    );
+    return useSyncExternalStore(
+        subscribe,
+        () => pane?.clientHeight ?? 0,
+        () => 0,
+    );
 }
 
 /**
