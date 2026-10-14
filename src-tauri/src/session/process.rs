@@ -71,7 +71,8 @@ pub(crate) fn speaking(channel: Channel) -> (Client, Handle) {
     let handle = channel.handle();
     let config = Config::default()
         .with_request_timeout(REQUEST_TIMEOUT)
-        .with_close_timeout(SHUTDOWN_GRACE);
+        .with_close_timeout(SHUTDOWN_GRACE)
+        .with_max_line(crate::channel::MAX_LINE);
     (Client::with_config(channel, config), handle)
 }
 

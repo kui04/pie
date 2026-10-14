@@ -42,6 +42,9 @@ use pi_rpc::transport::{Transport, TransportRecv, TransportSend};
 /// so this only tunes throughput.
 const READ_BUFFER: usize = 32 * 1024;
 
+/// The largest record pie frames from pi: one answer holds a whole conversation.
+pub(crate) const MAX_LINE: usize = 128 * 1024 * 1024;
+
 /// How a program stopped.
 ///
 /// This is not a record of pi. No form of it appears in `rpc-types.ts`: it is
@@ -129,7 +132,7 @@ impl Transport for Channel {
             Sender { sink: self.sink },
             Receiver {
                 source: self.source,
-                decoder: Decoder::new(),
+                decoder: Decoder::with_max_line(MAX_LINE),
                 ready: VecDeque::new(),
             },
         )
@@ -147,7 +150,7 @@ impl Transport for Channel {
 /// Never. A line that the cap or the encoding refuses is dropped, and a read
 /// that fails ends the drain.
 async fn drain(mut reader: Box<dyn AsyncRead + Unpin + Send + 'static>) {
-    let mut decoder = Decoder::new();
+    let mut decoder = Decoder::with_max_line(MAX_LINE);
     let mut buffer = vec![0u8; READ_BUFFER];
     loop {
         match reader.read(&mut buffer).await {
@@ -382,6 +385,21 @@ mod tests {
             serde_json::to_value(Termination::Unknown).expect("an end serializes"),
             serde_json::json!({ "type": "unknown" })
         );
+    }
+
+    /// The 17.8 MB session that failed this way arrived past the frame's own 16 MiB bound.
+    #[test]
+    fn frames_a_record_larger_than_the_frame_default() {
+        let entry = "x".repeat(17 * 1024 * 1024);
+        let line = format!("{{\"entries\":[\"{entry}\"],\"leafId\":null}}");
+        let record = format!("{line}\n");
+        let mut decoder = Decoder::with_max_line(MAX_LINE);
+        let mut lines = Vec::new();
+        // It arrives as a stream arrives: in chunks, with the line feed last.
+        for chunk in record.as_bytes().chunks(64 * 1024) {
+            lines.extend(decoder.push(chunk).expect("the channel takes the record"));
+        }
+        assert_eq!(lines, vec![line]);
     }
 
     /// The values that cross a command are held across `.await` points in the
