@@ -18,12 +18,12 @@ directory. It provides Rust (stable via rust-overlay, mold linker), pnpm, the
 Android SDK/NDK, and all Tauri Linux system dependencies.
 
 ```sh
-just dev          # desktop app (window + hot reload)
-just storybook    # component preview (http://localhost:6006)
-just android-dev   # Android on a connected device
-just build         # desktop release build
-just android-build # android release build
+pnpm app:dev       # desktop app (window + hot reload)
+pnpm storybook     # component preview (http://localhost:6006)
+pnpm android:dev   # Android on a connected device
+pnpm app:build     # desktop release build
+pnpm android:build # android release build
 ```
 
-Run `just --list` for all recipes. Lint/format hooks run automatically on
-commit; `just hooks` runs them manually.
+Run `pnpm run` for all scripts. Lint/format hooks run automatically on commit;
+`pnpm hooks` runs them manually.

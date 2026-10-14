@@ -37,7 +37,7 @@ forked layout.
 - shadcn-ui (Radix + Tailwind) is the base; add via `shadcn add` into
   `src/components/ui/`. Those files stay the registry's own — never hand-edit
   one, so re-running `shadcn add <name> --overwrite` is the whole upgrade, and
-  `just ui-check` fails when one has drifted. A difference belongs in a call
+  `pnpm ui-check` fails when one has drifted. A difference belongs in a call
   site's `className` through `cn` (a size that fights the app's own ramp is
   written `text-[length:var(--text-body-md)]`, because `cn` reads `text-body-md`
   as a colour and would leave the primitive's own size standing beside it), in

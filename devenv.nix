@@ -26,8 +26,6 @@
     pkgs.openssl
     pkgs.pango
     pkgs.pkg-config
-    pkgs.just
-    pkgs.just-lsp
     pkgs.webkitgtk_4_1
   ];
 

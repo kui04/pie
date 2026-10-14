@@ -36,7 +36,7 @@ Builds and runs `../pi-host/Dockerfile`: a Debian userland with a real `sshd`
 and a real `pi`, the environment `tests/ssh.rs` needs to exercise `SshTransport`
 against an actual server instead of a fake one, and the one
 `tests/connection.rs` needs to put a host key through the app's policy
-(`just ssh-test` runs both). `start` builds the image (docker's cache makes that
+(`pnpm ssh-test` runs both). `start` builds the image (docker's cache makes that
 cheap), replaces any container of the same name, and prints the coordinates the
 tests read from `PIE_SSH_TEST_*`.
 

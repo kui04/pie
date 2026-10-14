@@ -33,7 +33,7 @@ contracts, not suggestions. Deviations require explicit user approval.
 
 [devenv](https://devenv.sh) provides the environment; direnv auto-loads it on
 `cd` (`.envrc`). It has Rust stable (rust-overlay, mold), pnpm, Node, the
-Android SDK/NDK + JDK, Tauri Linux deps, `just`, and `just-lsp`.
+Android SDK/NDK + JDK, and Tauri Linux deps.
 
 - `pnpm install` once — `node_modules/` is not Nix-managed.
 - `devenv update` after editing `devenv.yaml` inputs.
@@ -41,24 +41,26 @@ Android SDK/NDK + JDK, Tauri Linux deps, `just`, and `just-lsp`.
 
 ## Build and test
 
-Recipes via [just](https://github.com/casey/just) (`just --list`) — the recipes
-are the source of truth for the commands themselves.
+Every command is an npm script in `package.json` (`pnpm run` lists them) — the
+scripts are the source of truth for the commands themselves. `pnpm dev` and
+`pnpm build` are the frontend alone, and Tauri starts them on pie's behalf.
 
-- Desktop: `just dev` (dev), `just build` (release); component preview:
-  `just storybook` / `just storybook-build`. There is no frontend-only server:
+- Desktop: `pnpm app:dev` (dev), `pnpm app:build` (release); component preview:
+  `pnpm storybook` / `pnpm build-storybook`. There is no frontend-only server:
   the app asks Rust which platform it is on before it draws anything, so a plain
   browser has nothing to show.
-- Android: `just android-dev`, `just android-build` — needs a connected device,
+- Android: `pnpm android:dev`, `pnpm android:build` — needs a connected device,
   no AVD is provided.
-- Rust: `just check`, `just clippy` (warnings are errors, all targets),
-  `just rust-test`, `just doc` (rustdoc with warnings as errors, so a link to a
+- Rust: `pnpm check`, `pnpm clippy` (warnings are errors, all targets),
+  `pnpm rust-test`, `pnpm doc` (rustdoc with warnings as errors, so a link to a
   private item fails instead of going unnoticed) — all inside `src-tauri`, where
   the app lives. Ignored tests start a real `pi`: run them with
   `cd src-tauri && cargo test -- --ignored` after bumping the pin, and
-  `just ssh-test` for the SSH paths (the reach to a machine and the sessions of
+  `pnpm ssh-test` for the SSH paths (the reach to a machine and the sessions of
   that machine over it), which brings up its own sshd in a container
-  (`just ssh-fixture` to keep one running).
-- JS: `just lint`, `just format`, `just test` — none of them typechecks; only
+  (`pnpm ssh-fixture` to keep one running; `ssh-test` evaluates what the fixture
+  prints, so it needs a POSIX shell).
+- JS: `pnpm lint`, `pnpm format`, `pnpm test` — none of them typechecks; only
   `pnpm build` runs `tsc`.
 - Frontend types of the protocol: `src/lib/rpc-protocol.ts` names them by
   aliasing pi's own published types (`@earendil-works/pi-coding-agent` and
@@ -76,8 +78,8 @@ Statecharts are also path-enumerated with `@xstate/graph`
 
 prek runs on commit (wired by devenv): nixfmt, prettier, eslint `--fix`,
 rustfmt. Hooks may rewrite files — review the diff, `git add` again, re-commit.
-Run all manually: `just hooks`. clippy is deliberately not a hook (it needs the
-full devenv build env) — run `just clippy` before pushing.
+Run all manually: `pnpm hooks`. clippy is deliberately not a hook (it needs the
+full devenv build env) — run `pnpm clippy` before pushing.
 
 ## Commits
 
@@ -91,7 +93,7 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 - UI primitives come from shadcn with Radix
   (`pnpm dlx shadcn@latest add <name>`) into `src/components/ui/`, and stay the
   registry's files: never hand-edit one, so re-running the same command is the
-  whole upgrade, and `just ui-check` fails when a file there has drifted. A
+  whole upgrade, and `pnpm ui-check` fails when a file there has drifted. A
   difference belongs in a call site's `className` (through `cn`; a size that
   fights the app's own ramp is written `text-[length:var(--text-body-md)]`
   because `cn` reads `text-body-md` as a colour), in the theme in
@@ -142,14 +144,14 @@ the key point directly; add a body only for a non-obvious why. Types used here:
 - Version tracks the latest
   [Pi release](https://github.com/earendil-works/pi/releases) (currently 1.1.0).
   When bumping: edit `package.json`, `src-tauri/tauri.conf.json` and
-  `src-tauri/Cargo.toml`; run `just check` (refreshes `Cargo.lock`); move the
+  `src-tauri/Cargo.toml`; run `pnpm check` (refreshes `Cargo.lock`); move the
   `.codegraph/.references/pi` checkout to the release commit, re-run
   `codegraph index`, and re-record `src-tauri/tests/fixtures` against the new
   binary (`src-tauri/tests/scripts/README.md`). The SSH test host follows the
   pin too: `PI_VERSION` and `PI_SHA256` in `src-tauri/tests/pi-host/Dockerfile`,
   where the hash is the one from the release's `SHA256SUMS`; a test compares
   that argument against this crate's version, so a stale one fails
-  `just rust-test`. The protocol crate moves with the same release: its
+  `pnpm rust-test`. The protocol crate moves with the same release: its
   `[package.metadata.pi_rpc] pi_rev` names the release commit, and this app then
   updates the dependency (`cargo update -p pi_rpc`) so `Cargo.lock` records the
   revision - `src-tauri/tests/conformance.rs` reads the recorded corpus through
