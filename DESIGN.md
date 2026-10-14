@@ -497,12 +497,14 @@ round.
 What a frame shares is the bar: the window's own handle, and the one piece the
 window owns. The window has no decorations, so a press on the bar drags it, and
 its three keys (`WindowControls`) sit at its end, after the slots the page gives
-it — the way to the list, the name, the state of the context. The chat's bar
-(`#topbar`) has no plane of its own and no hairline under it: it is the top of
-the chat's own plane, so the chat reads as one region from the window's edge
-down. The bar is the page's first row on every platform; its keys are a
-desktop's, because a phone's OS owns the frame there. On a desktop every inset
-is zero, so the frame is one tree.
+it — the way to the list, the name, the state of the context. A page with no
+slots to give — the gate, whose bar is only the handle and the keys — lets the
+bar float over its plane, so that its card stands in the middle of the window
+rather than in what is left below a row. The chat's bar (`#topbar`) has no plane
+of its own and no hairline under it: it is the top of the chat's own plane, so
+the chat reads as one region from the window's edge down. The bar is the page's
+first row on every platform; its keys are a desktop's, because a phone's OS owns
+the frame there. On a desktop every inset is zero, so the frame is one tree.
 
 The body under the bar is the chat, and it is a column: the transcript, then the
 composer at its foot. Both are capped to one content column, 64rem wide at most

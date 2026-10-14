@@ -515,6 +515,15 @@ describe("ConnectScreen", () => {
         // `window/scripts/drag.js`); the gate has no slots before the keys.
         expect(bar?.getAttribute("data-tauri-drag-region")).toBe("deep");
         expect(container.querySelector("#window_controllers")).not.toBeNull();
+        // Over the card, and taking no room from it: the gate's bar carries no
+        // slots, so the card is centred on the window and not on what is left
+        // below a row. A bar in the column would leave it half the bar's height
+        // too low. The test cannot measure a middle in this DOM, so it asserts
+        // the flow the middle comes from.
+        expect(bar?.className.split(" ")).toContain("absolute");
+        const panel = container.querySelector("#connection-panel");
+        expect(panel?.parentElement?.id).toBe("safe-main");
+        expect(container.querySelector("#safe-main")?.className.split(" ")).toContain("relative");
     });
 
     it("leaves the window's keys to a desktop, and the page's room to the page", () => {
