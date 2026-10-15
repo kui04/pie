@@ -321,11 +321,11 @@ describe("ChatScreen", () => {
         expect(await screen.findByText("hello")).toBeInTheDocument();
         expect(container.querySelector("#session_name")).toHaveTextContent("Fix the parser");
         // A conversation that has words keeps its composer at the foot, under them:
-        // a row of the column and not a layer over the list, so no row can pass
-        // under it.
+        // a row of the column and not a layer over the list, so the scrollbar
+        // maps to the rows alone. A fade over the last rows leads into it.
         const band = container.querySelector("#composer-band");
         // The band is a row of the page under the bar, under the words: it leaves and
-        // arrives with them, and no row can pass under it.
+        // arrives with them, and no row hides under it.
         expect(band?.parentElement?.id).toBe("session-page");
         expect(band?.parentElement?.parentElement?.id).toBe("session-column");
         expect(band?.className).toContain("shrink-0");

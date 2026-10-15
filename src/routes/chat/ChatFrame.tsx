@@ -23,7 +23,7 @@ export function ChatFrame({ sidebar, children }: { sidebar?: ReactNode; children
         <main id="window" className="bg-surface text-foreground flex min-h-0 w-full flex-1 overflow-hidden font-sans">
             <SafeArea side="all" id="safe-main" className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 {sidebar}
-                <div id="session-column" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <div id="session-column" className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                     {children}
                 </div>
             </SafeArea>

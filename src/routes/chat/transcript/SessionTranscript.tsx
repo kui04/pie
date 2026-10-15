@@ -64,7 +64,9 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                         log's additions until it settles, or a screen reader would read an
                         answer that is still growing, and read it again once it is whole. */}
                     <MessageScrollerContent aria-busy={working || undefined}>
-                        <div className="mx-auto w-full max-w-5xl px-4">
+                        {/* Headroom for the floating bar above, four lines of
+                            legroom above the fade's dense end below. */}
+                        <div className="mx-auto w-full max-w-5xl px-4 pt-16 pb-20">
                             <Virtualizer data={slots} bufferSize={AHEAD} scrollRef={viewport}>
                                 {(slot, index) => (
                                     // Keyed by the row or the turn: virtua draws by position, and
@@ -89,6 +91,19 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                         </div>
                     </MessageScrollerContent>
                 </ScrollPane>
+                {/* The fades the rows scroll under: the page's own plane, each
+                    gradient to transparent one content column wide, so the
+                    scrollbar lane stays clear. The bar sits on a solid backing;
+                    one line of fade below it, two lines above the composer. */}
+                <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-10">
+                    <div className="bg-surface h-11" />
+                    <div className="mx-auto w-full max-w-5xl px-4">
+                        <div className="from-surface to-surface/0 h-5 bg-linear-to-b" />
+                    </div>
+                </div>
+                <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10">
+                    <div className="from-surface to-surface/0 mx-auto size-full max-w-5xl bg-linear-to-t px-4" />
+                </div>
                 <MessageScrollerButton
                     id="transcript-jump"
                     variant="ghost"
@@ -103,7 +118,8 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                     className={cn(
                         "elevation-raised bg-surface-container hover:bg-surface-bright",
                         "dark:hover:bg-surface-bright text-foreground border-0",
-                        "h-auto gap-2 rounded-xl px-3 py-2 data-[direction=end]:bottom-2",
+                        // Above both fades, so the gradient never covers it.
+                        "z-20 h-auto gap-2 rounded-xl px-3 py-2 data-[direction=end]:bottom-2",
                     )}
                 >
                     <ArrowDown className="text-muted-foreground size-4" />

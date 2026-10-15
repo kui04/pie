@@ -154,8 +154,8 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                         className="my-2 mt-auto flex shrink-0 items-center justify-center"
                     >
                         {/* The composer's box and the transcript's content share one
-                            line, so its corner curves over exactly where the transcript
-                            ends on a curve of the same 8px (`rounded-b-lg` there). */}
+                            line. The fade above it lives in the transcript, over
+                            its last rows. */}
                         <div className="mx-auto w-full max-w-5xl px-4">
                             {empty && (
                                 <p className="text-body-md text-muted-foreground pb-3 text-center">

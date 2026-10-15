@@ -19,7 +19,13 @@ export function ChatTopbar({ children }: { children?: ReactNode }) {
     const isMobile = useIsMobile();
 
     return (
-        <div id="topbar" data-tauri-drag-region="deep" className="flex min-h-11 shrink-0 items-center gap-1 px-3">
+        // Floats transparent over the transcript's top fade: no plane, no
+        // shadow, no hairline. The fade behind it keeps the words readable.
+        <div
+            id="topbar"
+            data-tauri-drag-region="deep"
+            className="absolute inset-x-0 top-0 z-20 flex min-h-11 items-center gap-1 px-3"
+        >
             {children}
             {!isMobile && <WindowControls />}
         </div>

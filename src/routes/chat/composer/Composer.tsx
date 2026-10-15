@@ -236,12 +236,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
             {/* The card is the anchor of the panel and no trigger: the text typed in
                 it is what opens the list, and the list stands above it. */}
             <AnchoredPopoverAnchor
-                render={
-                    <div
-                        id="composer"
-                        className="elevation-raised bg-card relative flex flex-col gap-3 rounded-lg p-4"
-                    />
-                }
+                render={<div id="composer" className="bg-card relative flex flex-col gap-3 rounded-xl p-4" />}
             >
                 {runningBash !== null && (
                     // The reader's own run, above the card where the command panel comes
