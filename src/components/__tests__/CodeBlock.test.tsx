@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodeBlock } from "@/components/CodeBlock";
 import { loadHighlighter } from "@/lib/code-highlight";
@@ -52,6 +52,18 @@ describe("CodeBlock", () => {
 
         expect(view.container.querySelector("code span")).not.toBeNull();
         expect(view.container.querySelector("code")?.textContent).toContain("const b");
+    });
+
+    it("scrolls long lines until the reader asks for wrap", () => {
+        const view = render(<CodeBlock code={CODE} language="ts" id="block" />);
+        const content = view.container.querySelector(String.raw`[data-slot="code-block-content"]`);
+
+        expect(content?.hasAttribute("data-wrap")).toBe(false);
+
+        fireEvent.click(view.getByRole("button", { name: "Wrap lines" }));
+
+        expect(view.getByRole("button", { name: "Wrap lines" }).getAttribute("aria-pressed")).toBe("true");
+        expect(content?.hasAttribute("data-wrap")).toBe(true);
     });
 
     it("draws a block of a language it does not know as the words it is", async () => {

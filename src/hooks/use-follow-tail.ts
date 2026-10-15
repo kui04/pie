@@ -31,8 +31,11 @@ const SNAP = 4;
  *
  * A reader who asked for less motion gets the end itself, without the chase.
  */
-export function useFollowTail(active: boolean, still: boolean): RefObject<HTMLDivElement | null> {
-    const box = useRef<HTMLDivElement>(null);
+export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
+    active: boolean,
+    still: boolean,
+): RefObject<T | null> {
+    const box = useRef<T>(null);
     const following = useRef(true);
 
     useEffect(() => {

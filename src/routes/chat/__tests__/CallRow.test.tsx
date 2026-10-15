@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
 import { presentCall, presentExecution } from "@/routes/chat/transcript/presentation";
 import { bashExecution, toolResult } from "@/preview/fixtures";
@@ -82,9 +82,14 @@ describe("CallRow", () => {
         expect(screen.getByText("$")).toBeInTheDocument();
         expect(screen.getByText("ls")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: /ls/ }));
-        const body = screen.getByText("one").closest("div.flex");
+        const body = document.querySelector(String.raw`[data-slot="code-block-content"]`);
         expect(body).not.toBeNull();
-        expect(within(body as globalThis.HTMLElement).getByText("two")).toBeInTheDocument();
+        expect(body?.textContent).toContain("one");
+        expect(body?.textContent).toContain("two");
+        // A log scrolls until the reader asks for wrap.
+        expect(body?.hasAttribute("data-wrap")).toBe(false);
+        fireEvent.click(screen.getByRole("button", { name: "Wrap lines" }));
+        expect(body?.hasAttribute("data-wrap")).toBe(true);
     });
 });
 
@@ -103,11 +108,15 @@ describe("CallRow's numbered body", () => {
         );
         fireEvent.click(screen.getByRole("button", { name: /\/a\.ts/ }));
 
-        // A bar for a sideways scroll is what the words used to slide under the numbers for, and a
-        // stuck number column can be drawn a pixel inside the pane, leaving a hairline of them
-        // showing. A numbered body scrolls one way only.
-        expect(document.querySelectorAll(String.raw`[data-slot="scroll-area-scrollbar"]`)).toHaveLength(1);
+        // One pane holds the lines, and it wraps instead of scrolling sideways, so no
+        // number ever slides out from under its line.
+        expect(document.querySelectorAll(String.raw`[data-slot="code-block-content"]`)).toHaveLength(1);
         // The words wrap rather than run past the pane, so nothing ever passes under a number.
         expect(screen.getByText("kept").className).toContain("whitespace-pre-wrap");
+        // A diff wraps until the reader asks it to scroll.
+        const content = document.querySelector(String.raw`[data-slot="code-block-content"]`);
+        expect(content?.hasAttribute("data-wrap")).toBe(true);
+        fireEvent.click(screen.getByRole("button", { name: "Wrap lines" }));
+        expect(content?.hasAttribute("data-wrap")).toBe(false);
     });
 });

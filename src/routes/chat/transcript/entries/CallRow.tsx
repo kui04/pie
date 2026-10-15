@@ -1,8 +1,8 @@
-import { LoaderCircle, X } from "lucide-react";
+import { LoaderCircle, WrapText, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { cn } from "cn";
-import { ScrollPane } from "@/components";
+import { Button, CodeBlock, CodeBlockActions, CodeBlockContent } from "@/components/ui";
 import { useFollowTail } from "@/hooks/use-follow-tail";
 import { useMotion } from "@/hooks/use-motion";
 import type { NumberedLine } from "@/lib/text";
@@ -92,28 +92,26 @@ function Running() {
 
 /** The whole of what a call produced: a log, or a file or a diff with its own gutter. */
 function Body({ id, body, live }: { id: string; body: ToolBody; live: boolean }) {
-    if (body.kind === "log") return <LogBody lines={body.lines} live={live} />;
+    if (body.kind === "log") return <LogBody id={id} lines={body.lines} live={live} />;
     if (body.kind === "none") return null;
     return <NumberedBody id={id} lines={body.lines} />;
 }
 
-function LogBody({ lines, live }: { lines: string[]; live: boolean }) {
+function LogBody({ id, lines, live }: { id: string; lines: string[]; live: boolean }) {
     const { still } = useMotion();
-    const tail = useFollowTail(live, still);
+    const tail = useFollowTail<HTMLPreElement>(live, still);
+    // A log scrolls: its lines can be longer than any phone, and wrap is one tap away.
+    const [wrap, setWrap] = useState(false);
 
     return (
-        <ScrollPane
-            bars="both"
-            className="min-w-0"
-            viewportRef={tail}
-            viewportClassName={cn("live-window", live ? LIVE_WINDOW : BODY_MAX, "pr-2")}
-        >
-            <div className="text-code whitespace-pre">
-                {lines.map((line, index) => (
-                    <div key={index}>{line}</div>
-                ))}
-            </div>
-        </ScrollPane>
+        <CodeBlock id={`${id}-log`} size="sm" className="min-w-0">
+            <CodeBlockActions>
+                <WrapToggle id={`${id}-wrap`} wrap={wrap} onToggle={() => setWrap((was) => !was)} />
+            </CodeBlockActions>
+            <CodeBlockContent ref={tail} wrap={wrap} className={cn("live-window", live ? LIVE_WINDOW : BODY_MAX)}>
+                {lines.join("\n")}
+            </CodeBlockContent>
+        </CodeBlock>
     );
 }
 
@@ -138,28 +136,30 @@ function LogBody({ lines, live }: { lines: string[]; live: boolean }) {
 function NumberedBody({ id, lines }: { id: string; lines: NumberedLine[] }) {
     let digits = 1;
     for (const line of lines) digits = Math.max(digits, (line.number ?? "").length);
+    // Wrapped until the reader says otherwise: wrap is what keeps each number on its line.
+    const [wrap, setWrap] = useState(true);
 
     return (
-        <ScrollPane
-            id={`${id}-lines`}
-            bars="vertical"
-            className="min-w-0"
-            viewportClassName={cn("text-code font-mono pr-3", BODY_MAX)}
-        >
-            {lines.map((line, index) => (
-                <div key={index} className={cn("flex", markRowTone(line.mark))}>
-                    <span className="flex shrink-0 gap-1 pr-2 select-none">
-                        <span className="text-muted-foreground/60 text-right" style={{ width: `${digits}ch` }}>
-                            {line.number ?? ""}
+        <CodeBlock id={`${id}-lines`} size="sm" className="min-w-0">
+            <CodeBlockActions>
+                <WrapToggle id={`${id}-wrap`} wrap={wrap} onToggle={() => setWrap((was) => !was)} />
+            </CodeBlockActions>
+            <CodeBlockContent wrap={wrap} className={cn("text-code font-mono", BODY_MAX)}>
+                {lines.map((line, index) => (
+                    <div key={index} className={cn("flex", markRowTone(line.mark))}>
+                        <span className="flex shrink-0 gap-1 pr-2 select-none">
+                            <span className="text-muted-foreground/60 text-right" style={{ width: `${digits}ch` }}>
+                                {line.number ?? ""}
+                            </span>
+                            <span className={cn("w-3 text-center", markTone(line.mark))}>
+                                {line.mark.trim() === "" ? " " : line.mark}
+                            </span>
                         </span>
-                        <span className={cn("w-3 text-center", markTone(line.mark))}>
-                            {line.mark.trim() === "" ? " " : line.mark}
-                        </span>
-                    </span>
-                    <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{line.text}</span>
-                </div>
-            ))}
-        </ScrollPane>
+                        <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{line.text}</span>
+                    </div>
+                ))}
+            </CodeBlockContent>
+        </CodeBlock>
     );
 }
 
@@ -236,6 +236,15 @@ function markTone(mark: string): string {
     if (mark === "+") return "text-success";
     if (mark === "-") return "text-destructive";
     return "text-muted-foreground";
+}
+
+/** The wrap key of a tool body: scroll or wrap, per body. */
+function WrapToggle({ id, wrap, onToggle }: { id: string; wrap: boolean; onToggle: () => void }) {
+    return (
+        <Button id={id} variant="ghost" size="icon-xs" aria-label="Wrap lines" aria-pressed={wrap} onClick={onToggle}>
+            <WrapText />
+        </Button>
+    );
 }
 
 function noteTone(note: ToolNote): string {

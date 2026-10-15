@@ -1,4 +1,14 @@
 export { Button, buttonVariants } from "./button";
+export {
+    CodeBlock,
+    CodeBlockActions,
+    CodeBlockContent,
+    CodeBlockCopyButton,
+    CodeBlockFooter,
+    CodeBlockHeader,
+    CodeBlockLine,
+    CodeBlockTitle,
+} from "./code-block";
 export { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./card";
 export { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 export {

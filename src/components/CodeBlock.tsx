@@ -1,8 +1,14 @@
-import { Copy, Check } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
-import { cn } from "cn";
-import { Button } from "@/components/ui/button";
-import { ScrollPane } from "@/components/ScrollPane";
+import { Copy, Check, WrapText } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+    Button,
+    CodeBlock as CodeBlockFrame,
+    CodeBlockActions,
+    CodeBlockContent,
+    CodeBlockHeader,
+    CodeBlockLine,
+    CodeBlockTitle,
+} from "@/components/ui";
 import { useHighlighter } from "@/hooks/use-highlighter";
 import { tokensOf } from "@/lib/code-highlight";
 import { copyText } from "@/lib/clipboard";
@@ -29,6 +35,8 @@ export interface CodeBlockProps {
 const QUIET_MS = 180;
 export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
+    // Long lines scroll: a phone is narrow, and wrap is one tap away.
+    const [wrap, setWrap] = useState(false);
     const highlighter = useHighlighter();
 
     // The code the colours were made for. A block that is still arriving is redrawn on every
@@ -52,50 +60,56 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     const tokens = coloured === code ? tokensOf(highlighter, code, language ?? "text") : null;
 
     const copy = () => {
-        void copyText(code).then((copied) => {
-            if (copied) setCopied(true);
+        void copyText(code).then((done) => {
+            if (done) setCopied(true);
         });
     };
 
     return (
-        <div className={cn("bg-card overflow-hidden rounded-md", className)} data-language={language ?? "text"}>
-            <div className="flex items-center justify-between gap-2 py-1 pr-1 pl-3">
-                <span className="text-label-sm text-muted-foreground font-mono">{language ?? "text"}</span>
-                <Button
-                    id={id === undefined ? undefined : `${id}-copy`}
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Copy code"
-                    onClick={copy}
-                >
-                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                </Button>
-            </div>
-            {/* The padding the block used to carry, on the box that scrolls: the
-                last character keeps its air to the side, and the bar floats over the
-                air under the last line - a padding on the frame would not move it,
-                because an absolute child is placed against the padding box. */}
-            <ScrollPane bars="horizontal" viewportClassName="px-3 pb-3">
-                {/* The tokens carry both palettes as custom properties and `index.css`
-                    chooses between them, so the same code is drawn in either scheme
-                    without a render. */}
-                <pre className="text-code font-mono" data-code={language ?? "text"}>
-                    <code>
-                        {tokens === null
-                            ? code
-                            : tokens.map((line, at) => (
-                                  <Fragment key={at}>
-                                      {at === 0 ? null : "\n"}
-                                      {line.map((token, of) => (
-                                          <span key={of} style={token.vars}>
-                                              {token.text}
-                                          </span>
-                                      ))}
-                                  </Fragment>
+        <CodeBlockFrame className={className} data-language={language ?? "text"}>
+            <CodeBlockHeader>
+                <CodeBlockTitle>{language ?? "text"}</CodeBlockTitle>
+                <CodeBlockActions>
+                    <Button
+                        id={id === undefined ? undefined : `${id}-wrap`}
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Wrap lines"
+                        aria-pressed={wrap}
+                        onClick={() => setWrap((was) => !was)}
+                    >
+                        <WrapText />
+                    </Button>
+                    <Button
+                        id={id === undefined ? undefined : `${id}-copy`}
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={copied ? "Copied" : "Copy code"}
+                        onClick={copy}
+                    >
+                        {copied ? <Check /> : <Copy />}
+                    </Button>
+                    <span aria-live="polite" className="sr-only">
+                        {copied ? "Copied" : ""}
+                    </span>
+                </CodeBlockActions>
+            </CodeBlockHeader>
+            {/* The tokens carry both palettes as custom properties and `index.css`
+                chooses between them, so the same code is drawn in either scheme
+                without a render. */}
+            <CodeBlockContent data-code={language ?? "text"} wrap={wrap}>
+                {tokens === null
+                    ? code
+                    : tokens.map((line, at) => (
+                          <CodeBlockLine key={at}>
+                              {line.map((token, of) => (
+                                  <span key={of} style={token.vars}>
+                                      {token.text}
+                                  </span>
                               ))}
-                    </code>
-                </pre>
-            </ScrollPane>
-        </div>
+                          </CodeBlockLine>
+                      ))}
+            </CodeBlockContent>
+        </CodeBlockFrame>
     );
 }
