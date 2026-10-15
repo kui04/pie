@@ -5,7 +5,7 @@ import { Markdown } from "@/components";
 import { useFollowTail } from "@/hooks/use-follow-tail";
 import { useMotion } from "@/hooks/use-motion";
 import { Row } from "@/routes/chat/transcript/entries/Row";
-import { glyphFor } from "@/routes/chat/transcript/entries/tool-glyph";
+import { thoughtGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
 
 export interface ThoughtRowProps {
     /** The entry this row draws, as the base of its ids. */
@@ -43,7 +43,7 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
     return (
         <Row
             id={id}
-            glyph={glyphFor("reasoning")}
+            glyph={thoughtGlyph()}
             name={
                 // The chevron stands with the word, not at the row's end: a thought sits beside
                 // collapsed work often enough that "this is a thought, and it opens" has to be

@@ -1,15 +1,10 @@
 import {
-    BookOpen,
-    Bot,
     Braces,
     Brain,
-    CircleHelp,
     FilePen,
     FileSearch,
     FileText,
     FolderTree,
-    Globe,
-    ListChecks,
     Pencil,
     Plug,
     Search,
@@ -22,39 +17,22 @@ import type { ReactNode } from "react";
 /**
  * The glyph of a call's kind, in one place: what a row did, at a glance.
  *
- * The names are pi's own tool names, with the aliases a sibling agent may use beside them, and
- * the choices are OpenChamber's (`parts/toolPresentation.tsx`): a pencil for an edit, a file for
- * a read, braces for a script, a terminal for a command, a globe for a fetch, a brain for a
- * thought. A name nothing here knows gets the wrench, because an unknown tool is still a tool.
+ * The names are pi's own (`ToolName` in pi's `core/tools/index.ts`), plus the `codemode` and
+ * `tool_search` extensions and the `mcp__server__tool` shape. A name nothing here knows gets
+ * the wrench, or the plug when it carries the `__` of a namespaced tool.
  *
  * Size is the caller's: `MarkerIcon` hands every bare svg the 16px the marker keeps.
  */
 const GLYPHS: Array<[LucideIcon, string[]]> = [
-    [Brain, ["reasoning", "thinking"]],
-    [Pencil, ["edit", "patch", "apply_patch", "str_replace"]],
-    [FilePen, ["write", "create", "file_write"]],
-    [FileText, ["read", "view", "cat", "file_read"]],
-    [Braces, ["execute", "codemode"]],
-    [Terminal, ["bash", "shell", "cmd", "terminal", "shell_command"]],
-    [FolderTree, ["ls", "dir", "list_files"]],
-    [Search, ["search", "grep", "find", "ripgrep"]],
-    [FileSearch, ["glob"]],
-    [Globe, ["fetch", "curl", "wget", "webfetch", "web_search", "ollama_web_search", "ollama_web_fetch"]],
-    [Bot, ["subagent", "task", "agent"]],
-    [ListChecks, ["todowrite", "todo", "task_list"]],
-    [BookOpen, ["skill", "skill_invocation"]],
-    [CircleHelp, ["question", "ask_user"]],
-    [Plug, ["mcp", "mcp_", "tool_search", "tool_search_tool"]],
-];
-
-/** How a tool's name is spelled on its row: a reader's word, not pi's identifier. */
-const NAMES: Array<[string, string[]]> = [
-    ["Search", ["grep", "find", "glob", "ripgrep", "search"]],
-    ["List", ["ls", "dir", "list_files"]],
-    ["Bash", ["bash", "shell", "cmd", "terminal", "shell_command"]],
-    ["Patch", ["apply_patch", "str_replace"]],
-    ["Script", ["execute", "codemode"]],
-    ["Task", ["subagent", "task", "agent"]],
+    [Pencil, ["edit"]],
+    [FilePen, ["write"]],
+    [FileText, ["read"]],
+    [Braces, ["codemode"]],
+    [Terminal, ["bash", "powershell"]],
+    [FolderTree, ["ls"]],
+    [Search, ["grep"]],
+    [FileSearch, ["find"]],
+    [Plug, ["tool_search"]],
 ];
 
 export function glyphFor(tool: string): ReactNode {
@@ -62,19 +40,37 @@ export function glyphFor(tool: string): ReactNode {
     for (const [Icon, names] of GLYPHS) {
         if (names.includes(name)) return <Icon />;
     }
-    // A namespaced tool, `mcp__github__search_code` or `jira_issue`, is a server's tool.
-    if (name.includes("_") === false) return <Wrench />;
-    for (const [Icon, names] of GLYPHS) {
-        if (names.some((known) => name.startsWith(known))) return <Icon />;
-    }
+    if (name.includes("__")) return <Plug />;
     return <Wrench />;
 }
 
-/** The word a row's kind is introduced by. */
+/** A thought is no call, so it keeps its own glyph instead of sharing the map. */
+export function thoughtGlyph(): ReactNode {
+    return <Brain />;
+}
+
+/** The word a row's kind is introduced by; a namespaced tool reads `server / tool`. */
 export function toolLabel(tool: string): string {
     const name = tool.toLowerCase();
-    for (const [label, names] of NAMES) {
-        if (names.includes(name)) return label;
+    // Humanize would spell it `Powershell`.
+    if (name === "powershell") return "PowerShell";
+    if (name.includes("__")) {
+        const parts = name.split("__");
+        // The plug already marks an MCP tool, so its `mcp` lead would only repeat it.
+        const shown = parts[0] === "mcp" ? parts.slice(1) : parts;
+        return shown
+            .map(humanize)
+            .filter((part) => part !== "")
+            .join(" / ");
     }
-    return name.charAt(0).toUpperCase() + name.slice(1);
+    return humanize(name);
+}
+
+function humanize(value: string): string {
+    const words = value
+        .toLowerCase()
+        .split(/[_-]+/)
+        .filter((word) => word !== "");
+    if (words.length === 0) return value;
+    return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }

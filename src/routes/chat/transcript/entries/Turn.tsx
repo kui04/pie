@@ -55,7 +55,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                             aria-controls={`${id}-work`}
                             aria-expanded={open}
                             onClick={() => setManual((was) => !(was ?? open))}
-                            className="hover:text-foreground min-h-10 w-full text-left sm:min-h-[34px]"
+                            className="hover:text-foreground min-h-10 w-full text-left sm:min-h-8.5"
                         />
                     }
                 >
