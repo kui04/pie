@@ -65,16 +65,27 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
     // of the message instead of writing the new words into it.
     const components = useMemo<Components>(
         () => ({
-            h1: ({ children: content }) => <h1 className="text-headline-md font-semibold">{content}</h1>,
-            h2: ({ children: content }) => <h2 className="text-title-lg font-semibold">{content}</h2>,
-            h3: ({ children: content }) => <h3 className="text-title-md font-semibold">{content}</h3>,
-            h4: ({ children: content }) => <h4 className="text-title-sm font-semibold">{content}</h4>,
-            p: ({ children: content }) => <p className="text-body-md">{content}</p>,
-            ul: ({ children: content }) => <ul className="list-disc space-y-1 pl-5">{content}</ul>,
-            ol: ({ children: content }) => <ol className="list-decimal space-y-1 pl-5">{content}</ol>,
-            li: ({ children: content }) => <li className="text-body-md">{content}</li>,
+            // Headings step up from the body by a little, never into display type: in a
+            // conversation a heading announces the next thought, and more air above than below
+            // is what binds it to the words it introduces.
+            h1: ({ children: content }) => (
+                <h1 className="mt-5 mb-2 text-[20px] leading-[1.3] font-semibold">{content}</h1>
+            ),
+            h2: ({ children: content }) => (
+                <h2 className="mt-5 mb-2 text-[18px] leading-[1.3] font-semibold">{content}</h2>
+            ),
+            h3: ({ children: content }) => (
+                <h3 className="mt-5 mb-2 text-[14px] leading-[1.3] font-semibold">{content}</h3>
+            ),
+            h4: ({ children: content }) => (
+                <h4 className="mt-5 mb-2 text-[14px] leading-[1.3] font-semibold">{content}</h4>
+            ),
+            p: ({ children: content }) => <p className="my-2 text-[14px] leading-[1.625]">{content}</p>,
+            ul: ({ children: content }) => <ul className="my-2 list-disc space-y-0.5 pl-5">{content}</ul>,
+            ol: ({ children: content }) => <ol className="my-2 list-decimal space-y-0.5 pl-5">{content}</ol>,
+            li: ({ children: content }) => <li className="leading-[1.625]">{content}</li>,
             blockquote: ({ children: content }) => (
-                <blockquote className="border-divider text-muted-foreground border-l-2 pl-3">{content}</blockquote>
+                <blockquote className="border-divider text-muted-foreground my-2 border-l-2 pl-3">{content}</blockquote>
             ),
             a: ({ href, children: content }) =>
                 href !== undefined && OPENABLE.test(href) ? (
@@ -101,15 +112,18 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                     <>{content}</>
                 ),
             hr: () => <hr className="border-divider" />,
+            // A table is rows of hairlines and nothing else: the vertical rules and the frame
+            // an older style drew cost a phone width and say nothing the alignment does not.
+            // Numbers get the tabular figures, and the header keeps its own line.
             table: ({ children: content }) => (
                 <ScrollPane bars="horizontal">
-                    <table className="text-body-sm w-full border-collapse">{content}</table>
+                    <table className="border-divider [&_tr]:border-divider w-full border-collapse text-[14px] leading-[1.5] tabular-nums [&_thead]:border-b [&_tr]:border-b [&_tr:last-child]:border-0">
+                        {content}
+                    </table>
                 </ScrollPane>
             ),
-            th: ({ children: content }) => (
-                <th className="border-divider bg-muted border px-2 py-1 text-left font-medium">{content}</th>
-            ),
-            td: ({ children: content }) => <td className="border-divider border px-2 py-1">{content}</td>,
+            th: ({ children: content }) => <th className="px-3 py-1.5 text-left align-top font-semibold">{content}</th>,
+            td: ({ children: content }) => <td className="px-3 py-1.5 align-top">{content}</td>,
             // A fenced block arrives as `pre > code`. It goes to CodeBlock
             // whether or not the fence named a language - a block without one
             // is not an inline snippet, and would otherwise collapse into a pill.
@@ -127,19 +141,26 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                         code={code}
                         language={language}
                         id={id === undefined ? undefined : `${id}-code-${node?.position?.start.line ?? 0}`}
-                        className="my-3"
+                        className="my-2"
                     />
                 );
             },
             code: ({ children: content }) => (
-                <code className="bg-muted text-code rounded-sm px-1 py-0.5 font-mono">{content}</code>
+                <code className="bg-muted text-code rounded-md px-1.5 py-px font-mono">{content}</code>
             ),
         }),
         [id],
     );
 
     return (
-        <div className={cn("text-body-md text-foreground space-y-3", className)}>
+        // The blocks carry their own air and it collapses, so the gap between any two of them is
+        // one paragraph's spacing whatever they are; the first and the last add none at the edges.
+        <div
+            className={cn(
+                "text-foreground text-[14px] leading-[1.625] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                className,
+            )}
+        >
             {parsed(id, {
                 children,
                 // GFM for the tables and the task lists a model writes; math for the formulas,

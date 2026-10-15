@@ -50,9 +50,7 @@ export function Notice({ id, label, summary, body }: NoticeProps) {
             </CollapsibleTrigger>
             {open && (
                 <div id={`${id}-body`} className="mt-2 px-3 pb-2">
-                    <Markdown id={`${id}-text`} className="text-body-md">
-                        {body}
-                    </Markdown>
+                    <Markdown id={`${id}-text`}>{body}</Markdown>
                 </div>
             )}
             <CollapsibleTrigger

@@ -69,7 +69,7 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
             onToggle={() => setManual((was) => !(was ?? stillThinking))}
         >
             <div ref={tail} className={cn("live-window overflow-y-auto pr-2", stillThinking ? WINDOW : OPENED)}>
-                <Markdown id={`${id}-reasoning`} className="text-body-md text-muted-foreground">
+                <Markdown id={`${id}-reasoning`} className="text-muted-foreground">
                     {thinking}
                 </Markdown>
             </div>

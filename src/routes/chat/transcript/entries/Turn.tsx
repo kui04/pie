@@ -125,7 +125,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                                 // not the answer. The answer is the text the fold leaves out, and that
                                 // keeps the block's own left edge.
                                 <div key={item.id} className="pl-8">
-                                    <Markdown id={item.id} className="text-body-md text-muted-foreground py-1">
+                                    <Markdown id={item.id} className="text-muted-foreground py-1">
                                         {item.text}
                                     </Markdown>
                                 </div>
@@ -158,7 +158,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
             {answer !== null && (
                 <div className="mt-2 flex min-w-0 flex-col gap-2">
                     {answer.parts.map((part) => (
-                        <Markdown key={part.id} id={part.id} className="text-body-md">
+                        <Markdown key={part.id} id={part.id}>
                             {part.text}
                         </Markdown>
                     ))}

@@ -127,8 +127,8 @@
   --text-label-sm: 11px;
   --text-label-sm--line-height: 14px;
   --text-label-sm--letter-spacing: 0.5px;
-  --text-code: 14px;
-  --text-code--line-height: 20px;
+  --text-code: 12px;
+  --text-code--line-height: 18px;
 }
 
 /*
