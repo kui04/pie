@@ -314,7 +314,7 @@ export function ConnectionCard({
                 </div>
             </ScrollPane>
 
-            <div id="connection-card-action" className="flex flex-col gap-4 px-6 pt-6 pb-6">
+            <div id="connection-card-action" className="flex flex-col gap-4 p-6">
                 <AnimatePresence initial={false}>
                     {missing !== null && (
                         <motion.p

@@ -105,7 +105,7 @@ function LevelSkeleton() {
     return (
         <div role="status" aria-label="Loading the thinking levels" className="flex flex-col gap-1">
             {WIDTHS.map((width, row) => (
-                <div key={row} aria-hidden className="flex items-center gap-2 rounded-lg px-2 py-2">
+                <div key={row} aria-hidden className="flex items-center gap-2 rounded-lg p-2">
                     <Skeleton className={cn("h-5", width, "motion-reduce:animate-none")} />
                 </div>
             ))}
@@ -193,7 +193,7 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                     onMouseMove={() => setHovered(index)}
                     className={cn(
                         "text-foreground flex cursor-default items-center gap-2",
-                        "rounded-lg px-2 py-2 select-none",
+                        "rounded-lg p-2 select-none",
                         "data-[lit=true]:bg-accent",
                     )}
                 >

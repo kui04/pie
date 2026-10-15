@@ -22,7 +22,7 @@ const optionRowVariants = cva(
                     "rounded-md py-2 px-3 data-checked:bg-surface-container-highest",
                     "data-unchecked:bg-surface-container-high",
                     "data-unchecked:text-muted-foreground",
-                    "[&_[data-slot=radio-group-indicator]]:hidden",
+                    "**:data-[slot=radio-group-indicator]:hidden",
                 ],
             },
         },

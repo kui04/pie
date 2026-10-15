@@ -185,7 +185,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
             <div
                 className={cn(
                     "border-border-strong bg-surface-container-highest",
-                    "flex items-center gap-2 rounded-lg border px-2 py-2",
+                    "flex items-center gap-2 rounded-lg border p-2",
                 )}
             >
                 <Search className="text-muted-foreground size-4 shrink-0" aria-hidden />
@@ -333,7 +333,7 @@ function ModelSkeleton() {
     return (
         <div role="status" aria-label="Loading the models" className="flex flex-col gap-1">
             {WIDTHS.map((width, row) => (
-                <div key={row} aria-hidden className="flex items-center gap-2 rounded-lg px-2 py-2">
+                <div key={row} aria-hidden className="flex items-center gap-2 rounded-lg p-2">
                     <Skeleton className="size-4 shrink-0 motion-reduce:animate-none" />
                     <Skeleton className={cn("h-5", width, "motion-reduce:animate-none")} />
                 </div>

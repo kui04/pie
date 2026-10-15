@@ -107,7 +107,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                                     "group/item",
                                     "data-[lit=true]:bg-accent data-[lit=true]:text-accent-foreground",
                                     "relative flex cursor-default items-center gap-2",
-                                    "rounded-lg px-2 py-2 text-sm select-none",
+                                    "rounded-lg p-2 text-sm select-none",
                                 )}
                             >
                                 <span className="text-body-md shrink-0 whitespace-nowrap">/{row.name}</span>

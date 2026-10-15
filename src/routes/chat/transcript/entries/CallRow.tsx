@@ -156,7 +156,7 @@ function NumberedBody({ id, lines }: { id: string; lines: NumberedLine[] }) {
                             {line.mark.trim() === "" ? " " : line.mark}
                         </span>
                     </span>
-                    <span className="min-w-0 flex-1 break-words whitespace-pre-wrap">{line.text}</span>
+                    <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{line.text}</span>
                 </div>
             ))}
         </ScrollPane>
