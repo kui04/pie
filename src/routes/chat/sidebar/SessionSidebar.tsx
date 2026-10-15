@@ -27,6 +27,7 @@ import {
 } from "@/components/ui";
 import { SafeArea, ScrollPane } from "@/components";
 import type { AttachedConversation } from "@/hooks/use-attached-conversations";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useMotion } from "@/hooks/use-motion";
 import { useWideWindow } from "@/hooks/use-wide-window";
 import * as bridge from "@/lib/bridge";
@@ -159,8 +160,15 @@ function SessionListPanel({
                         // label for the field.
                         aria-label="Search sessions"
                         placeholder="Search sessions"
+                        type="search"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        enterKeyHint="search"
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
+                        onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
                     />
                 </InputGroup>
             </div>
@@ -198,7 +206,7 @@ function SessionListPanel({
                     </AnimatePresence>
                 </button>
             </div>
-            <ScrollPane className="min-h-0 flex-1" viewportRef={setPane} viewportClassName="p-2">
+            <ScrollPane className="min-h-0 flex-1" viewportRef={setPane} viewportClassName="p-2 pb-4">
                 {/* The panel holds one of four things, and a change of one for another is a
                     change of the page it reads: it fades through (`stage`), and what is
                     leaving goes first. A read the reader asked for is not such a change: the
@@ -370,6 +378,7 @@ function SessionSheet({
     className?: string;
 }) {
     const wide = useWideWindow();
+    const keyboardInset = useKeyboardInset();
 
     useEffect(() => {
         if (wide) onOpenChange(false);
@@ -381,8 +390,13 @@ function SessionSheet({
                 <DrawerTitle className="sr-only">Sessions</DrawerTitle>
                 {/* The sheet leaves the page for a portal, where the shell's safe area
                     does not reach: it keeps its own sides, or the panel's first and last
-                    rows would sit under the system bars. */}
-                <SafeArea side="vertical" className="h-full">
+                    rows would sit under the system bars. The keyboard pad only applies
+                    where the layout did not already shrink for it. */}
+                <SafeArea
+                    side="vertical"
+                    className="h-full"
+                    style={{ paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)` }}
+                >
                     {children}
                 </SafeArea>
             </DrawerContent>

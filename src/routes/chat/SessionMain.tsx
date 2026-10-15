@@ -16,6 +16,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useMotion } from "@/hooks/use-motion";
 import { useSession } from "@/hooks/use-session";
 import * as bridge from "@/lib/bridge";
@@ -58,6 +59,7 @@ export function SessionMain({ session, client }: SessionMainProps) {
 function SessionBody({ machine, session, client }: SessionMainProps & { machine: SessionRef }) {
     const { phase, working, state, entries, stats, ready, error, reopen } = useSession(session, machine);
     const { stage: page, slot } = useMotion();
+    const keyboardInset = useKeyboardInset();
     const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
     const live = useSelector(machine, (snapshot) => snapshot.context.live);
     const queued = useSelector(machine, (snapshot) => snapshot.context.queued);
@@ -151,7 +153,12 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                     <motion.div
                         id="composer-band"
                         {...slot}
-                        className="my-2 mt-auto flex shrink-0 items-center justify-center"
+                        // A 1rem floor under the safe inset: a round corner cuts
+                        // deeper than a system bar, and the inset alone leaves
+                        // the card on the curve. The keyboard pad only applies
+                        // where the layout did not already shrink for it.
+                        className="mt-auto mb-4 flex shrink-0 items-center justify-center"
+                        style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
                     >
                         {/* The composer's box and the transcript's content share one
                             line. The fade above it lives in the transcript, over

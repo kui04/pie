@@ -306,6 +306,8 @@ export function Composer({ session, working, machine }: ComposerProps) {
                             : "Ask Pi anything, or type / for commands. Enter steers, Alt+Enter queues a follow-up."
                     }
                     aria-label="Your message"
+                    enterKeyHint="send"
+                    onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
                     className={cn(
                         "text-body-md block max-h-25 min-h-15 resize-none",
                         "rounded-none border-0 bg-transparent p-0",

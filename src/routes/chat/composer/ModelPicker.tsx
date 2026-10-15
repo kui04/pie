@@ -95,10 +95,11 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 sideOffset={12}
                 // The draft's model popup is a fixed 240px (its own max-height), so the
                 // popup is the same shape whether a host offers three models or six
-                // hundred.
+                // hundred. The cap follows the visible viewport, so an open
+                // keyboard cannot push it off screen.
                 className={cn(
                     "elevation-raised bg-card text-foreground mx-2",
-                    "flex h-60 max-h-60 w-68 flex-col gap-1 overflow-hidden p-2",
+                    "flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden p-2",
                 )}
             >
                 <ModelMenu
@@ -226,6 +227,13 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                         }
                     }}
                     placeholder="Search models"
+                    type="search"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    enterKeyHint="search"
+                    onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
                     className="text-body-md placeholder:text-outline min-w-0 flex-1 bg-transparent outline-hidden"
                 />
             </div>

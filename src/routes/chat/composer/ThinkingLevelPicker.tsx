@@ -71,8 +71,10 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                 align="center"
                 sideOffset={12}
                 className={cn(
+                    // The cap follows the visible viewport, so an open keyboard
+                    // cannot push the list off screen.
                     "elevation-raised bg-card text-foreground mx-2",
-                    "flex max-h-60 w-44 flex-col gap-1 overflow-hidden p-2",
+                    "flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden p-2",
                 )}
             >
                 {levels.isPending ? (

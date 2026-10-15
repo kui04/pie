@@ -7,6 +7,7 @@ import { ConnectionCard, type ConnectionForm } from "@/routes/connect/Connection
 import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
 import { SafeArea, WindowControls } from "@/components";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { useHostStore, type RememberedHost } from "@/stores/host.store";
@@ -194,6 +195,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const { pickPrivateKey } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
+    const keyboardInset = useKeyboardInset();
 
     // The host of the last connection, as the card opens on it. Read once, for
     // the first contents of the form; a dial that answers replaces it below.
@@ -255,6 +257,10 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                 <div
                     id="connection-panel"
                     className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden p-4"
+                    // The card is centred, so a keyboard that overlays the layout
+                    // would cover its lower fields. The pad only applies where
+                    // the layout did not already shrink for the keyboard.
+                    style={{ paddingBottom: `calc(1rem + ${keyboardInset}px)` }}
                 >
                     <ConnectionCard
                         form={form}

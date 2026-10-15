@@ -153,10 +153,15 @@ export function ConnectionCard({
                                             id="connection-card-address"
                                             value={form.address}
                                             onChange={(event) => onChange({ address: event.target.value })}
+                                            onFocus={(event) =>
+                                                event.currentTarget.scrollIntoView({ block: "nearest" })
+                                            }
                                             placeholder="pi@192.168.1.10:22"
                                             autoCapitalize="none"
                                             autoCorrect="off"
+                                            autoComplete="off"
                                             spellCheck={false}
+                                            enterKeyHint="next"
                                             className={cn(
                                                 "border-border-strong bg-surface-container-highest",
                                                 "placeholder:text-outline text-code h-12 w-full",
@@ -225,10 +230,15 @@ export function ConnectionCard({
                                                     type="password"
                                                     value={form.password}
                                                     onChange={(event) => onChange({ password: event.target.value })}
+                                                    onFocus={(event) =>
+                                                        event.currentTarget.scrollIntoView({ block: "nearest" })
+                                                    }
                                                     placeholder="Enter password"
                                                     autoCapitalize="none"
                                                     autoCorrect="off"
+                                                    autoComplete="current-password"
                                                     spellCheck={false}
+                                                    enterKeyHint="next"
                                                     className={cn(
                                                         "border-border-strong bg-surface-container-highest",
                                                         "placeholder:text-outline text-code h-12 w-full",
@@ -252,11 +262,16 @@ export function ConnectionCard({
                                                         onChange={(event) =>
                                                             onChange({ privateKeyMaterial: event.target.value })
                                                         }
+                                                        onFocus={(event) =>
+                                                            event.currentTarget.scrollIntoView({ block: "nearest" })
+                                                        }
                                                         placeholder="Paste the key"
                                                         rows={4}
                                                         autoCapitalize="none"
                                                         autoCorrect="off"
+                                                        autoComplete="off"
                                                         spellCheck={false}
+                                                        enterKeyHint="enter"
                                                         className={cn(
                                                             "border-border-strong bg-surface-container-highest",
                                                             "placeholder:text-outline text-code field-sizing-fixed",
@@ -281,10 +296,15 @@ export function ConnectionCard({
                                                         onChange={(event) =>
                                                             onChange({ passphrase: event.target.value })
                                                         }
+                                                        onFocus={(event) =>
+                                                            event.currentTarget.scrollIntoView({ block: "nearest" })
+                                                        }
                                                         placeholder="Only if the key is encrypted"
                                                         autoCapitalize="none"
                                                         autoCorrect="off"
+                                                        autoComplete="off"
                                                         spellCheck={false}
+                                                        enterKeyHint="next"
                                                         className={cn(
                                                             "border-border-strong bg-surface-container-highest",
                                                             "placeholder:text-outline text-code h-12 w-full",

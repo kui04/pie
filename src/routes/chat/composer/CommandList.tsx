@@ -71,7 +71,10 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
             // clipped rather than scrolled to.
             className={cn(
                 "elevation-raised bg-card text-foreground",
-                rows.length > TEN_ROWS && "h-103",
+                // The cap follows the visible viewport, so an open keyboard
+                // cannot push the rows off screen; the scroll pane takes the rest.
+                rows.length > TEN_ROWS && "h-103 max-h-[calc(100dvh-14rem)]",
+                rows.length <= TEN_ROWS && "max-h-[calc(100dvh-14rem)]",
                 "w-(--anchor-width) gap-1 overflow-hidden p-2",
                 className,
             )}
