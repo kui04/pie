@@ -623,6 +623,37 @@
   }
 }
 
+/**
+ * Trim the ghost space above caps and below the baseline, so flex centers the
+ * ink instead of the font box. `trim` is the default (`cap alphabetic`, the
+ * common case); `trim-ex` fits lowercase-heavy words. One-sided trims fall back
+ * to the default `text` edge unless stated. Engines without it ignore it and
+ * keep the old centering.
+ */
+@utility trim {
+  text-box: trim-both cap alphabetic;
+}
+
+@utility trim-cap {
+  text-box: trim-both cap alphabetic;
+}
+
+@utility trim-ex {
+  text-box: trim-both ex alphabetic;
+}
+
+@utility trim-none {
+  text-box-trim: none;
+}
+
+@utility trim-start {
+  text-box-trim: trim-start;
+}
+
+@utility trim-end {
+  text-box-trim: trim-end;
+}
+
 /** A surface that scrolls without saying so, for a short list that wants no bar. */
 @utility no-scrollbar {
   scrollbar-width: none;

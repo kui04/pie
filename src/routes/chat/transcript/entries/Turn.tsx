@@ -62,8 +62,8 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">
                         <Layers />
                     </MarkerIcon>
-                    <span className="text-body-md text-foreground font-medium">{heading.lead}</span>
-                    <span className="min-w-0 truncate">
+                    <span className="text-body-md text-foreground trim font-medium">{heading.lead}</span>
+                    <span className="trim min-w-0 truncate">
                         {heading.files !== null && <span> · {heading.files}</span>}
                         {heading.failed !== null && <span className="text-destructive"> · {heading.failed}</span>}
                         {heading.calls !== null && <span className="hidden lg:inline"> · {heading.calls}</span>}

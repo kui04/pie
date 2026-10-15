@@ -64,7 +64,7 @@ export function Row({
                 <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">{glyph}</MarkerIcon>
                 <span
                     className={cn(
-                        "text-body-md",
+                        "text-body-md trim",
                         tone !== "quiet" && "font-medium",
                         tone === "model" && "text-primary-text",
                         tone === "user-run" && "text-user-run",

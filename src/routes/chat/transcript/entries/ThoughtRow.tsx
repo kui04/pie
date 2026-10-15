@@ -50,11 +50,11 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
                 // readable from the word itself.
                 <span className="flex items-center gap-2">
                     {stillThinking ? (
-                        <span className="shimmer font-medium" role="status">
+                        <span className="shimmer trim font-medium" role="status">
                             Thinking…
                         </span>
                     ) : (
-                        "Thoughts"
+                        <span className="trim">Thoughts</span>
                     )}
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
                     <ChevronRight

@@ -30,7 +30,7 @@ export function RunLine({ state }: RunLineProps) {
             <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">
                 <Mark state={state} />
             </MarkerIcon>
-            <span className="text-body-md">{state === "waiting" ? "Waiting…" : "Working…"}</span>
+            <span className="text-body-md trim">{state === "waiting" ? "Waiting…" : "Working…"}</span>
         </Marker>
     );
 }
