@@ -29,12 +29,8 @@ function ScrollPane({
                 <ScrollAreaPrimitive.Viewport
                     ref={viewportRef}
                     data-slot="scroll-area-viewport"
-                    className={cn(
-                        "focus-visible:ring-ring/50 size-full rounded-[inherit]",
-                        "transition-[color,box-shadow] outline-none focus-visible:ring-3",
-                        "focus-visible:outline-1 [&>div]:block!",
-                        viewportClassName,
-                    )}
+                    tabIndex={-1}
+                    className={cn("size-full rounded-[inherit] outline-none [&>div]:block!", viewportClassName)}
                 >
                     {/* Base UI's content wrapper carries `min-width: fit-content`, which inside a
                         scroll container is the content's *min-content*: one line of text that cannot

@@ -65,6 +65,17 @@ describe("ScrollPane", () => {
         expect(container.querySelector("[data-slot=scroll-area-viewport]")?.className).toContain("pt-2");
     });
 
+    it("never takes a tab stop, so it never draws a focus ring", () => {
+        const { container } = render(<ScrollPane>a row</ScrollPane>);
+        const viewport = container.querySelector("[data-slot=scroll-area-viewport]");
+        if (!(viewport instanceof HTMLElement)) throw new Error("no viewport");
+
+        // A pane is a region, not a control: Tab passes through it, and with no
+        // keyboard stop there is no ring to shift the layout either.
+        expect(viewport.tabIndex).toBe(-1);
+        expect(viewport.className).not.toContain("focus-visible:ring");
+    });
+
     it("holds its rows inside the pane, unless the pane is meant to run wide", () => {
         // Base UI's content wrapper carries `min-width: fit-content`, which inside a
         // scroll container is the content's *min-content*: one line that cannot wrap -
