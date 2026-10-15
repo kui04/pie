@@ -308,9 +308,10 @@
 
   /*
    * The pill pie draws itself (`src/components/ScrollPane.tsx`) shows itself the way the
-   * engine's bar does: while its own pane is moving, and while the pointer is over that
-   * pane. `scroll-area` says both of these on each bar itself - and it says the second one
-   * for a pointer only, so a tap does not leave a bar standing on a pane it never hovered.
+   * engine's bar does: while its own pane is moving. `scroll-area` says that on each bar
+   * itself, and it says nothing about the pointer on purpose - a bar that appears because
+   * the mouse crossed a pane is a bar that appears in every pane on the way to somewhere
+   * else. A reader who wants to drag one scrolls the region first, as macOS has always done.
    * The bar is mounted for good so this can be a fade rather than a blink, and it takes no
    * pointer while it is away, so the pane's edge stays text to select and to drag across.
    */
@@ -320,10 +321,23 @@
     transition: opacity 160ms ease-out;
   }
 
-  [data-slot="scroll-area-scrollbar"][data-scrolling],
-  [data-slot="scroll-area-scrollbar"][data-hovering] {
+  [data-slot="scroll-area-scrollbar"][data-scrolling] {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  /*
+   * A bar is only ever for a region with more to show. The lane is mounted for good so that it
+   * can be faded, and `scroll-area` says on its root which axis actually overflows - so a pane
+   * whose content fits, and a body of two lines, must not reveal a bar when the pointer merely
+   * crosses them.
+   */
+  [data-slot="scroll-area"]:not([data-has-overflow-y])
+    [data-slot="scroll-area-scrollbar"][data-vertical],
+  [data-slot="scroll-area"]:not([data-has-overflow-x])
+    [data-slot="scroll-area-scrollbar"][data-horizontal] {
+    opacity: 0;
+    pointer-events: none;
   }
 
   @media (prefers-reduced-motion: reduce) {
