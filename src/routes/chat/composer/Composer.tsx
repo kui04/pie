@@ -13,8 +13,8 @@ import { CommandList } from "@/routes/chat/composer/CommandList";
 import { bashCommandOf, commandRows, slashHint, slashName, type CommandRow } from "@/routes/chat/composer/command";
 import { ModelPicker } from "@/routes/chat/composer/ModelPicker";
 import { ThinkingLevelPicker } from "@/routes/chat/composer/ThinkingLevelPicker";
-import { ToolResultCard } from "@/routes/chat/transcript/entries/ToolResultCard";
-import { presentRunningExecution } from "@/routes/chat/transcript/tool-presentation";
+import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
+import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { useSelector } from "@xstate/react";
 import type { SessionRef } from "@/lib/sessions";
 
@@ -249,10 +249,10 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     // `_pendingBashMessages` may defer that), and the chart takes the card
                     // down when the entry of that command arrives (`bashAfter`).
                     <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
-                        <ToolResultCard
+                        <CallRow
                             id="composer-run-card"
+                            tool="bash"
                             presentation={presentRunningExecution(runningBash)}
-                            className="elevation-raised"
                         />
                     </div>
                 )}

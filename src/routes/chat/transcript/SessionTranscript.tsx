@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "cn";
 import { Virtualizer } from "virtua";
@@ -12,6 +12,8 @@ import {
 } from "@/components/ui";
 import type { TranscriptRow } from "@/lib/transcript";
 import { TranscriptEntry } from "@/routes/chat/transcript/TranscriptEntry";
+import { Turn } from "@/routes/chat/transcript/entries/Turn";
+import { foldTurns } from "@/routes/chat/transcript/fold";
 
 export interface SessionTranscriptProps {
     /** The transcript, as the store and the fold read it. */
@@ -42,6 +44,11 @@ const AHEAD = 800;
  */
 export function SessionTranscript({ rows, working = false, className, onRetractQueued }: SessionTranscriptProps) {
     const viewport = useRef<HTMLDivElement>(null);
+    // One turn's work is one block: the rows are folded before virtua sees them, so a
+    // long session draws headings and answers rather than a card per call. The run is
+    // at work on its own last turn, which is the one the line under the list names.
+    const slots = useMemo(() => foldTurns(rows), [rows]);
+    const lastWork = slots.reduce((found, slot, index) => (slot.kind === "work" ? index : found), -1);
 
     return (
         <MessageScrollerProvider autoScroll>
@@ -58,13 +65,24 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                         answer that is still growing, and read it again once it is whole. */}
                     <MessageScrollerContent aria-busy={working || undefined}>
                         <div className="mx-auto w-full max-w-5xl px-4">
-                            <Virtualizer data={rows} bufferSize={AHEAD} scrollRef={viewport}>
-                                {(row) => (
-                                    // Keyed by the row: virtua draws by position, and React would
-                                    // otherwise keep a card's state (an open body, a clock) with the
-                                    // next row that lands there.
-                                    <div key={row.id} className="w-full pb-3">
-                                        <TranscriptEntry row={row} onRetractQueued={onRetractQueued} />
+                            <Virtualizer data={slots} bufferSize={AHEAD} scrollRef={viewport}>
+                                {(slot, index) => (
+                                    // Keyed by the row or the turn: virtua draws by position, and
+                                    // React would otherwise keep a fold's state (an open body, a
+                                    // rail, a clock) with the next slot that lands there.
+                                    <div key={slot.key} className="w-full pb-3">
+                                        {slot.kind === "work" ? (
+                                            <Turn
+                                                id={slot.key}
+                                                facts={slot.facts}
+                                                items={slot.items}
+                                                answer={slot.answer}
+                                                note={slot.note}
+                                                live={slot.live || (working && index === lastWork)}
+                                            />
+                                        ) : (
+                                            <TranscriptEntry row={slot.row} onRetractQueued={onRetractQueued} />
+                                        )}
                                     </div>
                                 )}
                             </Virtualizer>

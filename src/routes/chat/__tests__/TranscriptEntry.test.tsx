@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "@/lib/rpc-protocol";
 import { transcriptRows } from "@/lib/transcript";
@@ -15,11 +15,14 @@ import {
 } from "@/preview/fixtures";
 import { TranscriptEntry } from "@/routes/chat/transcript/TranscriptEntry";
 
-/** The rows of a session, as the screen draws them. */
+/** The rows of a session, as the screen draws them. A turn's own work is a fold's business, so
+ * only the rows the fold leaves behind reach this component. */
 function transcript(entries: SessionEntry[]) {
     const store = storeOf(entries);
     const leafId: string | null = store.order.length > 0 ? store.order[store.order.length - 1] : null;
-    return transcriptRows(store, leafId).map((row) => <TranscriptEntry key={row.id} row={row} />);
+    return transcriptRows(store, leafId).flatMap((row) =>
+        row.kind === "assistant" ? [] : [<TranscriptEntry key={row.id} row={row} />],
+    );
 }
 
 describe("TranscriptEntry", () => {
@@ -44,14 +47,7 @@ describe("TranscriptEntry", () => {
         render(<>{transcript(entries)}</>);
 
         expect(screen.getByText("make the parser skip empty lines")).toBeInTheDocument();
-        expect(screen.getByText("here it is")).toBeInTheDocument();
-        // The diff of the edit is inside the card of the call it answers, and the
-        // call is part of the answer that made it: the card of the call is the one
-        // the entry and the call id name (the second entry, its first call).
-        const edit = screen.getByText("new").closest("#e2-c1");
-        expect(edit).not.toBeNull();
-        expect(within(edit as globalThis.HTMLElement).getByLabelText("Succeeded")).toBeInTheDocument();
-        // A command the reader ran is a card of its own, with pi's prompt on it.
+        // A command the reader ran is a row of its own, with pi's prompt on it.
         expect(screen.getByText("$")).toBeInTheDocument();
         expect(screen.getByText("ls")).toBeInTheDocument();
         expect(screen.getByText("[compaction]")).toBeInTheDocument();

@@ -37,6 +37,13 @@ export const MOTION = {
     breath: 2400,
     /** One pass of the shimmer over a thought, in milliseconds. */
     shimmer: 2000,
+    /**
+     * How long the window of a live body takes to catch up with what arrives, in milliseconds.
+     * It chases the end rather than jumping to it, so a line that lands while the one before it
+     * is still travelling is taken up by the same motion - and it chases quickly, because a
+     * reader watching a command wants the newest line, not a slow approach to it.
+     */
+    follow: 120,
     /** A chevron turning over: Tailwind's own `transition`. */
     flip: 0.15,
     /** A colour under the pointer: `duration-50`. */

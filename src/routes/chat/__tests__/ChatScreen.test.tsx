@@ -809,9 +809,15 @@ describe("ChatScreen", () => {
         );
         act(() => publish({ type: "agent_settled", aborted: false }));
 
-        await waitFor(() => expect(screen.getByLabelText("Succeeded")).toBeInTheDocument());
-        // The same element: the row kept its name, so the card kept its state.
-        expect(document.querySelector("#live-1-c1")).toBe(card);
+        // One call is not a fold: no heading stands over it, and the name of the live row is
+        // the name it keeps - the row a reader was reading is still the row that settles, and
+        // its body opens onto the answer the read carried.
+        await waitFor(() => expect(screen.queryByRole("button", { name: /Worked for/ })).toBeNull());
+        const settled = document.querySelector("#live-1-c1") as HTMLElement;
+        expect(settled).not.toBeNull();
+        expect(within(settled).getByText("pnpm test")).toBeInTheDocument();
+        fireEvent.click(within(settled).getByRole("button", { name: /pnpm test/ }));
+        expect(await within(settled).findByText("PASS 13 tests")).toBeInTheDocument();
     });
 
     it("follows the response that streams with the ring of the usage", async () => {

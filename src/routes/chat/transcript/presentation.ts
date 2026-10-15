@@ -5,7 +5,7 @@
  * is `details.diff`, which pi fills in for a display that never reads the file.
  */
 
-import type { BashExecutionMessage, JsonValue, ToolResultMessage } from "@/lib/rpc-protocol";
+import type { AssistantMessage, BashExecutionMessage, JsonValue, ToolResultMessage } from "@/lib/rpc-protocol";
 import { displayText, linesOf, numberedFile, numberedLines, resultText, type NumberedLine } from "@/lib/text";
 
 export type ToolBody =
@@ -42,6 +42,12 @@ export interface ToolPresentation {
     body: ToolBody;
     /** What the card says under its body: a truncation, an exit code. */
     notes: ToolNote[];
+    /**
+     * How long pi took over the call, when its result carries the number. pi measures this for
+     * the calls of a run it is driving, and persists it on the result; an older or a streamed
+     * result carries none, and then the row keeps its own clock instead.
+     */
+    durationMs: number | null;
 }
 
 /** The rest of the header the generic form shows: `key=value`, cut like pi cuts it. */
@@ -88,6 +94,7 @@ export function presentCall(
                 : "waiting",
         body,
         notes: toolNotes(result),
+        durationMs: typeof result?.durationMs === "number" ? result.durationMs : null,
     };
 }
 
@@ -115,6 +122,7 @@ export function presentExecution(message: BashExecutionMessage): ToolPresentatio
                 : "ok",
         body: { kind: "log", lines: linesOf(displayText(message.output)) },
         notes,
+        durationMs: null,
     };
 }
 
@@ -131,6 +139,7 @@ export function presentRunningExecution(run: { command: string; output: string }
         status: "running",
         body: { kind: "log", lines: linesOf(displayText(run.output)) },
         notes: [],
+        durationMs: null,
     };
 }
 
@@ -289,4 +298,42 @@ function asJsonObject(value: JsonValue | null | undefined): Record<string, JsonV
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? (value as Record<string, JsonValue>)
         : null;
+}
+/**
+ * The one line a turn that did not end cleanly says, following pi's rule
+ * (`modes/interactive/components/assistant-message.ts`): a truncated answer always
+ * gets the line, an abort or an error does not when the message called tools - the
+ * call that took the failure shows it.
+ */
+export function stopNote(message: AssistantMessage): string | null {
+    if (message.stopReason === "length") return "Response was truncated before completion.";
+    if (message.content.some((part) => part.type === "toolCall")) return null;
+    const reason = failureText(message);
+    if (reason === null) return null;
+    return message.stopReason === "error" ? `Error: ${reason}` : reason;
+}
+
+export function failureText(message: AssistantMessage): string | null {
+    if (message.stopReason === "aborted") {
+        const said = message.errorMessage;
+        return said !== undefined && said !== null && said !== "" && said !== "Request was aborted"
+            ? said
+            : "Operation aborted";
+    }
+    if (message.stopReason === "error") return message.errorMessage || "Unknown error";
+    return null;
+}
+
+/** A call that never answered, read as the message's own failure. */
+export function failedCall(message: AssistantMessage, toolCallId: string, toolName: string): ToolResultMessage | null {
+    const text = failureText(message);
+    if (text === null) return null;
+    return {
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content: [{ type: "text", text }],
+        isError: true,
+        timestamp: message.timestamp,
+    };
 }

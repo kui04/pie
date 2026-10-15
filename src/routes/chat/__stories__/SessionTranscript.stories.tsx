@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { SessionEntry } from "@/lib/rpc-protocol";
 import { transcriptRows } from "@/lib/transcript";
-import { compactedTranscript, sampleTranscript, storeOf } from "@/preview/fixtures";
+import { compactedTranscript, longTurnTranscript, sampleTranscript, storeOf } from "@/preview/fixtures";
 import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
 
 /**
@@ -58,4 +58,9 @@ export const Working: Story = {
         rows: [...rows(sampleTranscript()), { kind: "activity", id: "activity", state: "working" }],
         working: true,
     },
+};
+
+/** A long turn: eight calls, a diff, a test run, and a turn that only thought. */
+export const LongTurn: Story = {
+    args: { rows: rows(longTurnTranscript()) },
 };

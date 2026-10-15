@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolResultMessage } from "@/lib/rpc-protocol";
-import { presentCall, presentExecution, presentRunningExecution } from "@/routes/chat/transcript/tool-presentation";
+import { presentCall, presentExecution, presentRunningExecution } from "@/routes/chat/transcript/presentation";
 
 const result = (text: string, overrides: Partial<Omit<ToolResultMessage, "role">> = {}): ToolResultMessage => ({
     role: "toolResult",

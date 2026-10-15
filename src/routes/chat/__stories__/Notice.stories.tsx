@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { NoticeCard } from "@/routes/chat/transcript/entries/NoticeCard";
+import { Notice } from "@/routes/chat/transcript/entries/Notice";
 
 /** What the transcript says without being a message. */
 
 const meta = {
-    title: "Transcript/NoticeCard",
-    component: NoticeCard,
+    title: "Transcript/Notice",
+    component: Notice,
     decorators: [
         (Story: React.ComponentType) => (
             <div className="w-full max-w-2xl p-4 font-sans">
@@ -13,7 +13,7 @@ const meta = {
             </div>
         ),
     ],
-} satisfies Meta<typeof NoticeCard>;
+} satisfies Meta<typeof Notice>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

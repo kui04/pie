@@ -1,14 +1,16 @@
 import type { TranscriptRow } from "@/lib/transcript";
-import { ActivityIndicator } from "@/routes/chat/transcript/entries/ActivityIndicator";
-import { AssistantMessage } from "@/routes/chat/transcript/entries/AssistantMessage";
-import { NoticeCard } from "@/routes/chat/transcript/entries/NoticeCard";
-import { ToolResultCard } from "@/routes/chat/transcript/entries/ToolResultCard";
+import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
+import { Notice } from "@/routes/chat/transcript/entries/Notice";
+import { RunLine } from "@/routes/chat/transcript/entries/RunLine";
 import { UserMessage } from "@/routes/chat/transcript/entries/UserMessage";
-import { presentExecution } from "@/routes/chat/transcript/tool-presentation";
+import { presentExecution } from "@/routes/chat/transcript/presentation";
+
+/** A row a turn's fold leaves where it stands: every kind but the assistant's own messages. */
+export type EntryRow = Exclude<TranscriptRow, { kind: "assistant" }>;
 
 export interface TranscriptEntryProps {
     /** The row to draw. */
-    row: TranscriptRow;
+    row: EntryRow;
     /**
      * Drops the queue of the session, for the retract of a message that waits. Pi has
      * no way to take back one message, and the caller says what went.
@@ -17,17 +19,18 @@ export interface TranscriptEntryProps {
 }
 
 /**
- * One row of the transcript, drawn by the component its kind names. The `never` at
- * the end makes a kind nothing draws the compiler's problem, not a blank row.
+ * One row of the transcript, drawn by the component its kind names. A call the reader ran is a
+ * row of the same family as a call the model made; a turn's own work never reaches here, because
+ * the fold takes it. The `never` at the end makes a kind nothing draws the compiler's problem,
+ * not a blank row.
  */
 export function TranscriptEntry({ row, onRetractQueued }: TranscriptEntryProps) {
     switch (row.kind) {
         case "user":
             return <UserMessage id={row.id} message={row.message} />;
-        case "assistant":
-            return <AssistantMessage id={row.id} message={row.message} results={row.results} live={row.live} />;
         case "bash":
-            return <ToolResultCard id={row.id} presentation={presentExecution(row.message)} />;
+            // A command the reader ran: the same row as a call, in the colour of their own run.
+            return <CallRow id={row.id} tool="bash" presentation={presentExecution(row.message)} />;
         case "queued":
             // A queued prompt is the reader's own message that pi has not run: the
             // same bubble, dimmed, with the queue it waits in under it.
@@ -40,9 +43,9 @@ export function TranscriptEntry({ row, onRetractQueued }: TranscriptEntryProps) 
                 />
             );
         case "activity":
-            return <ActivityIndicator state={row.state} />;
+            return <RunLine state={row.state} />;
         case "notice":
-            return <NoticeCard id={row.id} label={row.label} summary={row.summary} body={row.body} />;
+            return <Notice id={row.id} label={row.label} summary={row.summary} body={row.body} />;
         default: {
             const unhandled: never = row;
             return nothing(unhandled);

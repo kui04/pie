@@ -331,6 +331,43 @@
       transition: none;
     }
   }
+
+  /*
+   * The window of a live body says which of its edges has more behind it: the newest line is
+   * what a reader is reading, so the ends of the box shade instead of clipping. `use-follow-tail`
+   * publishes which edges (`t`, `b`, or both) as `data-fade`, because an edge with nothing
+   * behind it must stay sharp - a fade over the only line in the box dims the thing itself.
+   *
+   * A mask and not an overlay: it needs no colour of its own, so it sits over a log, a diff and
+   * prose alike without knowing what it covers. Both spellings, because WebKit still wants the
+   * prefixed one.
+   */
+  .live-window[data-fade="t"] {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
+    mask-image: linear-gradient(to bottom, transparent, black 16px);
+  }
+
+  .live-window[data-fade="b"] {
+    -webkit-mask-image: linear-gradient(to top, transparent, black 16px);
+    mask-image: linear-gradient(to top, transparent, black 16px);
+  }
+
+  .live-window[data-fade="tb"] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 16px,
+      black calc(100% - 16px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 16px,
+      black calc(100% - 16px),
+      transparent
+    );
+  }
 }
 
 /*

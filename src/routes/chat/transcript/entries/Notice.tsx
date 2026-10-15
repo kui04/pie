@@ -3,9 +3,8 @@ import { useState } from "react";
 import { cn } from "cn";
 import { Markdown } from "@/components";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui";
-import { CardBody } from "@/routes/chat/transcript/entries/CardBody";
 
-export interface NoticeCardProps {
+export interface NoticeProps {
     /** The entry this card draws, as the base of its ids. */
     id: string;
     /** The bracketed word the header leads with, e.g. `[compaction]`. */
@@ -23,7 +22,7 @@ export interface NoticeCardProps {
  *
  * A notice of one line has nothing to open, so it is not a button.
  */
-export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
+export function Notice({ id, label, summary, body }: NoticeProps) {
     const [open, setOpen] = useState(false);
 
     const header = (
@@ -49,13 +48,13 @@ export function NoticeCard({ id, label, summary, body }: NoticeCardProps) {
             >
                 {header}
             </CollapsibleTrigger>
-            <CardBody id={`${id}-body`} open={open}>
-                <div className="mt-2 px-3 pb-2">
+            {open && (
+                <div id={`${id}-body`} className="mt-2 px-3 pb-2">
                     <Markdown id={`${id}-text`} className="text-body-md">
                         {body}
                     </Markdown>
                 </div>
-            </CardBody>
+            )}
             <CollapsibleTrigger
                 render={
                     <button

@@ -163,7 +163,7 @@ export function bashExecution(
     command: string,
     output: string,
     overrides: Partial<BashExecutionMessage> = {},
-): AgentMessage {
+): BashExecutionMessage {
     return {
         role: "bashExecution",
         command,
@@ -313,4 +313,126 @@ function turns(): Unlinked<SessionEntry>[] {
         messageEntry(user("Good. What does the changelog say?")),
         messageEntry(assistant([text("Three entries, one for each fix.")], { stopReason: "stop" })),
     ];
+}
+
+/**
+ * One long turn, as a real session writes it: eight calls, a diff, a test run, and a second
+ * turn that only thought. It is the fixture the fold is read against.
+ */
+export function longTurnTranscript(): SessionEntry[] {
+    const started = Date.parse(AT);
+    const at = (seconds: number) => started + seconds * 1000;
+    const diff = [
+        "  41 export function parse(text: string) {",
+        '-  42     return text.split("\\n").map((line) => line.trim());',
+        '+  42     const lines = text.split("\\n").map((line) => line.trim());',
+        "+  43     return lines.filter((line) => line.length > 0);",
+        "  44 }",
+    ];
+    return chain(
+        messageEntry(user("Make the parser drop empty lines, then run the tests.", at(0))),
+        messageEntry(
+            assistant(
+                [
+                    thinking("I should look at how the parser splits its input before changing anything."),
+                    text("Let me look at the parser first."),
+                    toolCall("g1", "grep", { pattern: "split.*\\\\n", path: "src" }),
+                ],
+                { timestamp: at(3), durationMs: 6000 },
+            ),
+        ),
+        messageEntry(
+            toolResult(
+                "g1",
+                "grep",
+                'src/lib/parse.ts:42:    return text.split("\\n").map((line) => line.trim());\nsrc/lib/parse.test.ts:9:  const lines = text.split("\\n");',
+            ),
+        ),
+        messageEntry(
+            assistant(
+                [
+                    toolCall("rd1", "read", { path: "src/lib/parse.ts" }),
+                    toolCall("rd2", "read", { path: "src/lib/parse.test.ts" }),
+                    toolCall("rd3", "read", { path: "src/lib/text.ts" }),
+                    toolCall("rd4", "read", { path: "src/lib/parse.ts", offset: 30, limit: 40 }),
+                ],
+                { timestamp: at(14), durationMs: 9000 },
+            ),
+        ),
+        messageEntry(
+            toolResult(
+                "rd1",
+                "read",
+                '  41 export function parse(text: string) {\n  42     return text.split("\\n").map((line) => line.trim());\n  43 }',
+            ),
+        ),
+        messageEntry(
+            toolResult("rd2", "read", '   9   const lines = text.split("\\n");\n  10   expect(lines).toHaveLength(3);'),
+        ),
+        messageEntry(
+            toolResult("rd3", "read", "  1 export const KEPT = 80;\n  2 export function linesOf(value: string) {"),
+        ),
+        messageEntry(toolResult("rd4", "read", "  70 export function parseAll(value: string) {")),
+        messageEntry(
+            assistant(
+                [
+                    thinking(
+                        "The filter belongs after the trim, and the test needs a blank line in its input to prove it.",
+                    ),
+                    toolCall("e1", "edit", { path: "src/lib/parse.ts" }),
+                    toolCall("e2", "edit", { path: "src/lib/parse.test.ts" }),
+                ],
+                { timestamp: at(26), durationMs: 12000 },
+            ),
+        ),
+        messageEntry(toolResult("e1", "edit", "Applied 1 edit to src/lib/parse.ts.\n\n" + diff.join("\n"))),
+        messageEntry(toolResult("e2", "edit", "Applied 1 edit to src/lib/parse.test.ts.")),
+        messageEntry(
+            assistant([toolCall("t1", "bash", { command: "pnpm test -- parse" })], {
+                timestamp: at(92),
+                durationMs: 60000,
+            }),
+        ),
+        messageEntry(
+            toolResult(
+                "t1",
+                "bash",
+                [
+                    "> pie@1.0.0 test",
+                    "> vitest run -- parse",
+                    "",
+                    " RUN  v3.2.4 /home/kui/pie",
+                    "",
+                    " ✓ src/lib/__tests__/parse.test.ts (14 tests) 12ms",
+                    " ✓ src/lib/__tests__/text.test.ts (22 tests) 9ms",
+                    "",
+                    " Test Files  2 passed (2)",
+                    "      Tests  36 passed (36)",
+                    "   Duration  1.24s",
+                ].join("\n"),
+            ),
+        ),
+        messageEntry(
+            assistant(
+                [
+                    text(
+                        "The parser now drops blank lines after trimming each line, and the test covers an input with two of them. 36 tests pass.",
+                    ),
+                ],
+                { timestamp: at(154), durationMs: 2000 },
+            ),
+        ),
+        messageEntry(user("Nice. What about the trailing newline at the end of a file?", at(180))),
+        messageEntry(
+            assistant(
+                [
+                    thinking("A trailing newline produces one empty line, which the filter already drops."),
+                    text(
+                        "The same filter covers it: a file that ends with a newline yields one empty line, and that line is dropped with the rest.",
+                    ),
+                ],
+                { timestamp: at(186), durationMs: 4000 },
+            ),
+        ),
+    );
 }
