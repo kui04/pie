@@ -31,6 +31,19 @@ export {
     DialogTrigger,
 } from "./dialog";
 export {
+    Drawer,
+    DrawerClose,
+    DrawerContent,
+    DrawerDescription,
+    DrawerFooter,
+    DrawerHeader,
+    DrawerOverlay,
+    DrawerPortal,
+    DrawerSwipeHandle,
+    DrawerTitle,
+    DrawerTrigger,
+} from "./drawer";
+export {
     InputGroup,
     InputGroupAddon,
     InputGroupButton,

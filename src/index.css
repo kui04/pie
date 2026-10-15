@@ -265,6 +265,9 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
+    /* The drawer overlay is absolutely positioned; without this it cannot
+       cover the viewport on iOS Safari once the page has scrolled. */
+    position: relative;
   }
 
   /*
@@ -430,6 +433,20 @@
       transparent
     );
   }
+}
+
+/*
+ * A drawer dims the page with the theme's own scrim, not the registry's
+ * black: the sheet is what separates it, and a shadow on top of one answers
+ * the same question twice (see DESIGN.md Overlay). Unlayered on purpose, so it
+ * outranks the `bg-black/10` utility the registry's overlay carries.
+ */
+[data-slot="drawer-overlay"] {
+  background-color: color-mix(
+    in oklab,
+    var(--color-surface-container-highest) 70%,
+    transparent
+  );
 }
 
 /*

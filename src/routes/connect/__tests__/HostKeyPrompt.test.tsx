@@ -25,7 +25,7 @@ afterEach(cleanup);
 
 /** Both hosts, so every assertion below runs against both. */
 const HOSTS = [
-    ["sheet", true],
+    ["drawer", true],
     ["dialog", false],
 ] as const;
 
@@ -80,22 +80,22 @@ describe.each(HOSTS)("the host-key prompt as a %s", (_host, isMobile) => {
 });
 
 describe("the host-key prompt's host", () => {
-    it("draws the sheet on touch and the dialog otherwise", () => {
+    it("draws the drawer on touch and the dialog otherwise", () => {
         const { unmount } = render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile />);
-        // Vaul marks its own container; the sheet is the only host that does.
-        expect(document.querySelector("[data-vaul-drawer]")).not.toBeNull();
+        // The drawer marks its own popup; the dialog is the only host that does not.
+        expect(document.querySelector('[data-slot="drawer-popup"]')).not.toBeNull();
         unmount();
 
         render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile={false} />);
-        expect(document.querySelector("[data-vaul-drawer]")).toBeNull();
+        expect(document.querySelector('[data-slot="drawer-popup"]')).toBeNull();
     });
 
     it("asks from the window's bottom edge, and not from its side", () => {
         render(<HostKeyPrompt presentedKey={KEY} onAnswer={vi.fn()} isMobile />);
-        const sheet = document.querySelector("[data-vaul-drawer]");
+        const sheet = document.querySelector('[data-slot="drawer-popup"]');
         // Which edge the sheet arrives from is this prompt's own shape; how the
-        // wrapper draws that sheet is the wrapper's business, pinned in its test.
-        expect(sheet?.getAttribute("data-vaul-drawer-direction")).toBe("bottom");
+        // wrapper draws that sheet is the wrapper's business.
+        expect(sheet?.getAttribute("data-swipe-direction")).toBe("down");
         expect(sheet?.className).not.toContain("mx-auto");
     });
 

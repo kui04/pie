@@ -16,8 +16,16 @@ import { ChevronDown, ChevronRight, Folder, Loader2, RefreshCw, Search } from "l
 import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
 import { cn } from "cn";
 
-import { InputGroup, InputGroupAddon, InputGroupInput, Skeleton } from "@/components/ui";
-import { SafeArea, ScrollPane, Sheet, SheetContent, SheetTitle } from "@/components";
+import {
+    Drawer,
+    DrawerContent,
+    DrawerTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    Skeleton,
+} from "@/components/ui";
+import { SafeArea, ScrollPane } from "@/components";
 import type { AttachedConversation } from "@/hooks/use-attached-conversations";
 import { useMotion } from "@/hooks/use-motion";
 import { useWideWindow } from "@/hooks/use-wide-window";
@@ -368,32 +376,17 @@ function SessionSheet({
     }, [wide, onOpenChange]);
 
     return (
-        // Vaul assumes the bottom of the screen unless it is told: a drawer anchored
-        // to the left edge has to arrive from the left and be dragged sideways.
-        <Sheet open={open} onOpenChange={onOpenChange} direction="left">
-            <SheetContent
-                id={id}
-                overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40 lg:hidden"
-                className={cn(
-                    // A square left edge and a round right one: the sheet arrives
-                    // from the edge it is anchored to. The clip is what holds it:
-                    // the panel inside paints its own square background, and
-                    // nothing cuts it to the corner without this.
-                    "bg-surface-dim border-border w-72 max-w-[85%]",
-                    "overflow-hidden rounded-r-xl border-r outline-none",
-                    "lg:hidden",
-                    className,
-                )}
-            >
-                <SheetTitle className="sr-only">Sessions</SheetTitle>
+        <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="left">
+            <DrawerContent id={id} className={cn("border-border w-72 max-w-[85%]", "lg:hidden", className)}>
+                <DrawerTitle className="sr-only">Sessions</DrawerTitle>
                 {/* The sheet leaves the page for a portal, where the shell's safe area
                     does not reach: it keeps its own sides, or the panel's first and last
                     rows would sit under the system bars. */}
                 <SafeArea side="vertical" className="h-full">
                     {children}
                 </SafeArea>
-            </SheetContent>
-        </Sheet>
+            </DrawerContent>
+        </Drawer>
     );
 }
 

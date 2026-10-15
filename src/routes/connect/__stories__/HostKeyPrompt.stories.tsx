@@ -39,8 +39,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The sheet a thumb can reach, on a touch window. */
-export const Sheet: Story = { args: { isMobile: true } };
+/** The drawer a thumb can reach, on a touch window. */
+export const Drawer: Story = { args: { isMobile: true } };
 
 /** The centred dialog a pointer gets, on a desktop window. */
 export const Dialog: Story = { args: { isMobile: false } };

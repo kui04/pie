@@ -1,9 +1,19 @@
-import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui";
-import { ScrollPane } from "@/components";
+import {
+    Button,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogTitle,
+    Drawer,
+    DrawerClose,
+    DrawerContent,
+    DrawerDescription,
+    DrawerFooter,
+    DrawerTitle,
+} from "@/components/ui";
 import { useIsMobile } from "@/hooks/use-platform";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components";
 import type { PresentedKey } from "@/lib/bridge";
-import { cn } from "cn";
 
 export interface HostKeyPromptProps {
     /** The key to ask about. Null is how the machine says there is no question. */
@@ -22,44 +32,6 @@ function hostKeyMessage(key: PresentedKey): string {
     return `${key.fingerprint} (${key.algorithm}). This host has never been seen. Check the fingerprint on the host before you trust it.`;
 }
 
-/**
- * One outcome each, so one word each. A thumb gets the height the design asks of
- * a control on a touch pointer; a pointer keeps the dense one. The second answer
- * is the outline the design gives a second action.
- */
-function Answers({
-    id,
-    onAnswer,
-    touch = false,
-}: {
-    id: string;
-    onAnswer: (trusted: boolean) => void;
-    /** Whether this row is answered by a thumb. */
-    touch?: boolean;
-}) {
-    const size = touch ? "h-12 px-4" : "p-2 px-3";
-
-    return (
-        <div className="mt-2 flex justify-end gap-2">
-            <Button
-                id={`${id}-cancel`}
-                variant="outline"
-                onClick={() => onAnswer(false)}
-                className={cn("rounded-lg", size)}
-            >
-                <span className="text-label-lg font-medium">Cancel</span>
-            </Button>
-            <Button
-                id={`${id}-trust`}
-                onClick={() => onAnswer(true)}
-                className={cn("bg-primary hover:bg-primary/90 rounded-lg", size)}
-            >
-                <span className="text-label-lg font-medium">Trust</span>
-            </Button>
-        </div>
-    );
-}
-
 export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromptProps) {
     // Called whatever `isMobile` says, so pinning it and then stopping is not a
     // change in how many hooks there are.
@@ -75,26 +47,40 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
 
     if (isMobile ?? mobile) {
         return (
-            <Sheet open={open} onOpenChange={refuseOnClose} direction="bottom">
-                <SheetContent
-                    overlayClassName="bg-surface-container-highest/70 fixed inset-0 z-40"
-                    className={cn(
-                        "border-border bg-card text-foreground gap-4 border",
-                        "px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none",
-                    )}
+            <Drawer open={open} onOpenChange={refuseOnClose} swipeDirection="down" showSwipeHandle>
+                <DrawerContent
+                    // Full registry look for review: no face overrides here. The
+                    // border color stays pie's own: without it the hairline paints
+                    // in currentColor, which reads as a light rim in dark mode.
+                    className="border-border gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                     aria-describedby="host-key-sheet-message"
                 >
-                    <SheetTitle className="text-body-md font-normal">Trust this host?</SheetTitle>
-                    {/* The cap belongs to the scroller and not to the words: a
-                        percentage height inside an auto-height box never resolves. */}
-                    <ScrollPane viewportClassName="max-h-48">
-                        <SheetDescription id="host-key-sheet-message" className="text-body-md text-muted-foreground">
-                            {message}
-                        </SheetDescription>
-                    </ScrollPane>
-                    <Answers id="host-key-sheet" onAnswer={onAnswer} touch />
-                </SheetContent>
-            </Sheet>
+                    <DrawerTitle>Trust this host?</DrawerTitle>
+                    <DrawerDescription id="host-key-sheet-message" className="text-muted-foreground mt-4 break-all">
+                        {message}
+                    </DrawerDescription>
+                    <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">
+                        <DrawerClose
+                            render={
+                                <Button
+                                    id="host-key-sheet-cancel"
+                                    variant="outline"
+                                    className="text-label-lg h-10 flex-1 font-medium"
+                                />
+                            }
+                        >
+                            Cancel
+                        </DrawerClose>
+                        <Button
+                            id="host-key-sheet-trust"
+                            className="text-label-lg h-10 flex-1 font-medium"
+                            onClick={() => onAnswer(true)}
+                        >
+                            Trust
+                        </Button>
+                    </DrawerFooter>
+                </DrawerContent>
+            </Drawer>
         );
     }
 
@@ -102,16 +88,33 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
         <Dialog open={open} onOpenChange={refuseOnClose}>
             <DialogContent
                 showCloseButton={false}
-                className="border-border bg-card text-foreground max-w-104 gap-4 rounded-xl border p-6"
+                className="border-border bg-card text-foreground rounded-xl border p-6"
                 aria-describedby="host-key-dialog-message"
             >
                 <DialogTitle className="text-body-md font-normal">Trust this host?</DialogTitle>
-                <ScrollPane viewportClassName="max-h-48">
-                    <DialogDescription id="host-key-dialog-message" className="text-body-md text-muted-foreground">
-                        {message}
-                    </DialogDescription>
-                </ScrollPane>
-                <Answers id="host-key-dialog" onAnswer={onAnswer} />
+                <DialogDescription
+                    id="host-key-dialog-message"
+                    className="text-body-md text-muted-foreground break-all"
+                >
+                    {message}
+                </DialogDescription>
+                <DialogFooter className="mt-0 flex flex-row justify-end gap-4 border-0 bg-transparent">
+                    <Button
+                        id="host-key-dialog-cancel"
+                        variant="outline"
+                        onClick={() => onAnswer(false)}
+                        className="rounded-lg px-4 py-3"
+                    >
+                        <span className="text-label-lg font-medium">Cancel</span>
+                    </Button>
+                    <Button
+                        id="host-key-dialog-trust"
+                        onClick={() => onAnswer(true)}
+                        className="bg-primary hover:bg-primary/90 rounded-lg px-4 py-3"
+                    >
+                        <span className="text-label-lg font-medium">Trust</span>
+                    </Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
