@@ -13,7 +13,7 @@ import { CommandList } from "@/routes/chat/composer/CommandList";
 import { bashCommandOf, commandRows, slashHint, slashName, type CommandRow } from "@/routes/chat/composer/command";
 import { ModelPicker } from "@/routes/chat/composer/ModelPicker";
 import { ThinkingLevelPicker } from "@/routes/chat/composer/ThinkingLevelPicker";
-import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
+import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { useSelector } from "@xstate/react";
 import type { SessionRef } from "@/lib/sessions";
@@ -244,7 +244,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     // `_pendingBashMessages` may defer that), and the chart takes the card
                     // down when the entry of that command arrives (`bashAfter`).
                     <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
-                        <CallRow
+                        <UserCommand
                             id="composer-run-card"
                             tool="bash"
                             presentation={presentRunningExecution(runningBash)}
@@ -352,7 +352,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                                 stopShown
                                     ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                     : shellMode
-                                      ? "bg-surface-container-highest text-user-run hover:bg-surface-bright"
+                                      ? "bg-surface-container-highest text-violet hover:bg-surface-bright"
                                       : "bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-foreground/12 disabled:text-foreground/40",
                             )}
                             disabled={!stopShown && !sendable}

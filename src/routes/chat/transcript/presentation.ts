@@ -100,7 +100,7 @@ export function presentCall(
 
 /**
  * A command the reader ran themselves: the card leads with the shell prompt, and its
- * border carries the colour of their own run (`--color-user-run`).
+ * border carries the colour of their own run (`--color-violet`).
  */
 export function presentExecution(message: BashExecutionMessage): ToolPresentation {
     const notes: ToolNote[] = [];

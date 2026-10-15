@@ -4,11 +4,16 @@ import {
     assistant,
     bashExecution,
     chain,
+    contextEditEntry,
+    customEntry,
+    labelEntry,
     messageEntry,
     modelChange,
+    sessionInfo,
     storeOf,
     text,
     thinking,
+    thinkingLevelChange,
     toolCall,
     toolResult,
     usageEntry,
@@ -98,7 +103,7 @@ describe("transcriptRows", () => {
         expect(kinds(rows)).toEqual(["user", "bash"]);
     });
 
-    it("renders a compaction as a notice that carries its summary", () => {
+    it("renders a compaction as its own row, header bare and body whole", () => {
         const entries = chain(
             messageEntry(user("an older ask, which the compaction stands for")),
             {
@@ -113,15 +118,14 @@ describe("transcriptRows", () => {
 
         const rows = transcriptRows(storeOf(entries), "e3");
 
-        expect(kinds(rows)).toEqual(["notice", "user"]);
+        expect(kinds(rows)).toEqual(["compaction", "user"]);
         expect(ids(rows)).toEqual(["e2", "e3"]);
-        const notice = rows[0];
-        expect(notice.kind === "notice" && notice.label).toBe("[compaction]");
-        expect(notice.kind === "notice" && notice.summary).toBe("we made the parser skip empty lines");
-        expect(notice.kind === "notice" && notice.body).toContain("and then stopped");
+        const row = rows[0];
+        expect(row.kind === "compaction" && row.tokensBefore).toBe(1000);
+        expect(row.kind === "compaction" && row.body).toBe("we made the parser skip empty lines\nand then stopped");
     });
 
-    it("offers no body for a notice of one line", () => {
+    it("keeps the whole summary behind a compaction, even one line", () => {
         const entries = chain({
             type: "compaction",
             timestamp: "2026-01-01T00:00:00.000Z",
@@ -132,7 +136,7 @@ describe("transcriptRows", () => {
 
         const rows = transcriptRows(storeOf(entries), "e1");
 
-        expect(rows[0].kind === "notice" && rows[0].body).toBeNull();
+        expect(rows[0].kind === "compaction" && rows[0].body).toBe("short");
     });
 
     it("renders a branch summary only when it has one", () => {
@@ -149,11 +153,13 @@ describe("transcriptRows", () => {
             summary: "",
         });
 
-        expect(kinds(transcriptRows(storeOf(withSummary), "e2"))).toEqual(["user", "notice"]);
+        const rows = transcriptRows(storeOf(withSummary), "e2");
+        expect(kinds(rows)).toEqual(["user", "branch_summary"]);
+        expect(rows[1].kind === "branch_summary" && rows[1].body).toBe("the other branch tried a regex");
         expect(kinds(transcriptRows(storeOf(blank), "e2"))).toEqual(["user"]);
     });
 
-    it("labels a custom message with the type its extension gave it", () => {
+    it("renders a skill custom message as a skill row", () => {
         const entries = chain(messageEntry(user("one")), {
             type: "custom_message",
             timestamp: "2026-01-01T00:00:00.000Z",
@@ -164,8 +170,86 @@ describe("transcriptRows", () => {
 
         const rows = transcriptRows(storeOf(entries), "e2");
 
-        expect(rows[1].kind === "notice" && rows[1].label).toBe("[skill]");
-        expect(rows[1].kind === "notice" && rows[1].summary).toBe("the skill ran");
+        expect(kinds(rows)).toEqual(["user", "skill"]);
+        expect(rows[1].kind === "skill" && rows[1].summary).toBe("the skill ran");
+        expect(rows[1].kind === "skill" && rows[1].body).toBeNull();
+    });
+
+    it("labels any other custom message with the word its extension gave it", () => {
+        const entries = chain(messageEntry(user("one")), {
+            type: "custom_message",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            customType: "review",
+            content: [
+                { type: "text", text: "two files miss coverage" },
+                { type: "text", text: "add the missing tests" },
+            ],
+            display: true,
+        });
+
+        const rows = transcriptRows(storeOf(entries), "e2");
+
+        expect(kinds(rows)).toEqual(["user", "custom_message"]);
+        const row = rows[1];
+        expect(row.kind === "custom_message" && row.customType).toBe("review");
+        expect(row.kind === "custom_message" && row.label).toBe("Review");
+        // A longer message opens instead: its header stays bare.
+        expect(row.kind === "custom_message" && row.summary).toBe("");
+        expect(row.kind === "custom_message" && row.body).toContain("add the missing tests");
+    });
+
+    it("draws no row for the entries the transcript never shows", () => {
+        // Bookkeeping, extension state, edits, bookmarks and metadata: each
+        // has its own reader elsewhere, and none of them is a row. A case
+        // that starts rendering one fails here first, by design.
+        const entries = chain(
+            messageEntry(user("one")),
+            thinkingLevelChange(),
+            modelChange(),
+            usageEntry(),
+            customEntry(),
+            contextEditEntry("e1"),
+            labelEntry("e1"),
+            sessionInfo("work"),
+        );
+
+        const rows = transcriptRows(storeOf(entries), "e8");
+
+        expect(kinds(rows)).toEqual(["user"]);
+        expect(ids(rows)).toEqual(["e1"]);
+    });
+
+    it("reads the legacy summary roles like their entries", () => {
+        // Sessions pi wrote before the summaries became entries carry them
+        // as message roles; they draw the same rows.
+        const entries = chain(
+            messageEntry({
+                role: "branchSummary",
+                summary: "the abandoned branch",
+                fromId: null,
+                timestamp: 0,
+            }),
+            messageEntry({
+                role: "compactionSummary",
+                summary: "what was compacted",
+                tokensBefore: 100,
+                timestamp: 0,
+            }),
+            messageEntry({
+                role: "custom",
+                customType: "skill",
+                content: "the skill ran",
+                display: true,
+                timestamp: 0,
+            }),
+        );
+
+        const rows = transcriptRows(storeOf(entries), "e3");
+
+        expect(kinds(rows)).toEqual(["branch_summary", "compaction", "skill"]);
+        expect(rows[0].kind === "branch_summary" && rows[0].body).toBe("the abandoned branch");
+        expect(rows[1].kind === "compaction" && rows[1].body).toBe("what was compacted");
+        expect(rows[2].kind === "skill" && rows[2].summary).toBe("the skill ran");
     });
 
     it("renders no row for a custom message the extension keeps hidden", () => {

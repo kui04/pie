@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
-import { presentCall, presentExecution } from "@/routes/chat/transcript/presentation";
-import { bashExecution, toolResult } from "@/preview/fixtures";
+import { presentCall } from "@/routes/chat/transcript/presentation";
+import { toolResult } from "@/preview/fixtures";
 
 describe("CallRow", () => {
     it("draws a call as one line: its word, what it aimed at, and pi's own clock", () => {
@@ -22,6 +22,25 @@ describe("CallRow", () => {
         expect(screen.getByText("pnpm test")).toBeInTheDocument();
         // pi measured the call, so the row says what the tool took, not what the window saw.
         expect(screen.getByText("5.2s")).toBeInTheDocument();
+    });
+
+    it("keeps a long tool name on one line, and truncates what it aimed at instead", () => {
+        render(
+            <CallRow
+                id="e2-c1"
+                tool="ollama_web_search"
+                presentation={presentCall(
+                    "ollama_web_search",
+                    { query: "getting attributes", max_results: 5 },
+                    toolResult("c1", "ollama_web_search", "hits"),
+                )}
+            />,
+        );
+
+        // The name takes the width it needs; the target takes what is left.
+        const name = screen.getByText("Ollama Web Search");
+        expect(name.className).toContain("whitespace-nowrap");
+        expect(name.className).toContain("shrink-0");
     });
 
     it("previews nothing, and shows the whole of what it produced when the reader asks", () => {
@@ -74,22 +93,6 @@ describe("CallRow", () => {
 
         rerender(<CallRow id="e2-c1" tool="bash" presentation={presentCall("bash", { command: "pnpm test" }, line)} />);
         expect(screen.queryByText("PASS so far")).toBeNull();
-    });
-
-    it("leads a command the reader ran with pi's own prompt", () => {
-        render(<CallRow id="e3" tool="bash" presentation={presentExecution(bashExecution("ls", "one\ntwo"))} />);
-
-        expect(screen.getByText("$")).toBeInTheDocument();
-        expect(screen.getByText("ls")).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: /ls/ }));
-        const body = document.querySelector(String.raw`[data-slot="code-block-content"]`);
-        expect(body).not.toBeNull();
-        expect(body?.textContent).toContain("one");
-        expect(body?.textContent).toContain("two");
-        // A log scrolls until the reader asks for wrap.
-        expect(body?.hasAttribute("data-wrap")).toBe(false);
-        fireEvent.click(screen.getByRole("button", { name: "Wrap lines" }));
-        expect(body?.hasAttribute("data-wrap")).toBe(true);
     });
 });
 

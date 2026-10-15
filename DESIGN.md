@@ -34,7 +34,7 @@ colors:
   success: "#2ea043"
   warning: "#cca700"
   tertiary: "#81b88b"
-  user-run: "#b180d7"
+  violet: "#b180d7"
   excluded: "#6e7681"
   border: "#2b2b2b"
   border-subtle: "#252526"
@@ -201,8 +201,8 @@ components:
     rounded: "{rounded.sm}"
   tool-name:
     textColor: "{colors.primary-text}"
-  tool-name-user-run:
-    textColor: "{colors.user-run}"
+  tool-name-reader-run:
+    textColor: "{colors.violet}"
   status-mark-success:
     textColor: "{colors.success}"
   status-mark-failure:
@@ -315,17 +315,19 @@ The light warning is the olive the light lists use, because the amber does not
 hold as text on white.
 
 **Pie's own.** `tertiary` is the dot of a session that has a live process behind
-it (VS Code's added-file green); `user-run` is a command the reader ran
-themselves, and shows in the tool name and the `$` prompt line — never as a
-status mark (`charts.purple`); `secondary` is a filled control that is not the
-primary one. `excluded`, `border-subtle`, `outline-variant` and `surface-bright`
-complete the ladder for a primitive that names a step; nothing draws with them
-today, and that is allowed.
+it (VS Code's added-file green); `violet` (`charts.purple`) is everything that
+is not the model's doing: a command the reader ran themselves, in the tool name
+and the `$` prompt line, and the word a system notice leads with (`Compaction`,
+`Summary`, `Skill`: pi's `customMessageLabel` violet) — never as a status mark;
+`secondary` is a filled control that is not the primary one. `excluded`,
+`border-subtle`, `outline-variant` and `surface-bright` complete the ladder for
+a primitive that names a step; nothing draws with them today, and that is
+allowed.
 
 **The colour axis of a tool name.** A tool name says _what the call did_, not
 how it went: a call of the model is `primary-text`, a command the reader ran is
-`user-run`. How it went is the status mark's business (`success`,
-`destructive`), and the two never trade places.
+`violet`. How it went is the status mark's business (`success`, `destructive`),
+and the two never trade places.
 
 ## Typography
 

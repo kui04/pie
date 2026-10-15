@@ -44,9 +44,8 @@ vi.mock("virtua", () => ({
 
 const rows = (count: number): TranscriptRow[] =>
     Array.from({ length: count }, (_, i) => ({
-        kind: "notice",
-        id: `notice-${i}`,
-        label: `[row ${i}]`,
+        kind: "skill",
+        id: `skill-${i}`,
         summary: `Row ${i}`,
         body: null,
     }));
@@ -95,8 +94,8 @@ describe("SessionTranscript", () => {
         const view = show();
 
         expect(handed.count).toBe(30);
-        expect(view.getByText("[row 0]")).toBeInTheDocument();
-        expect(view.getByText("[row 29]")).toBeInTheDocument();
+        expect(view.getByText("Row 0")).toBeInTheDocument();
+        expect(view.getByText("Row 29")).toBeInTheDocument();
     });
 
     it("hands the transcript to the reader of the whole run", () => {

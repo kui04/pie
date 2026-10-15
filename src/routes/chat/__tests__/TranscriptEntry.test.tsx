@@ -50,7 +50,8 @@ describe("TranscriptEntry", () => {
         // A command the reader ran is a row of its own, with pi's prompt on it.
         expect(screen.getByText("$")).toBeInTheDocument();
         expect(screen.getByText("ls")).toBeInTheDocument();
-        expect(screen.getByText("[compaction]")).toBeInTheDocument();
+        expect(screen.getByText("Compaction")).toBeInTheDocument();
+        expect(screen.getByText("Compacted from 10 tokens")).toBeInTheDocument();
         expect(screen.getByText("and after the compaction")).toBeInTheDocument();
     });
 

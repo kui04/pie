@@ -1,6 +1,14 @@
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { glyphFor, thoughtGlyph, toolLabel } from "@/routes/chat/transcript/entries/tool-glyph";
+import {
+    branchGlyph,
+    compactionGlyph,
+    customGlyph,
+    glyphFor,
+    skillGlyph,
+    thoughtGlyph,
+    toolLabel,
+} from "@/routes/chat/transcript/entries/tool-glyph";
 
 function iconOf(node: ReactNode): string | null {
     if (!isValidElement(node)) return null;
@@ -39,6 +47,13 @@ describe("what glyph a call gets", () => {
 
     it("keeps a thought's glyph apart from the tools", () => {
         expect(iconOf(thoughtGlyph())).toBe("Brain");
+    });
+
+    it("keeps every notice kind on its own glyph", () => {
+        expect(iconOf(compactionGlyph())).toBe("Archive");
+        expect(iconOf(branchGlyph())).toBe("GitBranch");
+        expect(iconOf(skillGlyph())).toBe("Sparkles");
+        expect(iconOf(customGlyph())).toBe("Puzzle");
     });
 });
 

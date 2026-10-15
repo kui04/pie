@@ -3,9 +3,12 @@ import { useState } from "react";
 import { cn } from "cn";
 import { Markdown } from "@/components";
 import { Marker, MarkerIcon } from "@/components/ui";
-import { Notice } from "@/routes/chat/transcript/entries/Notice";
-import { ThoughtRow } from "@/routes/chat/transcript/entries/ThoughtRow";
+import { BranchSummary } from "@/routes/chat/transcript/entries/BranchSummary";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
+import { Compaction } from "@/routes/chat/transcript/entries/Compaction";
+import { CustomMessage } from "@/routes/chat/transcript/entries/CustomMessage";
+import { Skill } from "@/routes/chat/transcript/entries/Skill";
+import { ThoughtRow } from "@/routes/chat/transcript/entries/ThoughtRow";
 import { LIVE_ROWS, type WorkFacts, type WorkItem } from "@/routes/chat/transcript/fold";
 
 export interface TurnProps {
@@ -81,18 +84,11 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     id={folded ? `${id}-work` : undefined}
                     className={cn("flex min-w-0 flex-col", folded && "relative mt-1")}
                 >
-                    {/* The rail runs at the midpoint of the glyphs the rows lead with, and the
-                        rows' own glyphs are drawn over it, on the page's plane.
-
-                        It is 2px so that it can bisect a 16px glyph exactly. A glyph on an
-                        integer coordinate has an integer centre (12px from the block's edge),
-                        while a 1px line has its centre on a half pixel - a 1px line placed at 11.5
-                        straddles two device pixels and reads as blurred and off centre, and one
-                        snapped to 11 gives up the centring. An even width at an integer offset
-                        (11..13) has its centre on 12 and is exact to the pixel. */}
-                    {/* A fold's rail runs the whole of its work, and its centre bisects every glyph
-                        in it. A turn that is not a fold has no such rail: a single row's body
-                        carries its own line instead, the way a quote does. */}
+                    {/* The rail bisects the rows' glyphs, which are drawn over it on the
+                        page's plane. 2px, not 1px: an even width at an integer offset stays
+                        pixel-exact on a glyph's centre, where a 1px line blurs or misses it.
+                        A turn that is not a fold has no rail: its single row's body carries
+                        its own line instead, the way a quote does. */}
                     {folded && (
                         <span
                             aria-hidden
@@ -142,16 +138,48 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                                 />
                             );
                         }
-                        return (
-                            <div key={item.row.id} className="pl-8">
-                                <Notice
-                                    id={item.row.id}
-                                    label={item.row.label}
-                                    summary={item.row.summary}
-                                    body={item.row.body}
+                        if (item.kind === "compaction") {
+                            return (
+                                <Compaction
+                                    key={item.id}
+                                    id={item.id}
+                                    tokensBefore={item.tokensBefore}
+                                    body={item.body}
+                                    quote={!folded}
                                 />
-                            </div>
-                        );
+                            );
+                        }
+                        if (item.kind === "branch_summary") {
+                            return <BranchSummary key={item.id} id={item.id} body={item.body} quote={!folded} />;
+                        }
+                        if (item.kind === "skill") {
+                            return (
+                                <Skill
+                                    key={item.id}
+                                    id={item.id}
+                                    summary={item.summary}
+                                    body={item.body}
+                                    quote={!folded}
+                                />
+                            );
+                        }
+                        if (item.kind === "custom_message") {
+                            return (
+                                <CustomMessage
+                                    key={item.id}
+                                    id={item.id}
+                                    label={item.label}
+                                    summary={item.summary}
+                                    body={item.body}
+                                    quote={!folded}
+                                />
+                            );
+                        }
+                        // A kind pi adds is a compile error here, never a row
+                        // of the wrong family: the fold only builds the kinds
+                        // above, so this is unreachable, not a fallback.
+                        const unhandled: never = item;
+                        return nothing(unhandled);
                     })}
                 </div>
             )}
@@ -167,6 +195,12 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
             {note !== null && <p className="text-body-sm text-destructive mt-2">{note}</p>}
         </div>
     );
+}
+
+/** A kind nothing draws: nothing, rather than an object React cannot render. */
+function nothing(item: never): null {
+    void item;
+    return null;
 }
 
 interface Heading {

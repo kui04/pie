@@ -17,7 +17,7 @@ import type {
     UserMessage,
 } from "@/lib/rpc-protocol";
 import type { LiveCall } from "@/lib/stream";
-import { linesOf, resultText } from "@/lib/text";
+import { humanize, linesOf, resultText } from "@/lib/text";
 
 /** The entries of a session, in the shape the fold reads. */
 export interface TranscriptEntries {
@@ -114,11 +114,38 @@ export type TranscriptRow =
           state: "waiting" | "working";
       }
     | {
-          kind: "notice";
+          kind: "compaction";
           id: string;
-          /** The bracketed word the header leads with, e.g. `[compaction]`. */
+          /** Context size the compaction cut from, for the header line. */
+          tokensBefore: number;
+          /** The whole summary: the header never excerpts it, the body opens it. */
+          body: string;
+      }
+    | {
+          kind: "branch_summary";
+          id: string;
+          /** The whole summary, as with a compaction. */
+          body: string;
+      }
+    | {
+          kind: "skill";
+          id: string;
+          /**
+           * The whole content when it is one line, else nothing: the header of
+           * a longer skill is the word alone, never the first line of its body.
+           */
+          summary: string;
+          /** The whole of it, when that is more than the one line. */
+          body: string | null;
+      }
+    | {
+          kind: "custom_message";
+          id: string;
+          /** The extension's own type, e.g. `skill`. */
+          customType: string;
+          /** The word the header leads with, e.g. `Skill`. */
           label: string;
-          /** One line of it, for the header. */
+          /** As with a skill: the whole content, or nothing when it opens. */
           summary: string;
           /** The whole of it, when that is more than the one line. */
           body: string | null;
@@ -136,54 +163,149 @@ export function transcriptRows(
     const rows: TranscriptRow[] = [];
     // Pi keeps a call pending until its result arrives, whichever entries come in
     // between, so the map is cleared only at an assistant message.
-    let open = new Map<string, Extract<TranscriptRow, { kind: "assistant" }>>();
+    const open = new Map<string, Extract<TranscriptRow, { kind: "assistant" }>>();
 
     for (const entry of contextEntries(store, leafId)) {
         switch (entry.type) {
             case "message": {
-                const message = entry.message;
-                if (message.role === "user") {
-                    rows.push({ kind: "user", id: rowIds?.get(entry.id) ?? entry.id, message });
-                } else if (message.role === "assistant") {
-                    open = new Map();
-                    const row: Extract<TranscriptRow, { kind: "assistant" }> = {
-                        kind: "assistant",
-                        id: rowIds?.get(entry.id) ?? entry.id,
-                        message,
-                        results: new Map(),
-                    };
-                    rows.push(row);
-                    for (const part of message.content) {
-                        if (part.type === "toolCall") open.set(part.id, row);
-                    }
-                } else if (message.role === "bashExecution") {
-                    rows.push({ kind: "bash", id: entry.id, message });
-                } else if (message.role === "toolResult") {
-                    const row = open.get(message.toolCallId);
-                    if (row) {
-                        row.results.set(message.toolCallId, message);
-                        open.delete(message.toolCallId);
-                    }
-                }
+                pushMessage(rows, entry.id, entry.message, rowIds, open);
                 break;
             }
+            // Bookkeeping the header reads live: a switch of model or level
+            // shows in the session's own slots, never as a row.
+            case "thinking_level_change":
+                break;
+            case "model_change":
+                break;
+            // Model-attributed use outside assistant messages: the usage
+            // popover reads it through `get_session_stats`, never as a row.
+            case "usage":
+                break;
             case "compaction":
-                rows.push(notice(entry.id, "[compaction]", entry.summary));
+                rows.push({ kind: "compaction", id: entry.id, tokensBefore: entry.tokensBefore, body: entry.summary });
                 break;
             case "branch_summary":
-                if (entry.summary) rows.push(notice(entry.id, "[branch]", entry.summary));
+                if (entry.summary) rows.push({ kind: "branch_summary", id: entry.id, body: entry.summary });
+                break;
+            // Extension state outside the conversation: never displayed, unlike
+            // a `custom_message`, which is an extension's words in it.
+            case "custom":
                 break;
             case "custom_message":
-                if (entry.display) {
-                    rows.push(notice(entry.id, `[${entry.customType}]`, partsText(entry.content)));
-                }
+                if (entry.display) pushCustom(rows, entry.id, entry.customType, partsText(entry.content));
                 break;
-            default:
+            // A branch-local edit of one earlier entry: the transcript keeps
+            // the words pi wrote, as pi's own transcript does.
+            case "context_edit":
                 break;
+            // A bookmark on one entry for the tree navigator: the list draws
+            // no labels, so neither does the transcript.
+            case "label":
+                break;
+            // Session metadata such as the display name: the bar reads it
+            // through `get_state`, never as a row.
+            case "session_info":
+                break;
+            default: {
+                // Wire-future kinds degrade to nothing: `pi_rpc` keeps an
+                // unknown record raw, and a pi newer than this build may send
+                // kinds outside the typed union. The never below still fails
+                // the build when the *typed* union grows a member.
+                const unhandled: never = entry;
+                void unhandled;
+                break;
+            }
         }
     }
 
     return rows;
+}
+
+/**
+ * One message entry as rows. Every role is named: a role pi adds is a
+ * compile error here, not a row that silently never arrives.
+ */
+function pushMessage(
+    rows: TranscriptRow[],
+    id: string,
+    message: Extract<SessionEntry, { type: "message" }>["message"],
+    rowIds: Map<string, string> | undefined,
+    open: Map<string, Extract<TranscriptRow, { kind: "assistant" }>>,
+): void {
+    switch (message.role) {
+        case "system":
+            // A system message draws nothing: the fold already dropped the
+            // ones a compaction summarized, and the rest are pi's context.
+            break;
+        case "user":
+            rows.push({ kind: "user", id: rowIds?.get(id) ?? id, message });
+            break;
+        case "assistant": {
+            open.clear();
+            const row: Extract<TranscriptRow, { kind: "assistant" }> = {
+                kind: "assistant",
+                id: rowIds?.get(id) ?? id,
+                message,
+                results: new Map(),
+            };
+            rows.push(row);
+            for (const part of message.content) {
+                if (part.type === "toolCall") open.set(part.id, row);
+            }
+            break;
+        }
+        case "toolResult": {
+            const row = open.get(message.toolCallId);
+            if (row) {
+                row.results.set(message.toolCallId, message);
+                open.delete(message.toolCallId);
+            }
+            break;
+        }
+        case "bashExecution":
+            rows.push({ kind: "bash", id, message });
+            break;
+        case "custom":
+            if (message.display) pushCustom(rows, id, message.customType, partsText(message.content));
+            break;
+        // The legacy shapes of the two summaries, kept for sessions pi
+        // wrote before they became entries: they read exactly like them.
+        case "branchSummary":
+            rows.push({ kind: "branch_summary", id, body: message.summary });
+            break;
+        case "compactionSummary":
+            rows.push({ kind: "compaction", id, tokensBefore: message.tokensBefore, body: message.summary });
+            break;
+        default: {
+            // Wire-future roles degrade to nothing, as with entry kinds.
+            const unhandled: never = message;
+            void unhandled;
+            break;
+        }
+    }
+}
+
+/**
+ * An extension's words as the row of their kind: `skill` is the one
+ * custom type pie knows, and it reads as its own row; every other type
+ * reads under the word its extension gave it.
+ */
+function pushCustom(rows: TranscriptRow[], id: string, customType: string, text: string): void {
+    // A one-line text reads whole on its row; a longer one opens instead, and
+    // its header stays bare - never the first line of the body.
+    const single = linesOf(text).length <= 1;
+    if (customType === "skill") {
+        rows.push({ kind: "skill", id, summary: single ? text : "", body: single ? null : text });
+        return;
+    }
+    rows.push({
+        kind: "custom_message",
+        id,
+        customType,
+        label: humanize(customType),
+        summary: single ? text : "",
+        body: single ? null : text,
+    });
 }
 
 /**
@@ -209,12 +331,6 @@ export function queuedRows(queued: { steering: readonly string[]; followUp: read
             queue: "followUp" as const,
         })),
     ];
-}
-
-/** A notice: the label, its first line, and the whole text when it has more. */
-function notice(id: string, label: string, text: string): TranscriptRow {
-    const lines = linesOf(text);
-    return { kind: "notice", id, label, summary: lines[0] ?? "", body: lines.length > 1 ? text : null };
 }
 
 /** The text of content that may be a bare string or parts: its text parts. */

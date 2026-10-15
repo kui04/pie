@@ -1,7 +1,10 @@
 import type { TranscriptRow } from "@/lib/transcript";
-import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
-import { Notice } from "@/routes/chat/transcript/entries/Notice";
+import { BranchSummary } from "@/routes/chat/transcript/entries/BranchSummary";
+import { Compaction } from "@/routes/chat/transcript/entries/Compaction";
+import { CustomMessage } from "@/routes/chat/transcript/entries/CustomMessage";
 import { RunLine } from "@/routes/chat/transcript/entries/RunLine";
+import { Skill } from "@/routes/chat/transcript/entries/Skill";
+import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { UserMessage } from "@/routes/chat/transcript/entries/UserMessage";
 import { presentExecution } from "@/routes/chat/transcript/presentation";
 
@@ -19,18 +22,18 @@ export interface TranscriptEntryProps {
 }
 
 /**
- * One row of the transcript, drawn by the component its kind names. A call the reader ran is a
- * row of the same family as a call the model made; a turn's own work never reaches here, because
- * the fold takes it. The `never` at the end makes a kind nothing draws the compiler's problem,
- * not a blank row.
+ * One row of the transcript, drawn by the component its kind names. A turn's own
+ * work never reaches here, because the fold takes it. The `never` at the end
+ * makes a kind nothing draws the compiler's problem, not a blank row.
  */
 export function TranscriptEntry({ row, onRetractQueued }: TranscriptEntryProps) {
     switch (row.kind) {
         case "user":
             return <UserMessage id={row.id} message={row.message} />;
         case "bash":
-            // A command the reader ran: the same row as a call, in the colour of their own run.
-            return <CallRow id={row.id} tool="bash" presentation={presentExecution(row.message)} />;
+            // A command the reader ran: its own component, so it can change
+            // apart from a call the model made.
+            return <UserCommand id={row.id} tool="bash" presentation={presentExecution(row.message)} quote />;
         case "queued":
             // A queued prompt is the reader's own message that pi has not run: the
             // same bubble, dimmed, with the queue it waits in under it.
@@ -44,8 +47,15 @@ export function TranscriptEntry({ row, onRetractQueued }: TranscriptEntryProps) 
             );
         case "activity":
             return <RunLine state={row.state} />;
-        case "notice":
-            return <Notice id={row.id} label={row.label} summary={row.summary} body={row.body} />;
+        case "compaction":
+            // A row outside a fold carries its own line under itself.
+            return <Compaction id={row.id} tokensBefore={row.tokensBefore} body={row.body} quote />;
+        case "branch_summary":
+            return <BranchSummary id={row.id} body={row.body} quote />;
+        case "skill":
+            return <Skill id={row.id} summary={row.summary} body={row.body} quote />;
+        case "custom_message":
+            return <CustomMessage id={row.id} label={row.label} summary={row.summary} body={row.body} quote />;
         default: {
             const unhandled: never = row;
             return nothing(unhandled);

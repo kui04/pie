@@ -214,7 +214,7 @@ export const modelChange = (modelId = "claude-sonnet-4-5"): Unlinked<SessionEntr
     modelId,
 });
 
-const thinkingLevelChange = (thinkingLevel = "medium"): Unlinked<SessionEntry> => ({
+export const thinkingLevelChange = (thinkingLevel = "medium"): Unlinked<SessionEntry> => ({
     type: "thinking_level_change",
     timestamp: AT,
     thinkingLevel,
@@ -229,10 +229,34 @@ export const usageEntry = (): Unlinked<SessionEntry> => ({
     usage: usage(),
 });
 
-const sessionInfo = (name: string | undefined = undefined): Unlinked<SessionEntry> => ({
+export const sessionInfo = (name: string | undefined = undefined): Unlinked<SessionEntry> => ({
     type: "session_info",
     timestamp: AT,
     name,
+});
+
+/** Extension state outside the conversation: never displayed, unlike a custom message. */
+export const customEntry = (customType = "review"): Unlinked<SessionEntry> => ({
+    type: "custom",
+    timestamp: AT,
+    customType,
+    data: { seen: true },
+});
+
+/** A branch-local edit of one earlier entry: the transcript keeps the words pi wrote. */
+export const contextEditEntry = (targetId = "e1"): Unlinked<SessionEntry> => ({
+    type: "context_edit",
+    timestamp: AT,
+    targetId,
+    replacement: { content: "edited" },
+});
+
+/** A bookmark on one entry for the tree navigator: drawn nowhere in the transcript. */
+export const labelEntry = (targetId = "e1"): Unlinked<SessionEntry> => ({
+    type: "label",
+    timestamp: AT,
+    targetId,
+    label: "mark",
 });
 
 /**

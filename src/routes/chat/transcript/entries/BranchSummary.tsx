@@ -1,0 +1,60 @@
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { cn } from "cn";
+import { Markdown } from "@/components";
+import { Marker, MarkerIcon } from "@/components/ui";
+import { Row } from "@/routes/chat/transcript/entries/Row";
+import { branchGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
+
+export interface BranchSummaryProps {
+    /** The entry this row draws, as the base of its ids. */
+    id: string;
+    /** The whole summary, as with a compaction. */
+    body: string;
+    /** Whether this row stands outside a fold, so its body carries a line of its own. */
+    quote?: boolean;
+}
+
+/**
+ * The summary of a branch the session left: the word alone on its row, the
+ * summary behind it, read exactly like a compaction.
+ */
+export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
+    // A summary is read closed; the reader's own toggle wins from then on.
+    const [manual, setManual] = useState<boolean | null>(null);
+    const open = manual ?? false;
+
+    if (body === "") {
+        return (
+            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
+                <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">{branchGlyph()}</MarkerIcon>
+                <span className="text-body-md text-violet trim shrink-0 font-medium whitespace-nowrap">Summary</span>
+            </Marker>
+        );
+    }
+
+    return (
+        <Row
+            id={id}
+            glyph={branchGlyph()}
+            name={
+                <span className="flex items-center gap-2">
+                    <span className="text-violet trim font-medium">Summary</span>
+                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
+                    <ChevronRight
+                        className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}
+                        aria-hidden
+                    />
+                </span>
+            }
+            tone="quiet"
+            quote={quote}
+            open={open}
+            onToggle={() => setManual((was) => !(was ?? false))}
+        >
+            <Markdown id={`${id}-text`} className="text-muted-foreground">
+                {body}
+            </Markdown>
+        </Row>
+    );
+}

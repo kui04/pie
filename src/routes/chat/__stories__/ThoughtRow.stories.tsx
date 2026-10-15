@@ -28,10 +28,10 @@ const reasoning =
 
 /** A thought that is still arriving: open, shimmering, and closed at its end. */
 export const Streaming: Story = {
-    args: { id: "t1", thinking: reasoning, stillThinking: true },
+    args: { id: "t1", thinking: reasoning, stillThinking: true, quote: true },
 };
 
 /** A thought that is written: a line a reader may open. */
 export const Settled: Story = {
-    args: { id: "t2", thinking: reasoning },
+    args: { id: "t2", thinking: reasoning, quote: true },
 };

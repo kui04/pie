@@ -82,7 +82,7 @@
   --color-tertiary: var(--tertiary);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --color-user-run: var(--user-run);
+  --color-violet: var(--violet);
   --color-excluded: var(--excluded);
 
   --font-sans:
@@ -181,7 +181,7 @@
   --tertiary: #81b88b; /* gitDecoration.addedResourceForeground */
   --success: #2ea043; /* editorGutter.addedBackground */
   --warning: #cca700; /* editorWarning.foreground */
-  --user-run: #b180d7; /* charts.purple */
+  --violet: #b180d7; /* charts.purple: a command the reader ran, a system notice */
   --excluded: #6e7681;
 
   /* What a surface that leaves the page is drawn with: the shadow that falls under
@@ -234,7 +234,7 @@
     --tertiary: #388a34; /* charts.green */
     --success: #107c10;
     --warning: #667309; /* the olive light lists use; the amber is too weak as text */
-    --user-run: #652d90; /* charts.purple */
+    --violet: #652d90; /* charts.purple */
     --excluded: #8e8e90;
 
     /* A light page needs no light on the edge: its surfaces are already the light,

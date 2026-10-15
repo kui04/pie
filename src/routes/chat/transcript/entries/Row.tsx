@@ -64,10 +64,12 @@ export function Row({
                 <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">{glyph}</MarkerIcon>
                 <span
                     className={cn(
-                        "text-body-md trim",
+                        // The name keeps its own width on one line, however long: what the
+                        // row aimed at truncates behind it, never the other way round.
+                        "text-body-md trim shrink-0 whitespace-nowrap",
                         tone !== "quiet" && "font-medium",
                         tone === "model" && "text-primary-text",
-                        tone === "user-run" && "text-user-run",
+                        tone === "user-run" && "text-violet",
                     )}
                 >
                     {name}

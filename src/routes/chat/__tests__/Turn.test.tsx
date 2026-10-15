@@ -111,6 +111,39 @@ describe("Turn", () => {
         expect(screen.queryByText("36 passed")).toBeNull();
     });
 
+    it("draws a notice inside the fold as a row of its own kind", () => {
+        // A skill arrives mid-run, after the assistant message that opened
+        // the turn: the fold absorbs it behind its heading. (A compaction
+        // always stands before the fold - the context puts it there.)
+        renderTurn(
+            chain(
+                messageEntry(user("make the parser skip empty lines", Date.parse(AT))),
+                messageEntry(
+                    assistant([toolCall("c1", "read", { path: "/a.ts" })], {
+                        timestamp: Date.parse(AT),
+                    }),
+                ),
+                {
+                    type: "custom_message",
+                    timestamp: AT,
+                    customType: "skill",
+                    content: "the skill ran\n\nand kept notes",
+                    display: true,
+                },
+                messageEntry(toolResult("c1", "read", "1 line")),
+                messageEntry(assistant([text("done")], { timestamp: Date.parse(AT) })),
+            ),
+        );
+
+        // The fold opens on the heading; the skill stands behind it as its
+        // own row, and opens like one.
+        fireEvent.click(screen.getByRole("button", { name: /Worked for/ }));
+        const row = screen.getByRole("button", { name: /^Skill$/ });
+        expect(row.closest("div.pl-8")).toBeNull();
+        fireEvent.click(row);
+        expect(screen.getByText("and kept notes")).toBeInTheDocument();
+    });
+
     it("stands the model's prose past the rail once the turn is folded", () => {
         renderTurn(
             chain(

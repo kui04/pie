@@ -1,0 +1,70 @@
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { cn } from "cn";
+import { Markdown } from "@/components";
+import { Marker, MarkerIcon } from "@/components/ui";
+import { Row } from "@/routes/chat/transcript/entries/Row";
+import { compactionGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
+
+export interface CompactionProps {
+    /** The entry this row draws, as the base of its ids. */
+    id: string;
+    /** Context size the compaction cut from, for the header line. */
+    tokensBefore: number;
+    /** The whole summary: the header never excerpts it, the body opens it. */
+    body: string;
+    /** Whether this row stands outside a fold, so its body carries a line of its own. */
+    quote?: boolean;
+}
+
+/**
+ * What a compaction left behind: the word and the size it cut from on the row,
+ * the summary behind it. The header carries no line of the summary - pi's own
+ * transcript reads the same row as a word and an expander - so a reader finds
+ * where the context was cut and opens what it kept.
+ */
+export function Compaction({ id, tokensBefore, body, quote = false }: CompactionProps) {
+    // A compaction is read closed; the reader's own toggle wins from then on.
+    const [manual, setManual] = useState<boolean | null>(null);
+    const open = manual ?? false;
+
+    if (body === "") {
+        return (
+            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
+                <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">
+                    {compactionGlyph()}
+                </MarkerIcon>
+                <span className="text-body-md text-violet trim shrink-0 font-medium whitespace-nowrap">Compaction</span>
+            </Marker>
+        );
+    }
+
+    return (
+        <Row
+            id={id}
+            glyph={compactionGlyph()}
+            name={
+                // The chevron stands with the word, not at the row's end: a compaction sits beside
+                // collapsed work often enough that "this is a notice, and it opens" has to be
+                // readable from the word itself.
+                <span className="flex items-center gap-2">
+                    <span className="text-violet trim font-medium">Compaction</span>
+                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
+                    <ChevronRight
+                        className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}
+                        aria-hidden
+                    />
+                </span>
+            }
+            tone="quiet"
+            target={`Compacted from ${tokensBefore.toLocaleString("en-US")} tokens`}
+            quote={quote}
+            open={open}
+            onToggle={() => setManual((was) => !(was ?? false))}
+        >
+            <Markdown id={`${id}-text`} className="text-muted-foreground">
+                {body}
+            </Markdown>
+        </Row>
+    );
+}

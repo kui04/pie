@@ -1,18 +1,23 @@
 import {
+    Archive,
     Braces,
     Brain,
     FilePen,
     FileSearch,
     FileText,
     FolderTree,
+    GitBranch,
     Pencil,
     Plug,
+    Puzzle,
     Search,
+    Sparkles,
     Terminal,
     Wrench,
     type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { humanize } from "@/lib/text";
 
 /**
  * The glyph of a call's kind, in one place: what a row did, at a glance.
@@ -49,6 +54,26 @@ export function thoughtGlyph(): ReactNode {
     return <Brain />;
 }
 
+/** What a compaction folded away: the old context, archived. */
+export function compactionGlyph(): ReactNode {
+    return <Archive />;
+}
+
+/** The summary of a branch the session left. */
+export function branchGlyph(): ReactNode {
+    return <GitBranch />;
+}
+
+/** What a skill run left behind. */
+export function skillGlyph(): ReactNode {
+    return <Sparkles />;
+}
+
+/** A custom message of an extension: another piece it plugged in. */
+export function customGlyph(): ReactNode {
+    return <Puzzle />;
+}
+
 /** The word a row's kind is introduced by; a namespaced tool reads `server / tool`. */
 export function toolLabel(tool: string): string {
     const name = tool.toLowerCase();
@@ -64,13 +89,4 @@ export function toolLabel(tool: string): string {
             .join(" / ");
     }
     return humanize(name);
-}
-
-function humanize(value: string): string {
-    const words = value
-        .toLowerCase()
-        .split(/[_-]+/)
-        .filter((word) => word !== "");
-    if (words.length === 0) return value;
-    return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }

@@ -33,7 +33,17 @@ export type WorkItem =
     | { kind: "call"; id: string; tool: string; presentation: ToolPresentation }
     | { kind: "text"; id: string; text: string }
     | { kind: "thinking"; id: string; thinking: string; streaming: boolean }
-    | { kind: "notice"; id: string; row: Extract<TranscriptRow, { kind: "notice" }> };
+    | { kind: "compaction"; id: string; tokensBefore: number; body: string }
+    | { kind: "branch_summary"; id: string; body: string }
+    | { kind: "skill"; id: string; summary: string; body: string | null }
+    | {
+          kind: "custom_message";
+          id: string;
+          customType: string;
+          label: string;
+          summary: string;
+          body: string | null;
+      };
 
 /** The words a settled turn finished on. */
 export interface WorkAnswer {
@@ -103,8 +113,29 @@ export function foldTurns(rows: TranscriptRow[]): FoldSlot[] {
         }
 
         // A notice pi left inside a run belongs to the work it interrupted.
-        if (row.kind === "notice" && open !== null) {
-            open.items.push({ kind: "notice", id: row.id, row });
+        // Every kind is named: a row pi adds is a compile error here, not a
+        // turn that silently drops it.
+        if (row.kind === "compaction" && open !== null) {
+            open.items.push({ kind: "compaction", id: row.id, tokensBefore: row.tokensBefore, body: row.body });
+            continue;
+        }
+        if (row.kind === "branch_summary" && open !== null) {
+            open.items.push({ kind: "branch_summary", id: row.id, body: row.body });
+            continue;
+        }
+        if (row.kind === "skill" && open !== null) {
+            open.items.push({ kind: "skill", id: row.id, summary: row.summary, body: row.body });
+            continue;
+        }
+        if (row.kind === "custom_message" && open !== null) {
+            open.items.push({
+                kind: "custom_message",
+                id: row.id,
+                customType: row.customType,
+                label: row.label,
+                summary: row.summary,
+                body: row.body,
+            });
             continue;
         }
 

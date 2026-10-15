@@ -59,6 +59,16 @@ export function linesOf(text: string): string[] {
     return lines;
 }
 
+/** One word for an identifier: `skill` reads `Skill`, `tool_search` reads `Tool Search`. */
+export function humanize(value: string): string {
+    const words = value
+        .toLowerCase()
+        .split(/[_-]+/)
+        .filter((word) => word !== "");
+    if (words.length === 0) return value;
+    return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
 /** One line of a numbered body: the mark, the number, and the text. */
 export interface NumberedLine {
     /** `+`, `-`, or a space for a line that only stands around a change. */

@@ -1,13 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
-import { presentCall, presentExecution, presentRunningExecution } from "@/routes/chat/transcript/presentation";
-import { bashExecution, toolResult } from "@/preview/fixtures";
+import { presentCall } from "@/routes/chat/transcript/presentation";
+import { toolResult } from "@/preview/fixtures";
 
 /**
- * One call, as the transcript draws it: a single line until a reader asks for what it produced.
+ * One call the model made, as the transcript draws it: a single line until a
+ * reader asks for what it produced.
  *
- * The states a row takes are what these draw - a command that logs, an edit that diffs, a
- * failure, a call at work, and a command the reader ran themselves.
+ * The states a row takes are what these draw - a command that logs, an edit
+ * that diffs, a failure, and a call at work. A command the reader ran
+ * themselves is `Transcript/UserCommand`.
  */
 const meta = {
     title: "Transcript/CallRow",
@@ -37,6 +39,7 @@ export const Log: Story = {
     args: {
         id: "c1",
         tool: "bash",
+        quote: true,
         presentation: presentCall(
             "bash",
             { command: "pnpm test -- parse" },
@@ -57,6 +60,7 @@ export const Diff: Story = {
     args: {
         id: "c2",
         tool: "edit",
+        quote: true,
         presentation: presentCall(
             "edit",
             { path: "src/lib/parse.ts" },
@@ -70,6 +74,7 @@ export const Failed: Story = {
     args: {
         id: "c3",
         tool: "bash",
+        quote: true,
         presentation: presentCall(
             "bash",
             { command: "pnpm test" },
@@ -83,29 +88,13 @@ export const Running: Story = {
     args: {
         id: "c4",
         tool: "bash",
-        presentation: presentRunningExecution({
-            command: "pnpm build",
-            output: [
-                "vite v8.0.0 building for production...",
-                "transforming (1284) src/routes/chat/transcript/entries/CallRow.tsx",
-                "progress: 412/1284 modules, 38.4 MB in cache, an extremely long line of build output that runs well past the width of any phone screen and past this column too",
-                "progress: 688/1284 modules",
-                "progress: 964/1284 modules",
-                "progress: 1201/1284 modules",
-                "rendering chunks (42)...",
-                "computing gzip size (18)...",
-                "computing gzip size (42)...",
-                "built in 1.42s",
-            ].join("\n"),
-        }),
-    },
-};
-
-/** A command the reader ran: pi's own prompt, in the colour of their own run. */
-export const ReaderRun: Story = {
-    args: {
-        id: "c5",
-        tool: "bash",
-        presentation: presentExecution(bashExecution("ls -la src/lib", "parse.ts\ntext.ts\ntranscript.ts")),
+        quote: true,
+        presentation: presentCall(
+            "bash",
+            { command: "pnpm build" },
+            toolResult("c4", "bash", "vite v8.0.0 building for production..."),
+            true,
+            true,
+        ),
     },
 };
