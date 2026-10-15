@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useMotion } from "@/hooks/use-motion";
+import { useMotion } from "@/hooks/useMotion";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
 import type { SessionStats } from "@/lib/rpc-protocol";
 

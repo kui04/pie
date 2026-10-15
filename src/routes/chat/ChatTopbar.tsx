@@ -13,7 +13,7 @@
 import type { ReactNode } from "react";
 
 import { WindowControls } from "@/components";
-import { useIsMobile } from "@/hooks/use-platform";
+import { useIsMobile } from "@/hooks/usePlatform";
 
 export function ChatTopbar({ children }: { children?: ReactNode }) {
     const isMobile = useIsMobile();

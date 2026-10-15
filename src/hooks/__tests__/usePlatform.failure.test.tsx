@@ -1,7 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
-import { useIsMobile } from "@/hooks/use-platform";
+import { useIsMobile } from "@/hooks/usePlatform";
 
 /**
  * What happens when the platform cannot be read at all.

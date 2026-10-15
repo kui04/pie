@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { AnchoredPopover, AnchoredPopoverAnchor } from "@/components";
 import { Button, Textarea } from "@/components/ui";
-import { useIsMobile } from "@/hooks/use-platform";
+import { useIsMobile } from "@/hooks/usePlatform";
 import * as bridge from "@/lib/bridge";
 import type { ImageContent, StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";

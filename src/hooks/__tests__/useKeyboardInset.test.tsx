@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 
 beforeEach(() => {
     // Frame throttle runs at once, so updates land inside `act`.

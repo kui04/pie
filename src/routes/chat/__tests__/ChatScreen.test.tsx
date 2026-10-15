@@ -8,7 +8,7 @@ import { Toaster } from "@/components/ui";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
 import type { Event } from "@/lib/rpc-protocol";
-import { useSessionSync } from "@/hooks/use-session-sync";
+import { useSessionSync } from "@/hooks/useSessionSync";
 import { forgetSession, phases } from "@/lib/sessions";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { sessionOf } from "@/lib/sessions";
@@ -51,7 +51,7 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
 /** Which machine pie is on: the frame reads it, and a test can change it. */
 const platform = vi.hoisted(() => ({ mobile: false }));
 
-vi.mock("@/hooks/use-platform", () => ({
+vi.mock("@/hooks/usePlatform", () => ({
     useIsMobile: () => platform.mobile,
 }));
 
@@ -80,7 +80,7 @@ const CONNECTED = {
 /**
  * The sessions the connection holds, as the mocks below keep them in step with Rust: an attach
  * adds one, a detach takes it away. The workspace reads this list, and the charts of the
- * sessions follow it (`use-session-sync.ts`), so a test that attaches must see the list grow.
+ * sessions follow it (`useSessionSync.ts`), so a test that attaches must see the list grow.
  */
 let held: { id: string; cwd: string | null }[] = [];
 
@@ -217,7 +217,7 @@ async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
 
 describe("ChatScreen", () => {
     // A window with no connection at all is the boundary's business and not this screen's: the
-    // three tests of that decision live in `hooks/__tests__/use-connection-watch.test.tsx`.
+    // three tests of that decision live in `hooks/__tests__/useConnectionWatch.test.tsx`.
 
     it("draws no page of the chat while it has no connection to speak through", () => {
         // The read that will answer is still on its way: the window is its frame

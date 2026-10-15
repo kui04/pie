@@ -24,7 +24,7 @@ const KEY: PresentedKey = {
 /** Which machine pie is on: the frame reads it, and a test can change it. */
 const platform = vi.hoisted(() => ({ mobile: false }));
 
-vi.mock("@/hooks/use-platform", () => ({
+vi.mock("@/hooks/usePlatform", () => ({
     useIsMobile: () => platform.mobile,
 }));
 

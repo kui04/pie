@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import type * as Bridge from "@/lib/bridge";
 import { ConnectionLostOverlay } from "@/routes/connect/ConnectionLostOverlay";
 import { reportReachFailure } from "@/lib/connection-health";
-import { useConnectionWatch } from "@/hooks/use-connection-watch";
+import { useConnectionWatch } from "@/hooks/useConnectionWatch";
 import { queryDefaults } from "@/lib/query";
 
 const fake = vi.hoisted(() => ({

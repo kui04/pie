@@ -399,7 +399,7 @@
 
   /*
    * The window of a live body says which of its edges has more behind it: the newest line is
-   * what a reader is reading, so the ends of the box shade instead of clipping. `use-follow-tail`
+   * what a reader is reading, so the ends of the box shade instead of clipping. `useFollowTail`
    * publishes which edges (`t`, `b`, or both) as `data-fade`, because an edge with nothing
    * behind it must stay sharp - a fade over the only line in the box dims the thing itself.
    *

@@ -3,8 +3,8 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { cn } from "cn";
 import { Button, CodeBlock, CodeBlockActions, CodeBlockContent } from "@/components/ui";
-import { useFollowTail } from "@/hooks/use-follow-tail";
-import { useMotion } from "@/hooks/use-motion";
+import { useFollowTail } from "@/hooks/useFollowTail";
+import { useMotion } from "@/hooks/useMotion";
 import type { NumberedLine } from "@/lib/text";
 import type { ToolBody, ToolNote } from "@/routes/chat/transcript/presentation";
 

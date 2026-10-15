@@ -12,7 +12,7 @@ import {
     DrawerFooter,
     DrawerTitle,
 } from "@/components/ui";
-import { useIsMobile } from "@/hooks/use-platform";
+import { useIsMobile } from "@/hooks/usePlatform";
 import type { PresentedKey } from "@/lib/bridge";
 
 export interface HostKeyPromptProps {

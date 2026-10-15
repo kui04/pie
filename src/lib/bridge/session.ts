@@ -19,7 +19,7 @@
  * A listener must exist before the records it wants: the event bus has no replay,
  * and Rust sends an event only to a window that already listens for its name.
  * Therefore a caller subscribes first and reads afterwards (see
- * `hooks/use-session.ts`), which is what makes a missed record a record that the
+ * `hooks/useSession.ts`), which is what makes a missed record a record that the
  * snapshot covers.
  *
  * A command here ends in one of three ways, and none of them needs a report

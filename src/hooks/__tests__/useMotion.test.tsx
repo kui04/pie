@@ -9,7 +9,7 @@
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { useMotion } from "@/hooks/use-motion";
+import { useMotion } from "@/hooks/useMotion";
 import { MOTION, frame, reveal, slot, stage, turn } from "@/lib/motion";
 
 describe("useMotion", () => {

@@ -141,7 +141,7 @@ describe("the sync of a connection under StrictMode", () => {
         const seen: (SessionRef | null)[] = [];
         function Sync() {
             useEffect(() => {
-                // The connection effect of `use-session-sync.ts`, without the query: one run
+                // The connection effect of `useSessionSync.ts`, without the query: one run
                 // per mount, and no cleanup - leaving the screen does not end a session.
                 syncSessions([A, B], client);
                 seen.push(sessionOf(A), sessionOf(B));

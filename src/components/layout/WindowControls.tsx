@@ -9,8 +9,8 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
-import { useMaximized } from "@/hooks/use-maximized";
-import { useMotion } from "@/hooks/use-motion";
+import { useMaximized } from "@/hooks/useMaximized";
+import { useMotion } from "@/hooks/useMotion";
 import { windowControls } from "@/lib/bridge";
 import { cn } from "cn";
 

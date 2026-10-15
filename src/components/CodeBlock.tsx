@@ -9,7 +9,7 @@ import {
     CodeBlockLine,
     CodeBlockTitle,
 } from "@/components/ui";
-import { useHighlighter } from "@/hooks/use-highlighter";
+import { useHighlighter } from "@/hooks/useHighlighter";
 import { tokensOf } from "@/lib/code-highlight";
 import { copyText } from "@/lib/clipboard";
 

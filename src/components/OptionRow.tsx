@@ -2,7 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import { Check } from "lucide-react";
 import { motion } from "motion/react";
-import { useMotion } from "@/hooks/use-motion";
+import { useMotion } from "@/hooks/useMotion";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 
 const optionRowVariants = cva(

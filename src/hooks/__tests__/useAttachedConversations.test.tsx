@@ -11,7 +11,7 @@ import type { SessionInfo } from "@/lib/bridge";
 import { queryDefaults, sessionKeys } from "@/lib/query";
 import type { SessionState } from "@/lib/rpc-protocol";
 import { forgetSession, phases, sessionOf, syncSessions } from "@/lib/sessions";
-import { useAttachedConversations } from "@/hooks/use-attached-conversations";
+import { useAttachedConversations } from "@/hooks/useAttachedConversations";
 import { sessionState } from "@/preview/fixtures";
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({

@@ -1,7 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
-import { useIsMobile } from "@/hooks/use-platform";
+import { useIsMobile } from "@/hooks/usePlatform";
 
 /**
  * The platform is a fact about the machine rather than a measurement of the window: asked

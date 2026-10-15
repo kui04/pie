@@ -4,7 +4,7 @@
  * hears it here.
  *
  * The join is what this file pins. What the boundary then does with it is tested where the
- * boundary lives (`hooks/__tests__/use-connection-watch.test.tsx`).
+ * boundary lives (`hooks/__tests__/useConnectionWatch.test.tsx`).
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";

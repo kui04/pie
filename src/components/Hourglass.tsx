@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { animate } from "motion/react";
-import { useMotion } from "@/hooks/use-motion";
+import { useMotion } from "@/hooks/useMotion";
 import { EASE, MOTION } from "@/lib/motion";
 
 /**

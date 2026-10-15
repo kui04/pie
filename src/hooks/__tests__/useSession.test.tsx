@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/rpc-protocol";
 import { liveRows } from "@/lib/stream";
-import { statsPoll, statsRefetchInterval, useSession } from "@/hooks/use-session";
+import { statsPoll, statsRefetchInterval, useSession } from "@/hooks/useSession";
 import { queryDefaults, sessionKeys } from "@/lib/query";
 import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/sessions";
 import { mergedTranscript } from "@/lib/transcript-merge";

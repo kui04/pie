@@ -2,7 +2,7 @@ import { LoaderCircle } from "lucide-react";
 import { motion } from "motion/react";
 import { Hourglass } from "@/components";
 import { Marker, MarkerIcon } from "@/components/ui";
-import { useMotion } from "@/hooks/use-motion";
+import { useMotion } from "@/hooks/useMotion";
 
 /** What a run is doing while the app waits on it (`lib/stream.ts`). */
 export type ActivityState = "waiting" | "working";

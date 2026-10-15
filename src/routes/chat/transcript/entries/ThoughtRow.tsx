@@ -2,8 +2,8 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 import { Markdown } from "@/components";
-import { useFollowTail } from "@/hooks/use-follow-tail";
-import { useMotion } from "@/hooks/use-motion";
+import { useFollowTail } from "@/hooks/useFollowTail";
+import { useMotion } from "@/hooks/useMotion";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { thoughtGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
 

@@ -1,13 +1,13 @@
 import { useMachine } from "@xstate/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { useIsMobile } from "@/hooks/use-platform";
+import { useIsMobile } from "@/hooks/usePlatform";
 
 import { ConnectionCard, type ConnectionForm } from "@/routes/connect/ConnectionCard";
 import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
 import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
 import { SafeArea, WindowControls } from "@/components";
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { useHostStore, type RememberedHost } from "@/stores/host.store";

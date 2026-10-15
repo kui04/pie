@@ -4,10 +4,10 @@ import { AnimatePresence, motion } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
-import { useAttachedConversations } from "@/hooks/use-attached-conversations";
+import { useAttachedConversations } from "@/hooks/useAttachedConversations";
 import { connectionQueries } from "@/lib/query";
-import { useMotion } from "@/hooks/use-motion";
-import { useWideWindow } from "@/hooks/use-wide-window";
+import { useMotion } from "@/hooks/useMotion";
+import { useWideWindow } from "@/hooks/useWideWindow";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";

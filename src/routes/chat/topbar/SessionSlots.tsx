@@ -5,7 +5,7 @@
  * stands still. These two belong to the conversation in view, so they are the only part of the
  * bar that changes when another conversation opens, and they fade while the page under them does.
  *
- * The reads are the ones the region already runs (`use-session.ts`), from the same cache: this
+ * The reads are the ones the region already runs (`useSession.ts`), from the same cache: this
  * component fetches nothing of its own, and it sends nothing - the region owns the reads, and a
  * second sender of the same event would only be a second opinion.
  */
@@ -17,7 +17,7 @@ import { sessionQueries } from "@/lib/query";
 import type { SessionRef } from "@/lib/sessions";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
-import { statsPoll } from "@/hooks/use-session";
+import { statsPoll } from "@/hooks/useSession";
 
 export interface SessionSlotsProps {
     session: string;

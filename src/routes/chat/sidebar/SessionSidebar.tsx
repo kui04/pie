@@ -26,10 +26,10 @@ import {
     Skeleton,
 } from "@/components/ui";
 import { SafeArea, ScrollPane } from "@/components";
-import type { AttachedConversation } from "@/hooks/use-attached-conversations";
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
-import { useMotion } from "@/hooks/use-motion";
-import { useWideWindow } from "@/hooks/use-wide-window";
+import type { AttachedConversation } from "@/hooks/useAttachedConversations";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { useMotion } from "@/hooks/useMotion";
+import { useWideWindow } from "@/hooks/useWideWindow";
 import * as bridge from "@/lib/bridge";
 import { sessionsQueries } from "@/lib/query";
 import { breatheAt, groupSessions, matchesSearch, pathKey, relativeTime, sessionTitle } from "./session-list";
@@ -360,7 +360,7 @@ function shapeFor(height: number): Array<{ heading: string; sessions: string[] }
  * From `lg` the list is the column instead, and the button that opens this sheet
  * lives below that breakpoint. A window that grows past it lets the sheet go: a
  * hidden sheet is not a closed one, and the body has no pointer events of its own
- * while a modal is up (see `use-wide-window.ts`).
+ * while a modal is up (see `useWideWindow.ts`).
  */
 function SessionSheet({
     id,
