@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import prettierConfig from "eslint-config-prettier";
+import eslintPluginTailwindcss from "eslint-plugin-tailwindcss";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
@@ -58,6 +59,23 @@ export default defineConfig(
         languageOptions: {
             ecmaVersion: 2022,
             globals: globals.node,
+        },
+    },
+    {
+        // Tailwind's own rule set, resolved against this app's stylesheet. The shadcn
+        // primitives are left out: they are the registry's bytes, which `pnpm ui-check` holds.
+        files: ["src/**/*.{ts,tsx}"],
+        ignores: ["src/components/ui/**"],
+        extends: [eslintPluginTailwindcss.configs.recommended],
+        settings: { tailwindcss: { cssConfigPath: "./src/index.css" } },
+        rules: {
+            // 563 warnings, all of them order: prettier would be the one to settle that.
+            "tailwindcss/classnames-order": "off",
+            // It matches a value against every token of the theme and ignores what the token
+            // means, so `text-[20px]` is offered a line height. Its fixes cannot be trusted.
+            "tailwindcss/no-unnecessary-arbitrary-value": "off",
+            // `live-window` is this app's own mask, defined in src/index.css.
+            "tailwindcss/no-custom-classname": ["warn", { whitelist: ["live-window"] }],
         },
     },
     prettierConfig,
