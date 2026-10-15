@@ -87,3 +87,27 @@ describe("CallRow", () => {
         expect(within(body as globalThis.HTMLElement).getByText("two")).toBeInTheDocument();
     });
 });
+
+describe("CallRow's numbered body", () => {
+    it("numbers its lines without a sideways scroller, which is what keeps the numbers flush", () => {
+        render(
+            <CallRow
+                id="e2-c1"
+                tool="edit"
+                presentation={presentCall(
+                    "edit",
+                    { path: "/a.ts" },
+                    toolResult("c1", "edit", "written", { details: { diff: " 1 kept\n- 2 old\n+ 2 new" } }),
+                )}
+            />,
+        );
+        fireEvent.click(screen.getByRole("button", { name: /\/a\.ts/ }));
+
+        // A bar for a sideways scroll is what the words used to slide under the numbers for, and a
+        // stuck number column can be drawn a pixel inside the pane, leaving a hairline of them
+        // showing. A numbered body scrolls one way only.
+        expect(document.querySelectorAll(String.raw`[data-slot="scroll-area-scrollbar"]`)).toHaveLength(1);
+        // The words wrap rather than run past the pane, so nothing ever passes under a number.
+        expect(screen.getByText("kept").className).toContain("whitespace-pre-wrap");
+    });
+});

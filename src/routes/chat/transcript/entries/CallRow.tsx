@@ -123,32 +123,43 @@ function LogBody({ lines, live }: { lines: string[]; live: boolean }) {
  * reader. A diff line carries the colour of its mark as a background, painted by both columns
  * so that it runs unbroken.
  */
+/**
+ * A body whose lines are numbered: a file read, or a diff an edit wrote.
+ *
+ * The words wrap, and that is what keeps the numbers honest. A pane that scrolls sideways puts
+ * the numbers on something that has to hold still while the words move - a second scroller, or a
+ * stuck box - and a stuck box is painted at a rounded offset once its pane has been scrolled, so a
+ * hairline of the words behind it stays uncovered whatever colour it paints underneath them. Wrapped
+ * words need neither: the numbers are one cell of the row they belong to, so they cannot drift from
+ * it, they cannot be slid over, and there is no sideways scroll to reveal anything.
+ *
+ * A line that holds nothing still holds its line, because the number beside it does.
+ */
 function NumberedBody({ id, lines }: { id: string; lines: NumberedLine[] }) {
     let digits = 1;
     for (const line of lines) digits = Math.max(digits, (line.number ?? "").length);
 
     return (
-        <div className={cn("text-code flex min-w-0 overflow-y-auto font-mono", BODY_MAX)}>
-            <div className="shrink-0 select-none">
-                {lines.map((line, index) => (
-                    <div key={index} className={cn("flex gap-1 pr-2", markRowTone(line.mark))}>
-                        <span className="text-muted-foreground/60 text-center" style={{ width: `${digits}ch` }}>
+        <ScrollPane
+            id={`${id}-lines`}
+            bars="vertical"
+            className="min-w-0"
+            viewportClassName={cn("text-code font-mono pr-3", BODY_MAX)}
+        >
+            {lines.map((line, index) => (
+                <div key={index} className={cn("flex", markRowTone(line.mark))}>
+                    <span className="flex shrink-0 gap-1 pr-2 select-none">
+                        <span className="text-muted-foreground/60 text-right" style={{ width: `${digits}ch` }}>
                             {line.number ?? ""}
                         </span>
                         <span className={cn("w-3 text-center", markTone(line.mark))}>
                             {line.mark.trim() === "" ? " " : line.mark}
                         </span>
-                    </div>
-                ))}
-            </div>
-            <ScrollPane id={`${id}-lines`} bars="horizontal" className="min-w-0 flex-1" viewportClassName="pr-3">
-                {lines.map((line, index) => (
-                    <div key={index} className={cn("min-w-full whitespace-pre", markRowTone(line.mark))}>
-                        {line.text}
-                    </div>
-                ))}
-            </ScrollPane>
-        </div>
+                    </span>
+                    <span className="min-w-0 flex-1 break-words whitespace-pre-wrap">{line.text}</span>
+                </div>
+            ))}
+        </ScrollPane>
     );
 }
 
@@ -209,16 +220,22 @@ function formatDuration(ms: number): string {
     return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-function markTone(mark: string): string {
-    if (mark === "+") return "text-success";
-    if (mark === "-") return "text-destructive";
-    return "text-muted-foreground";
-}
-
+/**
+ * The wash a diff puts over a line it changed, and over the gutter that carries its number and
+ * its sign. Both are the same, faint token - the sign's own colour is what says which way the
+ * line went - and the two lists have to keep matching each other.
+ */
 function markRowTone(mark: string): string {
     if (mark === "+") return "bg-success/10";
     if (mark === "-") return "bg-destructive/10";
     return "";
+}
+
+/** The sign's own colour: the one place a diff says which way a line went. */
+function markTone(mark: string): string {
+    if (mark === "+") return "text-success";
+    if (mark === "-") return "text-destructive";
+    return "text-muted-foreground";
 }
 
 function noteTone(note: ToolNote): string {
