@@ -89,4 +89,12 @@
       };
     };
   };
+
+  # Expose MiniBrowser as a callable binary
+  scripts.minibrowser = {
+    exec = ''
+      exec ${pkgs.webkitgtk_4_1}/libexec/webkit2gtk-4.1/MiniBrowser "$@"
+    '';
+    description = "Run the WebKitGTK MiniBrowser";
+  };
 }
