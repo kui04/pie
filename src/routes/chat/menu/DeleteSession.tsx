@@ -50,7 +50,9 @@ export function DeleteSession({ session, file, open, onOpenChange, onDeleted, is
     const mobile = useIsMobile();
     const remove = useMutation({
         mutationFn: async (path: string) => {
-            await bridge.detachSession(session);
+            if (session !== "") {
+                await bridge.detachSession(session);
+            }
             await bridge.deleteSession(path);
         },
         onSuccess: () => {

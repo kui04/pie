@@ -11,6 +11,7 @@ type Call = () => Promise<unknown>;
 
 const bridge = vi.hoisted(() => ({
     listSessions: vi.fn<Call>(),
+    listDirs: vi.fn<Call>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -74,6 +75,7 @@ function windowThatMatches() {
 beforeEach(() => {
     vi.clearAllMocks();
     bridge.listSessions.mockResolvedValue([]);
+    bridge.listDirs.mockResolvedValue({ directory: "/home/user", entries: [] });
 });
 
 describe("SessionSidebar", () => {
@@ -132,7 +134,7 @@ describe("SessionSidebar", () => {
         expect(picked).toHaveBeenCalledWith(session.path);
     });
 
-    it("marks the conversations that running sessions hold, and whether they work", async () => {
+    it("marks active sessions with BreathLight and aligns timestamp", async () => {
         const mine = sessionSummary({ name: "Mine" });
         const other = sessionSummary({ name: "Other" });
         bridge.listSessions.mockResolvedValue([mine, other]);
@@ -144,16 +146,15 @@ describe("SessionSidebar", () => {
         await waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
         const row = document.querySelector(selector) as HTMLElement;
         expect(within(row).getByText("attached")).toBeInTheDocument();
-        // The mark stands before the time: the two right-hand facts of a row, and
-        // the order the design owner asked for (2026-10-07).
+        // The BreathLight dot is rendered with size-2
         const mark = row.querySelector("span.rounded-full");
-        const time = row.querySelector("span.text-label-md");
         expect(mark).not.toBeNull();
-        expect(time).not.toBeNull();
-        expect(mark!.compareDocumentPosition(time!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        // The light is what says a conversation is held: a row that is held is not filled,
-        // and only a press on it fills it (the hover of the list).
-        expect(row.className.split(" ")).not.toContain("bg-accent");
+        expect(mark?.className).toContain("size-2");
+        // Both active and inactive sessions render timestamp with aligned layout
+        expect(row.querySelector("span.text-label-md")).not.toBeNull();
+
+        const otherRow = document.querySelector(`[data-path="${other.path}"]`) as HTMLElement;
+        expect(otherRow.querySelector("span.text-label-md")).not.toBeNull();
 
         rerender(
             <QueryClientProvider client={new QueryClient(queryDefaults)}>
@@ -177,21 +178,66 @@ describe("SessionSidebar", () => {
         expect(screen.queryByText("attached")).toBeNull();
     });
 
-    it("filters the rows as the search is typed", async () => {
+    it("triggers onNew when the New Conversation button is pressed", async () => {
+        const onNew = vi.fn();
+        renderSidebar({ onNew });
+
+        const button = await screen.findByRole("button", { name: "New Conversation" });
+        fireEvent.click(button);
+
+        expect(onNew).toHaveBeenCalledTimes(1);
+    });
+
+    it("toggles between collapsing all groups and expanding all groups", async () => {
         bridge.listSessions.mockResolvedValue([
-            sessionSummary({ name: "Fix the parser" }),
-            sessionSummary({ name: "Rewrite the drawer" }),
+            sessionSummary({ cwd: "/work/pie", name: "Pie work" }),
+            sessionSummary({ cwd: "/work/other", name: "Other work" }),
         ]);
 
         renderSidebar();
 
-        const search = await screen.findByLabelText("Search sessions");
-        fireEvent.change(search, { target: { value: "drawer" } });
+        expect(await screen.findByText("Pie work")).toBeInTheDocument();
+        expect(screen.getByText("Other work")).toBeInTheDocument();
 
-        // The rows arrive through the panel's own switch, which is a fade of the page it
-        // reads: one frame of it is the content leaving.
-        expect(await screen.findByText("Rewrite the drawer")).toBeInTheDocument();
-        expect(screen.queryByText("Fix the parser")).toBeNull();
+        const foldToggle = screen.getByRole("button", { name: "Collapse all groups" });
+        fireEvent.click(foldToggle);
+
+        expect(screen.queryByText("Pie work")).toBeNull();
+        expect(screen.queryByText("Other work")).toBeNull();
+
+        const expandToggle = screen.getByRole("button", { name: "Expand all groups" });
+        fireEvent.click(expandToggle);
+
+        expect(screen.getByText("Pie work")).toBeInTheDocument();
+        expect(screen.getByText("Other work")).toBeInTheDocument();
+    });
+
+    it("simplifies the home directory with ~ using pathe", async () => {
+        bridge.listDirs.mockResolvedValue({ directory: "/home/user", entries: [] });
+        bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/home/user/pie", name: "Pie work" })]);
+
+        renderSidebar();
+
+        expect(await screen.findByText("~/pie")).toBeInTheDocument();
+    });
+
+    it("provides session actions menu on session row", async () => {
+        const session = sessionSummary({ name: "Pie work" });
+        bridge.listSessions.mockResolvedValue([session]);
+        const held = new Map([[session.path, { session: "main:1", working: false }]]);
+
+        renderSidebar({ attached: held });
+
+        expect(await screen.findByText("Pie work")).toBeInTheDocument();
+        const actionButton = screen.getByRole("button", { name: "Session actions" });
+        expect(actionButton).toBeInTheDocument();
+
+        fireEvent.click(actionButton);
+        expect(await screen.findByText("Rename…")).toBeInTheDocument();
+        expect(screen.getByText("Fork…")).toBeInTheDocument();
+        expect(screen.getByText("Clone")).toBeInTheDocument();
+        expect(screen.getByText("Detach")).toBeInTheDocument();
+        expect(screen.getByText("Delete…")).toBeInTheDocument();
     });
 
     it("folds a group away, and keeps the rows of the others", async () => {
@@ -211,12 +257,9 @@ describe("SessionSidebar", () => {
         expect(screen.getByText("Other work")).toBeInTheDocument();
     });
 
-    it("has a word for an empty directory and for a search that found nothing", async () => {
+    it("has a word for an empty directory", async () => {
         renderSidebar();
         expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
-
-        fireEvent.change(screen.getByLabelText("Search sessions"), { target: { value: "nothing" } });
-        expect(screen.getByText("No session matches")).toBeInTheDocument();
     });
 
     it("says that it is looking rather than that there is nothing", async () => {

@@ -20,21 +20,47 @@ import { ForkSession } from "@/routes/chat/menu/ForkSession";
 import { RenameSession } from "@/routes/chat/menu/RenameSession";
 
 export interface SessionMenuProps {
-    session: string;
-    machine: SessionRef;
+    session?: string | null;
+    machine?: SessionRef;
     endpoint: string;
     /** Whether the popup is open. The caller holds this, so one popup is open at a time. */
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /** The conversation is given up: the process ends and the screen leaves it. */
-    onClose: () => void;
+    onClose?: () => void;
     /** The conversation is gone: the screen leaves it without ending a process. */
-    onGone: () => void;
+    onGone?: () => void;
+    /** The file of the session, when known by the caller (e.g. from the sidebar listing). */
+    file?: string | null;
+    /** The name of the session, when known by the caller. */
+    initialName?: string | null;
+    /** Whether the session is actively working (running a prompt). */
+    working?: boolean;
+    /** Custom id for the trigger element. */
+    id?: string;
+    /** Custom className for the trigger button. */
+    triggerClassName?: string;
+    /** Popover alignment. Defaults to "end". */
+    align?: "start" | "center" | "end";
+    /** Popover side. Defaults to "bottom". */
+    side?: "top" | "bottom" | "left" | "right";
     /** Pins which shape the sheets draw, for previews and tests. */
     isMobile?: boolean;
 }
 
-export function SessionMenu({
+export function SessionMenu(props: SessionMenuProps) {
+    if (props.machine) {
+        return <MachineSessionMenu {...props} machine={props.machine} />;
+    }
+    return <BaseSessionMenu {...props} isWorking={props.working ?? false} />;
+}
+
+function MachineSessionMenu({ machine, ...props }: SessionMenuProps & { machine: SessionRef }) {
+    const isWorking = useSelector(machine, phaseOf) !== "idle";
+    return <BaseSessionMenu {...props} machine={machine} isWorking={isWorking} />;
+}
+
+function BaseSessionMenu({
     session,
     machine,
     endpoint,
@@ -42,24 +68,32 @@ export function SessionMenu({
     onOpenChange,
     onClose,
     onGone,
+    file: propsFile,
+    initialName,
+    isWorking,
+    id = "session-menu",
+    triggerClassName,
+    align = "end",
+    side = "bottom",
     isMobile,
-}: SessionMenuProps) {
+}: SessionMenuProps & { isWorking: boolean }) {
     const client = useQueryClient();
     const [view, setView] = useState<"menu" | "rename" | "fork" | "delete">("menu");
-    // Pi replaces the session to fork or copy; a run in flight would be aborted by that,
-    // so the two rows wait for the session to be idle.
-    const working = useSelector(machine, phaseOf) !== "idle";
-    // The name and the file of the conversation come from the same cache the bar reads.
-    const state = useQuery({ ...sessionQueries.state(session), enabled: open });
-    const file = state.data?.sessionFile ?? null;
-    const name = state.data?.sessionName ?? null;
+    const activeSession = session ?? "";
+
+    // The name and the file of the conversation come from the same cache the bar reads when activeSession is set.
+    const state = useQuery({ ...sessionQueries.state(activeSession), enabled: open && Boolean(activeSession) });
+    const file = propsFile ?? state.data?.sessionFile ?? null;
+    const name = initialName ?? state.data?.sessionName ?? null;
 
     /** The process holds another conversation: everything of the old one goes, and the reads answer again. */
     function adopted() {
-        void client.cancelQueries({ queryKey: sessionKeys.whole(session) });
-        void client.invalidateQueries({ queryKey: sessionKeys.whole(session) });
+        if (activeSession) {
+            void client.cancelQueries({ queryKey: sessionKeys.whole(activeSession) });
+            void client.invalidateQueries({ queryKey: sessionKeys.whole(activeSession) });
+        }
         void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
-        machine.send({ type: "REPLACED" });
+        machine?.send({ type: "REPLACED" });
     }
 
     /** The name the host lists has changed. */
@@ -71,13 +105,14 @@ export function SessionMenu({
     function deleted() {
         void client.invalidateQueries({ queryKey: ["connection"] });
         void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
-        onGone();
+        onGone?.();
     }
 
     function clone() {
+        if (!activeSession) return;
         onOpenChange(false);
         void bridge
-            .cloneSession(session)
+            .cloneSession(activeSession)
             .then((result) => {
                 if (result.cancelled) {
                     toast("An extension refused the copy.");
@@ -86,6 +121,18 @@ export function SessionMenu({
                 adopted();
             })
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
+    }
+
+    function detach() {
+        onOpenChange(false);
+        if (onClose) {
+            onClose();
+        } else if (activeSession) {
+            void bridge.detachSession(activeSession).then(() => {
+                void client.invalidateQueries({ queryKey: ["connection"] });
+                void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+            });
+        }
     }
 
     function choose(next: "rename" | "fork" | "delete") {
@@ -97,66 +144,85 @@ export function SessionMenu({
         <>
             <Popover open={open} onOpenChange={onOpenChange}>
                 <PopoverTrigger
-                    render={<Button id="session-menu" variant="ghost" size="icon-sm" aria-label="Session actions" />}
+                    render={
+                        <Button
+                            id={id}
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Session actions"
+                            className={triggerClassName}
+                        />
+                    }
                 >
-                    <EllipsisVertical />
+                    <EllipsisVertical className="size-4" />
                 </PopoverTrigger>
                 <PopoverContent
-                    id="session-menu-popup"
+                    id={`${id}-popup`}
                     role="menu"
-                    side="bottom"
-                    align="end"
+                    side={side}
+                    align={align}
                     sideOffset={6}
                     className="elevation-raised bg-card text-foreground w-56 p-1"
                 >
-                    <MenuRow id="session-menu-rename" icon={<Pencil />} onSelect={() => choose("rename")}>
+                    <MenuRow
+                        id={`${id}-rename`}
+                        icon={<Pencil />}
+                        disabled={!activeSession}
+                        onSelect={() => choose("rename")}
+                    >
                         Rename…
                     </MenuRow>
                     <MenuRow
-                        id="session-menu-fork"
+                        id={`${id}-fork`}
                         icon={<GitFork />}
-                        disabled={working}
+                        disabled={!activeSession || isWorking}
                         onSelect={() => choose("fork")}
                     >
                         Fork…
                     </MenuRow>
-                    <MenuRow id="session-menu-clone" icon={<Copy />} disabled={working} onSelect={clone}>
+                    <MenuRow id={`${id}-clone`} icon={<Copy />} disabled={!activeSession || isWorking} onSelect={clone}>
                         Clone
                     </MenuRow>
                     <MenuRow
-                        id="session-menu-delete"
+                        id={`${id}-delete`}
                         icon={<Trash2 />}
                         disabled={file === null}
                         onSelect={() => choose("delete")}
                     >
                         Delete…
                     </MenuRow>
-                    <MenuRow id="session-menu-detach" icon={<Unplug />} onSelect={onClose}>
-                        Detach
-                    </MenuRow>
+                    {activeSession && (
+                        <MenuRow id={`${id}-detach`} icon={<Unplug />} onSelect={detach}>
+                            Detach
+                        </MenuRow>
+                    )}
                 </PopoverContent>
             </Popover>
-            <RenameSession
-                session={session}
-                open={view === "rename"}
-                onOpenChange={(next) => {
-                    if (!next) setView("menu");
-                }}
-                initial={name}
-                onRenamed={renamed}
-                isMobile={isMobile}
-            />
-            <ForkSession
-                session={session}
-                open={view === "fork"}
-                onOpenChange={(next) => {
-                    if (!next) setView("menu");
-                }}
-                onForked={adopted}
-                isMobile={isMobile}
-            />
+            {activeSession && (
+                <RenameSession
+                    session={activeSession}
+                    open={view === "rename"}
+                    onOpenChange={(next) => {
+                        if (!next) setView("menu");
+                    }}
+                    initial={name}
+                    onRenamed={renamed}
+                    isMobile={isMobile}
+                />
+            )}
+            {activeSession && (
+                <ForkSession
+                    session={activeSession}
+                    open={view === "fork"}
+                    onOpenChange={(next) => {
+                        if (!next) setView("menu");
+                    }}
+                    onForked={adopted}
+                    isMobile={isMobile}
+                />
+            )}
             <DeleteSession
-                session={session}
+                session={activeSession}
                 file={file}
                 open={view === "delete"}
                 onOpenChange={(next) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     breatheAt,
+    formatCwd,
     groupSessions,
     matchesSearch,
     pathKey,
@@ -140,5 +141,35 @@ describe("breatheAt", () => {
         // The value just before a cycle ends is the value just after one starts, so
         // the light does not jump when the count wraps.
         expect(breatheAt(2399)).toBeCloseTo(breatheAt(0), 3);
+    });
+});
+
+describe("formatCwd", () => {
+    it("returns 'No directory' when cwd is empty", () => {
+        expect(formatCwd("")).toBe("No directory");
+        expect(formatCwd("", "/home/user")).toBe("No directory");
+    });
+
+    it("returns '~' when cwd equals the home directory", () => {
+        expect(formatCwd("/home/user", "/home/user")).toBe("~");
+        expect(formatCwd("/home/user/", "/home/user")).toBe("~");
+    });
+
+    it("replaces home prefix with '~/' for subdirectories", () => {
+        expect(formatCwd("/home/user/pie", "/home/user")).toBe("~/pie");
+        expect(formatCwd("/home/user/pie/nested", "/home/user")).toBe("~/pie/nested");
+    });
+
+    it("handles Windows backslashes using pathe", () => {
+        expect(formatCwd("C:\\Users\\user\\pie", "C:\\Users\\user")).toBe("~/pie");
+    });
+
+    it("returns normalized cwd when cwd is outside the home directory", () => {
+        expect(formatCwd("/var/log", "/home/user")).toBe("/var/log");
+        expect(formatCwd("/work/pie", "/home/user")).toBe("/work/pie");
+    });
+
+    it("returns normalized cwd when homePath is omitted", () => {
+        expect(formatCwd("/work/pie")).toBe("/work/pie");
     });
 });

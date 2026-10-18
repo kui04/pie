@@ -12,6 +12,7 @@
 
 import type { SessionSummary } from "@/lib/bridge";
 import { MOTION } from "@/lib/motion";
+import { isAbsolute, normalize, relative } from "pathe";
 
 // The rows of the list, from the flat listing that Rust wrote.
 
@@ -139,3 +140,20 @@ export function breatheAt(ms: number): number {
 
 /** How far the light dims: faint enough to read as a breath, bright enough to see. */
 const DIM = 0.35;
+
+/**
+ * Simplifies a directory path for display, using ~ to abbreviate the user's home directory.
+ */
+export function formatCwd(cwd: string, homePath?: string): string {
+    if (!cwd) return "No directory";
+    const normCwd = normalize(cwd);
+    if (homePath) {
+        const normHome = normalize(homePath);
+        const rel = relative(normHome, normCwd);
+        if (rel === "") return "~";
+        if (!rel.startsWith("..") && !isAbsolute(rel)) {
+            return `~/${rel}`;
+        }
+    }
+    return normCwd;
+}
