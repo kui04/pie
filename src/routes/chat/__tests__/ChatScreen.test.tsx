@@ -33,7 +33,9 @@ type ListenState = (session: string, handler: (payload: SessionLifecycle) => voi
 const bridge = vi.hoisted(() => ({
     getConnection: vi.fn<Call>(),
     attachSession: vi.fn<Call>(),
+    startSession: vi.fn<Call>(),
     detachSession: vi.fn<Call>(),
+    listDirs: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getEntries: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
@@ -175,6 +177,15 @@ beforeEach(() => {
         held.push({ id, cwd: "/home/kui04/work" });
         return { id, cwd: "/home/kui04/work" };
     });
+    bridge.startSession.mockImplementation(async (cwd: string | undefined) => {
+        const id = `main:${held.length + 1}`;
+        held.push({ id, cwd: cwd ?? null });
+        return { id, cwd: cwd ?? null };
+    });
+    bridge.listDirs.mockResolvedValue({
+        directory: "/home/kui",
+        entries: [{ name: "Projects", path: "/home/kui/Projects", isDir: true }],
+    });
     bridge.detachSession.mockImplementation(async (session: string) => {
         held = held.filter((running) => running.id !== session);
     });
@@ -246,6 +257,29 @@ describe("ChatScreen", () => {
         expect(container.querySelector("#session_name")).toBeNull();
         expect(container.querySelector("#composer-band")).toBeNull();
         expect(container.querySelector("#transcript-list")).toBeNull();
+    });
+
+    it("starts a new conversation in the folder that was chosen", async () => {
+        // A new conversation has no file until it is spoken in: the picker walks the
+        // host's folders, and the directory it answers with is where pi starts.
+        noSessionYet();
+        bridge.listSessions.mockResolvedValue([]);
+
+        renderScreen();
+
+        await screen.findByText(/There are many agent harnesses/);
+        // The landing's own row, by its id: the list's key carries the same name.
+        fireEvent.click(document.getElementById("landing-new") as HTMLElement);
+
+        // The home of the host, and the folder the press selects into the field.
+        fireEvent.click(await screen.findByRole("option", { name: "/home/kui/Projects" }));
+        const choose = await screen.findByRole("button", { name: "Open" });
+        await waitFor(() => expect(choose).toBeEnabled());
+        fireEvent.click(choose);
+
+        await waitFor(() => expect(bridge.startSession).toHaveBeenCalledWith("/home/kui/Projects"));
+        // The session that answered stands in view, with nothing said in it yet.
+        expect(await screen.findByText("Nothing has been said yet.")).toBeInTheDocument();
     });
 
     it("starts pi on the conversation that was picked when none holds it", async () => {

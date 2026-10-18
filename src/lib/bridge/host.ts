@@ -68,6 +68,17 @@ export interface DirEntry {
     isDir: boolean;
 }
 
+/**
+ * One directory level of a machine, with the directory it is. The directory comes
+ * back with the rows because pie cannot name the home directory of a machine by
+ * itself: it asks for no path, and the machine answers with its own.
+ */
+export interface Listing {
+    /** The directory that was read, as the host writes it. */
+    directory: string;
+    entries: DirEntry[];
+}
+
 /** A host key. A person compares these values with the values of the host. */
 export interface PresentedKey {
     host: string;
@@ -155,8 +166,28 @@ export function trustHostKey(connection: string, trusted: boolean): Promise<bool
  * on that machine: pie resolves no relative path against its own directory, and
  * the rows carry their whole paths, so the picker never builds one.
  */
-export function listDirs(path?: string): Promise<DirEntry[]> {
-    return call<DirEntry[]>("list_dirs", { path });
+export function listDirs(path?: string): Promise<Listing> {
+    return call<Listing>("list_dirs", { path });
+}
+
+/**
+ * Whether a path names a directory on the connected machine.
+ *
+ * The picker asks this when the typed text matches nothing: a name that
+ * stands is entered, a name that does not is offered for making.
+ */
+export function dirExists(path: string): Promise<boolean> {
+    return call<boolean>("dir_exists", { path });
+}
+
+/**
+ * Makes a directory on the connected machine, with parents as needed.
+ *
+ * The picker offers this when the typed path names nothing: the confirm names
+ * the path, and this makes it. `path` is an absolute path on that machine.
+ */
+export function createDir(path: string): Promise<void> {
+    return call<void>("create_dir", { path });
 }
 
 /**

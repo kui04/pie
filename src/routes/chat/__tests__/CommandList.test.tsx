@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { AnchoredPopover, AnchoredPopoverAnchor } from "@/components";
+import { Popover, PopoverTrigger } from "@/components/ui";
 import { CommandList } from "@/routes/chat/composer/CommandList";
 import type { CommandRow } from "@/routes/chat/composer/command";
 
@@ -26,9 +26,11 @@ const rows = (count: number): CommandRow[] =>
 
 const show = (highlighted: string, count = 20) => (
     // The panel is a popover content, so a root stands around it: the box is its
-    // anchor, which a test does not lay out.
-    <AnchoredPopover open>
-        <AnchoredPopoverAnchor render={<span />}>the box</AnchoredPopoverAnchor>
+    // trigger, which a test does not lay out.
+    <Popover open>
+        <PopoverTrigger render={<span />} nativeButton={false}>
+            the box
+        </PopoverTrigger>
         <CommandList
             id="menu"
             rows={rows(count)}
@@ -37,7 +39,7 @@ const show = (highlighted: string, count = 20) => (
             onPoint={() => undefined}
             onChoose={() => undefined}
         />
-    </AnchoredPopover>
+    </Popover>
 );
 
 describe("CommandList", () => {

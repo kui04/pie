@@ -12,7 +12,8 @@ import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from 
  */
 
 function started(overrides: Partial<ChatDeps> = {}) {
-    const attached: (string | null)[] = [];
+    const attached: string[] = [];
+    const startedIn: (string | null)[] = [];
     const detached: string[] = [];
     let made = 0;
     const actor = createActor(chatMachine, {
@@ -24,13 +25,18 @@ function started(overrides: Partial<ChatDeps> = {}) {
                 // the attach answered with from one that was already there.
                 return { id: `made:${made}`, cwd: null };
             },
+            start: async (cwd) => {
+                startedIn.push(cwd);
+                made += 1;
+                return { id: `made:${made}`, cwd: null };
+            },
             detach: async (session) => {
                 detached.push(session);
             },
             ...overrides,
         },
     }).start();
-    return { actor, attached, detached };
+    return { actor, attached, startedIn, detached };
 }
 
 describe("the chat's stages", () => {
@@ -41,16 +47,27 @@ describe("the chat's stages", () => {
         expect(sessionOf(actor.getSnapshot())).toBeNull();
     });
 
-    it("attaches a new conversation, and views the session that answers", async () => {
-        const { actor, attached } = started();
+    it("starts a new conversation in the home of the host, and views the session that answers", async () => {
+        const { actor, attached, startedIn } = started();
 
-        actor.send({ type: "ATTACH" });
+        actor.send({ type: "ATTACH", cwd: null });
 
         expect(stageOf(actor.getSnapshot())).toBe("attaching");
         expect(pathOf(actor.getSnapshot())).toBeNull();
         await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
-        expect(attached).toEqual([null]);
+        // No path and no directory: pi starts in the home of the machine.
+        expect(startedIn).toEqual([null]);
+        expect(attached).toEqual([]);
         expect(sessionOf(actor.getSnapshot())).toBe("made:1");
+    });
+
+    it("starts a new conversation in the directory that was chosen", async () => {
+        const { actor, startedIn } = started();
+
+        actor.send({ type: "ATTACH", cwd: "/home/kui/Projects/pie" });
+
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
+        expect(startedIn).toEqual(["/home/kui/Projects/pie"]);
     });
 
     it("attaches on the conversation of a chosen file", async () => {
@@ -114,7 +131,7 @@ describe("the chat's stages", () => {
 
     it("does not open another conversation while one is on its way", () => {
         const { actor } = started();
-        actor.send({ type: "ATTACH" });
+        actor.send({ type: "ATTACH", cwd: null });
 
         actor.send({ type: "OPEN", session: "main:2" });
 

@@ -21,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
 use crate::channel::Termination;
 use crate::error::PieError;
-use crate::host::files::{is_no_such_file, sftp, sftp_is_dir, unreadable_there};
+use crate::host::files::{is_no_such_file, sftp, sftp_is_dir, unreadable_there, unremovable_there};
 use crate::host::quote;
 use crate::host::{Error, SshHost};
 
@@ -56,6 +56,27 @@ impl Ssh {
                 // A failed listing must not keep a dead channel in the cache.
                 self.host.forget_sftp(&sftp);
                 Err(error.into())
+            }
+        }
+    }
+
+    /// Removes one conversation file of this host.
+    ///
+    /// The removal runs over the sftp channel of the same reach. A failed removal
+    /// drops that channel: a channel that answered with a failure of its own is not
+    /// one to keep for the next listing.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnremovableRemote`] when the file cannot be removed, with the path
+    /// at fault in the message, and the failure of the reach or of the sftp channel.
+    pub(super) async fn remove(&self, path: &str) -> Result<(), PieError> {
+        let sftp = sftp(&self.host).await?;
+        match sftp.remove_file(path).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.host.forget_sftp(&sftp);
+                Err(unremovable_there(path, error).into())
             }
         }
     }

@@ -89,6 +89,20 @@ export type SessionTokens = PiSessionStats["tokens"];
 /** Result of compacting the conversation (`CompactionResult`). */
 export type CompactionResult = PiCompactionResult;
 
+/**
+ * The result of a fork (`fork`).
+ *
+ * `text` is the message the fork started from, which pi leaves out for a fork at
+ * the leaf. `cancelled` is true when an extension of pi refused the fork.
+ */
+export type ForkData = Extract<RpcResponse, { command: "fork" }>["data"];
+
+/** One fork point: the id of a user message, and its words. */
+export type ForkMessage = Extract<RpcResponse, { command: "get_fork_messages" }>["data"]["messages"][number];
+
+/** The result of a clone: whether an extension refused it (`clone`). */
+export type CloneResult = Extract<RpcResponse, { command: "clone" }>["data"];
+
 /** What kind of resource provides a slash command (`SlashCommandSource`). */
 export type SlashCommandSource = PiSlashCommandSource;
 

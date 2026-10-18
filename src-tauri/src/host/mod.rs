@@ -30,7 +30,7 @@ mod ssh;
 mod version;
 
 pub use error::{Error, Result};
-pub use files::DirEntry;
+pub use files::{DirEntry, Listing};
 pub use local::LocalHost;
 pub use path::HostPath;
 pub use spec::{Auth, Endpoint, Options, Spec};
@@ -223,7 +223,7 @@ impl Host {
     /// [`Error::NotAbsolute`] for a relative path (a mistake of the frontend),
     /// and [`Error::UnreadableLocal`] or [`Error::UnreadableRemote`] when the
     /// directory cannot be read.
-    pub async fn dirs(&self, path: Option<&HostPath>) -> Result<Vec<DirEntry>, Error> {
+    pub async fn dirs(&self, path: Option<&HostPath>) -> Result<Listing, Error> {
         match self {
             Self::Local(local) => files::dirs_local(local.home(), path.map(HostPath::as_str)).await,
             Self::Ssh(ssh) => {
@@ -237,7 +237,66 @@ impl Host {
                 let sftp = files::sftp(ssh).await?;
                 // A failed listing must not keep a dead channel in the cache.
                 match files::dirs_remote(&sftp, path.map(HostPath::as_str)).await {
-                    Ok(rows) => Ok(rows),
+                    Ok(listing) => Ok(listing),
+                    Err(error) => {
+                        ssh.forget_sftp(&sftp);
+                        Err(error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether a path names a directory on the machine.
+    ///
+    /// The picker asks this when the typed text matches nothing: a name that
+    /// stands is entered, a name that does not is offered for making. The path
+    /// must be absolute on the machine, as with [`Host::dirs`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAbsolute`] for a relative path (a mistake of the frontend),
+    /// and [`Error::UnreadableLocal`] or [`Error::UnreadableRemote`] when the
+    /// answer cannot be told.
+    pub async fn dir_exists(&self, path: &HostPath) -> Result<bool, Error> {
+        match self {
+            Self::Local(_) => files::dir_exists_local(path.as_str()).await,
+            Self::Ssh(ssh) => {
+                if !path.is_absolute() {
+                    return Err(files::not_absolute(path.as_str()));
+                }
+                let sftp = files::sftp(ssh).await?;
+                match files::dir_exists_remote(&sftp, path.as_str()).await {
+                    Ok(exists) => Ok(exists),
+                    Err(error) => {
+                        ssh.forget_sftp(&sftp);
+                        Err(error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Makes a directory on the machine, with parents as needed.
+    ///
+    /// The picker offers this when the typed path names nothing. The path must
+    /// be absolute on the machine, as with [`Host::dirs`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAbsolute`] for a relative path (a mistake of the frontend),
+    /// and [`Error::UncreatableLocal`] or [`Error::UncreatableRemote`] when the
+    /// directory cannot be made.
+    pub async fn create(&self, path: &HostPath) -> Result<(), Error> {
+        match self {
+            Self::Local(_) => files::create_dir_local(path.as_str()).await,
+            Self::Ssh(ssh) => {
+                if !path.is_absolute() {
+                    return Err(files::not_absolute(path.as_str()));
+                }
+                let sftp = files::sftp(ssh).await?;
+                match files::create_dir_remote(&sftp, path.as_str()).await {
+                    Ok(()) => Ok(()),
                     Err(error) => {
                         ssh.forget_sftp(&sftp);
                         Err(error)

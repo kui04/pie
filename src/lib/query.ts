@@ -65,6 +65,7 @@ export const sessionKeys = {
     entries: (session: string) => [...sessionKeys.whole(session), "entries"] as const,
     stats: (session: string) => [...sessionKeys.whole(session), "stats"] as const,
     commands: (session: string) => [...sessionKeys.whole(session), "commands"] as const,
+    forkMessages: (session: string) => [...sessionKeys.whole(session), "forkMessages"] as const,
     models: (session: string) => [...sessionKeys.whole(session), "models"] as const,
     thinkingLevels: (session: string) => [...sessionKeys.whole(session), "thinkingLevels"] as const,
 };
@@ -116,6 +117,14 @@ export const sessionQueries = {
             retry: false,
         }),
 
+    /** The user messages that a fork of this session can start from, for the fork sheet. */
+    forkMessages: (session: string) =>
+        queryOptions({
+            queryKey: sessionKeys.forkMessages(session),
+            queryFn: () => bridge.getForkMessages(session),
+            retry: false,
+        }),
+
     /** The models this session can use. */
     models: (session: string) =>
         queryOptions({
@@ -148,6 +157,23 @@ export const sessionsQueries = {
         queryOptions({
             queryKey: ["sessions", endpoint] as const,
             queryFn: () => bridge.listSessions(),
+            retry: false,
+        }),
+};
+
+/**
+ * The directories of the host, one level at a time, for the directory picker.
+ *
+ * The host is part of the key: the answer is what that machine holds, and a second
+ * connection in one run of pie would otherwise be handed the directories of the
+ * first. An absent path is the home directory of the machine.
+ */
+export const directoryQueries = {
+    /** One level of the directories of the connected machine. */
+    list: (endpoint: string, path?: string) =>
+        queryOptions({
+            queryKey: ["dirs", endpoint, path ?? ""] as const,
+            queryFn: () => bridge.listDirs(path),
             retry: false,
         }),
 };

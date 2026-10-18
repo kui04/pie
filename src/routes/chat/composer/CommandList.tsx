@@ -9,7 +9,8 @@
 
 import { useRef } from "react";
 import { cn } from "cn";
-import { AnchoredPopoverContent, ScrollPane } from "@/components";
+import { ScrollPane } from "@/components";
+import { PopoverContent } from "@/components/ui";
 import type { CommandRow } from "@/routes/chat/composer/command";
 
 export interface CommandListProps {
@@ -53,7 +54,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
     };
 
     return (
-        <AnchoredPopoverContent
+        <PopoverContent
             id={id}
             side="top"
             align="center"
@@ -73,8 +74,8 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                 "elevation-raised bg-card text-foreground",
                 // The cap follows the visible viewport, so an open keyboard
                 // cannot push the rows off screen; the scroll pane takes the rest.
-                rows.length > TEN_ROWS && "h-103 max-h-[calc(100dvh-14rem)]",
-                rows.length <= TEN_ROWS && "max-h-[calc(100dvh-14rem)]",
+                "max-h-[calc(100dvh-14rem)]",
+                rows.length > TEN_ROWS && "h-103",
                 "w-(--anchor-width) gap-1 overflow-hidden p-2",
                 className,
             )}
@@ -127,6 +128,6 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                     </div>
                 </ScrollPane>
             </div>
-        </AnchoredPopoverContent>
+        </PopoverContent>
     );
 }

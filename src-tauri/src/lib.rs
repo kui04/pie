@@ -36,6 +36,8 @@ pub fn run() {
             commands::host::get_connection,
             commands::host::reconnect,
             commands::host::close_the_reach,
+            commands::host::create_dir,
+            commands::host::dir_exists,
             commands::host::list_dirs,
             commands::host::trust_host_key,
             commands::log::log,
@@ -47,12 +49,16 @@ pub fn run() {
             commands::session::attach_session,
             commands::session::bash,
             commands::session::clear_queue,
+            commands::session::clone_session,
             commands::session::compact,
+            commands::session::delete_session,
             commands::session::detach_session,
+            commands::session::fork_session,
             commands::session::get_available_models,
             commands::session::get_available_thinking_levels,
             commands::session::get_commands,
             commands::session::get_entries,
+            commands::session::get_fork_messages,
             commands::session::get_last_assistant_text,
             commands::session::get_session_stats,
             commands::session::get_state,
@@ -62,6 +68,7 @@ pub fn run() {
             commands::session::set_model,
             commands::session::set_session_name,
             commands::session::set_thinking_level,
+            commands::session::start_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

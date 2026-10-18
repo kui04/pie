@@ -549,3 +549,34 @@ describe("the run of a session", () => {
         expect(actor.getSnapshot().context.error?.message).toBe("the bus refused the listener");
     });
 });
+
+/**
+ * A fork or a clone replaces the conversation of the same process: the session keeps its
+ * id, and everything this side drew belongs to the conversation that is gone.
+ */
+describe("the conversation that was replaced", () => {
+    it("drops what the old conversation drew, and reads again", () => {
+        const { actor, reads } = opened();
+        // Something of the old conversation is on screen: a live row, and an entry that
+        // arrived after the base read.
+        actor.send({ type: "RECORD", at: 20, record: record("message_start", { message: assistantMessage(2) }) });
+        actor.send({ type: "RECORD", at: 21, record: record("entry_appended", { entry: entryOf("b", user(3), "a") }) });
+        expect(actor.getSnapshot().context.live.messages).toHaveLength(1);
+        expect(actor.getSnapshot().context.overlay.order).toEqual(["b"]);
+        reads.length = 0;
+
+        actor.send({ type: "REPLACED" });
+
+        expect(actor.getSnapshot().context.live.messages).toEqual([]);
+        expect(actor.getSnapshot().context.overlay.order).toEqual([]);
+        expect(actor.getSnapshot().matches({ transcript: "empty" })).toBe(true);
+        expect(actor.getSnapshot().matches({ run: "idle" })).toBe(true);
+        expect(reads).toEqual(["whole"]);
+
+        // The base in hand was the conversation that is gone, so the next answer stands
+        // for the new one whenever it was written.
+        actor.send({ type: "SNAPSHOT", data: { entries: [entryOf("c", user(4))], leafId: "c" }, at: 5 });
+        expect(isReady(actor.getSnapshot())).toBe(true);
+        expect(actor.getSnapshot().context.lastSnapshotAt).toBe(5);
+    });
+});

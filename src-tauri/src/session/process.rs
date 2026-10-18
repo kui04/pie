@@ -1,8 +1,9 @@
 //! One `pi --mode rpc` process, and what pie asks of it.
 //!
 //! A session is a process, not a conversation: its id (`main:1`) names the pi
-//! that pie started, and it holds the one conversation it was attached on
-//! (`--session`). Therefore the files of pi's sessions and the processes that
+//! that pie started, and it holds one conversation at a time - the one it was
+//! attached on (`--session`), or, after pi forked or cloned it, the branch that
+//! replaced it. Therefore the files of pi's sessions and the processes that
 //! write them are both "sessions", and they are two different things.
 //!
 //! Every read and every command of one session goes through the protocol client
@@ -12,7 +13,10 @@
 //! of them is wrapped here.
 
 use pi_rpc::client::{BashReq, Client, Config, PromptReq};
-use pi_rpc::response::{BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats};
+use pi_rpc::response::{
+    BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
+    SessionSwitch,
+};
 use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
 use crate::channel::{Channel, Handle};
@@ -355,5 +359,54 @@ impl Session {
     /// The failure of the protocol, including an empty name, which pi refuses.
     pub async fn set_session_name(&self, name: &str) -> Result<(), PieError> {
         Ok(self.client.set_session_name(name).await?)
+    }
+
+    /// The user messages of this session that a fork can start from.
+    ///
+    /// Pi answers every user message with text, on the current branch and on the
+    /// others of a fork: the selector of its own terminal UI lists the same set
+    /// (`getUserMessagesForForking` of the pinned `core/agent-session.ts`). The
+    /// screen picks one, and the entry id it carries names the fork point.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol.
+    pub async fn fork_messages(&self) -> Result<Vec<ForkMessage>, PieError> {
+        Ok(self.client.get_fork_messages().await?)
+    }
+
+    /// Forks this session at a user message, in this process.
+    ///
+    /// Pi writes a new conversation file - the header, then the entries up to the
+    /// parent of that message - and the process holds that file from here
+    /// (`createBranchedSession` of the pinned `core/session-manager.ts`). The old
+    /// file stays where pi wrote it. `text` is the selected message, for a screen
+    /// that offers it back to the person.
+    ///
+    /// The fork happens in the process, so the id of this session does not change;
+    /// what changes is the conversation it holds. A caller must read the state and
+    /// the entries again, and a screen that drew the old conversation must let it go.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including a conversation with no file yet
+    /// ("send a message before cloning or forking it") and an entry that is not a
+    /// user message.
+    pub async fn fork(&self, entry_id: &str) -> Result<ForkData, PieError> {
+        Ok(self.client.fork(entry_id).await?)
+    }
+
+    /// Copies the whole branch of this session into a new file, in this process.
+    ///
+    /// This is a fork at the leaf: the new file holds every entry of the current
+    /// branch. The old file stays where pi wrote it. Like [`Session::fork`], the
+    /// process keeps its id and its conversation changes, so the state and the
+    /// entries are read again.
+    ///
+    /// # Errors
+    ///
+    /// The failure of the protocol, including a conversation with no file yet.
+    pub async fn clone_session(&self) -> Result<SessionSwitch, PieError> {
+        Ok(self.client.clone_session().await?)
     }
 }

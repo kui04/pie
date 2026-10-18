@@ -192,6 +192,50 @@ pub enum Error {
         source: SftpError,
     },
 
+    /// Pie cannot remove a path on this machine.
+    #[error("cannot remove {path}: {source}")]
+    UnremovableLocal {
+        /// The path at fault.
+        path: String,
+        /// What the removal reported.
+        #[serde(skip)]
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// Pie cannot remove a path on the host.
+    #[error("cannot remove {path}: {source}")]
+    UnremovableRemote {
+        /// The path at fault, as the host sees it.
+        path: String,
+        /// What the removal reported.
+        #[serde(skip)]
+        #[source]
+        source: SftpError,
+    },
+
+    /// Pie cannot make a directory on this machine.
+    #[error("cannot make {path}: {source}")]
+    UncreatableLocal {
+        /// The path at fault.
+        path: String,
+        /// What the making reported.
+        #[serde(skip)]
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// Pie cannot make a directory on the host.
+    #[error("cannot make {path}: {source}")]
+    UncreatableRemote {
+        /// The path at fault, as the host sees it.
+        path: String,
+        /// What the making reported.
+        #[serde(skip)]
+        #[source]
+        source: SftpError,
+    },
+
     /// The host took the request for an sftp channel. It did not open one.
     #[error("the sftp subsystem on {endpoint} did not answer: {source}")]
     SftpUnanswered {
@@ -239,5 +283,18 @@ mod tests {
 
         assert_eq!(error.to_string(), "cannot read /home/pie/.pi: permission denied");
         assert!(std::error::Error::source(&error).is_some(), "the refusal survives");
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_removed_says_which_one() {
+        let error = Error::UnremovableRemote {
+            path: "/home/pie/.pi/agent/sessions/x/one.jsonl".to_string(),
+            source: SftpError::UnexpectedBehavior("no such file".to_string()),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "cannot remove /home/pie/.pi/agent/sessions/x/one.jsonl: no such file"
+        );
     }
 }

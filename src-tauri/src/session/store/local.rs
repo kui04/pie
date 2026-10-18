@@ -14,7 +14,7 @@ use tokio::task::JoinSet;
 
 use crate::error::PieError;
 use crate::host::Error;
-use crate::host::files::unreadable;
+use crate::host::files::{unreadable, unremovable};
 
 use super::{READ_CHUNK, SessionSummary, SessionSummaryLines, expand_home, first_text, name_in, newest_first, rfc3339};
 
@@ -47,6 +47,18 @@ impl Local {
     /// a log line, not the listing. A path at fault names itself in the message.
     pub(super) async fn summaries(&self) -> Result<Vec<SessionSummary>, PieError> {
         Ok(self.list().await?)
+    }
+
+    /// Removes one conversation file of this machine.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnremovableLocal`] when the file cannot be removed, with the path at
+    /// fault in the message.
+    pub(super) async fn remove(&self, path: &str) -> Result<(), PieError> {
+        tokio::fs::remove_file(path)
+            .await
+            .map_err(|error| unremovable(path, error).into())
     }
 
     /// The sessions that pi wrote under this machine's `sessions` directory.
@@ -314,6 +326,39 @@ mod tests {
             summary_of_file(&missing).is_err(),
             "a file that is not there is a failure, not a session with nothing to say"
         );
+    }
+
+    #[tokio::test]
+    async fn a_removed_file_leaves_the_directory() {
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let file = directory.path().join("one.jsonl");
+        std::fs::write(&file, "{}\n").expect("a file");
+
+        Local::new()
+            .remove(file.to_str().expect("utf-8"))
+            .await
+            .expect("the removal");
+
+        assert!(!file.exists(), "the file is gone");
+    }
+
+    #[tokio::test]
+    async fn a_file_that_is_already_gone_cannot_be_removed_and_says_so() {
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let missing = directory.path().join("gone.jsonl");
+
+        let error = Local::new()
+            .remove(missing.to_str().expect("utf-8"))
+            .await
+            .expect_err("a file that is not there cannot be removed");
+
+        match error {
+            crate::error::PieError::Host { error, .. } => assert!(
+                matches!(*error, crate::host::Error::UnremovableLocal { .. }),
+                "the failure names the machine and the path at fault: {error:?}"
+            ),
+            other => panic!("the failure belongs to the machine: {other:?}"),
+        }
     }
 
     #[test]

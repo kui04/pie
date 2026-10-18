@@ -1,25 +1,26 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
-import { useAttachedConversations } from "@/hooks/useAttachedConversations";
-import { connectionQueries } from "@/lib/query";
+import { connectionQueries, sessionQueries } from "@/lib/query";
 import { useMotion } from "@/hooks/useMotion";
 import { useWideWindow } from "@/hooks/useWideWindow";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
-import { sessionOf as chartOf, subscribeSessions } from "@/lib/sessions";
+import { phases, sessionOf as chartOf, subscribeSessions } from "@/lib/sessions";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SessionLanding } from "@/routes/chat/SessionLanding";
-import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
+import { SessionSidebar, type AttachedConversation } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
 import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 import { SessionSlots } from "@/routes/chat/topbar/SessionSlots";
 import { SessionMain } from "@/routes/chat/SessionMain";
+import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
+import { DirectoryPicker } from "@/routes/chat/picker/DirectoryPicker";
 
 /** The page fills the column the frame gives it, and nothing of it scrolls as a whole. */
 const COLUMN = "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
@@ -33,7 +34,12 @@ export function ChatScreen() {
     const deps = useMemo<ChatDeps>(
         () => ({
             attach: async (path) => {
-                const info = await bridge.attachSession(path ?? undefined);
+                const info = await bridge.attachSession(path);
+                await client.invalidateQueries({ queryKey: ["connection"] });
+                return info;
+            },
+            start: async (cwd) => {
+                const info = await bridge.startSession(cwd ?? undefined);
                 await client.invalidateQueries({ queryKey: ["connection"] });
                 return info;
             },
@@ -55,7 +61,20 @@ export function ChatScreen() {
     // every render would run their effects again.
     const sessions = useMemo(() => connection.data?.sessions ?? [], [connection.data]);
     const endpoint = connection.data?.endpoint ?? "local";
-    const attached = useAttachedConversations(sessions);
+    const phaseOfEach = useSyncExternalStore(subscribeSessions, phases, phases);
+    const sessionStateReads = useQueries({
+        queries: sessions.map((item) => sessionQueries.state(item.id)),
+    });
+    const attached = useMemo(() => {
+        const result = new Map<string, AttachedConversation>();
+        sessionStateReads.forEach((read, index) => {
+            const item = sessions[index];
+            const file = read.data?.sessionFile ?? null;
+            if (item === undefined || file === null) return;
+            result.set(file, { session: item.id, working: phaseOfEach.get(item.id) !== "idle" });
+        });
+        return result;
+    }, [sessionStateReads, sessions, phaseOfEach]);
     // The chart of the session in view, for the bar's own slots: the registry holds it, and a
     // screen only selects it.
     const chart = useSyncExternalStore(
@@ -69,6 +88,11 @@ export function ChatScreen() {
     // Pure UI, so the two live here, above both stages that draw a list.
     const [sheet, setSheet] = useState(false);
     const [column, setColumn] = useState(true);
+    // The directory picker of a new conversation: a sheet of its own, above both stages
+    // that offer the action (the list and the landing).
+    const [picking, setPicking] = useState(false);
+    // The popup of the conversation's own actions, at the end of the bar.
+    const [menu, setMenu] = useState(false);
     const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
 
     // A connection that was replaced never held the session in view: the reach was brought
@@ -137,6 +161,7 @@ export function ChatScreen() {
                     endpoint={endpoint}
                     attached={attached}
                     onPick={open}
+                    onNew={() => setPicking(true)}
                     wide={wide}
                     column={column}
                     sheet={sheet}
@@ -150,7 +175,20 @@ export function ChatScreen() {
                 {/* A conversation that is on its way has nothing to say about itself: its slots
                     arrive with its words, and the bar keeps the window's own keys until then. */}
                 {stage === "viewing" && chart !== null && session !== null && (
-                    <SessionSlots session={session} machine={chart} cwd={cwd} />
+                    <>
+                        <SessionSlots session={session} machine={chart} cwd={cwd} />
+                        {/* The conversation's own actions stand at the end of its slots, where
+                            the window's keys are not disturbed. */}
+                        <SessionMenu
+                            session={session}
+                            machine={chart}
+                            endpoint={endpoint}
+                            open={menu}
+                            onOpenChange={setMenu}
+                            onClose={() => machine.send({ type: "CLOSE" })}
+                            onGone={() => machine.send({ type: "GONE" })}
+                        />
+                    </>
                 )}
             </ChatTopbar>
             <AnimatePresence mode="wait" initial={false}>
@@ -158,6 +196,15 @@ export function ChatScreen() {
                     {body()}
                 </motion.div>
             </AnimatePresence>
+            <DirectoryPicker
+                endpoint={endpoint}
+                open={picking}
+                onOpenChange={setPicking}
+                onPick={(cwd) => {
+                    setPicking(false);
+                    machine.send({ type: "ATTACH", cwd });
+                }}
+            />
         </ChatFrame>
     );
 
@@ -194,6 +241,6 @@ export function ChatScreen() {
             return <SessionMain session={session} client={client} />;
         }
 
-        return <SessionLanding />;
+        return <SessionLanding onSessions={toggleSessions} onNew={() => setPicking(true)} />;
     }
 }

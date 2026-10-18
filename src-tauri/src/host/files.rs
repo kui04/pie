@@ -39,6 +39,20 @@ pub struct DirEntry {
     pub is_dir: bool,
 }
 
+/// One directory level of a machine, with the directory it is.
+///
+/// The directory comes back with the rows because the picker cannot name the home
+/// directory of a machine by itself: it asks for `None` and the machine answers with
+/// its own. Every other level is named by the row the picker walked into.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Listing {
+    /// The directory that was read, as the host writes it.
+    pub directory: String,
+    /// Its rows, directories first.
+    pub entries: Vec<DirEntry>,
+}
+
 /// One directory level of this machine.
 ///
 /// The paths are absolute and belong to the machine. `path` is `None` for the
@@ -50,16 +64,8 @@ pub struct DirEntry {
 /// [`Error::NoHomeDirectory`] when `path` is `None` and this machine has no home
 /// directory, [`Error::NotAbsolute`] for a relative path, and
 /// [`Error::UnreadableLocal`] when the directory cannot be read.
-pub(crate) async fn dirs_local(home: Option<&Path>, path: Option<&str>) -> Result<Vec<DirEntry>, Error> {
-    let path = match path {
-        None => home.map(Path::to_path_buf).ok_or(Error::NoHomeDirectory)?,
-        Some(path) => {
-            if !Path::new(path).is_absolute() {
-                return Err(not_absolute(path));
-            }
-            PathBuf::from(path)
-        }
-    };
+pub(crate) async fn dirs_local(home: Option<&Path>, path: Option<&str>) -> Result<Listing, Error> {
+    let path = local_start(home, path)?;
     let shown = path.display().to_string();
     let mut entries = tokio::fs::read_dir(&path)
         .await
@@ -88,7 +94,10 @@ pub(crate) async fn dirs_local(home: Option<&Path>, path: Option<&str>) -> Resul
         });
     }
     sort_dirs_first(&mut rows);
-    Ok(rows)
+    Ok(Listing {
+        directory: shown,
+        entries: rows,
+    })
 }
 
 /// The same directory level over an sftp channel. `None` asks for the login home,
@@ -98,22 +107,8 @@ pub(crate) async fn dirs_local(home: Option<&Path>, path: Option<&str>) -> Resul
 ///
 /// [`Error::NotAbsolute`] for a relative path, and [`Error::UnreadableRemote`]
 /// when the directory cannot be read.
-pub(crate) async fn dirs_remote(sftp: &SftpSession, path: Option<&str>) -> Result<Vec<DirEntry>, Error> {
-    let base = match path {
-        None => sftp
-            .canonicalize(".")
-            .await
-            .map_err(|error| unreadable_there("the login home", error))?,
-        Some(path) => {
-            if !is_absolute_on_the_host(path) {
-                // These are the paths of the host, not the paths of this machine.
-                // Over sftp they are as the host writes them, POSIX or Windows.
-                // Neither is the directory of pie.
-                return Err(not_absolute(path));
-            }
-            path.to_string()
-        }
-    };
+pub(crate) async fn dirs_remote(sftp: &SftpSession, path: Option<&str>) -> Result<Listing, Error> {
+    let base = remote_start(sftp, path).await?;
     let entries = sftp
         .read_dir(&base)
         .await
@@ -131,7 +126,10 @@ pub(crate) async fn dirs_remote(sftp: &SftpSession, path: Option<&str>) -> Resul
         });
     }
     sort_dirs_first(&mut rows);
-    Ok(rows)
+    Ok(Listing {
+        directory: base,
+        entries: rows,
+    })
 }
 
 /// Whether an sftp entry is a directory that a picker can walk, with links.
@@ -152,9 +150,152 @@ pub(crate) async fn sftp_is_dir(sftp: &SftpSession, entry: &russh_sftp::client::
     }
 }
 
+/// Whether a path names a directory on this machine.
+///
+/// Missing names answer `false`; anything else that goes wrong is a failure.
+///
+/// # Errors
+///
+/// [`Error::NotAbsolute`] for a relative path, and [`Error::UnreadableLocal`]
+/// when the answer cannot be told.
+pub(crate) async fn dir_exists_local(path: &str) -> Result<bool, Error> {
+    if !Path::new(path).is_absolute() {
+        return Err(not_absolute(path));
+    }
+    match tokio::fs::metadata(path).await {
+        Ok(target) => Ok(target.is_dir()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(unreadable(path, error)),
+    }
+}
+
+/// The same over an sftp channel.
+///
+/// # Errors
+///
+/// [`Error::NotAbsolute`] for a relative path, and [`Error::UnreadableRemote`]
+/// when the answer cannot be told.
+pub(crate) async fn dir_exists_remote(sftp: &SftpSession, path: &str) -> Result<bool, Error> {
+    if !is_absolute_on_the_host(path) {
+        return Err(not_absolute(path));
+    }
+    match sftp.metadata(path).await {
+        Ok(target) => Ok(target.is_dir()),
+        Err(error) if is_no_such_file(&error) => Ok(false),
+        Err(error) => Err(unreadable_there(path, error)),
+    }
+}
+
+/// Makes a directory on this machine, with parents as needed.
+///
+/// The picker offers this when the typed path names nothing: the confirm names
+/// the path, and this makes it.
+///
+/// # Errors
+///
+/// [`Error::NotAbsolute`] for a relative path, and [`Error::UncreatableLocal`]
+/// when the directory cannot be made.
+pub(crate) async fn create_dir_local(path: &str) -> Result<(), Error> {
+    if !Path::new(path).is_absolute() {
+        return Err(not_absolute(path));
+    }
+    tokio::fs::create_dir_all(path)
+        .await
+        .map_err(|error| uncreatable(path, error))
+}
+
+/// The same over an sftp channel, one level at a time.
+///
+/// sftp makes one level per call, so pie walks the levels itself and leaves
+/// what exists alone.
+///
+/// # Errors
+///
+/// [`Error::NotAbsolute`] for a relative path, and [`Error::UncreatableRemote`]
+/// when a level cannot be made.
+pub(crate) async fn create_dir_remote(sftp: &SftpSession, path: &str) -> Result<(), Error> {
+    if !is_absolute_on_the_host(path) {
+        return Err(not_absolute(path));
+    }
+    for level in levels_of(path) {
+        match sftp.metadata(&level).await {
+            Ok(_) => {}
+            Err(error) if is_no_such_file(&error) => {
+                sftp.create_dir(&level)
+                    .await
+                    .map_err(|error| uncreatable_there(path, error))?;
+            }
+            Err(error) => return Err(unreadable_there(&level, error)),
+        }
+    }
+    Ok(())
+}
+
+/// Every level of a host path from the top down, in the spelling the host uses.
+///
+/// The root keeps its own shape: `/`, `C:\`, or `\\host\share`.
+fn levels_of(path: &str) -> Vec<String> {
+    let sep = if path.contains('\\') { '\\' } else { '/' };
+    let root_end = if path.starts_with("\\\\") {
+        // A UNC head runs through the share: `\\host\share` plus one separator.
+        let mut seen = 0;
+        let mut end = path.len();
+        for (at, char) in path.char_indices() {
+            if char == '\\' || char == '/' {
+                seen += 1;
+                if seen == 4 {
+                    end = at + 1;
+                    break;
+                }
+            }
+        }
+        end
+    } else {
+        path.find(['/', '\\']).map(|at| at + 1).unwrap_or(path.len())
+    };
+    let mut levels = Vec::new();
+    let mut built = path[..root_end].to_string();
+    for part in path[root_end..].split(['/', '\\']).filter(|part| !part.is_empty()) {
+        if !built.ends_with(sep) {
+            built.push(sep);
+        }
+        built.push_str(part);
+        levels.push(built.clone());
+    }
+    levels
+}
+
 /// Directories first, then by name. The order of the picker, on both machines.
 fn sort_dirs_first(rows: &mut [DirEntry]) {
     rows.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
+}
+
+/// The directory of this machine that a read was asked about: `None` is the home.
+fn local_start(home: Option<&Path>, path: Option<&str>) -> Result<PathBuf, Error> {
+    match path {
+        None => home.map(Path::to_path_buf).ok_or(Error::NoHomeDirectory),
+        Some(path) if Path::new(path).is_absolute() => Ok(PathBuf::from(path)),
+        Some(path) => Err(not_absolute(path)),
+    }
+}
+
+/// The same over sftp: `None` is the login home of the session.
+async fn remote_start(sftp: &SftpSession, path: Option<&str>) -> Result<String, Error> {
+    match path {
+        None => sftp
+            .canonicalize(".")
+            .await
+            .map_err(|error| unreadable_there("the login home", error)),
+        Some(path) => {
+            // These are the paths of the host, not the paths of this machine. Over sftp
+            // they are as the host writes them, POSIX or Windows. Neither is the
+            // directory of pie.
+            if !is_absolute_on_the_host(path) {
+                return Err(not_absolute(path));
+            }
+            Ok(path.to_string())
+        }
+    }
 }
 
 /// The file channel of a host pie reaches over SSH.
@@ -196,6 +337,40 @@ pub(crate) fn unreadable(path: &str, source: std::io::Error) -> Error {
 /// The same for a path on the host, over sftp.
 pub(crate) fn unreadable_there(path: &str, source: SftpError) -> Error {
     Error::UnreadableRemote {
+        path: path.to_string(),
+        source,
+    }
+}
+
+/// A path on this machine that pie cannot remove appears as any other failure of
+/// the reach. The frontend offers the same retry, and the message names the path at
+/// fault.
+pub(crate) fn unremovable(path: &str, source: std::io::Error) -> Error {
+    Error::UnremovableLocal {
+        path: path.to_string(),
+        source,
+    }
+}
+
+/// The same for a path on the host, over sftp.
+pub(crate) fn unremovable_there(path: &str, source: SftpError) -> Error {
+    Error::UnremovableRemote {
+        path: path.to_string(),
+        source,
+    }
+}
+
+/// A directory on this machine that pie cannot make.
+pub(crate) fn uncreatable(path: &str, source: std::io::Error) -> Error {
+    Error::UncreatableLocal {
+        path: path.to_string(),
+        source,
+    }
+}
+
+/// The same for a directory on the host, over sftp.
+pub(crate) fn uncreatable_there(path: &str, source: SftpError) -> Error {
+    Error::UncreatableRemote {
         path: path.to_string(),
         source,
     }
@@ -274,9 +449,13 @@ mod tests {
         std::fs::create_dir(directory.path().join("a-dir")).expect("the directory");
         std::fs::write(directory.path().join("z-file"), "").expect("the file");
 
-        let rows = dirs_local(None, Some(directory.path().to_str().expect("utf-8")))
+        let listing = dirs_local(None, Some(directory.path().to_str().expect("utf-8")))
             .await
             .expect("the listing");
+        // The listing names the directory it read: the picker cannot name the home of
+        // a machine by itself.
+        assert_eq!(listing.directory, directory.path().display().to_string());
+        let rows = listing.entries;
 
         let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
         assert_eq!(names, ["a-dir", "b-dir", "z-file"]);
@@ -302,7 +481,8 @@ mod tests {
 
         let rows = dirs_local(None, Some(directory.path().to_str().expect("utf-8")))
             .await
-            .expect("the listing");
+            .expect("the listing")
+            .entries;
 
         let link = rows
             .iter()
@@ -322,7 +502,8 @@ mod tests {
 
         let rows = dirs_local(None, Some(directory.path().to_str().expect("utf-8")))
             .await
-            .expect("the listing");
+            .expect("the listing")
+            .entries;
 
         let stale = rows.iter().find(|row| row.name == "stale").expect("the link is listed");
         assert!(!stale.is_dir, "a link that leads nowhere is not a walkable directory");
@@ -337,5 +518,52 @@ mod tests {
             let error = dirs_local(None, Some(path)).await.expect_err("`{path}` is relative");
             assert!(matches!(error, Error::NotAbsolute { .. }), "got {error:?}");
         }
+    }
+
+    #[test]
+    fn the_levels_of_a_path_run_from_the_top_down() {
+        assert_eq!(levels_of("/a/b"), ["/a", "/a/b"]);
+        assert_eq!(levels_of("/a"), ["/a"]);
+        assert!(levels_of("/").is_empty(), "the root itself needs no making");
+        assert_eq!(levels_of("C:\\a\\b"), ["C:\\a", "C:\\a\\b"]);
+    }
+
+    #[tokio::test]
+    async fn the_local_make_builds_missing_parents() {
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let nested = directory.path().join("a/b");
+        let missing = nested.to_str().expect("utf-8");
+
+        create_dir_local(missing).await.expect("the making");
+
+        assert!(nested.is_dir(), "the nested directory stands");
+    }
+
+    #[tokio::test]
+    async fn the_local_make_leaves_what_exists_alone() {
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let start = directory.path().to_str().expect("utf-8");
+
+        create_dir_local(start).await.expect("making what stands is fine");
+    }
+
+    #[tokio::test]
+    async fn the_local_make_takes_no_relative_path() {
+        let error = create_dir_local("sessions/new").await.expect_err("a relative path");
+
+        assert!(matches!(error, Error::NotAbsolute { .. }), "got {error:?}");
+    }
+
+    #[tokio::test]
+    async fn the_local_probe_tells_a_directory_from_a_missing_name() {
+        let directory = tempfile::tempdir().expect("a temp directory");
+        let start = directory.path().to_str().expect("utf-8");
+        let missing = directory.path().join("gone").to_str().expect("utf-8").to_string();
+
+        assert!(dir_exists_local(start).await.expect("a directory stands"));
+        assert!(!dir_exists_local(&missing).await.expect("a missing name does not"));
+
+        let error = dir_exists_local("sessions").await.expect_err("a relative path");
+        assert!(matches!(error, Error::NotAbsolute { .. }), "got {error:?}");
     }
 }

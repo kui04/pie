@@ -69,6 +69,25 @@ impl SessionStore {
             SessionStore::Ssh(ssh) => ssh.summaries().await,
         }
     }
+
+    /// Removes one conversation file of this machine.
+    ///
+    /// This is pi's file and nothing else of it: the process that holds the
+    /// conversation must be gone first, because a pi that keeps writing to a removed
+    /// file writes into a name nobody can open again. The caller ends it
+    /// (`SessionManager::detach`).
+    ///
+    /// # Errors
+    ///
+    /// [`PieError::Host`] when the file cannot be removed, with the path at fault in
+    /// the message: `UnremovableLocal` on this machine, and `UnremovableRemote` or
+    /// the failure of the reach over SSH.
+    pub(crate) async fn remove(&self, path: &str) -> Result<(), PieError> {
+        match self {
+            SessionStore::Local(local) => local.remove(path).await,
+            SessionStore::Ssh(ssh) => ssh.remove(path).await,
+        }
+    }
 }
 
 /// One read of the head scan.

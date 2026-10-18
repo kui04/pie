@@ -3,8 +3,7 @@ import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { AnchoredPopover, AnchoredPopoverAnchor } from "@/components";
-import { Button, Textarea } from "@/components/ui";
+import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
 import { useIsMobile } from "@/hooks/usePlatform";
 import * as bridge from "@/lib/bridge";
 import type { ImageContent, StreamingBehavior } from "@/lib/rpc-protocol";
@@ -223,148 +222,171 @@ export function Composer({ session, working, machine }: ComposerProps) {
     const sendable = value.trim() !== "" || staged.length > 0;
     const shellMode = bashCommandOf(value) !== null;
 
+    // The card the trigger wraps: everything the reader touches, in one place so
+    // the trigger above stays a positioning anchor and nothing else.
+    const card = (
+        <>
+            {runningBash !== null && (
+                // The reader's own run, above the card where the command panel comes
+                // from. Pi records it as an entry when it can (its own
+                // `_pendingBashMessages` may defer that), and the chart takes the card
+                // down when the entry of that command arrives (`bashAfter`).
+                <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
+                    <UserCommand
+                        id="composer-run-card"
+                        tool="bash"
+                        presentation={presentRunningExecution(runningBash)}
+                    />
+                </div>
+            )}
+            {staged.length > 0 && (
+                <div id="composer-attachments" className="flex flex-wrap gap-2">
+                    {staged.map(({ id, name, image }, index) => (
+                        <div
+                            key={id}
+                            id={`composer-attachment-${index}`}
+                            className={cn(
+                                "border-border-strong bg-surface-container-highest",
+                                "flex max-w-full items-center gap-2 rounded-full border p-1",
+                            )}
+                        >
+                            <img
+                                alt=""
+                                src={`data:${image.mimeType};base64,${image.data}`}
+                                className="size-4 shrink-0 rounded-full object-cover"
+                            />
+                            <span className="text-body-md text-foreground max-w-40 truncate">{name}</span>
+                            <Button
+                                id={`composer-attachment-${index}-remove`}
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${name}`}
+                                className={cn(
+                                    "text-muted-foreground hover:bg-surface-bright",
+                                    "hover:text-foreground dark:hover:bg-surface-bright",
+                                    "size-5 shrink-0 rounded-full p-0",
+                                )}
+                                onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
+                            >
+                                <X className="size-3" />
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <Textarea
+                id="composer-input"
+                ref={input}
+                value={value}
+                rows={3}
+                onChange={(event) => {
+                    setValue(event.target.value);
+                    setDismissed(false);
+                    // Words of the panel's own: the row under the keyboard starts
+                    // over, so the light is on the best match of the new search.
+                    setHighlighted(null);
+                    setPointed(null);
+                }}
+                onKeyDown={onKeyDown}
+                placeholder={
+                    isMobile
+                        ? "Ask Pi anything, or type / for commands"
+                        : "Ask Pi anything, or type / for commands. Enter steers, Alt+Enter queues a follow-up."
+                }
+                aria-label="Your message"
+                enterKeyHint="send"
+                onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
+                className={cn(
+                    "text-body-md block max-h-25 min-h-15 resize-none",
+                    "rounded-none border-0 bg-transparent p-0",
+                    "focus-visible:ring-0 dark:bg-transparent",
+                )}
+            />
+            <div id="composer-controls" className="flex items-center justify-between gap-2">
+                <div id="composer-actions" className="flex items-center gap-2">
+                    <ComposerKey id="composer-attach" aria-label="Attach images" onClick={attach}>
+                        <Plus className="size-4" />
+                    </ComposerKey>
+                    <ComposerKey
+                        id="composer-command"
+                        aria-label="Commands"
+                        onClick={() => {
+                            setValue("/");
+                            setDismissed(false);
+                            input.current?.focus();
+                        }}
+                    >
+                        <Terminal className="size-4" />
+                    </ComposerKey>
+                </div>
+                <div id="composer-settings" className="flex min-w-0 items-center gap-2">
+                    <ModelPicker
+                        session={session}
+                        current={state.data?.model ?? null}
+                        open={panel === "model"}
+                        onOpenChange={(open) => setPanel(open ? "model" : null)}
+                    />
+                    <ThinkingLevelPicker
+                        session={session}
+                        current={state.data?.thinkingLevel ?? null}
+                        open={panel === "thinking"}
+                        onOpenChange={(open) => setPanel(open ? "thinking" : null)}
+                    />
+                    <Button
+                        id="composer-submit"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={stopShown ? "Stop" : "Send"}
+                        className={cn(
+                            "size-8 shrink-0 rounded-full p-0 disabled:opacity-100",
+                            stopShown
+                                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                : shellMode
+                                  ? "bg-surface-container-highest text-violet hover:bg-surface-bright"
+                                  : "bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-foreground/12 disabled:text-foreground/40",
+                        )}
+                        disabled={!stopShown && !sendable}
+                        onClick={() => (stopShown ? stop() : submit(false))}
+                    >
+                        {stopShown ? <Square className="size-4" /> : <SendHorizontal className="size-4" />}
+                    </Button>
+                </div>
+            </div>
+        </>
+    );
+
     return (
-        <AnchoredPopover
+        <Popover
             open={commandListOpen && highlightedRow !== null}
-            onOpenChange={(open) => {
+            onOpenChange={(open, details) => {
                 // A popover that closed itself - an outside click, an Escape - is the
                 // same as the reader dismissing the panel: the same text must not
-                // open it again.
-                if (!open) setDismissed(true);
+                // open it again. A press inside the card is not a verdict: the
+                // card is the trigger, and typing owns the open state.
+                if (!open && details.reason !== "trigger-press") setDismissed(true);
             }}
         >
-            {/* The card is the anchor of the panel and no trigger: the text typed in
-                it is what opens the list, and the list stands above it. */}
-            <AnchoredPopoverAnchor
-                render={<div id="composer" className="bg-card relative flex flex-col gap-3 rounded-xl p-4" />}
-            >
-                {runningBash !== null && (
-                    // The reader's own run, above the card where the command panel comes
-                    // from. Pi records it as an entry when it can (its own
-                    // `_pendingBashMessages` may defer that), and the chart takes the card
-                    // down when the entry of that command arrives (`bashAfter`).
-                    <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
-                        <UserCommand
-                            id="composer-run-card"
-                            tool="bash"
-                            presentation={presentRunningExecution(runningBash)}
-                        />
+            {/* The card is the trigger of the panel and not its opener: the text
+                typed in it is what opens the list, and the list stands above it.
+                The trigger semantics are stripped - a card holding a textbox and
+                keys is no button - and only the anchor stays: positioning. */}
+            <PopoverTrigger
+                render={(props) => (
+                    <div
+                        {...props}
+                        id="composer"
+                        role={undefined}
+                        tabIndex={undefined}
+                        aria-haspopup={undefined}
+                        aria-expanded={undefined}
+                        aria-controls={undefined}
+                        className="bg-card relative flex flex-col gap-3 rounded-xl p-4"
+                    >
+                        {card}
                     </div>
                 )}
-                {staged.length > 0 && (
-                    <div id="composer-attachments" className="flex flex-wrap gap-2">
-                        {staged.map(({ id, name, image }, index) => (
-                            <div
-                                key={id}
-                                id={`composer-attachment-${index}`}
-                                className={cn(
-                                    "border-border-strong bg-surface-container-highest",
-                                    "flex max-w-full items-center gap-2 rounded-full border p-1",
-                                )}
-                            >
-                                <img
-                                    alt=""
-                                    src={`data:${image.mimeType};base64,${image.data}`}
-                                    className="size-4 shrink-0 rounded-full object-cover"
-                                />
-                                <span className="text-body-md text-foreground max-w-40 truncate">{name}</span>
-                                <Button
-                                    id={`composer-attachment-${index}-remove`}
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label={`Remove ${name}`}
-                                    className={cn(
-                                        "text-muted-foreground hover:bg-surface-bright",
-                                        "hover:text-foreground dark:hover:bg-surface-bright",
-                                        "size-5 shrink-0 rounded-full p-0",
-                                    )}
-                                    onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
-                                >
-                                    <X className="size-3" />
-                                </Button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                <Textarea
-                    id="composer-input"
-                    ref={input}
-                    value={value}
-                    rows={3}
-                    onChange={(event) => {
-                        setValue(event.target.value);
-                        setDismissed(false);
-                        // Words of the panel's own: the row under the keyboard starts
-                        // over, so the light is on the best match of the new search.
-                        setHighlighted(null);
-                        setPointed(null);
-                    }}
-                    onKeyDown={onKeyDown}
-                    placeholder={
-                        isMobile
-                            ? "Ask Pi anything, or type / for commands"
-                            : "Ask Pi anything, or type / for commands. Enter steers, Alt+Enter queues a follow-up."
-                    }
-                    aria-label="Your message"
-                    enterKeyHint="send"
-                    onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
-                    className={cn(
-                        "text-body-md block max-h-25 min-h-15 resize-none",
-                        "rounded-none border-0 bg-transparent p-0",
-                        "focus-visible:ring-0 dark:bg-transparent",
-                    )}
-                />
-                <div id="composer-controls" className="flex items-center justify-between gap-2">
-                    <div id="composer-actions" className="flex items-center gap-2">
-                        <ComposerKey id="composer-attach" aria-label="Attach images" onClick={attach}>
-                            <Plus className="size-4" />
-                        </ComposerKey>
-                        <ComposerKey
-                            id="composer-command"
-                            aria-label="Commands"
-                            onClick={() => {
-                                setValue("/");
-                                setDismissed(false);
-                                input.current?.focus();
-                            }}
-                        >
-                            <Terminal className="size-4" />
-                        </ComposerKey>
-                    </div>
-                    <div id="composer-settings" className="flex min-w-0 items-center gap-2">
-                        <ModelPicker
-                            session={session}
-                            current={state.data?.model ?? null}
-                            open={panel === "model"}
-                            onOpenChange={(open) => setPanel(open ? "model" : null)}
-                        />
-                        <ThinkingLevelPicker
-                            session={session}
-                            current={state.data?.thinkingLevel ?? null}
-                            open={panel === "thinking"}
-                            onOpenChange={(open) => setPanel(open ? "thinking" : null)}
-                        />
-                        <Button
-                            id="composer-submit"
-                            variant="ghost"
-                            size="icon"
-                            aria-label={stopShown ? "Stop" : "Send"}
-                            className={cn(
-                                "size-8 shrink-0 rounded-full p-0 disabled:opacity-100",
-                                stopShown
-                                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    : shellMode
-                                      ? "bg-surface-container-highest text-violet hover:bg-surface-bright"
-                                      : "bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-foreground/12 disabled:text-foreground/40",
-                            )}
-                            disabled={!stopShown && !sendable}
-                            onClick={() => (stopShown ? stop() : submit(false))}
-                        >
-                            {stopShown ? <Square className="size-4" /> : <SendHorizontal className="size-4" />}
-                        </Button>
-                    </div>
-                </div>
-            </AnchoredPopoverAnchor>
+                nativeButton={false}
+            />
             {litRow !== null && highlightedRow !== null && (
                 <CommandList
                     id="composer-command-list"
@@ -375,7 +397,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     onChoose={choose}
                 />
             )}
-        </AnchoredPopover>
+        </Popover>
     );
 }
 

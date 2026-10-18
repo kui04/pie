@@ -147,7 +147,7 @@ async fn connected(id: &str, spec: &Spec, options: &Options) -> Result<SessionMa
 /// Reaches `spec` and starts a pi on it.
 async fn attached(id: &str, spec: &Spec, options: &Options, number: u64) -> Result<SessionManager, PieError> {
     let sessions = connected(id, spec, options).await?;
-    sessions.attach(number, None).await?;
+    sessions.attach(number, None, None).await?;
     Ok(sessions)
 }
 
@@ -175,6 +175,26 @@ async fn wait_for_the_listing(sessions: &SessionManager, id: &str) -> SessionSum
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("pi never wrote a session file for {id}");
+}
+
+/// Waits for the file of a branch: the listing that names `parent` as its own
+/// session's parent, once pi wrote it.
+///
+/// A branch that holds no entry yet has no file - pi writes it at the first turn of
+/// the branch - so a caller that starts a fork before the first user message waits
+/// here after that message.
+async fn wait_for_a_branch(sessions: &SessionManager, parent: &str) -> SessionSummary {
+    for _ in 0..50 {
+        let listed = sessions.summaries().await.expect("the listing");
+        if let Some(summary) = listed
+            .into_iter()
+            .find(|summary| summary.parent_session_path.as_deref() == Some(parent))
+        {
+            return summary;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("pi never wrote the file of the branch of {parent}");
 }
 
 /// Stops the pi of a connection when the test ends, passed or panicked.
@@ -211,7 +231,7 @@ async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
     assert_eq!(connection.host().endpoint().to_string(), "local");
     connection.summaries().await.expect("the listing of the machine");
 
-    let session = connection.attach(1, None).await.expect("pi is on PATH");
+    let session = connection.attach(1, None, None).await.expect("pi is on PATH");
     assert_eq!(session.id().as_str(), "no-pi:1");
     assert!(session.handle().is_alive());
     assert_eq!(connection.sessions().len(), 1);
@@ -225,7 +245,7 @@ async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
 async fn a_detach_ends_one_pi_and_leaves_the_machine() {
     let home = TempDir::new().expect("a temp directory");
     let connection = local("detach-test", home.path(), 1).await.expect("pi is on PATH");
-    let second = connection.attach(2, None).await.expect("pi is on PATH");
+    let second = connection.attach(2, None, None).await.expect("pi is on PATH");
     assert_eq!(connection.sessions().len(), 2, "two pis, one machine");
 
     connection.detach("detach-test:1").await.expect("the first session");
@@ -286,6 +306,59 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
 
     connection.close().await;
     assert!(!session.handle().is_alive(), "disconnecting stops pi");
+}
+
+/// A new session starts in the directory it was given, and pi records that
+/// directory in its own file.
+///
+/// The choice of directory is the spawn directory of pi: the home here, or the
+/// directory of the login shell on a host. Therefore the header of the session
+/// file says where the tools of that session run, and a listing that grouped the
+/// conversation under another directory would be a lie.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn a_new_session_starts_in_the_directory_it_was_given() {
+    let home = TempDir::new().expect("a temp directory");
+    let project = TempDir::new().expect("a temp directory");
+    let options = Options {
+        home: Some(home.path().to_path_buf()),
+        trust: Trust::new(KnownHosts::new(
+            home.path().join("known_hosts"),
+            None,
+            Answering::never(),
+        )),
+    };
+
+    let connection = connected("start-dir", &Spec::Local, &options)
+        .await
+        .expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+
+    let dir = HostPath::new(project.path().to_string_lossy().into_owned());
+    let session = connection
+        .attach(1, None, Some(&dir))
+        .await
+        .expect("pi takes the directory");
+    assert_eq!(
+        session.cwd().map(HostPath::as_str),
+        Some(dir.as_str()),
+        "the session reports the directory pie chose"
+    );
+
+    // Pi writes the header of its session file at the first turn, and the header
+    // is where the cwd is recorded.
+    let state: SessionState = session.state().await.expect("a state");
+    session
+        .prompt("first words", None, None)
+        .await
+        .expect("pi takes the prompt");
+    let mine = wait_for_the_listing(&connection, &state.session_id).await;
+    assert_eq!(
+        Path::new(&mine.cwd),
+        project.path(),
+        "pi started in the directory, not in HOME"
+    );
 }
 
 #[ignore = "requires the ssh fixture"]
@@ -452,6 +525,44 @@ async fn the_host_session_listing_comes_back_over_sftp() {
     assert_eq!(mine.first_message.as_deref(), Some("first words"));
 }
 
+/// The same choice of directory on a host: the `cd` before pi is where the
+/// conversation is recorded, and the login home is not where it lands.
+#[ignore = "requires the ssh fixture"]
+#[tokio::test]
+async fn a_new_session_starts_in_the_directory_it_was_given_over_ssh() {
+    let fixture = Fixture::from_env();
+    let store = TempDir::new().expect("a temp directory");
+    let options = Options {
+        home: None,
+        trust: Trust::new(KnownHosts::new(
+            store.path().join("known_hosts"),
+            None,
+            Answering::trusting(true),
+        )),
+    };
+    let connection = connected("start-ssh", &fixture.spec(), &options)
+        .await
+        .expect("the host is reached");
+
+    let dir = HostPath::new("/tmp");
+    let session = connection
+        .attach(1, None, Some(&dir))
+        .await
+        .expect("pi starts in the directory pie chose");
+    assert_eq!(session.cwd().map(HostPath::as_str), Some("/tmp"));
+
+    let state = session.state().await.expect("a state");
+    session
+        .prompt("first words", None, None)
+        .await
+        .expect("pi takes the prompt");
+    let mine = wait_for_the_listing(&connection, &state.session_id).await;
+    assert_eq!(
+        mine.cwd, "/tmp",
+        "pi started in the chosen directory, not in the login home"
+    );
+}
+
 /// The directory picker walks the host over the same sftp channel.
 #[ignore = "requires the ssh fixture"]
 #[tokio::test]
@@ -465,7 +576,13 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
         .expect("the host is reached");
 
     let home = connection.host().dirs(None).await.expect("the home directory lists");
+    assert!(
+        home.directory.starts_with('/'),
+        "the home names itself: {}",
+        home.directory
+    );
     let pi_root = home
+        .entries
         .iter()
         .find(|row| row.name == ".pi" && row.is_dir)
         .expect("pi's own root is in the home directory");
@@ -483,11 +600,71 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
         .dirs(Some(&HostPath::new(sessions.clone())))
         .await
         .expect("the sessions directory lists");
-    assert!(!projects.is_empty(), "pi has written project directories: {projects:?}");
+    assert!(
+        !projects.entries.is_empty(),
+        "pi has written project directories: {projects:?}"
+    );
 
     let error = connection
         .host()
         .dirs(Some(&HostPath::new(".pi/agent/sessions")))
+        .await
+        .expect_err("a relative path is not a path pie resolves");
+    assert!(matches!(&error, HostError::NotAbsolute { .. }), "got {error:?}");
+}
+
+/// The directory picker makes a missing folder over the same sftp channel.
+#[ignore = "requires the ssh fixture"]
+#[tokio::test]
+async fn the_directory_picker_makes_a_missing_folder_over_sftp() {
+    let fixture = Fixture::from_env();
+    let store = TempDir::new().expect("a temp directory");
+    let own = store.path().join("known_hosts");
+    let connection = fixture
+        .connect(&own, None, Answering::trusting(true))
+        .await
+        .expect("the host is reached");
+
+    let home = connection.host().dirs(None).await.expect("the home directory lists");
+    let fresh = format!("{}/pie-probe/sub", home.directory);
+    assert!(
+        !connection
+            .host()
+            .dir_exists(&HostPath::new(fresh.clone()))
+            .await
+            .expect("the probe answers"),
+        "the folder is missing before it is made"
+    );
+    connection
+        .host()
+        .create(&HostPath::new(fresh.clone()))
+        .await
+        .expect("the missing folder is made with its parent");
+    assert!(
+        connection
+            .host()
+            .dir_exists(&HostPath::new(fresh.clone()))
+            .await
+            .expect("the probe answers"),
+        "the folder stands after it is made"
+    );
+
+    let read = connection
+        .host()
+        .dirs(Some(&HostPath::new(format!("{}/pie-probe", home.directory))))
+        .await
+        .expect("the made folder lists");
+    assert!(read.entries.iter().any(|row| row.name == "sub" && row.is_dir));
+
+    connection
+        .host()
+        .create(&HostPath::new(fresh))
+        .await
+        .expect("making what stands is fine");
+
+    let error = connection
+        .host()
+        .create(&HostPath::new(".pi/agent/sessions"))
         .await
         .expect_err("a relative path is not a path pie resolves");
     assert!(matches!(&error, HostError::NotAbsolute { .. }), "got {error:?}");
@@ -611,7 +788,7 @@ async fn an_attach_on_a_conversation_starts_pi_holding_that_file() {
     // The second process starts on that file. No `switch_session` runs: the file
     // is what pi holds from its first moment.
     let loaded = connection
-        .attach(2, Some(&HostPath::new(file.clone())))
+        .attach(2, Some(&HostPath::new(file.clone())), None)
         .await
         .expect("pi is on PATH");
     let state = loaded.state().await.expect("the state of the loaded conversation");
@@ -621,6 +798,191 @@ async fn an_attach_on_a_conversation_starts_pi_holding_that_file() {
         "pi was started on the file"
     );
     assert_eq!(state.session_id, before.session_id, "and it is the same conversation");
+}
+
+/// A fork of a conversation starts from a user turn, and the process holds the
+/// branch.
+///
+/// Pi lists the fork points itself (`get_fork_messages`), writes the branch into a
+/// new file whose header names the file it came from, and keeps the session id in
+/// the process: the conversation changes, the session does not. The old file stays
+/// where pi wrote it.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn a_fork_branches_a_conversation_into_a_new_file() {
+    let home = TempDir::new().expect("a temp directory");
+
+    let connection = local("fork", home.path(), 1).await.expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+
+    let session = connection.sessions()[0].clone();
+    let before = session.state().await.expect("the state of a fresh session");
+    let entries = session
+        .entries()
+        .await
+        .expect("the entries of a fresh session")
+        .entries
+        .len();
+    session
+        .prompt("first words", None, None)
+        .await
+        .expect("pi takes the prompt");
+    let old_file = wait_for_the_listing(&connection, &before.session_id).await.path;
+    entries_after_the_prompt(&session, entries).await;
+
+    // The fork points arrive once pi holds the user turn; the file exists by then,
+    // which is what a fork needs ("send a message before cloning or forking it").
+    let point = {
+        let mut found = None;
+        for _ in 0..50 {
+            let messages = session.fork_messages().await.expect("the fork points");
+            if let Some(first) = messages.into_iter().find(|message| message.text == "first words") {
+                found = Some(first);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        found.expect("pi lists the user turn as a fork point")
+    };
+
+    let forked = session.fork(&point.entry_id).await.expect("pi forks");
+    assert!(!forked.cancelled, "a fork of a saved conversation is not cancelled");
+    assert_eq!(
+        forked.text.as_deref(),
+        Some("first words"),
+        "the fork answers with the message it starts from"
+    );
+
+    let after = session.state().await.expect("the state of the branch");
+    assert_ne!(
+        after.session_id, before.session_id,
+        "the process holds another conversation"
+    );
+    assert_ne!(after.session_file.as_deref(), Some(old_file.as_str()));
+
+    // A fork before the first user message holds no entry, so pi writes its file at
+    // the first turn of the branch.
+    session.prompt("again", None, None).await.expect("pi takes the prompt");
+    let branch = wait_for_a_branch(&connection, &old_file).await;
+    assert_eq!(branch.id, after.session_id, "the file is the one the process holds");
+    assert_eq!(Path::new(&branch.cwd), home.path(), "the branch keeps the directory");
+    assert!(Path::new(&old_file).exists(), "the file it came from stays");
+}
+
+/// A clone is a fork at the leaf: the whole branch, in a new file.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn a_clone_copies_the_branch_into_a_new_file() {
+    let home = TempDir::new().expect("a temp directory");
+
+    let connection = local("clone", home.path(), 1).await.expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+
+    let session = connection.sessions()[0].clone();
+    let before = session.state().await.expect("the state of a fresh session");
+    session
+        .prompt("first words", None, None)
+        .await
+        .expect("pi takes the prompt");
+    let old_file = wait_for_the_listing(&connection, &before.session_id).await.path;
+
+    let cloned = session.clone_session().await.expect("pi clones");
+    assert!(!cloned.cancelled, "a clone of a saved conversation is not cancelled");
+
+    let after = session.state().await.expect("the state of the copy");
+    assert_ne!(
+        after.session_id, before.session_id,
+        "the copy is a conversation of its own"
+    );
+    let branch = wait_for_a_branch(&connection, &old_file).await;
+    assert_eq!(branch.id, after.session_id, "the file is the one the process holds");
+    assert_eq!(
+        branch.first_message.as_deref(),
+        Some("first words"),
+        "the copy carries the words"
+    );
+    assert!(Path::new(&old_file).exists(), "the file it came from stays");
+}
+
+/// A conversation can be deleted: the file goes once the process that held it is
+/// gone.
+///
+/// Pi has no command for this, so the deletion is pie's own file operation, on the
+/// machine that holds the file. A process that kept writing to a removed file would
+/// write into a name nobody can open again, which is why the detach comes first.
+#[ignore = "requires pi on PATH"]
+#[tokio::test]
+async fn a_deleted_conversation_leaves_the_listing() {
+    let home = TempDir::new().expect("a temp directory");
+
+    let connection = local("delete", home.path(), 1).await.expect("pi is on PATH");
+    let connection = Arc::new(connection);
+    let _stops_pi = StopsPi(Arc::clone(&connection));
+
+    let session = connection.sessions()[0].clone();
+    let state = session.state().await.expect("the state of a fresh session");
+    session
+        .prompt("first words", None, None)
+        .await
+        .expect("pi takes the prompt");
+    let row = wait_for_the_listing(&connection, &state.session_id).await;
+
+    connection.detach("delete:1").await.expect("the process goes first");
+    connection
+        .delete_conversation(&HostPath::new(row.path.clone()))
+        .await
+        .expect("the file goes");
+
+    assert!(
+        !connection
+            .summaries()
+            .await
+            .expect("the listing")
+            .iter()
+            .any(|summary| summary.path == row.path),
+        "the row is gone"
+    );
+}
+
+/// The same deletion on a host, over the sftp channel of the reach.
+#[ignore = "requires the ssh fixture"]
+#[tokio::test]
+async fn a_conversation_deleted_over_sftp_leaves_the_host_listing() {
+    let fixture = Fixture::from_env();
+    let store = TempDir::new().expect("a temp directory");
+    let own = store.path().join("known_hosts");
+    let connection = fixture
+        .connect(&own, None, Answering::trusting(true))
+        .await
+        .expect("the host is reached");
+
+    // The conversation of this test is its own: the fixture host holds the
+    // sessions of every test that ran before it.
+    let session = connection.sessions()[0].clone();
+    let state = session.state().await.expect("a state");
+    session
+        .prompt("first words", None, None)
+        .await
+        .expect("pi takes the prompt");
+    let row = wait_for_the_listing(&connection, &state.session_id).await;
+
+    connection.detach("test:1").await.expect("the process goes first");
+    connection
+        .delete_conversation(&HostPath::new(row.path.clone()))
+        .await
+        .expect("the file goes over sftp");
+
+    assert!(
+        !connection
+            .summaries()
+            .await
+            .expect("the host listing")
+            .iter()
+            .any(|summary| summary.path == row.path),
+        "the row is gone"
+    );
 }
 
 /// The id of a session is unique for the run of pie, not for the connection.

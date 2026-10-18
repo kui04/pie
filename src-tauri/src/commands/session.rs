@@ -23,7 +23,10 @@ use crate::error::PieError;
 use crate::host::HostPath;
 use crate::session::{self, CommandsData, LastAssistantTextData, PromptData, Session, SessionInfo, SessionSummary};
 
-use pi_rpc::response::{BashResult, ClearQueueData, CompactionResult, EntryList, SessionState, SessionStats};
+use pi_rpc::response::{
+    BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
+    SessionSwitch,
+};
 use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
 use super::Error;
@@ -70,20 +73,71 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
     sessions.summaries().await
 }
 
-/// Starts a pi on the connected machine, and answers with the session it speaks
-/// through.
+/// Deletes one conversation of the connected machine.
 ///
-/// The frontend asks for this when it needs to speak: on the workspace, or when
-/// a person opens a conversation. Nothing about the connection is needed for the
-/// listing of conversations, so a machine that is only browsed runs no pi.
+/// The conversation is a file of pi, and pi has no command that deletes one: the
+/// frontend ends the process that holds it first (`detach_session`), then asks for
+/// this. The row leaves the listing. A fork of that conversation is unaffected - a
+/// branch copies the entries it keeps - and pi's own selector reads the path in its
+/// header as a name that resolves to nothing, which is a root.
+///
+/// # Errors
+///
+/// [`Error::NotConnected`] if there is no machine, the path failure of
+/// [`crate::host::Error::NotAbsolute`] for a relative path, and [`PieError::Host`]
+/// when the file cannot be removed.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
+pub async fn delete_session(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
+    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
+        doing: "deleting a conversation".to_string(),
+    })?;
+    sessions.delete_conversation(&HostPath::new(path)).await
+}
+
+/// Starts a pi on the connected machine and hands its records to the frontend.
+///
+/// The one body behind `attach_session` and `start_session`: the two differ in
+/// what pi is asked to start on - a conversation file, or a directory for a new
+/// conversation - and in nothing that follows.
+async fn begin(
+    app: AppHandle,
+    state: &AppState,
+    conversation: Option<HostPath>,
+    cwd: Option<HostPath>,
+) -> Result<SessionInfo, PieError> {
+    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
+        doing: "starting pi".to_string(),
+    })?;
+    let session = sessions
+        .attach(state.next_session_number(), conversation.as_ref(), cwd.as_ref())
+        .await?;
+    // The subscription happens before the task starts, not inside it, so the pipe
+    // itself misses nothing that pi writes after this line.
+    //
+    // What the frontend hears is another matter: its listener can only start after
+    // the answer of this command, because that answer is where it reads the id of
+    // the session. What pi wrote before then is lost, and lost in silence - the
+    // module of [`pipe`] carries the whole of that.
+    pipe::forward(app, &session, session.events());
+    pipe::answer_dialogs(&session).await;
+    Ok(session.info())
+}
+
+/// Starts a pi on the connected machine, on a conversation file, and answers
+/// with the session it speaks through.
+///
+/// The frontend asks for this when a person opens a conversation. Nothing about
+/// the connection is needed for the listing of conversations, so a machine that
+/// is only browsed runs no pi.
 ///
 /// `path` names the conversation file of pi to load at the start (`--session`).
-/// Without one pi starts a new conversation; it creates the file at the first
-/// message. A conversation belongs to one process: a pi that moved between files
-/// would leave records of the left file in the machine of the next one.
-/// The id of the answer is pie's own for this pi process (`main:1`), and it is
-/// the name of the events of the session (`pi://session/{id}/...`). It is not the
-/// session id of pi, which is the id of the conversation file.
+/// Pi starts in the directory recorded in that file; the working directory is the
+/// file's, not pie's to choose. A conversation belongs to one process: a pi that
+/// moved between files would leave records of the left file in the machine of the
+/// next one. The id of the answer is pie's own for this pi process (`main:1`), and
+/// it is the name of the events of the session (`pi://session/{id}/...`). It is not
+/// the session id of pi, which is the id of the conversation file.
 ///
 /// # Errors
 ///
@@ -96,23 +150,32 @@ pub async fn attach_session(
     app: AppHandle,
     path: Option<String>,
 ) -> Result<SessionInfo, PieError> {
-    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
-        doing: "starting pi".to_string(),
-    })?;
-    let conversation = path.map(HostPath::new);
-    let session = sessions
-        .attach(state.next_session_number(), conversation.as_ref())
-        .await?;
-    // The subscription happens before the task starts, not inside it, so the pipe
-    // itself misses nothing that pi writes after this line.
-    //
-    // What the frontend hears is another matter: its listener can only start after
-    // the answer of this command, because that answer is where it reads the id of
-    // the session. What pi wrote before then is lost, and lost in silence - the
-    // module of [`pipe`] carries the whole of that.
-    pipe::forward(app, &session, session.events());
-    pipe::answer_dialogs(&session).await;
-    Ok(session.info())
+    begin(app, &state, path.map(HostPath::new), None).await
+}
+
+/// Starts a pi on the connected machine in a directory, and answers with the
+/// session it speaks through.
+///
+/// The frontend asks for this on "New session": a new conversation, with no file
+/// yet. `cwd` is a directory of the machine, as the directory picker wrote it.
+/// Without one pi starts in the home of this machine, or in the directory of the
+/// login shell on a host. The directory is where the new conversation is recorded
+/// (pi writes it into the header of the session file) and where the tools of that
+/// session run, so the choice is the one fact that decides what the conversation
+/// is about.
+///
+/// # Errors
+///
+/// [`Error::NotConnected`] if there is no machine to start pi on, and
+/// [`PieError::Channel`] when pi cannot be started in that directory.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(cwd = ?cwd))]
+pub async fn start_session(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    cwd: Option<String>,
+) -> Result<SessionInfo, PieError> {
+    begin(app, &state, None, cwd.map(HostPath::new)).await
 }
 
 /// Ends one pi. The machine stays reached, and the conversation file stays.
@@ -182,13 +245,6 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
         .await
 }
 
-/// Switches one session to another conversation, in another session file.
-///
-/// The file is one that [`list_sessions`] gave back, by its `path`. The pi process
-/// of this session keeps running; it opens the file and continues from the leaf of
-/// that conversation. Pie never builds such a path: pi opens one that holds no file
-/// as a new conversation in its own directory.
-///
 /// Sends a message to one session.
 ///
 /// `behavior` names how the message joins a run that streams: `steer` interrupts
@@ -461,6 +517,65 @@ pub async fn set_session_name(state: State<'_, AppState>, session: String, name:
     named_session(&state, &session, "naming a session")
         .await?
         .set_session_name(&name)
+        .await
+}
+
+/// The user messages of one session that a fork can start from.
+///
+/// Pi lists every user message with text, on the current branch and on the
+/// others of a fork: this is the list its own selector shows
+/// (`getUserMessagesForForking` of the pinned `core/agent-session.ts`).
+///
+/// # Errors
+///
+/// The same as [`prompt`], and the failure of the protocol.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
+pub async fn get_fork_messages(state: State<'_, AppState>, session: String) -> Result<Vec<ForkMessage>, PieError> {
+    named_session(&state, &session, "reading the fork points of a session")
+        .await?
+        .fork_messages()
+        .await
+}
+
+/// Forks one session at a user message, in the same process.
+///
+/// Pi writes a new conversation file - the header, then the entries up to the
+/// parent of that message - and the process holds it from here; the old file stays
+/// where pi wrote it. The session keeps its id, which is the process and not the
+/// conversation, so a screen that drew the old conversation must clear it and read
+/// the state and the entries again. `text` is the selected message, for a screen
+/// that offers it back to the person.
+///
+/// # Errors
+///
+/// The same as [`prompt`], and the failure of the protocol - including a
+/// conversation with no file yet ("send a message before cloning or forking it").
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, entry = %entry_id))]
+pub async fn fork_session(state: State<'_, AppState>, session: String, entry_id: String) -> Result<ForkData, PieError> {
+    named_session(&state, &session, "forking a session")
+        .await?
+        .fork(&entry_id)
+        .await
+}
+
+/// Copies the whole branch of one session into a new file, in the same process.
+///
+/// This is a fork at the leaf: the new file holds every entry of the current
+/// branch, and the process holds it from here. Like [`fork_session`], the session
+/// keeps its id and its conversation changes, so the state and the entries are read
+/// again.
+///
+/// # Errors
+///
+/// The same as [`fork_session`].
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
+pub async fn clone_session(state: State<'_, AppState>, session: String) -> Result<SessionSwitch, PieError> {
+    named_session(&state, &session, "cloning a session")
+        .await?
+        .clone_session()
         .await
 }
 

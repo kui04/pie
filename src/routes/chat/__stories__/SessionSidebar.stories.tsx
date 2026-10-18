@@ -54,6 +54,7 @@ const meta = {
         // The first row's conversation is held by a session, and that session is not running.
         attached: new Map([[sessions[0].path, { session: "main:1", working: false }]]),
         onPick: () => undefined,
+        onNew: () => undefined,
         wide: true,
         column: true,
         sheet: false,

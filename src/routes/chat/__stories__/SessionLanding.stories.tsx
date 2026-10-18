@@ -35,8 +35,8 @@ function Seeded({ sessions, children }: { sessions: SessionSummary[]; children: 
  * The landing of the chat: the words of pi, the keys of the window, and the list
  * beside them.
  *
- * The keys are the window's own plan and their bindings are not made yet, so a press
- * on one does nothing here either.
+ * The rows are the actions themselves; the keys are the window's own plan, and their
+ * bindings are not made yet (G22), so a key press does nothing here.
  */
 const meta = {
     title: "Chat/SessionLanding",
@@ -59,6 +59,7 @@ const meta = {
                                     endpoint="local"
                                     attached={new Map()}
                                     onPick={() => undefined}
+                                    onNew={() => undefined}
                                     wide
                                     column
                                     sheet={false}

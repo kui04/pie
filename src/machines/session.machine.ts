@@ -89,6 +89,12 @@ export type SessionEvent =
     /** The pipe fell behind: records were dropped, and the reads are the repair. */
     | { type: "GAP"; at: number }
     /**
+     * The conversation of this session was replaced in the process: pi forked or cloned,
+     * and the same process now holds another file. Everything of the old conversation
+     * goes, and the reads are asked again.
+     */
+    | { type: "REPLACED" }
+    /**
      * One record of the session, as the wire carries it. `at` is the moment this side heard
      * it, on the same clock as a read's `dataUpdatedAt`: it orders a settle against the reads,
      * and it travels in the event because an action that read the clock itself would write a
@@ -225,6 +231,21 @@ export const sessionMachine = setup({
         })),
         /** Asks every read of this session again, after a gap in the records. */
         reReadWhole: ({ context }) => context.deps.reRead("whole"),
+        /**
+         * The conversation was replaced in the process (a fork or a clone). The session is the
+         * same process, but everything this side holds belongs to the conversation that is gone:
+         * the overlay, the live rows, the queue, the shell card, the usage, and the names of the
+         * rows. The base read goes back to "not yet", and the reads that are asked again fill it
+         * with the new conversation.
+         */
+        replaced: assign(() => ({
+            ...emptyStream(),
+            readAuthoritative: true,
+            lastReadAt: 0,
+            lastSnapshotAt: 0,
+            settledAt: null,
+            summaryAt: null,
+        })),
         /**
          * A gap in the records: a read may set the phase again, and the queue goes - it is
          * written by records alone, and the ones this gap swallowed are gone.
@@ -415,6 +436,12 @@ export const sessionMachine = setup({
         },
         transcript: {
             initial: "empty",
+            on: {
+                // The conversation of this session was replaced in the process (a fork or a
+                // clone). The base in hand is the conversation that is gone, so the region goes
+                // back to "not yet", and the reads that are asked again bring the new one.
+                REPLACED: { target: ".empty", actions: ["replaced", "reReadWhole"] },
+            },
             states: {
                 // No base read has answered for this conversation yet.
                 empty: {
@@ -448,6 +475,7 @@ export const sessionMachine = setup({
                 working: {},
             },
             on: {
+                REPLACED: { target: ".idle" },
                 READ: [
                     {
                         guard: ({ context, event }) => readApplies(context, event.at) && event.streaming,

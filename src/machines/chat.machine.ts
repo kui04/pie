@@ -9,7 +9,8 @@
  * (`lib/sessions.ts`) - and only a close ends one.
  *
  * `attaching` carries what the attempt is for: `path` names the conversation to load (pi
- * reads the file itself). A retry after a failure asks for the same thing again.
+ * reads the file itself), or `cwd` names the directory of a new conversation (`null` for the
+ * home of the host). A retry after a failure asks for the same thing again.
  */
 
 import { assign, fromPromise, setup } from "xstate";
@@ -17,8 +18,10 @@ import { asPieError, type PieError, type SessionInfo } from "@/lib/bridge";
 
 /** What this machine needs from the outside world. */
 export interface ChatDeps {
-    /** Starts a pi, on the conversation in `path` when one is named. */
-    attach: (path: string | null) => Promise<SessionInfo>;
+    /** Starts a pi on the conversation in `path`. */
+    attach: (path: string) => Promise<SessionInfo>;
+    /** Starts a pi in `cwd` for a new conversation; `null` is the home of the host. */
+    start: (cwd: string | null) => Promise<SessionInfo>;
     /** Ends one pi. The conversation file stays. */
     detach: (session: string) => Promise<void>;
 }
@@ -32,13 +35,15 @@ export interface ChatContext {
     session: string | null;
     /** What the attempt on its way is for: the file to load, or `null` for a new conversation. */
     path: string | null;
+    /** The directory of a new conversation, or `null` for the home of the host. */
+    cwd: string | null;
     /** Why the last attempt failed, while the page says so. */
     error: PieError | null;
 }
 
 export type ChatEvent =
-    /** A new conversation, with no file yet. */
-    | { type: "ATTACH" }
+    /** A new conversation, in `cwd` when one is named. */
+    | { type: "ATTACH"; cwd: string | null }
     /** A conversation file was chosen: a session of its own, or one that already holds it. */
     | { type: "FOCUS"; path: string }
     /** A session that already speaks was chosen. */
@@ -59,14 +64,15 @@ export const chatMachine = setup({
         input: {} as ChatDeps,
     },
     actors: {
-        attach: fromPromise<SessionInfo, { deps: ChatDeps; path: string | null }>(async ({ input }) =>
-            input.deps.attach(input.path),
+        begin: fromPromise<SessionInfo, { deps: ChatDeps; path: string | null; cwd: string | null }>(
+            async ({ input }) => (input.path === null ? input.deps.start(input.cwd) : input.deps.attach(input.path)),
         ),
     },
     actions: {
-        /** What the attempt on its way is for: the file to load, or none for a new conversation. */
+        /** What the attempt on its way is for: the file to load, or a directory for a new one. */
         pending: assign({
             path: ({ event }) => (event.type === "FOCUS" ? event.path : null),
+            cwd: ({ event }) => (event.type === "ATTACH" ? event.cwd : null),
             error: null,
         }),
         /** Ends the session in view, for a close. */
@@ -79,7 +85,7 @@ export const chatMachine = setup({
 }).createMachine({
     id: "chat",
     initial: "landing",
-    context: ({ input }) => ({ deps: input, session: null, path: null, error: null }),
+    context: ({ input }) => ({ deps: input, session: null, path: null, cwd: null, error: null }),
     states: {
         landing: {
             on: {
@@ -92,13 +98,14 @@ export const chatMachine = setup({
         // session, and this stage is the one that has none.
         attaching: {
             invoke: {
-                src: "attach",
-                input: ({ context }) => ({ deps: context.deps, path: context.path }),
+                src: "begin",
+                input: ({ context }) => ({ deps: context.deps, path: context.path, cwd: context.cwd }),
                 onDone: {
                     target: "viewing",
                     actions: assign({
                         session: ({ event }) => event.output.id,
                         path: null,
+                        cwd: null,
                         error: null,
                     }),
                 },
@@ -126,7 +133,7 @@ export const chatMachine = setup({
                 // The session was attached on a connection that is no longer there, and the one
                 // that replaced it never held it. Nothing is detached - there is nothing left to
                 // detach - and the person is back at the list.
-                GONE: { target: "landing", actions: assign({ session: null, path: null, error: null }) },
+                GONE: { target: "landing", actions: assign({ session: null, path: null, cwd: null, error: null }) },
                 CLOSE: { target: "landing", actions: ["dropViewed", assign({ session: null })] },
             },
         },

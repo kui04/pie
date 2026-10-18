@@ -7,9 +7,10 @@
 //!   (`main:1`) is pie's own, and it is the name of the events of that session.
 //!   It lives as long as the process does, and [`SessionManager::close`] ends it.
 //! - a **conversation file** is a session of pi: the JSONL file it appends to,
-//!   with an id of its own. One process holds the one it was attached on, and
-//!   they outlive the process - a disconnect stops pi, and the files stay where
-//!   pi wrote them.
+//!   with an id of its own. One process holds the one it was attached on, until
+//!   pi itself forks or clones the conversation (`fork`, `clone`); the files
+//!   outlive the process - a disconnect stops pi, and the files stay where pi
+//!   wrote them.
 //!
 //! [`SessionManager`] is the app's one handle to both. It owns the [`Host`] it
 //! reached, because the two live and die together, and it owns the pi processes
@@ -128,33 +129,53 @@ impl SessionManager {
     /// pie: the id of the session is this connection and that number
     /// (`main:1`). One connection can start several, one after the other.
     ///
-    /// Pi starts where the machine says: the home directory of this machine, or
-    /// the directory of the login shell on a host. [`SessionInfo::cwd`] is the
-    /// label of that choice, not the value pi is given: pi is started with the
-    /// machine's own default, so no path of this machine is turned into text on
-    /// the way to it.
+    /// `cwd` is the directory pi starts in, when pie selected one. `None`
+    /// leaves the choice to the machine: the home directory here, or the
+    /// directory of the login shell on a host. [`SessionInfo::cwd`] reports
+    /// which of the two happened - the selected directory, or the home of this
+    /// machine - so a screen can name the session when pi has no name for it.
     ///
     /// `conversation` names the file of pi to load at the start (`--session`), a
     /// host path that pi reads itself. `None` starts a new conversation; pi
-    /// creates the file at the first message.
+    /// creates the file at the first message. Pi takes the working directory of
+    /// a loaded conversation from the file itself, so `cwd` is for a new
+    /// conversation alone; the two are separate entry points of the IPC surface
+    /// (`attach_session` and `start_session`), and neither can be given both.
     ///
     /// # Errors
     ///
-    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a conversation
-    /// path that is not absolute: pi would resolve a relative one against its own directory
-    /// and quietly open another conversation there. [`PieError::Channel`] when pi cannot be
-    /// started, and [`PieError::Host`] when the channel it runs in cannot be
-    /// opened.
-    pub async fn attach(&self, number: u64, conversation: Option<&HostPath>) -> Result<Session, PieError> {
-        // The path is of the caller, so it is checked before pi sees it.
+    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a
+    /// conversation path or a directory that is not absolute: pi would resolve a
+    /// relative one against its own directory and quietly open another
+    /// conversation or another directory there. [`PieError::Channel`] when pi
+    /// cannot be started, and [`PieError::Host`] when the channel it runs in
+    /// cannot be opened.
+    pub async fn attach(
+        &self,
+        number: u64,
+        conversation: Option<&HostPath>,
+        cwd: Option<&HostPath>,
+    ) -> Result<Session, PieError> {
+        // The paths are of the caller, so they are checked before pi sees them.
         let conversation = match conversation {
             Some(path) => Some(HostPath::new(checked_session_path(path)?)),
             None => None,
         };
-        let cwd = self.inner.host.home().map(HostPath::of_local);
-        let channel = self.inner.host.open_pi(None, conversation.as_ref()).await?;
+        let cwd = match cwd {
+            Some(dir) if !dir.is_absolute() => {
+                return Err(crate::host::files::not_absolute(dir.as_str()).into());
+            }
+            Some(dir) => Some(dir.clone()),
+            None => None,
+        };
+        let channel = self.inner.host.open_pi(cwd.as_ref(), conversation.as_ref()).await?;
         let (client, handle) = speaking(channel);
-        let session = Session::new(self.inner.id.for_session(number), cwd, client, handle);
+        // What the screen is told about the start: the directory pie chose, or the
+        // home of this machine. A host reached over SSH has no home here; pi
+        // starts in the directory of the login shell, and only pi can say which
+        // one that was.
+        let label = cwd.or_else(|| self.inner.host.home().map(HostPath::of_local));
+        let session = Session::new(self.inner.id.for_session(number), label, client, handle);
 
         tracing::info!(connection = %self.inner.id, session = %session.id(), "attached");
         self.inner
@@ -296,6 +317,29 @@ impl SessionManager {
     /// in the message.
     pub async fn summaries(&self) -> Result<Vec<SessionSummary>, PieError> {
         self.inner.store.summaries().await
+    }
+
+    /// Deletes one conversation file of this machine.
+    ///
+    /// The file belongs to pi, and the process that holds it must be gone first:
+    /// a pi that keeps writing to a removed file writes into a name nobody can open
+    /// again. [`SessionManager::detach`] ends that process; the caller orders the
+    /// two.
+    ///
+    /// A fork is not damaged by removing the file it came from. A branch holds a
+    /// copy of the entries it keeps (`createBranchedSession` of pi's
+    /// `core/session-manager.ts`, pinned), and the path in its header is a name for
+    /// the tree of pi's selector: a name that resolves to nothing is a root, which is
+    /// how the selector reads it.
+    ///
+    /// # Errors
+    ///
+    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a path that
+    /// is not absolute - pi would resolve a relative one against its own directory -
+    /// and [`PieError::Host`] when the file cannot be removed.
+    pub async fn delete_conversation(&self, path: &HostPath) -> Result<(), PieError> {
+        let path = checked_session_path(path)?;
+        self.inner.store.remove(path).await
     }
 
     /// Ends every session of this machine, and then the reach to it.

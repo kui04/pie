@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
 
 use crate::error::PieError;
-use crate::host::{AskHostKey, ConnectionState, DirEntry, HostPath, KnownHosts, Options, PresentedKey, Spec, Trust};
+use crate::host::{AskHostKey, ConnectionState, HostPath, KnownHosts, Listing, Options, PresentedKey, Spec, Trust};
 use crate::session::{Id, SessionManager};
 
 use super::Error;
@@ -375,7 +375,9 @@ pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: b
 ///
 /// `path` is the home directory if absent. If present, `path` is an absolute path
 /// on the machine. Pie resolves no relative path against its own directory. The
-/// rows carry their full paths, so the picker never builds a path.
+/// rows carry their full paths, so the picker never builds a path, and the answer
+/// names the directory it read: the home of a machine is a directory only the
+/// machine can name.
 ///
 /// # Errors
 ///
@@ -385,13 +387,55 @@ pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: b
 /// path (a mistake of the frontend).
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = ?path))]
-pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Result<Vec<DirEntry>, PieError> {
+pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Result<Listing, PieError> {
     let sessions = state.sessions.lock().await.clone();
     let sessions = sessions.ok_or_else(|| Error::NotConnected {
         doing: "browsing its directories".to_string(),
     })?;
     let path = path.map(HostPath::new);
     Ok(sessions.host().dirs(path.as_ref()).await?)
+}
+
+/// Whether a path names a directory on the connected machine.
+///
+/// The picker asks this when the typed text matches nothing: a name that
+/// stands is entered, a name that does not is offered for making.
+///
+/// # Errors
+///
+/// [`Error::NotConnected`] if there is no machine, the failure of the machine
+/// if the answer cannot be told, and
+/// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a relative
+/// path (a mistake of the frontend).
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
+pub async fn dir_exists(state: State<'_, AppState>, path: String) -> Result<bool, PieError> {
+    let sessions = state.sessions.lock().await.clone();
+    let sessions = sessions.ok_or_else(|| Error::NotConnected {
+        doing: "reading its directories".to_string(),
+    })?;
+    Ok(sessions.host().dir_exists(&HostPath::new(path)).await?)
+}
+
+/// Makes a directory on the connected machine, with parents as needed.
+///
+/// The picker offers this when the typed path names nothing: the confirm names
+/// the path, and this makes it. `path` is an absolute path on the machine.
+///
+/// # Errors
+///
+/// [`Error::NotConnected`] if there is no machine, the failure of the machine
+/// if the directory cannot be made, and
+/// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a relative
+/// path (a mistake of the frontend).
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
+pub async fn create_dir(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
+    let sessions = state.sessions.lock().await.clone();
+    let sessions = sessions.ok_or_else(|| Error::NotConnected {
+        doing: "making a directory".to_string(),
+    })?;
+    Ok(sessions.host().create(&HostPath::new(path)).await?)
 }
 
 #[cfg(test)]

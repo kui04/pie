@@ -48,6 +48,10 @@ start() {
         # A key of its own, so the fixture never depends on the user's ~/.ssh.
         ssh-keygen -q -t ed25519 -f "$key" -N '' -C "pie ssh fixture"
     fi
+    # `docker run -v` creates a directory where the source does not exist, so a
+    # missing public half would be mounted as a directory and every key
+    # authentication would be refused. It is derivable from the private half.
+    [ -f "$key.pub" ] || ssh-keygen -y -f "$key" > "$key.pub"
     [ -f "$auth_json" ] || die "no credentials at $auth_json; pi cannot start a session without them"
 
     docker build \

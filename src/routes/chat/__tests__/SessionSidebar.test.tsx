@@ -33,6 +33,7 @@ function renderSidebar(props: Partial<SessionSidebarProps> = {}) {
                     endpoint="local"
                     attached={new Map()}
                     onPick={() => undefined}
+                    onNew={() => undefined}
                     wide
                     column
                     sheet={false}
@@ -162,6 +163,7 @@ describe("SessionSidebar", () => {
                         endpoint="local"
                         attached={new Map([[mine.path, { session: "main:1", working: true }]])}
                         onPick={() => undefined}
+                        onNew={() => undefined}
                         wide
                         column
                         sheet={false}
@@ -310,7 +312,7 @@ describe("SessionSidebar", () => {
         }
         // The row the key and the heading share parts the pane's own air, so the key ends
         // where the field and the rows end.
-        expect(key.parentElement?.className.split(" ")).toContain("px-2");
+        expect(document.getElementById("session-drawer-head")?.className.split(" ")).toContain("px-2");
     });
 
     it("lets go of the sheet when the window reaches the width of the column", async () => {

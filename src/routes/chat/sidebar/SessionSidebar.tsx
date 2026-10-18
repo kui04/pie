@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Folder, Loader2, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Loader2, Plus, RefreshCw, Search } from "lucide-react";
 import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
 import { cn } from "cn";
 
@@ -26,13 +26,18 @@ import {
     Skeleton,
 } from "@/components/ui";
 import { SafeArea, ScrollPane } from "@/components";
-import type { AttachedConversation } from "@/hooks/useAttachedConversations";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { useMotion } from "@/hooks/useMotion";
 import { useWideWindow } from "@/hooks/useWideWindow";
 import * as bridge from "@/lib/bridge";
 import { sessionsQueries } from "@/lib/query";
 import { breatheAt, groupSessions, matchesSearch, pathKey, relativeTime, sessionTitle } from "./session-list";
+
+/** One attached conversation: the session that holds it, and whether that session runs now. */
+export interface AttachedConversation {
+    session: string;
+    working: boolean;
+}
 
 /** What a stage tells the sidebar about the sessions of the host. */
 export interface SessionList {
@@ -45,6 +50,8 @@ export interface SessionList {
     attached: ReadonlyMap<string, AttachedConversation>;
     /** Continue the conversation of the row that was chosen. */
     onPick: (path: string) => void;
+    /** Open the directory picker, for a new conversation. */
+    onNew: () => void;
 }
 
 export interface SessionSidebarProps extends SessionList {
@@ -99,7 +106,7 @@ function SessionListPanel({
     breathing,
     ...list
 }: SessionList & { id: string; className?: string; breathing: boolean }) {
-    const { endpoint, attached, onPick } = list;
+    const { endpoint, attached, onPick, onNew } = list;
     const { stage, swap, turn } = useMotion();
     const client = useQueryClient();
     const sessions = useQuery(sessionsQueries.list(endpoint));
@@ -172,39 +179,58 @@ function SessionListPanel({
                     />
                 </InputGroup>
             </div>
-            <div className="flex items-center justify-between px-2 py-1">
+            <div id={`${id}-head`} className="flex items-center justify-between px-2 py-1">
                 <span className="text-body-md text-muted-foreground">Sessions</span>
-                {/* A key is a key wherever it stands: the box, the corner, the hover and the
-                    focus ring are the window controls' own. */}
-                <button
-                    id={`${id}-refresh`}
-                    type="button"
-                    aria-label="Refresh the session list"
-                    disabled={reading}
-                    onClick={() => void refresh()}
-                    className={cn(
-                        "hover:bg-muted focus-visible:outline-primary text-foreground",
-                        "size-6 shrink-0 rounded-sm bg-transparent p-1",
-                        "disabled:pointer-events-none disabled:opacity-50",
-                        "transition-colors duration-50 ease-in-out",
-                    )}
-                >
+                <span className="flex items-center gap-1">
+                    {/* A key is a key wherever it stands: the box, the corner, the hover and the
+                        focus ring are the window controls' own. */}
+                    <button
+                        id={`${id}-new`}
+                        type="button"
+                        aria-label="New session"
+                        onClick={onNew}
+                        className={cn(
+                            "hover:bg-muted focus-visible:outline-primary text-foreground",
+                            "size-6 shrink-0 rounded-sm bg-transparent p-1",
+                            "transition-colors duration-50 ease-in-out",
+                        )}
+                    >
+                        <Plus className="size-4" aria-hidden />
+                    </button>
                     {/* A turning ring while the key itself reads, and out as the words land -
                         and no `initial={false}`, which reaches the whole subtree and would leave
                         the turn standing at the end it never ran. The glyph arrives with a swap
                         of its own: a part arriving is a slot. */}
-                    <AnimatePresence mode="wait">
-                        <motion.span key={asked ? "reading" : "done"} className="flex" {...swap}>
-                            {asked ? (
-                                <motion.span className="flex" {...turn}>
-                                    <Loader2 className="size-4" aria-hidden />
-                                </motion.span>
-                            ) : (
-                                <RefreshCw className="size-4" aria-hidden />
-                            )}
-                        </motion.span>
-                    </AnimatePresence>
-                </button>
+                    <button
+                        id={`${id}-refresh`}
+                        type="button"
+                        aria-label="Refresh the session list"
+                        disabled={reading}
+                        onClick={() => void refresh()}
+                        className={cn(
+                            "hover:bg-muted focus-visible:outline-primary text-foreground",
+                            "size-6 shrink-0 rounded-sm bg-transparent p-1",
+                            "disabled:pointer-events-none disabled:opacity-50",
+                            "transition-colors duration-50 ease-in-out",
+                        )}
+                    >
+                        {/* A turning ring while the key itself reads, and out as the words land -
+                        and no `initial={false}`, which reaches the whole subtree and would leave
+                        the turn standing at the end it never ran. The glyph arrives with a swap
+                        of its own: a part arriving is a slot. */}
+                        <AnimatePresence mode="wait">
+                            <motion.span key={asked ? "reading" : "done"} className="flex" {...swap}>
+                                {asked ? (
+                                    <motion.span className="flex" {...turn}>
+                                        <Loader2 className="size-4" aria-hidden />
+                                    </motion.span>
+                                ) : (
+                                    <RefreshCw className="size-4" aria-hidden />
+                                )}
+                            </motion.span>
+                        </AnimatePresence>
+                    </button>
+                </span>
             </div>
             <ScrollPane className="min-h-0 flex-1" viewportRef={setPane} viewportClassName="p-2 pb-4">
                 {/* The panel holds one of four things, and a change of one for another is a

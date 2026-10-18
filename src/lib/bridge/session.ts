@@ -9,8 +9,9 @@
  * A session is named by the id that `attachSession` answered with — pie's id for
  * the process, which is the id its events arrive under. That is not the id of
  * pi's session file: `sessionId` of the state names the conversation the process
- * opened with. One process holds one conversation, and a pick attaches a session
- * on the file it names.
+ * holds now. One process holds one conversation at a time; a pick attaches a session
+ * on the file it names, and pi's own `forkSession` and `cloneSession` replace the
+ * conversation a running process holds.
  *
  * A dialog of an extension and a failure of an extension have channels of their
  * own, and nothing consumes them yet (that belongs to the extension milestone). A
@@ -40,10 +41,13 @@ import type {
     AvailableThinkingLevelsData,
     BashResult,
     ClearQueueData,
+    CloneResult,
     CommandsData,
     CompactionResult,
     EntriesData,
     Event,
+    ForkData,
+    ForkMessage,
     ImageContent,
     LastAssistantTextData,
     Model,
@@ -104,6 +108,52 @@ export function listSessions(): Promise<SessionSummary[]> {
  */
 export function attachSession(path?: string): Promise<SessionInfo> {
     return call<SessionInfo>("attach_session", { path });
+}
+
+/**
+ * Starts a pi in a directory of the host, for a new conversation.
+ *
+ * `cwd` is a directory as `listDirs` wrote it; without one pi starts in the home
+ * of the machine, or in the directory of the login shell on a host. The directory
+ * is where the conversation is recorded and where the tools of that session run,
+ * so the choice decides what the conversation is about. The conversation has no
+ * file yet: pi writes one at the first message.
+ */
+export function startSession(cwd?: string): Promise<SessionInfo> {
+    return call<SessionInfo>("start_session", { cwd });
+}
+
+/**
+ * Deletes one conversation file of the host.
+ *
+ * Pi has no command for this: the caller ends the process that holds the
+ * conversation first (`detachSession`), then asks for this. A fork of that
+ * conversation is unaffected; a branch holds a copy of the entries it keeps.
+ */
+export function deleteSession(path: string): Promise<void> {
+    return call<void>("delete_session", { path });
+}
+
+/** The user messages of one session that a fork can start from. */
+export function getForkMessages(session: string): Promise<ForkMessage[]> {
+    return call<ForkMessage[]>("get_fork_messages", { session });
+}
+
+/**
+ * Forks one session at a user message, in the same process.
+ *
+ * Pi writes a new conversation file and the process holds it from here; the old
+ * file stays where pi wrote it. The session keeps its id - it is the process, not
+ * the conversation - so the caller reads the state and the entries again, and a
+ * screen that drew the old conversation lets it go.
+ */
+export function forkSession(session: string, entryId: string): Promise<ForkData> {
+    return call<ForkData>("fork_session", { session, entryId });
+}
+
+/** Copies the whole branch of one session into a new file, in the same process. */
+export function cloneSession(session: string): Promise<CloneResult> {
+    return call<CloneResult>("clone_session", { session });
 }
 
 /**
