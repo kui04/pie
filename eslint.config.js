@@ -11,7 +11,7 @@ export default defineConfig(
     // eslint does not read .gitignore. A bare `target` does not match the files
     // in it. Therefore the build output needs an explicit glob. The glob also
     // covers the generated Android project and the pi reference checkout.
-    { ignores: ["dist", "storybook-static", "**/target/**", "src-tauri/gen", ".codegraph"] },
+    { ignores: ["dist", "storybook-static", "**/target/**", "src-tauri/gen", ".codegraph", ".agents/skills"] },
     {
         extends: [js.configs.recommended, ...tseslint.configs.recommended],
         files: ["**/*.{ts,tsx}"],
