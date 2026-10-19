@@ -1,7 +1,9 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
   nixpkgs:
-    url: github:cachix/devenv-nixpkgs/rolling
+    # FIXME: return to github:cachix/devenv-nixpkgs/rolling when webkitgtk
+    # 2.54.2 (the WebKit bug 321993 fix) is in the rolling input.
+    url: github:cachix/devenv-nixpkgs/642a665ccf1535fec825bfb31261dac3af42e7d8
   rust-overlay:
     url: github:oxalica/rust-overlay
   git-hooks:
