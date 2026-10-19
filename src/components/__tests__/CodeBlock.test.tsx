@@ -54,6 +54,13 @@ describe("CodeBlock", () => {
         expect(view.container.querySelector("code")?.textContent).toContain("const b");
     });
 
+    it("draws the final newline as the end of the last line", async () => {
+        const view = render(<CodeBlock code={`${CODE}\n`} language="ts" />);
+        await chunkLands();
+
+        expect(view.container.querySelectorAll(String.raw`[data-slot="code-block-line"]`)).toHaveLength(1);
+    });
+
     it("scrolls long lines until the reader asks for wrap", () => {
         const view = render(<CodeBlock code={CODE} language="ts" id="block" />);
         const content = view.container.querySelector(String.raw`[data-slot="code-block-content"]`);

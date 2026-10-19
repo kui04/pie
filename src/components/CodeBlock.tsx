@@ -58,7 +58,9 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
         return () => clearTimeout(timer);
     }, [copied]);
 
-    const tokens = coloured === code ? tokensOf(highlighter, code, language ?? "text") : null;
+    // A final newline ends the last line; shiki would draw it as an empty one.
+    const drawn = code.replace(/\r?\n$/, "");
+    const tokens = coloured === code ? tokensOf(highlighter, drawn, language ?? "text") : null;
 
     const copy = () => {
         void copyText(code).then((done) => {
@@ -110,7 +112,7 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
                 without a render. */}
             <CodeBlockContent data-code={language ?? "text"} wrap={wrap}>
                 {tokens === null
-                    ? code
+                    ? drawn
                     : tokens.map((line, at) => (
                           <CodeBlockLine key={at}>
                               {line.map((token, of) => (
