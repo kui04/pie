@@ -51,6 +51,22 @@ function Wrapper({ children }: { children: ReactNode }) {
     return <div style={{ height: 400 }}>{children}</div>;
 }
 
+/** The pointer a preview card listens for, without a browser's own hover. */
+function hover(element: HTMLElement) {
+    const trigger = element.closest<HTMLElement>(String.raw`[data-slot="hover-card-trigger"]`) ?? element;
+    fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
+    fireEvent.mouseEnter(trigger);
+}
+
+/** The card a row opened, once the delay has passed. */
+async function previewCard() {
+    return waitFor(() => {
+        const card = document.querySelector(String.raw`[data-slot="hover-card-content"]`);
+        expect(card).not.toBeNull();
+        return card as HTMLElement;
+    });
+}
+
 /** A window that answers one query, and can be told to change its answer. */
 function windowThatMatches() {
     const listeners: Array<() => void> = [];
@@ -102,6 +118,46 @@ describe("SessionSidebar", () => {
         expect(await screen.findByText("Pie work")).toBeInTheDocument();
         expect(screen.getByText("/work/pie")).toBeInTheDocument();
         expect(screen.getByText("/work/other")).toBeInTheDocument();
+    });
+
+    it("shows a directory's full path in a preview card", async () => {
+        bridge.listDirs.mockResolvedValue({ directory: "/home/user", entries: [] });
+        bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/home/user/pie", name: "Pie work" })]);
+
+        renderSidebar();
+
+        hover(await screen.findByText("~/pie"));
+        const card = await previewCard();
+        expect(within(card).getByText("/home/user/pie")).toBeInTheDocument();
+    });
+
+    it("keeps a session's title in the directory's text column", async () => {
+        bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/work/pie", name: "Pie work" })]);
+
+        renderSidebar();
+
+        const row = await waitFor(() => {
+            const found = document.querySelector("[data-path]");
+            expect(found).not.toBeNull();
+            return found as HTMLElement;
+        });
+        // The directory's folder uses the 24px icon slot; the row's empty status slot
+        // must use the same width, or the two titles start on different columns.
+        expect(row.querySelector("button > span[aria-hidden]")?.className.split(" ")).toEqual(
+            expect.arrayContaining(["size-6", "shrink-0"]),
+        );
+    });
+
+    it("shows a session's full name and when it was written in a preview card", async () => {
+        const modified = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString();
+        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "Fix the parser", modified })]);
+
+        renderSidebar();
+
+        hover(await screen.findByText("Fix the parser"));
+        const card = await previewCard();
+        expect(within(card).getByText("Fix the parser")).toBeInTheDocument();
+        expect(within(card).getByText("4d ago")).toBeInTheDocument();
     });
 
     it("reads a row that pi holds nothing about as a time to choose by", async () => {

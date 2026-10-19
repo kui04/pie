@@ -53,6 +53,7 @@ export {
     DrawerTitle,
     DrawerTrigger,
 } from "./drawer";
+export { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card";
 export {
     InputGroup,
     InputGroupAddon,

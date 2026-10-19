@@ -6,6 +6,7 @@ import {
     matchesSearch,
     pathKey,
     relativeTime,
+    relativeTimeAgo,
     sessionTitle,
 } from "@/routes/chat/sidebar/session-list";
 import { sessionSummary } from "@/preview/fixtures";
@@ -85,6 +86,21 @@ describe("relativeTime", () => {
         // shows no time rather than counting NaN years.
         expect(relativeTime("not a time", now)).toBe("--");
         expect(relativeTime("", now)).toBe("--");
+    });
+});
+
+describe("relativeTimeAgo", () => {
+    const now = Date.parse("2026-01-08T12:00:00.000Z");
+    const ago = (seconds: number) => new Date(now - seconds * 1000).toISOString();
+
+    it("phrases the row's count for the room of the preview card", () => {
+        expect(relativeTimeAgo(ago(4 * 24 * 3600), now)).toBe("4d ago");
+        expect(relativeTimeAgo(ago(60), now)).toBe("1m ago");
+    });
+
+    it("leaves a word or an unknown stamp as the row wrote it", () => {
+        expect(relativeTimeAgo(ago(0), now)).toBe("now");
+        expect(relativeTimeAgo("not a time", now)).toBe("--");
     });
 });
 

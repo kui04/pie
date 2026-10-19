@@ -16,15 +16,31 @@ import { ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Plus, RotateCw, Set
 import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
 import { cn } from "cn";
 
-import { Drawer, DrawerContent, DrawerTitle, Skeleton } from "@/components/ui";
-import { SafeArea, ScrollPane, TruncatedText, Icon } from "@/components";
+import {
+    Drawer,
+    DrawerContent,
+    DrawerTitle,
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+    Skeleton,
+} from "@/components/ui";
+import { SafeArea, ScrollPane, Icon } from "@/components";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { useMotion } from "@/hooks/useMotion";
 import { useWideWindow } from "@/hooks/useWideWindow";
 import * as bridge from "@/lib/bridge";
 import { directoryQueries, sessionsQueries } from "@/lib/query";
 import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
-import { breatheAt, formatCwd, groupSessions, pathKey, relativeTime, sessionTitle } from "./session-list";
+import {
+    breatheAt,
+    formatCwd,
+    groupSessions,
+    pathKey,
+    relativeTime,
+    relativeTimeAgo,
+    sessionTitle,
+} from "./session-list";
 
 /** One attached conversation: the session that holds it, and whether that session runs now. */
 export interface AttachedConversation {
@@ -60,6 +76,14 @@ export interface SessionSidebarProps extends SessionList {
     /** Merged into the sheet's surface last, so a preview can pin it open. */
     sheetClassName?: string;
 }
+
+/** The preview a directory or a session row opens: a card of the list's own colour, with a short enter and exit. */
+const PREVIEW_CARD = `
+    w-56 bg-card p-3 duration-150 ease-out
+    motion-safe:transition-[opacity,scale]
+    motion-safe:data-ending-style:scale-95 motion-safe:data-ending-style:opacity-0
+    motion-safe:data-starting-style:scale-95 motion-safe:data-starting-style:opacity-0
+`;
 
 export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClassName, ...list }: SessionSidebarProps) {
     const { frame } = useMotion();
@@ -239,40 +263,47 @@ function SessionListPanel({
                             <motion.div key="rows" className="space-y-2" {...stage}>
                                 {groups.map((group) => (
                                     <section key={group.cwd} className="space-y-0.5">
-                                        <button
-                                            type="button"
-                                            aria-expanded={!folded.has(group.cwd)}
-                                            onClick={() => toggle(group.cwd)}
-                                            className="
-                                                flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2
-                                                text-left text-muted-foreground transition-colors duration-100
-                                                ease-in-out select-none
-                                                hover:bg-accent/50 hover:text-foreground
-                                            "
-                                        >
-                                            {folded.has(group.cwd) ? (
-                                                <Icon className="shrink-0">
-                                                    <Folder aria-hidden />
-                                                </Icon>
-                                            ) : (
-                                                <Icon className="shrink-0">
-                                                    <FolderOpen aria-hidden />
-                                                </Icon>
-                                            )}
-                                            {group.cwd ? (
-                                                <TruncatedText
-                                                    align="right"
-                                                    fullText={group.cwd}
-                                                    className="min-w-0 flex-1 truncate text-body-md font-normal"
-                                                >
-                                                    {formatCwd(group.cwd, homePath)}
-                                                </TruncatedText>
-                                            ) : (
+                                        <HoverCard>
+                                            <HoverCardTrigger
+                                                render={<button type="button" />}
+                                                aria-expanded={!folded.has(group.cwd)}
+                                                onClick={() => toggle(group.cwd)}
+                                                delay={200}
+                                                closeDelay={100}
+                                                className="
+                                                    flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2
+                                                    text-left text-muted-foreground transition-colors duration-100
+                                                    ease-in-out select-none
+                                                    hover:bg-accent/50 hover:text-foreground
+                                                "
+                                            >
+                                                {folded.has(group.cwd) ? (
+                                                    <Icon className="shrink-0">
+                                                        <Folder aria-hidden />
+                                                    </Icon>
+                                                ) : (
+                                                    <Icon className="shrink-0">
+                                                        <FolderOpen aria-hidden />
+                                                    </Icon>
+                                                )}
                                                 <span className="min-w-0 flex-1 truncate text-body-md font-normal">
-                                                    No directory
+                                                    {group.cwd ? formatCwd(group.cwd, homePath) : "No directory"}
                                                 </span>
+                                            </HoverCardTrigger>
+                                            {group.cwd && (
+                                                <HoverCardContent
+                                                    side="right"
+                                                    align="center"
+                                                    alignOffset={0}
+                                                    sideOffset={16}
+                                                    className={PREVIEW_CARD}
+                                                >
+                                                    <p className="text-body-md break-all text-foreground">
+                                                        {group.cwd}
+                                                    </p>
+                                                </HoverCardContent>
                                             )}
-                                        </button>
+                                        </HoverCard>
                                         {!folded.has(group.cwd) &&
                                             (group.sessions.length === 0 ? (
                                                 <p
@@ -483,84 +514,96 @@ function SessionRow({
     const [menuOpen, setMenuOpen] = useState(false);
     const title = sessionTitle(session);
     const when = relativeTime(session.modified, now);
+    const ago = relativeTimeAgo(session.modified, now);
     const mark = held === null ? null : held.working ? "working" : "attached";
 
     return (
-        <div
-            id={`${id}-row-${pathKey(session.path)}`}
-            data-path={session.path}
-            aria-current={held !== null ? "true" : undefined}
-            onClick={() => onPick(session.path)}
-            className={cn(
-                `
-                    group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
-                    select-none
-                    hover:bg-accent
-                `,
-                menuOpen && "bg-accent",
-            )}
-        >
-            <button
-                type="button"
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left outline-none"
+        <HoverCard>
+            <HoverCardTrigger
+                render={<div data-path={session.path} />}
+                id={`${id}-row-${pathKey(session.path)}`}
+                aria-current={held !== null ? "true" : undefined}
+                onClick={() => onPick(session.path)}
+                delay={200}
+                closeDelay={100}
+                className={cn(
+                    `
+                        group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
+                        select-none
+                        hover:bg-accent
+                    `,
+                    menuOpen && "bg-accent",
+                )}
             >
-                {/* Slot for status light (16px wide/tall) aligning with folder icon.
-                    BreathLight (8px) is centered horizontally and vertically inside this 16px slot. */}
-                <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
-                    {mark !== null && <BreathLight breathing={breathing} mark={mark} />}
-                </span>
-                {mark !== null && <span className="sr-only">{mark === "working" ? "working" : "attached"}</span>}
-
-                {/* Session title */}
-                <TruncatedText
-                    align="right"
-                    className="min-w-0 flex-1 truncate text-body-md font-normal text-foreground"
+                <button
+                    type="button"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left outline-none"
                 >
-                    {title ?? when}
-                </TruncatedText>
-            </button>
+                    {/* A 24px slot puts the title on the directory's left edge; the 8px light sits in its centre. */}
+                    <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>
+                        {mark !== null && <BreathLight breathing={breathing} mark={mark} />}
+                    </span>
+                    {mark !== null && <span className="sr-only">{mark === "working" ? "working" : "attached"}</span>}
 
-            {/* Trailing slot: relative timestamp when idle, session actions menu on hover/open */}
-            <div className="relative ml-auto flex size-6 shrink-0 items-center justify-center">
-                {title !== null && (
+                    {/* Session title */}
+                    <span className="min-w-0 flex-1 truncate text-body-md font-normal text-foreground">
+                        {title ?? when}
+                    </span>
+                </button>
+
+                {/* Trailing slot: relative timestamp when idle, session actions menu on hover/open */}
+                <div className="relative ml-auto flex size-6 shrink-0 items-center justify-center">
+                    {title !== null && (
+                        <div
+                            className={cn(
+                                `
+                                    absolute inset-0 flex items-center justify-center transition-opacity duration-150
+                                    ease-out
+                                `,
+                                menuOpen ? "pointer-events-none opacity-0" : "opacity-100 group-hover:opacity-0",
+                            )}
+                        >
+                            <span className="text-label-md text-muted-foreground tabular-nums select-none" aria-hidden>
+                                {when}
+                            </span>
+                        </div>
+                    )}
                     <div
                         className={cn(
                             "absolute inset-0 flex items-center justify-center transition-opacity duration-150 ease-out",
-                            menuOpen ? "pointer-events-none opacity-0" : "opacity-100 group-hover:opacity-0",
+                            menuOpen
+                                ? "pointer-events-auto opacity-100"
+                                : `
+                                    pointer-events-none opacity-0
+                                    group-hover:pointer-events-auto group-hover:opacity-100
+                                    has-focus-visible:pointer-events-auto has-focus-visible:opacity-100
+                                `,
                         )}
+                        onClick={(event) => event.stopPropagation()}
                     >
-                        <span className="text-label-md text-muted-foreground tabular-nums select-none" aria-hidden>
-                            {when}
-                        </span>
+                        <SessionMenu
+                            id={`${id}-menu-${pathKey(session.path)}`}
+                            session={held?.session ?? null}
+                            file={session.path}
+                            initialName={session.name ?? null}
+                            working={held?.working ?? false}
+                            endpoint={endpoint}
+                            open={menuOpen}
+                            onOpenChange={setMenuOpen}
+                            triggerClassName="hover:bg-muted text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
+                        />
                     </div>
-                )}
-                <div
-                    className={cn(
-                        "absolute inset-0 flex items-center justify-center transition-opacity duration-150 ease-out",
-                        menuOpen
-                            ? "pointer-events-auto opacity-100"
-                            : `
-                                pointer-events-none opacity-0
-                                group-hover:pointer-events-auto group-hover:opacity-100
-                                has-focus-visible:pointer-events-auto has-focus-visible:opacity-100
-                            `,
-                    )}
-                    onClick={(event) => event.stopPropagation()}
-                >
-                    <SessionMenu
-                        id={`${id}-menu-${pathKey(session.path)}`}
-                        session={held?.session ?? null}
-                        file={session.path}
-                        initialName={session.name ?? null}
-                        working={held?.working ?? false}
-                        endpoint={endpoint}
-                        open={menuOpen}
-                        onOpenChange={setMenuOpen}
-                        triggerClassName="hover:bg-muted text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
-                    />
                 </div>
-            </div>
-        </div>
+            </HoverCardTrigger>
+            {title !== null && (
+                <HoverCardContent side="right" align="center" alignOffset={0} sideOffset={16} className={PREVIEW_CARD}>
+                    <div className="flex flex-col gap-1">
+                        <p className="text-body-md font-medium wrap-break-word text-foreground">{title}</p>
+                        <p className="text-body-sm text-muted-foreground">{ago}</p>
+                    </div>
+                </HoverCardContent>
+            )}
+        </HoverCard>
     );
 }
 

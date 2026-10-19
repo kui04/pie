@@ -96,6 +96,12 @@ export function relativeTime(modified: string, now: number): string {
     return `${Math.floor(days / 365)}y`;
 }
 
+/** The row's short count of time, phrased for the space a preview card has. */
+export function relativeTimeAgo(modified: string, now: number): string {
+    const time = relativeTime(modified, now);
+    return time === "now" || time === "--" ? time : `${time} ago`;
+}
+
 /**
  * Whether a session is one that a search asks for.
  *
