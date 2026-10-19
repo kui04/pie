@@ -17,9 +17,9 @@ const optionRowVariants = cva(
     {
         variants: {
             variant: {
-                row: "rounded-lg py-2 px-3 data-checked:bg-surface-container-highest",
+                row: "rounded-lg px-3 py-2 data-checked:bg-surface-container-highest",
                 pill: [
-                    "rounded-md py-2 px-3 data-checked:bg-surface-container-highest",
+                    "rounded-md px-3 py-2 data-checked:bg-surface-container-highest",
                     "data-unchecked:bg-surface-container-high",
                     "data-unchecked:text-muted-foreground",
                     "**:data-[slot=radio-group-indicator]:hidden",
@@ -54,7 +54,7 @@ function OptionRow({
             {children}
             <RadioPrimitive.Indicator
                 data-slot="radio-group-indicator"
-                className="text-primary-text flex size-4 items-center justify-center"
+                className="flex size-4 items-center justify-center text-primary-text"
             >
                 <motion.span className="flex" {...swap}>
                     <Check className="size-4" />

@@ -93,7 +93,7 @@ export function Hourglass({ label }: { label: string }) {
             viewBox="0 0 24 24"
             role="img"
             aria-label={label}
-            className="text-foreground size-4 shrink-0"
+            className="size-4 shrink-0 text-foreground"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"

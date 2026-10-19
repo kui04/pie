@@ -71,7 +71,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
             // a capped parent stays as tall as its content, so the rows past the tenth would be
             // clipped rather than scrolled to.
             className={cn(
-                "elevation-raised bg-card text-foreground",
+                "bg-card text-foreground elevation-raised",
                 // The cap follows the visible viewport, so an open keyboard
                 // cannot push the rows off screen; the scroll pane takes the rest.
                 "max-h-[calc(100dvh-14rem)]",
@@ -114,12 +114,12 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                                     "rounded-lg p-2 text-sm select-none",
                                 )}
                             >
-                                <span className="text-body-md shrink-0 whitespace-nowrap">/{row.name}</span>
+                                <span className="shrink-0 text-body-md whitespace-nowrap">/{row.name}</span>
                                 {row.description !== null && (
                                     // The description follows the selection too, and not as a
                                     // decoration: `muted-foreground` on the `accent` fill is
                                     // 4.37:1, under the 4.5 a sentence needs.
-                                    <span className="text-body-md text-muted-foreground group-data-[lit=true]/item:text-accent-foreground min-w-0 truncate">
+                                    <span className="min-w-0 truncate text-body-md text-muted-foreground group-data-[lit=true]/item:text-accent-foreground">
                                         {row.description}
                                     </span>
                                 )}

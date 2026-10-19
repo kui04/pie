@@ -58,20 +58,20 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                             aria-controls={`${id}-work`}
                             aria-expanded={open}
                             onClick={() => setManual((was) => !(was ?? open))}
-                            className="hover:text-foreground min-h-10 w-full text-left sm:min-h-8.5"
+                            className="min-h-10 w-full text-left hover:text-foreground sm:min-h-8.5"
                         />
                     }
                 >
-                    <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">
+                    <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
                         <Layers />
                     </MarkerIcon>
-                    <span className="text-body-md text-foreground trim font-medium">{heading.lead}</span>
-                    <span className="trim min-w-0 truncate">
+                    <span className="text-body-md font-medium text-foreground trim">{heading.lead}</span>
+                    <span className="min-w-0 truncate trim">
                         {heading.files !== null && <span> · {heading.files}</span>}
                         {heading.failed !== null && <span className="text-destructive"> · {heading.failed}</span>}
                         {heading.calls !== null && <span className="hidden lg:inline"> · {heading.calls}</span>}
                     </span>
-                    {facts.failed > 0 && <X className="text-destructive size-4 shrink-0" aria-hidden />}
+                    {facts.failed > 0 && <X className="size-4 shrink-0 text-destructive" aria-hidden />}
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
                     <ChevronRight
                         className={cn("ml-auto size-4 shrink-0 transition-transform", open && "rotate-90")}
@@ -95,11 +95,11 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                             onClick={() => setManual(false)}
                             className="absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 cursor-pointer justify-center"
                         >
-                            <span className="bg-divider h-full w-0.5" />
+                            <span className="h-full w-0.5 bg-divider" />
                         </span>
                     )}
                     {hidden > 0 && (
-                        <span className="text-body-sm text-muted-foreground py-1 pl-8">+{hidden} more…</span>
+                        <span className="py-1 pl-8 text-body-sm text-muted-foreground">+{hidden} more…</span>
                     )}
                     {shown.map((item) => {
                         if (item.kind === "call") {
@@ -121,7 +121,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                                 // not the answer. The answer is the text the fold leaves out, and that
                                 // keeps the block's own left edge.
                                 <div key={item.id} className="pl-8">
-                                    <Markdown id={item.id} className="text-muted-foreground py-1">
+                                    <Markdown id={item.id} className="py-1 text-muted-foreground">
                                         {item.text}
                                     </Markdown>
                                 </div>
@@ -192,7 +192,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     ))}
                 </div>
             )}
-            {note !== null && <p className="text-body-sm text-destructive mt-2">{note}</p>}
+            {note !== null && <p className="mt-2 text-body-sm text-destructive">{note}</p>}
         </div>
     );
 }

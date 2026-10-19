@@ -38,7 +38,7 @@ export function SessionTopbar({
                     key={name ?? cwd ?? "session"}
                     className="flex min-w-0 flex-1 items-center gap-1"
                 >
-                    <h1 id="session_name" className="text-title-sm min-w-0 flex-1 truncate px-2 text-center">
+                    <h1 id="session_name" className="min-w-0 flex-1 truncate px-2 text-center text-title-sm">
                         {title(name, cwd)}
                     </h1>
                     <span id="session_controllers" className="flex shrink-0 items-center gap-1">

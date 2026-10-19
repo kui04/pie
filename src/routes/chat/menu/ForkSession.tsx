@@ -69,7 +69,7 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
     const body = (
         <ScrollPane id="session-fork-scroll" className="min-h-0 flex-1" viewportClassName="-mx-2">
             {points.isError ? (
-                <p id="session-fork-failure" role="alert" className="text-body-md text-muted-foreground p-2">
+                <p id="session-fork-failure" role="alert" className="p-2 text-body-md text-muted-foreground">
                     {bridge.asPieError(points.error).message}
                 </p>
             ) : points.isPending ? (
@@ -79,7 +79,7 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                     ))}
                 </div>
             ) : points.data.length === 0 ? (
-                <p className="text-body-md text-muted-foreground p-2">No messages to fork from</p>
+                <p className="p-2 text-body-md text-muted-foreground">No messages to fork from</p>
             ) : (
                 <div className="space-y-0.5 px-2">
                     {points.data.map((point) => (
@@ -89,9 +89,9 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                             id={`session-fork-point-${point.entryId}`}
                             disabled={fork.isPending}
                             onClick={() => fork.mutate(point.entryId)}
-                            className="hover:bg-accent focus-visible:bg-accent flex w-full rounded-md p-2 text-left outline-none disabled:pointer-events-none disabled:opacity-50"
+                            className="flex w-full rounded-md p-2 text-left outline-none hover:bg-accent focus-visible:bg-accent disabled:pointer-events-none disabled:opacity-50"
                         >
-                            <span className="text-body-md line-clamp-2 wrap-break-word whitespace-pre-wrap">
+                            <span className="line-clamp-2 text-body-md wrap-break-word whitespace-pre-wrap">
                                 {point.text}
                             </span>
                         </button>
@@ -105,17 +105,17 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
         return (
             <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="down" showSwipeHandle>
                 <DrawerContent
-                    className="border-border flex h-[70dvh] flex-col gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="flex h-[70dvh] flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                     aria-describedby="session-fork-sheet-description"
                 >
                     <DrawerTitle>{TITLE}</DrawerTitle>
-                    <DrawerDescription id="session-fork-sheet-description" className="text-muted-foreground mt-4">
+                    <DrawerDescription id="session-fork-sheet-description" className="mt-4 text-muted-foreground">
                         {DESCRIPTION}
                     </DrawerDescription>
                     {body}
                     <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">
                         <DrawerClose
-                            render={<Button variant="outline" className="text-label-lg h-10 flex-1 font-medium" />}
+                            render={<Button variant="outline" className="h-10 flex-1 text-label-lg font-medium" />}
                         >
                             Cancel
                         </DrawerClose>
@@ -132,7 +132,7 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                 // A height, not a maximum: the viewport of a `ScrollPane` fills its root by
                 // percentage, and a percentage resolves only against a definite height. Under
                 // `max-h` the list would paint past the frame instead of scrolling.
-                className="border-border bg-card text-foreground flex h-[70dvh] flex-col rounded-xl border p-6"
+                className="flex h-[70dvh] flex-col rounded-xl border border-border bg-card p-6 text-foreground"
                 aria-describedby="session-fork-dialog-description"
             >
                 <DialogTitle className="text-body-md font-normal">{TITLE}</DialogTitle>

@@ -16,7 +16,7 @@ const meta = {
     component: CallRow,
     decorators: [
         (Story: React.ComponentType) => (
-            <div className="bg-surface w-full max-w-3xl p-6 font-sans">
+            <div className="w-full max-w-3xl bg-surface p-6 font-sans">
                 <Story />
             </div>
         ),

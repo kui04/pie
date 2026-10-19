@@ -27,8 +27,8 @@ export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
     if (body === "") {
         return (
             <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
-                <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">{branchGlyph()}</MarkerIcon>
-                <span className="text-body-md text-violet trim shrink-0 font-medium whitespace-nowrap">Summary</span>
+                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">{branchGlyph()}</MarkerIcon>
+                <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Summary</span>
             </Marker>
         );
     }
@@ -39,7 +39,7 @@ export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
             glyph={branchGlyph()}
             name={
                 <span className="flex items-center gap-2">
-                    <span className="text-violet trim font-medium">Summary</span>
+                    <span className="font-medium text-violet trim">Summary</span>
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
                     <ChevronRight
                         className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}

@@ -15,7 +15,7 @@ const meta = {
     parameters: { layout: "fullscreen" },
     decorators: [
         (Story) => (
-            <div className="bg-surface fixed inset-0 flex font-sans">
+            <div className="fixed inset-0 flex bg-surface font-sans">
                 {/* The page of the screen the bar is drawn in: the system bars' room is
                     the page's own, and the bar is its first row. */}
                 <SafeArea side="all" id="safe-main" className="flex min-h-0 flex-1 flex-col overflow-hidden">

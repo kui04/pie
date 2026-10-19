@@ -69,13 +69,10 @@ export default defineConfig(
         extends: [eslintPluginTailwindcss.configs.recommended],
         settings: { tailwindcss: { cssConfigPath: "./src/index.css" } },
         rules: {
-            // 563 warnings, all of them order: prettier would be the one to settle that.
-            "tailwindcss/classnames-order": "off",
-            // It matches a value against every token of the theme and ignores what the token
-            // means, so `text-[20px]` is offered a line height. Its fixes cannot be trusted.
+            // `src/components/Markdown.tsx` sets its heading sizes with arbitrary values
+            // (`text-[20px]`, `leading-[1.3]`). This rule offers a line-height token for a font
+            // size, and `leading-1.3`, which is not a class. Its fixes cannot be trusted.
             "tailwindcss/no-unnecessary-arbitrary-value": "off",
-            // `live-window` is this app's own mask, defined in src/index.css.
-            "tailwindcss/no-custom-classname": ["warn", { whitelist: ["live-window"] }],
         },
     },
     prettierConfig,

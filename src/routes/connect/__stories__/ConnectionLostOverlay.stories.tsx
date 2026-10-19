@@ -12,12 +12,12 @@ const meta = {
     parameters: { layout: "fullscreen" },
     decorators: [
         (Story) => (
-            <div className="bg-surface text-foreground fixed inset-0 flex flex-col font-sans">
+            <div className="fixed inset-0 flex flex-col bg-surface font-sans text-foreground">
                 {/* Something like the page it stands over: the overlay must read as a veil on
                     a window that is still there, and a flat plane would not show that. */}
                 <div className="flex min-h-11 items-center gap-2 px-3">
-                    <div className="bg-card size-6 rounded-md" />
-                    <div className="bg-muted h-3 w-40 rounded-full" />
+                    <div className="size-6 rounded-md bg-card" />
+                    <div className="h-3 w-40 rounded-full bg-muted" />
                 </div>
                 <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-4">
                     <p className="text-body-sm text-muted-foreground">
@@ -30,8 +30,8 @@ const meta = {
                         is closed, or whether the reach ends with the link. The process is cheap on the host, and a run
                         that keeps going is what a phone expects.
                     </p>
-                    <div className="bg-card h-20 rounded-lg" />
-                    <div className="bg-card h-12 rounded-lg" />
+                    <div className="h-20 rounded-lg bg-card" />
+                    <div className="h-12 rounded-lg bg-card" />
                 </div>
                 <Story />
             </div>

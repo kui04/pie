@@ -58,7 +58,7 @@ const meta = {
             <Seeded>
                 {/* The window's frame, as the app builds it: the shell clips, the chat
                     is one column, and the composer's band stands at its foot. */}
-                <div className="bg-surface flex h-svh w-full flex-col font-sans">
+                <div className="flex h-svh w-full flex-col bg-surface font-sans">
                     <Story />
                 </div>
             </Seeded>

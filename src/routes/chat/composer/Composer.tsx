@@ -255,7 +255,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                                 src={`data:${image.mimeType};base64,${image.data}`}
                                 className="size-4 shrink-0 rounded-full object-cover"
                             />
-                            <span className="text-body-md text-foreground max-w-40 truncate">{name}</span>
+                            <span className="max-w-40 truncate text-body-md text-foreground">{name}</span>
                             <Button
                                 id={`composer-attachment-${index}-remove`}
                                 variant="ghost"
@@ -297,7 +297,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                 enterKeyHint="send"
                 onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
                 className={cn(
-                    "text-body-md block max-h-25 min-h-15 resize-none",
+                    "block max-h-25 min-h-15 resize-none text-body-md",
                     "rounded-none border-0 bg-transparent p-0",
                     "focus-visible:ring-0 dark:bg-transparent",
                 )}
@@ -380,7 +380,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         aria-haspopup={undefined}
                         aria-expanded={undefined}
                         aria-controls={undefined}
-                        className="bg-card relative flex flex-col gap-3 rounded-xl p-4"
+                        className="relative flex flex-col gap-3 rounded-xl bg-card p-4"
                     >
                         {card}
                     </div>
@@ -410,7 +410,7 @@ function ComposerKey({ className, ...props }: ComponentProps<typeof Button>) {
             className={cn(
                 "border-border-strong bg-surface-container-highest",
                 "text-foreground hover:bg-surface-bright hover:text-foreground",
-                "dark:hover:bg-surface-bright size-8 shrink-0 rounded-full border p-0",
+                "size-8 shrink-0 rounded-full border p-0 dark:hover:bg-surface-bright",
                 className,
             )}
             {...props}

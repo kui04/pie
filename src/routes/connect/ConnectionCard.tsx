@@ -54,7 +54,7 @@ export function ConnectionCard({
             // height, so a percentage viewport inside it sizes to its content and paints
             // the form over the footer. Resolved grid tracks are definite.
             className={cn(
-                "bg-card grid max-h-full min-h-0 w-full max-w-104",
+                "grid max-h-full min-h-0 w-full max-w-104 bg-card",
                 "grid-rows-[minmax(0,1fr)_auto] overflow-hidden",
                 "rounded-xl shadow-sm",
             )}
@@ -92,7 +92,7 @@ export function ConnectionCard({
                             >
                                 <HardDrive
                                     id="connection-card-transport-local-icon"
-                                    className="text-muted-foreground size-4"
+                                    className="size-4 text-muted-foreground"
                                 />
                                 <span
                                     id="connection-card-transport-local-text"
@@ -106,7 +106,7 @@ export function ConnectionCard({
                                     </span>
                                     <span
                                         id="connection-card-transport-local-desc"
-                                        className="text-body-sm text-muted-foreground truncate"
+                                        className="truncate text-body-sm text-muted-foreground"
                                     >
                                         Spawn pi here
                                     </span>
@@ -116,7 +116,7 @@ export function ConnectionCard({
                             <OptionRow id="connection-card-transport-ssh" value="ssh" className="focus-visible:ring-0">
                                 <Server
                                     id="connection-card-transport-ssh-icon"
-                                    className="text-muted-foreground size-4"
+                                    className="size-4 text-muted-foreground"
                                 />
                                 <span
                                     id="connection-card-transport-ssh-text"
@@ -130,7 +130,7 @@ export function ConnectionCard({
                                     </span>
                                     <span
                                         id="connection-card-transport-ssh-desc"
-                                        className="text-body-sm text-muted-foreground truncate"
+                                        className="truncate text-body-sm text-muted-foreground"
                                     >
                                         Connect to a remote host
                                     </span>
@@ -164,7 +164,7 @@ export function ConnectionCard({
                                             enterKeyHint="next"
                                             className={cn(
                                                 "border-border-strong bg-surface-container-highest",
-                                                "placeholder:text-outline text-code h-12 w-full",
+                                                "h-12 w-full text-code placeholder:text-outline",
                                                 "px-3 font-sans focus-visible:ring-0",
                                             )}
                                         />
@@ -241,7 +241,7 @@ export function ConnectionCard({
                                                     enterKeyHint="next"
                                                     className={cn(
                                                         "border-border-strong bg-surface-container-highest",
-                                                        "placeholder:text-outline text-code h-12 w-full",
+                                                        "h-12 w-full text-code placeholder:text-outline",
                                                         "px-3 font-sans focus-visible:ring-0",
                                                     )}
                                                 />
@@ -274,7 +274,7 @@ export function ConnectionCard({
                                                         enterKeyHint="enter"
                                                         className={cn(
                                                             "border-border-strong bg-surface-container-highest",
-                                                            "placeholder:text-outline text-code field-sizing-fixed",
+                                                            "field-sizing-fixed text-code placeholder:text-outline",
                                                             "w-full min-w-0 resize-none px-3 py-2 font-mono",
                                                             "focus-visible:ring-0",
                                                         )}
@@ -307,7 +307,7 @@ export function ConnectionCard({
                                                         enterKeyHint="next"
                                                         className={cn(
                                                             "border-border-strong bg-surface-container-highest",
-                                                            "placeholder:text-outline text-code h-12 w-full",
+                                                            "h-12 w-full text-code placeholder:text-outline",
                                                             "px-3 font-sans focus-visible:ring-0",
                                                         )}
                                                     />
@@ -351,7 +351,7 @@ export function ConnectionCard({
                     id="connection-card-connect"
                     onClick={onConnect}
                     disabled={connecting || !canConnect}
-                    className="bg-primary hover:bg-primary/90 h-12 w-full cursor-default rounded-lg px-3"
+                    className="h-12 w-full cursor-default rounded-lg bg-primary px-3 hover:bg-primary/90"
                 >
                     <AnimatePresence initial={false} mode="popLayout">
                         {connecting ? (

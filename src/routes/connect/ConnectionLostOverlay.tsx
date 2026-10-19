@@ -53,13 +53,13 @@ export function ConnectionLostOverlay({ state, endpoint, message, onRetry, onLea
         >
             <DialogPrimitive.Portal>
                 {/* The plane stays visible through it: a blurred window, not a new one. */}
-                <DialogPrimitive.Backdrop className="bg-surface/60 fixed inset-0 z-50 backdrop-blur-md" />
+                <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-surface/60 backdrop-blur-md" />
                 <DialogPrimitive.Popup
                     // Base UI's dialog is announced as a dialog; this one interrupts, so it says
                     // so. The keyboard stays inside it either way.
                     role="alertdialog"
                     aria-describedby="connection-lost-message"
-                    className="bg-card text-foreground ring-foreground/10 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-1/2 gap-4 rounded-xl p-6 shadow-md ring-1 duration-150 outline-none sm:max-w-104"
+                    className="fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-1/2 gap-4 rounded-xl bg-card p-6 text-foreground shadow-md ring-1 ring-foreground/10 duration-150 outline-none sm:max-w-104"
                 >
                     <DialogPrimitive.Title className="text-title-lg font-medium">
                         {`The connection to ${endpoint} was lost`}
@@ -84,7 +84,7 @@ export function ConnectionLostOverlay({ state, endpoint, message, onRetry, onLea
                             onClick={onRetry}
                             disabled={trying}
                             autoFocus
-                            className="bg-primary hover:bg-primary/90 rounded-lg p-2 px-3"
+                            className="rounded-lg bg-primary p-2 px-3 hover:bg-primary/90"
                         >
                             {trying && <Loader2 className="size-4 animate-spin" />}
                             <span className="text-label-lg font-medium">{trying ? "Reconnecting" : "Reconnect"}</span>

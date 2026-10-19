@@ -78,7 +78,7 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                         className={cn(
                             "border-border-strong bg-surface-container-highest",
                             "text-foreground hover:bg-surface-bright",
-                            "aria-expanded:bg-surface-container-highest h-8",
+                            "h-8 aria-expanded:bg-surface-container-highest",
                             "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
                             "max-sm:justify-center max-sm:px-0",
                         )}
@@ -86,7 +86,7 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 }
             >
                 <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} />
-                <span className="text-label-lg hidden max-w-40 truncate sm:block">{current?.name ?? "Model"}</span>
+                <span className="hidden max-w-40 truncate text-label-lg sm:block">{current?.name ?? "Model"}</span>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-model-popup"
@@ -98,7 +98,7 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 // hundred. The cap follows the visible viewport, so an open
                 // keyboard cannot push it off screen.
                 className={cn(
-                    "elevation-raised bg-card text-foreground mx-2",
+                    "mx-2 bg-card text-foreground elevation-raised",
                     "flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden p-2",
                 )}
             >
@@ -178,7 +178,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     // A catalog that could not be read is not a search that found nothing: the popup says
     // what happened instead of offering a list of nothing, and there is nothing to search.
     if (state === "failed") {
-        return <p className="text-muted-foreground text-body-md px-2 py-4 text-center">Could not read the models.</p>;
+        return <p className="px-2 py-4 text-center text-body-md text-muted-foreground">Could not read the models.</p>;
     }
 
     return (
@@ -189,7 +189,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     "flex items-center gap-2 rounded-lg border p-2",
                 )}
             >
-                <Search className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <input
                     role="combobox"
                     aria-expanded
@@ -234,7 +234,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     spellCheck={false}
                     enterKeyHint="search"
                     onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
-                    className="text-body-md placeholder:text-outline min-w-0 flex-1 bg-transparent outline-hidden"
+                    className="min-w-0 flex-1 bg-transparent text-body-md outline-hidden placeholder:text-outline"
                 />
             </div>
             <ScrollPane id="composer-model-scroll" viewportRef={viewport} className="min-h-0 flex-1">
@@ -250,7 +250,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                         className="outline-none"
                     >
                         {shown.length === 0 && (
-                            <p className="text-muted-foreground text-body-md py-2 text-center">No match.</p>
+                            <p className="py-2 text-center text-body-md text-muted-foreground">No match.</p>
                         )}
                         <Virtualizer
                             ref={list}
@@ -319,14 +319,14 @@ const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoi
             onClick={() => onChoose(choice)}
             onMouseMove={() => onPoint(at)}
             className={cn(
-                "text-foreground flex cursor-default items-center gap-2",
+                "flex cursor-default items-center gap-2 text-foreground",
                 "h-9 rounded-lg px-2 select-none",
                 "data-[lit=true]:bg-accent",
             )}
         >
             <ProviderMark provider={model.provider} mark={mark} />
-            <span className="text-body-md min-w-0 flex-1 truncate">{model.name}</span>
-            {inUse && <Check className="text-primary-text size-4 shrink-0" aria-label="In use" />}
+            <span className="min-w-0 flex-1 truncate text-body-md">{model.name}</span>
+            {inUse && <Check className="size-4 shrink-0 text-primary-text" aria-label="In use" />}
         </div>
     );
 });

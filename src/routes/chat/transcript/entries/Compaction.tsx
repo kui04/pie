@@ -31,10 +31,10 @@ export function Compaction({ id, tokensBefore, body, quote = false }: Compaction
     if (body === "") {
         return (
             <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
-                <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">
+                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
                     {compactionGlyph()}
                 </MarkerIcon>
-                <span className="text-body-md text-violet trim shrink-0 font-medium whitespace-nowrap">Compaction</span>
+                <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Compaction</span>
             </Marker>
         );
     }
@@ -48,7 +48,7 @@ export function Compaction({ id, tokensBefore, body, quote = false }: Compaction
                 // collapsed work often enough that "this is a notice, and it opens" has to be
                 // readable from the word itself.
                 <span className="flex items-center gap-2">
-                    <span className="text-violet trim font-medium">Compaction</span>
+                    <span className="font-medium text-violet trim">Compaction</span>
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
                     <ChevronRight
                         className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}

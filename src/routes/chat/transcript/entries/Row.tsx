@@ -57,16 +57,16 @@ export function Row({
                         aria-expanded={open}
                         aria-controls={open ? `${id}-body` : undefined}
                         onClick={onToggle}
-                        className="hover:text-foreground min-h-10 w-full pr-1 text-left sm:min-h-[34px]"
+                        className="min-h-10 w-full pr-1 text-left hover:text-foreground sm:min-h-[34px]"
                     />
                 }
             >
-                <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">{glyph}</MarkerIcon>
+                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">{glyph}</MarkerIcon>
                 <span
                     className={cn(
                         // The name keeps its own width on one line, however long: what the
                         // row aimed at truncates behind it, never the other way round.
-                        "text-body-md trim shrink-0 whitespace-nowrap",
+                        "shrink-0 text-body-md whitespace-nowrap trim",
                         tone !== "quiet" && "font-medium",
                         tone === "model" && "text-primary-text",
                         tone === "user-run" && "text-violet",
@@ -90,7 +90,7 @@ export function Row({
                             aria-hidden
                             className="absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 justify-center"
                         >
-                            <span className="bg-divider h-full w-0.5" />
+                            <span className="h-full w-0.5 bg-divider" />
                         </span>
                     )}
                     {children}

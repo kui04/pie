@@ -27,7 +27,7 @@ export interface RunLineProps {
 export function RunLine({ state }: RunLineProps) {
     return (
         <Marker id="run-line" className="min-h-10 sm:min-h-[34px]">
-            <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">
+            <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
                 <Mark state={state} />
             </MarkerIcon>
             <span className="text-body-md trim">{state === "waiting" ? "Waiting…" : "Working…"}</span>
@@ -47,7 +47,7 @@ function Mark({ state }: { state: ActivityState }) {
         );
     }
     return (
-        <motion.span className="text-primary-text flex shrink-0" {...turn}>
+        <motion.span className="flex shrink-0 text-primary-text" {...turn}>
             <LoaderCircle className="size-4" aria-label="Working" />
         </motion.span>
     );

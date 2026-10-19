@@ -78,7 +78,7 @@ export function UsagePopover({
                             </PopoverDescription>
                         )}
                         <Separator className="bg-divider" />
-                        <dl className="text-body-sm text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 tabular-nums">
+                        <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-body-sm text-muted-foreground tabular-nums">
                             <dt>Messages</dt>
                             <dd>{stats.totalMessages}</dd>
                             <dt>User messages</dt>

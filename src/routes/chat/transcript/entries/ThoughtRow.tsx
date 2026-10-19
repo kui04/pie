@@ -50,7 +50,7 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
                 // readable from the word itself.
                 <span className="flex items-center gap-2">
                     {stillThinking ? (
-                        <span className="shimmer trim font-medium" role="status">
+                        <span className="shimmer font-medium trim" role="status">
                             Thinking…
                         </span>
                     ) : (

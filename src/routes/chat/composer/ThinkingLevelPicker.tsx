@@ -55,7 +55,7 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                         className={cn(
                             "border-border-strong bg-surface-container-highest",
                             "text-foreground hover:bg-surface-bright",
-                            "aria-expanded:bg-surface-container-highest h-8",
+                            "h-8 aria-expanded:bg-surface-container-highest",
                             "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
                             "max-sm:justify-center max-sm:px-0",
                         )}
@@ -63,7 +63,7 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                 }
             >
                 <Brain className="size-4 shrink-0" />
-                <span className="text-label-lg hidden max-w-40 truncate sm:block">{current ?? "Thinking"}</span>
+                <span className="hidden max-w-40 truncate text-label-lg sm:block">{current ?? "Thinking"}</span>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-thinking-popup"
@@ -73,14 +73,14 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                 className={cn(
                     // The cap follows the visible viewport, so an open keyboard
                     // cannot push the list off screen.
-                    "elevation-raised bg-card text-foreground mx-2",
+                    "mx-2 bg-card text-foreground elevation-raised",
                     "flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden p-2",
                 )}
             >
                 {levels.isPending ? (
                     <LevelSkeleton />
                 ) : levels.isError ? (
-                    <p className="text-muted-foreground text-body-md px-2 py-4 text-center">
+                    <p className="px-2 py-4 text-center text-body-md text-muted-foreground">
                         Could not read the thinking levels.
                     </p>
                 ) : (
@@ -194,13 +194,13 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                     onClick={() => onChoose(level)}
                     onMouseMove={() => setHovered(index)}
                     className={cn(
-                        "text-foreground flex cursor-default items-center gap-2",
+                        "flex cursor-default items-center gap-2 text-foreground",
                         "rounded-lg p-2 select-none",
                         "data-[lit=true]:bg-accent",
                     )}
                 >
-                    <span className="text-body-md min-w-0 flex-1 truncate">{level}</span>
-                    {level === value && <Check className="text-primary-text size-4 shrink-0" aria-label="In use" />}
+                    <span className="min-w-0 flex-1 truncate text-body-md">{level}</span>
+                    {level === value && <Check className="size-4 shrink-0 text-primary-text" aria-label="In use" />}
                 </div>
             ))}
         </div>

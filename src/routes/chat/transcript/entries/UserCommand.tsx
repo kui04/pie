@@ -59,7 +59,7 @@ function End({ status, clock }: { status: ToolStatus; clock: string | null }) {
     return (
         <>
             {status === "running" ? <Running /> : clock !== null && <Clock text={clock} />}
-            {status === "failed" && <X className="text-destructive size-4" aria-label="Failed" />}
+            {status === "failed" && <X className="size-4 text-destructive" aria-label="Failed" />}
         </>
     );
 }

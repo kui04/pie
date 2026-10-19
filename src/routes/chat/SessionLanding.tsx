@@ -19,7 +19,7 @@ export interface SessionLandingProps {
 export function SessionLanding({ onSessions, onNew }: SessionLandingProps) {
     return (
         <div id="chat-landing" className="m-auto flex flex-col items-center gap-10 p-6">
-            <p className="text-body-lg text-muted-foreground text-center">
+            <p className="text-center text-body-lg text-muted-foreground">
                 There are many agent harnesses,
                 <br />
                 but this one is yours.
@@ -53,7 +53,7 @@ function Shortcut({
             type="button"
             id={id}
             onClick={onPress}
-            className="hover:bg-accent flex items-center justify-between gap-8 rounded-md px-3 py-2"
+            className="flex items-center justify-between gap-8 rounded-md px-3 py-2 hover:bg-accent"
         >
             <span className="text-body-md text-muted-foreground">{label}</span>
             <KbdGroup className="text-muted-foreground">{children}</KbdGroup>

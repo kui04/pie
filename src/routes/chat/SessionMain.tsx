@@ -113,7 +113,7 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                 <div
                     id="chat-failure"
                     role="alert"
-                    className="text-body-md text-muted-foreground m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center"
+                    className="m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md text-muted-foreground"
                 >
                     <p>{bridge.asPieError(failure).message}</p>
                     <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                             its last rows. */}
                         <div className="mx-auto w-full max-w-5xl px-4">
                             {empty && (
-                                <p className="text-body-md text-muted-foreground pb-3 text-center">
+                                <p className="pb-3 text-center text-body-md text-muted-foreground">
                                     Nothing has been said yet.
                                 </p>
                             )}

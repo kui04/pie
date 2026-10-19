@@ -96,13 +96,13 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                     scrollbar lane stays clear. The bar sits on a solid backing;
                     one line of fade below it, two lines above the composer. */}
                 <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-10">
-                    <div className="bg-surface h-11" />
+                    <div className="h-11 bg-surface" />
                     <div className="mx-auto w-full max-w-5xl px-4">
-                        <div className="from-surface to-surface/0 h-5 bg-linear-to-b" />
+                        <div className="h-5 bg-linear-to-b from-surface to-surface/0" />
                     </div>
                 </div>
                 <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10">
-                    <div className="from-surface to-surface/0 mx-auto size-full max-w-5xl bg-linear-to-t px-4" />
+                    <div className="mx-auto size-full max-w-5xl bg-linear-to-t from-surface to-surface/0 px-4" />
                 </div>
                 <MessageScrollerButton
                     id="transcript-jump"
@@ -116,13 +116,13 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                     // outranks a plain `hover:`. The registry's own height and placement are
                     // answered in the variants it wrote them in.
                     className={cn(
-                        "elevation-raised bg-surface-container hover:bg-surface-bright",
-                        "dark:hover:bg-surface-bright text-foreground border-0",
+                        "bg-surface-container elevation-raised hover:bg-surface-bright",
+                        "border-0 text-foreground dark:hover:bg-surface-bright",
                         // Above both fades, so the gradient never covers it.
                         "z-20 h-auto gap-2 rounded-xl px-3 py-2 data-[direction=end]:bottom-2",
                     )}
                 >
-                    <ArrowDown className="text-muted-foreground size-4" />
+                    <ArrowDown className="size-4 text-muted-foreground" />
                     <span className="text-body-md">To bottom</span>
                 </MessageScrollerButton>
             </MessageScroller>

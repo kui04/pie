@@ -162,7 +162,7 @@ function BaseSessionMenu({
                     side={side}
                     align={align}
                     sideOffset={6}
-                    className="elevation-raised bg-card text-foreground w-56 p-1"
+                    className="w-56 bg-card p-1 text-foreground elevation-raised"
                 >
                     <MenuRow
                         id={`${id}-rename`}
@@ -256,9 +256,9 @@ function MenuRow({
             role="menuitem"
             disabled={disabled}
             onClick={onSelect}
-            className="hover:bg-accent focus-visible:bg-accent text-body-md flex w-full items-center gap-2 rounded-md p-2 text-left outline-none disabled:pointer-events-none disabled:opacity-50"
+            className="flex w-full items-center gap-2 rounded-md p-2 text-left text-body-md outline-none hover:bg-accent focus-visible:bg-accent disabled:pointer-events-none disabled:opacity-50"
         >
-            <span className="text-muted-foreground flex size-4 shrink-0 [&_svg]:size-4" aria-hidden>
+            <span className="flex size-4 shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden>
                 {icon}
             </span>
             {children}

@@ -25,7 +25,7 @@ export function Clock({ text }: { text: string }) {
 export function Running() {
     const { turn } = useMotion();
     return (
-        <motion.span className="text-primary-text flex shrink-0" {...turn}>
+        <motion.span className="flex shrink-0 text-primary-text" {...turn}>
             <LoaderCircle className="size-4" aria-label="Running" />
         </motion.span>
     );
@@ -85,11 +85,11 @@ function NumberedBody({ id, lines }: { id: string; lines: NumberedLine[] }) {
             <CodeBlockActions>
                 <WrapToggle id={`${id}-wrap`} wrap={wrap} onToggle={() => setWrap((was) => !was)} />
             </CodeBlockActions>
-            <CodeBlockContent wrap={wrap} className={cn("text-code font-mono", BODY_MAX)}>
+            <CodeBlockContent wrap={wrap} className={cn("font-mono text-code", BODY_MAX)}>
                 {lines.map((line, index) => (
                     <div key={index} className={cn("flex", markRowTone(line.mark))}>
                         <span className="flex shrink-0 gap-1 pr-2 select-none">
-                            <span className="text-muted-foreground/60 text-right" style={{ width: `${digits}ch` }}>
+                            <span className="text-right text-muted-foreground/60" style={{ width: `${digits}ch` }}>
                                 {line.number ?? ""}
                             </span>
                             <span className={cn("w-3 text-center", markTone(line.mark))}>

@@ -71,22 +71,22 @@ export function DeleteSession({ session, file, open, onOpenChange, onDeleted, is
         return (
             <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="down" showSwipeHandle>
                 <DrawerContent
-                    className="border-border gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                     aria-describedby="session-delete-sheet-description"
                 >
                     <DrawerTitle>{TITLE}</DrawerTitle>
-                    <DrawerDescription id="session-delete-sheet-description" className="text-muted-foreground mt-4">
+                    <DrawerDescription id="session-delete-sheet-description" className="mt-4 text-muted-foreground">
                         {DESCRIPTION}
                     </DrawerDescription>
                     <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">
                         <DrawerClose
-                            render={<Button variant="outline" className="text-label-lg h-10 flex-1 font-medium" />}
+                            render={<Button variant="outline" className="h-10 flex-1 text-label-lg font-medium" />}
                         >
                             Cancel
                         </DrawerClose>
                         <Button
                             variant="destructive"
-                            className="text-label-lg h-10 flex-1 font-medium"
+                            className="h-10 flex-1 text-label-lg font-medium"
                             disabled={refused}
                             onClick={confirm}
                         >
@@ -102,7 +102,7 @@ export function DeleteSession({ session, file, open, onOpenChange, onDeleted, is
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
                 showCloseButton={false}
-                className="border-border bg-card text-foreground rounded-xl border p-6"
+                className="rounded-xl border border-border bg-card p-6 text-foreground"
                 aria-describedby="session-delete-dialog-description"
             >
                 <DialogTitle className="text-body-md font-normal">{TITLE}</DialogTitle>

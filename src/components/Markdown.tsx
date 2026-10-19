@@ -85,7 +85,7 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
             ol: ({ children: content }) => <ol className="my-2 list-decimal space-y-0.5 pl-5">{content}</ol>,
             li: ({ children: content }) => <li className="leading-relaxed">{content}</li>,
             blockquote: ({ children: content }) => (
-                <blockquote className="border-divider text-muted-foreground my-2 border-l-2 pl-3">{content}</blockquote>
+                <blockquote className="my-2 border-l-2 border-divider pl-3 text-muted-foreground">{content}</blockquote>
             ),
             a: ({ href, children: content }) =>
                 href !== undefined && OPENABLE.test(href) ? (
@@ -117,7 +117,7 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
             // Numbers get the tabular figures, and the header keeps its own line.
             table: ({ children: content }) => (
                 <ScrollPane bars="horizontal">
-                    <table className="border-divider [&_tr]:border-divider w-full border-collapse text-[14px] leading-normal tabular-nums [&_thead]:border-b [&_tr]:border-b [&_tr:last-child]:border-0">
+                    <table className="w-full border-collapse border-divider text-[14px] leading-normal tabular-nums [&_thead]:border-b [&_tr]:border-b [&_tr]:border-divider [&_tr:last-child]:border-0">
                         {content}
                     </table>
                 </ScrollPane>
@@ -146,7 +146,7 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
                 );
             },
             code: ({ children: content }) => (
-                <code className="bg-muted text-code rounded-md px-1.5 py-px font-mono">{content}</code>
+                <code className="rounded-md bg-muted px-1.5 py-px font-mono text-code">{content}</code>
             ),
         }),
         [id],
@@ -157,7 +157,7 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
         // one paragraph's spacing whatever they are; the first and the last add none at the edges.
         <div
             className={cn(
-                "text-foreground text-[14px] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                "text-[14px] leading-relaxed text-foreground [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
                 className,
             )}
         >

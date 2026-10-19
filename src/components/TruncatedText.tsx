@@ -139,8 +139,8 @@ export const TruncatedText = React.forwardRef<HTMLSpanElement, TruncatedTextProp
                     >
                         <Tooltip.Popup
                             className={cn(
-                                "border-border bg-popover relative z-50 max-w-sm rounded-md border px-2.5 py-1",
-                                "text-popover-foreground text-xs break-all shadow-md select-text",
+                                "relative z-50 max-w-sm rounded-md border border-border bg-popover px-2.5 py-1",
+                                "text-xs break-all text-popover-foreground shadow-md select-text",
                                 "origin-(--transform-origin) duration-100 ease-out",
                                 popupClassName,
                             )}
@@ -152,7 +152,7 @@ export const TruncatedText = React.forwardRef<HTMLSpanElement, TruncatedTextProp
                                     "data-[side=top]:-bottom-1.5 data-[side=top]:rotate-180",
                                     "data-[side=left]:right-[-9px] data-[side=left]:rotate-90",
                                     "data-[side=right]:left-[-9px] data-[side=right]:-rotate-90",
-                                    "before:bg-popover before:border-border before:absolute before:bottom-0 before:left-1/2 before:size-[8.5px] before:transform-[translate(-50%,50%)_rotate(45deg)] before:border before:content-['']",
+                                    "before:absolute before:bottom-0 before:left-1/2 before:size-[8.5px] before:transform-[translate(-50%,50%)_rotate(45deg)] before:border before:border-border before:bg-popover before:content-['']",
                                 )}
                             />
                             {content}

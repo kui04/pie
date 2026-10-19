@@ -241,7 +241,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     }, [pickPrivateKey]);
 
     return (
-        <main id="window" className="bg-surface text-foreground flex min-h-0 w-full flex-1 overflow-hidden font-sans">
+        <main id="window" className="flex min-h-0 w-full flex-1 overflow-hidden bg-surface font-sans text-foreground">
             <SafeArea
                 side="all"
                 id="safe-main"
@@ -250,7 +250,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                 <div
                     id="topbar"
                     data-tauri-drag-region="deep"
-                    className="pt-safe pl-safe pr-safe absolute inset-x-0 top-0 z-10 flex min-h-11 items-center gap-1 px-3"
+                    className="absolute inset-x-0 top-0 z-10 flex min-h-11 items-center gap-1 px-3 pt-safe pr-safe pl-safe"
                 >
                     {!isMobile && <WindowControls />}
                 </div>

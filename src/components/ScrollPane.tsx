@@ -68,7 +68,7 @@ function ScrollBar({ className, orientation = "vertical", ...props }: ScrollArea
         >
             <ScrollAreaPrimitive.Thumb
                 data-slot="scroll-area-thumb"
-                className="bg-outline hover:bg-foreground relative flex-1 rounded-full"
+                className="relative flex-1 rounded-full bg-outline hover:bg-foreground"
             />
         </ScrollAreaPrimitive.Scrollbar>
     );

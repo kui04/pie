@@ -52,11 +52,11 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                     // Full registry look for review: no face overrides here. The
                     // border color stays pie's own: without it the hairline paints
                     // in currentColor, which reads as a light rim in dark mode.
-                    className="border-border gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                     aria-describedby="host-key-sheet-message"
                 >
                     <DrawerTitle>Trust this host?</DrawerTitle>
-                    <DrawerDescription id="host-key-sheet-message" className="text-muted-foreground mt-4 break-all">
+                    <DrawerDescription id="host-key-sheet-message" className="mt-4 break-all text-muted-foreground">
                         {message}
                     </DrawerDescription>
                     <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">
@@ -65,7 +65,7 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                                 <Button
                                     id="host-key-sheet-cancel"
                                     variant="outline"
-                                    className="text-label-lg h-10 flex-1 font-medium"
+                                    className="h-10 flex-1 text-label-lg font-medium"
                                 />
                             }
                         >
@@ -73,7 +73,7 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                         </DrawerClose>
                         <Button
                             id="host-key-sheet-trust"
-                            className="text-label-lg h-10 flex-1 font-medium"
+                            className="h-10 flex-1 text-label-lg font-medium"
                             onClick={() => onAnswer(true)}
                         >
                             Trust
@@ -88,13 +88,13 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
         <Dialog open={open} onOpenChange={refuseOnClose}>
             <DialogContent
                 showCloseButton={false}
-                className="border-border bg-card text-foreground rounded-xl border p-6"
+                className="rounded-xl border border-border bg-card p-6 text-foreground"
                 aria-describedby="host-key-dialog-message"
             >
                 <DialogTitle className="text-body-md font-normal">Trust this host?</DialogTitle>
                 <DialogDescription
                     id="host-key-dialog-message"
-                    className="text-body-md text-muted-foreground break-all"
+                    className="text-body-md break-all text-muted-foreground"
                 >
                     {message}
                 </DialogDescription>
@@ -110,7 +110,7 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
                     <Button
                         id="host-key-dialog-trust"
                         onClick={() => onAnswer(true)}
-                        className="bg-primary hover:bg-primary/90 rounded-lg px-4 py-3"
+                        className="rounded-lg bg-primary px-4 py-3 hover:bg-primary/90"
                     >
                         <span className="text-label-lg font-medium">Trust</span>
                     </Button>

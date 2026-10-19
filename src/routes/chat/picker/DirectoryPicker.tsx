@@ -373,7 +373,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
                     initialFocus={inputRef}
                     // A cap, not a height: the sheet wraps its content, and a long
                     // level scrolls inside it instead of pushing its keys away.
-                    className="border-border flex max-h-[70dvh] flex-col gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="flex max-h-[70dvh] flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                 >
                     {header}
                     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -394,7 +394,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
                 showCloseButton={false}
                 initialFocus={inputRef}
                 // Anchored to the top so content height changes do not shift the field.
-                className="border-border bg-card text-foreground top-[15vh] flex max-h-[70dvh] translate-y-0 flex-col rounded-xl border p-6 sm:w-full sm:max-w-2xl"
+                className="top-[15vh] flex max-h-[70dvh] translate-y-0 flex-col rounded-xl border border-border bg-card p-6 text-foreground sm:w-full sm:max-w-2xl"
             >
                 {header}
                 <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -572,14 +572,14 @@ function DirectoryList({
         >
             {recents.length > 0 && (
                 <div role="group" aria-label="Recent folders" className="flex flex-col gap-1">
-                    <p role="presentation" className="text-body-sm text-muted-foreground px-2 pt-1">
+                    <p role="presentation" className="px-2 pt-1 text-body-sm text-muted-foreground">
                         Recent folders
                     </p>
                     {recents.map(row)}
                 </div>
             )}
             <div role="group" aria-label="Folders" className="flex flex-col gap-1">
-                <p role="presentation" className="text-body-sm text-muted-foreground px-2 pt-1">
+                <p role="presentation" className="px-2 pt-1 text-body-sm text-muted-foreground">
                     Folders
                 </p>
                 {up !== undefined && row(up)}
@@ -590,7 +590,7 @@ function DirectoryList({
                             {stub === "" ? "No folders here" : "No folders match"}
                         </p>
                         {makeHint !== null && (
-                            <p className="text-body-md text-muted-foreground break-all">{makeHint}</p>
+                            <p className="text-body-md break-all text-muted-foreground">{makeHint}</p>
                         )}
                     </div>
                 )}
@@ -624,17 +624,17 @@ function DirectoryRow({ offer, lit, stub, touch, onPress, hold }: DirectoryRowPr
             ref={(element) => hold(offer, element)}
             onClick={() => onPress(offer)}
             className={cn(
-                "focus-visible:bg-accent text-foreground flex w-full items-center gap-2 rounded-md px-2 text-left outline-none",
+                "flex w-full items-center gap-2 rounded-md px-2 text-left text-foreground outline-none focus-visible:bg-accent",
                 "data-[lit=true]:bg-accent",
                 touch ? "min-h-12" : "min-h-9",
             )}
         >
             {up ? (
-                <CornerUpLeft className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                <CornerUpLeft className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             ) : (
-                <Folder className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             )}
-            <span className="text-body-md min-w-0 flex-1 truncate">
+            <span className="min-w-0 flex-1 truncate text-body-md">
                 <span className="text-muted-foreground">{parts.head}</span>
                 <Name name={parts.leaf} stub={stub} />
                 {parts.leaf !== "" && <span className="text-muted-foreground">/</span>}
@@ -677,8 +677,8 @@ function DirectoryCreateConfirm({
 }: DirectoryCreateConfirmProps) {
     const body = (
         <>
-            <p className="text-body-md text-foreground flex items-center gap-2">
-                <Folder className="text-muted-foreground size-4 shrink-0" aria-hidden />
+            <p className="flex items-center gap-2 text-body-md text-foreground">
+                <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{displayPath(making)}</span>
             </p>
             <p id="directory-picker-make-description" className="text-body-md text-muted-foreground">
@@ -703,11 +703,11 @@ function DirectoryCreateConfirm({
         return (
             <Drawer open onOpenChange={(next) => !next && onCloseMake()} swipeDirection="down">
                 <DrawerContent
-                    className="border-border flex flex-col gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="flex flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                     aria-describedby="directory-picker-make-description"
                 >
                     <DrawerTitle>Create folder</DrawerTitle>
-                    <div className="text-muted-foreground mt-4 flex flex-col gap-2">{body}</div>
+                    <div className="mt-4 flex flex-col gap-2 text-muted-foreground">{body}</div>
                 </DrawerContent>
             </Drawer>
         );
@@ -716,11 +716,11 @@ function DirectoryCreateConfirm({
         <Dialog open onOpenChange={(next) => !next && onCloseMake()}>
             <DialogContent
                 showCloseButton={false}
-                className="border-border bg-card text-foreground top-[15vh] flex translate-y-0 flex-col gap-4 rounded-xl border p-6"
+                className="top-[15vh] flex translate-y-0 flex-col gap-4 rounded-xl border border-border bg-card p-6 text-foreground"
                 aria-describedby="directory-picker-make-description"
             >
                 <DialogTitle className="text-body-md font-normal">Create folder</DialogTitle>
-                <div className="text-muted-foreground flex flex-col gap-2">{body}</div>
+                <div className="flex flex-col gap-2 text-muted-foreground">{body}</div>
             </DialogContent>
         </Dialog>
     );

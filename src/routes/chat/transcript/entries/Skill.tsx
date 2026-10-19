@@ -33,8 +33,8 @@ export function Skill({ id, summary, body, quote = false }: SkillProps) {
     if (body === null) {
         return (
             <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
-                <MarkerIcon className="bg-surface relative z-10 flex size-6 items-center">{skillGlyph()}</MarkerIcon>
-                <span className="text-body-md text-violet trim shrink-0 font-medium whitespace-nowrap">Skill</span>
+                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">{skillGlyph()}</MarkerIcon>
+                <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Skill</span>
                 {summary !== "" && (
                     <span className="min-w-0 truncate" title={summary}>
                         {summary}
@@ -50,7 +50,7 @@ export function Skill({ id, summary, body, quote = false }: SkillProps) {
             glyph={skillGlyph()}
             name={
                 <span className="flex items-center gap-2">
-                    <span className="text-violet trim font-medium">Skill</span>
+                    <span className="font-medium text-violet trim">Skill</span>
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
                     <ChevronRight
                         className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}

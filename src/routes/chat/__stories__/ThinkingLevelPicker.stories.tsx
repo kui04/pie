@@ -39,7 +39,7 @@ const meta = {
     decorators: [
         (Story) => (
             <Seeded>
-                <div className="bg-background fixed inset-x-0 bottom-0 px-3 py-6 font-sans">
+                <div className="fixed inset-x-0 bottom-0 bg-background px-3 py-6 font-sans">
                     <Story />
                 </div>
             </Seeded>

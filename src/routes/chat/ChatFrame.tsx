@@ -20,7 +20,7 @@ import { SafeArea } from "@/components";
 
 export function ChatFrame({ sidebar, children }: { sidebar?: ReactNode; children?: ReactNode }) {
     return (
-        <main id="window" className="bg-surface text-foreground flex min-h-0 w-full flex-1 overflow-hidden font-sans">
+        <main id="window" className="flex min-h-0 w-full flex-1 overflow-hidden bg-surface font-sans text-foreground">
             <SafeArea side="all" id="safe-main" className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 {sidebar}
                 <div id="session-column" className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

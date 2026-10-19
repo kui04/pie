@@ -99,21 +99,21 @@ export function RenameSession({ session, open, onOpenChange, initial, onRenamed,
         return (
             <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="down" showSwipeHandle>
                 <DrawerContent
-                    className="border-border gap-4 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
                     aria-describedby="session-rename-sheet-description"
                 >
                     <DrawerTitle>{TITLE}</DrawerTitle>
-                    <DrawerDescription id="session-rename-sheet-description" className="text-muted-foreground mt-4">
+                    <DrawerDescription id="session-rename-sheet-description" className="mt-4 text-muted-foreground">
                         {DESCRIPTION}
                     </DrawerDescription>
                     {body}
                     <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">
                         <DrawerClose
-                            render={<Button variant="outline" className="text-label-lg h-10 flex-1 font-medium" />}
+                            render={<Button variant="outline" className="h-10 flex-1 text-label-lg font-medium" />}
                         >
                             Cancel
                         </DrawerClose>
-                        <Button className="text-label-lg h-10 flex-1 font-medium" disabled={refused} onClick={confirm}>
+                        <Button className="h-10 flex-1 text-label-lg font-medium" disabled={refused} onClick={confirm}>
                             Rename
                         </Button>
                     </DrawerFooter>
@@ -126,7 +126,7 @@ export function RenameSession({ session, open, onOpenChange, initial, onRenamed,
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
                 showCloseButton={false}
-                className="border-border bg-card text-foreground rounded-xl border p-6"
+                className="rounded-xl border border-border bg-card p-6 text-foreground"
                 aria-describedby="session-rename-dialog-description"
             >
                 <DialogTitle className="text-body-md font-normal">{TITLE}</DialogTitle>
@@ -144,7 +144,7 @@ export function RenameSession({ session, open, onOpenChange, initial, onRenamed,
                     <Button
                         onClick={confirm}
                         disabled={refused}
-                        className="bg-primary hover:bg-primary/90 rounded-lg px-4 py-3"
+                        className="rounded-lg bg-primary px-4 py-3 hover:bg-primary/90"
                     >
                         <span className="text-label-lg font-medium">Rename</span>
                     </Button>

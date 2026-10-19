@@ -37,7 +37,7 @@ describe("SafeArea", () => {
 
     it("is the caller's element in everything but the insets", () => {
         const { container } = render(
-            <SafeArea id="list" side="vertical" className="bg-surface-dim flex flex-col" data-testid="probe" />,
+            <SafeArea id="list" side="vertical" className="flex flex-col bg-surface-dim" data-testid="probe" />,
         );
 
         const element = container.querySelector("#list");

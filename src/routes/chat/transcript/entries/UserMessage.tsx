@@ -65,7 +65,7 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             {text !== "" && (
                 <Markdown
                     id={`${id}-text`}
-                    className="text-body-md text-primary-foreground [&_a]:text-primary-foreground [&_code]:bg-primary-foreground/20 space-y-2 [&_a]:underline"
+                    className="space-y-2 text-body-md text-primary-foreground [&_a]:text-primary-foreground [&_a]:underline [&_code]:bg-primary-foreground/20"
                 >
                     {text}
                 </Markdown>
@@ -95,7 +95,7 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
                 </ContextMenu>
             )}
             {queued !== undefined && (
-                <p className="text-body-md text-muted-foreground absolute top-full right-0 mt-1 flex items-center gap-1">
+                <p className="absolute top-full right-0 mt-1 flex items-center gap-1 text-body-md text-muted-foreground">
                     <Clock className="size-4 shrink-0" aria-hidden />
                     queued · {queued === "steer" ? "steer" : "follow-up"}
                 </p>

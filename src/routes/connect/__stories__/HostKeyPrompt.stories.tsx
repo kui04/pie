@@ -27,7 +27,7 @@ const meta = {
         // a padded box for it to land at the bottom edge.
         decorators: [
             (Story: ComponentType) => (
-                <div className="bg-surface flex h-svh items-center justify-center font-sans">
+                <div className="flex h-svh items-center justify-center bg-surface font-sans">
                     <p className="text-body-md text-muted-foreground">the workspace behind the scrim</p>
                     <Story />
                 </div>
