@@ -8,6 +8,7 @@ import {
     PopoverTrigger,
     Separator,
 } from "@/components/ui";
+import { Icon } from "@/components";
 import type { SessionStats } from "@/lib/rpc-protocol";
 import { costText, formatTokens, percentText, tokenBreakdown, usageTone } from "@/routes/chat/topbar/usage";
 
@@ -107,21 +108,23 @@ function Ring({ percent, stroke }: { percent: number | null; stroke: string }) {
     // keeps the truth.
     const fraction = percent === null ? 0 : Math.min(1, Math.max(0, percent / 100));
     return (
-        <svg viewBox="0 0 20 20" className="size-4 shrink-0 -rotate-90" aria-hidden="true">
-            <circle cx="10" cy="10" r={RING_RADIUS} fill="none" strokeWidth="2.5" className="stroke-border" />
-            {percent !== null && (
-                <circle
-                    cx="10"
-                    cy="10"
-                    r={RING_RADIUS}
-                    fill="none"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeDasharray={RING_CIRCUMFERENCE}
-                    strokeDashoffset={RING_CIRCUMFERENCE * (1 - fraction)}
-                    className={stroke}
-                />
-            )}
-        </svg>
+        <Icon>
+            <svg viewBox="0 0 20 20" className="shrink-0 -rotate-90" aria-hidden="true">
+                <circle cx="10" cy="10" r={RING_RADIUS} fill="none" strokeWidth="2.5" className="stroke-border" />
+                {percent !== null && (
+                    <circle
+                        cx="10"
+                        cy="10"
+                        r={RING_RADIUS}
+                        fill="none"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeDasharray={RING_CIRCUMFERENCE}
+                        strokeDashoffset={RING_CIRCUMFERENCE * (1 - fraction)}
+                        className={stroke}
+                    />
+                )}
+            </svg>
+        </Icon>
     );
 }

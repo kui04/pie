@@ -16,6 +16,7 @@ import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { useSelector } from "@xstate/react";
 import type { SessionRef } from "@/lib/sessions";
+import { Icon } from "@/components";
 
 export interface ComposerProps {
     /** The session that this box sends to. */
@@ -268,7 +269,9 @@ export function Composer({ session, working, machine }: ComposerProps) {
                                 "
                                 onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
                             >
-                                <X className="size-3" />
+                                <Icon>
+                                    <X />
+                                </Icon>
                             </Button>
                         </div>
                     ))}
@@ -305,7 +308,9 @@ export function Composer({ session, working, machine }: ComposerProps) {
             <div id="composer-controls" className="flex items-center justify-between gap-2">
                 <div id="composer-actions" className="flex items-center gap-2">
                     <ComposerKey id="composer-attach" aria-label="Attach images" onClick={attach}>
-                        <Plus className="size-4" />
+                        <Icon>
+                            <Plus />
+                        </Icon>
                     </ComposerKey>
                     <ComposerKey
                         id="composer-command"
@@ -316,7 +321,9 @@ export function Composer({ session, working, machine }: ComposerProps) {
                             input.current?.focus();
                         }}
                     >
-                        <Terminal className="size-4" />
+                        <Icon>
+                            <Terminal />
+                        </Icon>
                     </ComposerKey>
                 </div>
                 <div id="composer-settings" className="flex min-w-0 items-center gap-2">
@@ -352,7 +359,15 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         disabled={!stopShown && !sendable}
                         onClick={() => (stopShown ? stop() : submit(false))}
                     >
-                        {stopShown ? <Square className="size-4" /> : <SendHorizontal className="size-4" />}
+                        {stopShown ? (
+                            <Icon>
+                                <Square />
+                            </Icon>
+                        ) : (
+                            <Icon>
+                                <SendHorizontal />
+                            </Icon>
+                        )}
                     </Button>
                 </div>
             </div>

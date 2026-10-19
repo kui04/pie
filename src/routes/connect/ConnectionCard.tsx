@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useMotion } from "@/hooks/useMotion";
 import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
 import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
-import { OptionRow } from "@/components";
+import { OptionRow, Icon } from "@/components";
 import { ScrollPane } from "@/components";
 
 export type Transport = "local" | "ssh";
@@ -89,10 +89,9 @@ export function ConnectionCard({
                                 value="local"
                                 className="focus-visible:ring-0"
                             >
-                                <HardDrive
-                                    id="connection-card-transport-local-icon"
-                                    className="size-4 text-muted-foreground"
-                                />
+                                <Icon className="text-muted-foreground">
+                                    <HardDrive id="connection-card-transport-local-icon" />
+                                </Icon>
                                 <span
                                     id="connection-card-transport-local-text"
                                     className="flex min-w-0 flex-1 flex-col ps-2 text-start"
@@ -113,10 +112,9 @@ export function ConnectionCard({
                             </OptionRow>
 
                             <OptionRow id="connection-card-transport-ssh" value="ssh" className="focus-visible:ring-0">
-                                <Server
-                                    id="connection-card-transport-ssh-icon"
-                                    className="size-4 text-muted-foreground"
-                                />
+                                <Icon className="text-muted-foreground">
+                                    <Server id="connection-card-transport-ssh-icon" />
+                                </Icon>
                                 <span
                                     id="connection-card-transport-ssh-text"
                                     className="flex min-w-0 flex-1 flex-col ps-2 text-start"
@@ -324,7 +322,9 @@ export function ConnectionCard({
                                                     onClick={onPickKey}
                                                     className="w-full focus-visible:ring-0"
                                                 >
-                                                    <FolderOpen aria-hidden className="size-4" />
+                                                    <Icon>
+                                                        <FolderOpen aria-hidden />
+                                                    </Icon>
                                                     <span className="text-label-lg font-medium">Choose a key file</span>
                                                 </Button>
                                             </div>
@@ -359,14 +359,18 @@ export function ConnectionCard({
                     <AnimatePresence initial={false} mode="popLayout">
                         {connecting ? (
                             <motion.span key="busy" className="flex items-center gap-1.5" {...swap}>
-                                <Loader2 id="connection-card-connect-spinner" className="size-4 animate-spin" />
+                                <Icon className="animate-spin">
+                                    <Loader2 id="connection-card-connect-spinner" />
+                                </Icon>
                                 <span id="connection-card-connect-busy" className="text-label-lg font-medium">
                                     Connecting
                                 </span>
                             </motion.span>
                         ) : (
                             <motion.span key="idle" className="flex items-center gap-1.5" {...swap}>
-                                <Plug aria-hidden className="size-4" />
+                                <Icon>
+                                    <Plug aria-hidden />
+                                </Icon>
                                 <span id="connection-card-connect-label" className="text-label-lg font-medium">
                                     Connect
                                 </span>

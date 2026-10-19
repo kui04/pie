@@ -17,7 +17,7 @@ import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
 import { cn } from "cn";
 
 import { Drawer, DrawerContent, DrawerTitle, Skeleton } from "@/components/ui";
-import { SafeArea, ScrollPane, TruncatedText } from "@/components";
+import { SafeArea, ScrollPane, TruncatedText, Icon } from "@/components";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { useMotion } from "@/hooks/useMotion";
 import { useWideWindow } from "@/hooks/useWideWindow";
@@ -160,7 +160,9 @@ function SessionListPanel({
                         hover:bg-accent hover:text-foreground
                     "
                 >
-                    <Plus className="size-4 shrink-0" aria-hidden />
+                    <Icon className="shrink-0">
+                        <Plus aria-hidden />
+                    </Icon>
                     <span className="truncate">New Conversation</span>
                 </button>
             </div>
@@ -183,9 +185,13 @@ function SessionListPanel({
                             "
                         >
                             {allFolded ? (
-                                <ChevronsUpDown className="size-4" aria-hidden />
+                                <Icon>
+                                    <ChevronsUpDown aria-hidden />
+                                </Icon>
                             ) : (
-                                <ChevronsDownUp className="size-4" aria-hidden />
+                                <Icon>
+                                    <ChevronsDownUp aria-hidden />
+                                </Icon>
                             )}
                         </button>
                         <button
@@ -202,10 +208,12 @@ function SessionListPanel({
                                 disabled:pointer-events-none disabled:opacity-50
                             "
                         >
-                            <RotateCw
-                                className={cn("size-4", (reading || asked) && "animate-spin text-primary")}
-                                aria-hidden
-                            />
+                            <Icon>
+                                <RotateCw
+                                    className={cn("size-4", (reading || asked) && "animate-spin text-primary")}
+                                    aria-hidden
+                                />
+                            </Icon>
                         </button>
                     </span>
                 </div>
@@ -243,9 +251,13 @@ function SessionListPanel({
                                             "
                                         >
                                             {folded.has(group.cwd) ? (
-                                                <Folder className="size-4 shrink-0" aria-hidden />
+                                                <Icon className="shrink-0">
+                                                    <Folder aria-hidden />
+                                                </Icon>
                                             ) : (
-                                                <FolderOpen className="size-4 shrink-0" aria-hidden />
+                                                <Icon className="shrink-0">
+                                                    <FolderOpen aria-hidden />
+                                                </Icon>
                                             )}
                                             {group.cwd ? (
                                                 <TruncatedText
@@ -304,7 +316,9 @@ function SessionListPanel({
                         hover:bg-accent hover:text-foreground
                     "
                 >
-                    <Settings className="size-4 shrink-0" aria-hidden />
+                    <Icon className="shrink-0">
+                        <Settings aria-hidden />
+                    </Icon>
                     <span className="truncate">Settings</span>
                 </button>
             </div>

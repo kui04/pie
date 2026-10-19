@@ -5,6 +5,7 @@ import { useCallClock } from "@/routes/chat/transcript/entries/useCallClock";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { glyphFor } from "@/routes/chat/transcript/entries/tool-glyph";
 import type { ToolPresentation, ToolStatus } from "@/routes/chat/transcript/presentation";
+import { Icon } from "@/components";
 
 export interface UserCommandProps {
     /** The run this row draws, as the base of its ids. */
@@ -59,7 +60,11 @@ function End({ status, clock }: { status: ToolStatus; clock: string | null }) {
     return (
         <>
             {status === "running" ? <Running /> : clock !== null && <Clock text={clock} />}
-            {status === "failed" && <X className="size-4 text-destructive" aria-label="Failed" />}
+            {status === "failed" && (
+                <Icon className="text-destructive">
+                    <X aria-label="Failed" />
+                </Icon>
+            )}
         </>
     );
 }

@@ -1,7 +1,7 @@
 import { Clock, Copy, Undo2 } from "lucide-react";
 import { cn } from "cn";
 import { toast } from "sonner";
-import { Markdown } from "@/components";
+import { Markdown, Icon } from "@/components";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { messageText } from "@/lib/text";
@@ -88,12 +88,16 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
                     <ContextMenuTrigger render={bubble} className="select-text" />
                     <ContextMenuContent>
                         <ContextMenuItem onClick={copy}>
-                            <Copy className="size-4" />
+                            <Icon>
+                                <Copy />
+                            </Icon>
                             Copy
                         </ContextMenuItem>
                         {queued !== undefined && onRetract !== undefined && (
                             <ContextMenuItem onClick={onRetract}>
-                                <Undo2 className="size-4" />
+                                <Icon>
+                                    <Undo2 />
+                                </Icon>
                                 Retract queued message
                             </ContextMenuItem>
                         )}
@@ -102,7 +106,9 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             )}
             {queued !== undefined && (
                 <p className="absolute top-full right-0 mt-1 flex items-center gap-1 text-body-md text-muted-foreground">
-                    <Clock className="size-4 shrink-0" aria-hidden />
+                    <Icon className="shrink-0">
+                        <Clock aria-hidden />
+                    </Icon>
                     queued · {queued === "steer" ? "steer" : "follow-up"}
                 </p>
             )}

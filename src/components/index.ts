@@ -1,5 +1,6 @@
 export { CodeBlock, type CodeBlockProps } from "./CodeBlock";
 export { Hourglass } from "./Hourglass";
+export { Icon } from "./Icon";
 export { Markdown, type MarkdownProps } from "./Markdown";
 export { OptionRow } from "./OptionRow";
 export { ScrollPane } from "./ScrollPane";

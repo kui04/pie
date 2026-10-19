@@ -1,5 +1,6 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui";
+import { Icon } from "@/components";
 
 /**
  * The way to the session list: the leading key of the bar.
@@ -30,7 +31,15 @@ export function SidebarToggle({
         >
             {/* What the press does: it folds a column that is out, and opens the sheet
                 that holds the list where there is no column. */}
-            {expanded === true ? <PanelLeftClose /> : <PanelLeftOpen />}
+            {expanded === true ? (
+                <Icon>
+                    <PanelLeftClose />
+                </Icon>
+            ) : (
+                <Icon>
+                    <PanelLeftOpen />
+                </Icon>
+            )}
         </Button>
     );
 }

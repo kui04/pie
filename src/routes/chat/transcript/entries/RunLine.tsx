@@ -1,7 +1,7 @@
 import { LoaderCircle } from "lucide-react";
 import { motion } from "motion/react";
-import { Hourglass } from "@/components";
-import { Marker, MarkerIcon } from "@/components/ui";
+import { Hourglass, Icon } from "@/components";
+import { Marker } from "@/components/ui";
 import { useMotion } from "@/hooks/useMotion";
 
 /** What a run is doing while the app waits on it (`lib/stream.ts`). */
@@ -27,9 +27,9 @@ export interface RunLineProps {
 export function RunLine({ state }: RunLineProps) {
     return (
         <Marker id="run-line" className="min-h-10 sm:min-h-[34px]">
-            <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
+            <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                 <Mark state={state} />
-            </MarkerIcon>
+            </Icon>
             <span className="text-body-md trim">{state === "waiting" ? "Waiting…" : "Working…"}</span>
         </Marker>
     );
@@ -48,7 +48,7 @@ function Mark({ state }: { state: ActivityState }) {
     }
     return (
         <motion.span className="flex shrink-0 text-primary-text" {...turn}>
-            <LoaderCircle className="size-4" aria-label="Working" />
+            <LoaderCircle aria-label="Working" />
         </motion.span>
     );
 }

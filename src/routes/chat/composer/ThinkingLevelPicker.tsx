@@ -15,6 +15,7 @@ import { Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/com
 import * as bridge from "@/lib/bridge";
 import type { ModelThinkingLevel } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
+import { Icon } from "@/components";
 
 export interface ThinkingLevelPickerProps {
     /** The session whose thinking level this changes. */
@@ -62,7 +63,9 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                     />
                 }
             >
-                <Brain className="size-4 shrink-0" />
+                <Icon className="shrink-0">
+                    <Brain />
+                </Icon>
                 <span className="hidden max-w-40 truncate text-label-lg sm:block">{current ?? "Thinking"}</span>
             </PopoverTrigger>
             <PopoverContent
@@ -197,7 +200,11 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                     "
                 >
                     <span className="min-w-0 flex-1 truncate text-body-md">{level}</span>
-                    {level === value && <Check className="size-4 shrink-0 text-primary-text" aria-label="In use" />}
+                    {level === value && (
+                        <Icon className="shrink-0 text-primary-text">
+                            <Check aria-label="In use" />
+                        </Icon>
+                    )}
                 </div>
             ))}
         </div>

@@ -20,7 +20,7 @@ import { Bot, Check, Search } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
-import { ScrollPane } from "@/components";
+import { ScrollPane, Icon } from "@/components";
 import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
@@ -188,7 +188,9 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     flex items-center gap-2 rounded-lg border border-border-strong bg-surface-container-highest p-2
                 "
             >
-                <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <Icon className="shrink-0 text-muted-foreground">
+                    <Search aria-hidden />
+                </Icon>
                 <input
                     role="combobox"
                     aria-expanded
@@ -324,7 +326,11 @@ const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoi
         >
             <ProviderMark provider={model.provider} mark={mark} />
             <span className="min-w-0 flex-1 truncate text-body-md">{model.name}</span>
-            {inUse && <Check className="size-4 shrink-0 text-primary-text" aria-label="In use" />}
+            {inUse && (
+                <Icon className="shrink-0 text-primary-text">
+                    <Check aria-label="In use" />
+                </Icon>
+            )}
         </div>
     );
 });
@@ -454,7 +460,11 @@ function useProviderMarks(catalogue: readonly Model[]): ReadonlyMap<string, stri
  */
 function ProviderMark({ provider, mark }: { provider: string | null; mark: string | null }) {
     if (mark === null) {
-        return <Bot className="size-4 shrink-0" aria-hidden />;
+        return (
+            <Icon className="shrink-0">
+                <Bot aria-hidden />
+            </Icon>
+        );
     }
     return (
         <span

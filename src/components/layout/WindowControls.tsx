@@ -12,6 +12,7 @@ import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
 import { useMaximized } from "@/hooks/useMaximized";
 import { useMotion } from "@/hooks/useMotion";
 import { windowControls } from "@/lib/bridge";
+import { Icon } from "../Icon";
 
 /**
  * The keys sit at the end of the bar whatever the bar carries on the left, so
@@ -35,7 +36,9 @@ export function WindowControls() {
                     focus-visible:outline-primary
                 "
             >
-                <Minus id="window-minimize-icon" className="size-4" aria-hidden />
+                <Icon>
+                    <Minus id="window-minimize-icon" aria-hidden />
+                </Icon>
             </button>
             <button
                 id="window-maximize"
@@ -57,9 +60,13 @@ export function WindowControls() {
                         {...swap}
                     >
                         {maximized ? (
-                            <Copy className="size-4" aria-hidden />
+                            <Icon>
+                                <Copy aria-hidden />
+                            </Icon>
                         ) : (
-                            <PictureInPicture2 className="size-4" aria-hidden />
+                            <Icon>
+                                <PictureInPicture2 aria-hidden />
+                            </Icon>
                         )}
                     </motion.span>
                 </AnimatePresence>
@@ -76,7 +83,9 @@ export function WindowControls() {
                     focus-visible:outline-primary
                 "
             >
-                <X id="window-close-icon" className="size-4" aria-hidden />
+                <Icon>
+                    <X id="window-close-icon" aria-hidden />
+                </Icon>
             </button>
         </span>
     );

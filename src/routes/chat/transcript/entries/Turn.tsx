@@ -1,8 +1,8 @@
 import { ChevronRight, Layers, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Markdown } from "@/components";
-import { Marker, MarkerIcon } from "@/components/ui";
+import { Icon, Markdown } from "@/components";
+import { Marker } from "@/components/ui";
 import { BranchSummary } from "@/routes/chat/transcript/entries/BranchSummary";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
 import { Compaction } from "@/routes/chat/transcript/entries/Compaction";
@@ -62,9 +62,9 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                         />
                     }
                 >
-                    <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
+                    <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                         <Layers />
-                    </MarkerIcon>
+                    </Icon>
                     {/* Both text spans carry the same box; the truncating span also needs
                         the vertical padding as room for the ascenders `truncate` would clip. */}
                     <span className="py-0.5 text-body-md font-medium text-foreground trim">{heading.lead}</span>
@@ -73,12 +73,15 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                         {heading.failed !== null && <span className="text-destructive"> · {heading.failed}</span>}
                         {heading.calls !== null && <span className="hidden lg:inline"> · {heading.calls}</span>}
                     </span>
-                    {facts.failed > 0 && <X className="size-4 shrink-0 text-destructive" aria-hidden />}
+                    {facts.failed > 0 && (
+                        <Icon className="shrink-0 text-destructive">
+                            <X aria-hidden />
+                        </Icon>
+                    )}
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <ChevronRight
-                        className={cn("ml-auto size-4 shrink-0 transition-transform", open && "rotate-90")}
-                        aria-hidden
-                    />
+                    <Icon className="ml-auto shrink-0">
+                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                    </Icon>
                 </Marker>
             )}
             {(open || !folded) && (

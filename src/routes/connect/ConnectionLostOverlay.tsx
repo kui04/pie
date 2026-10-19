@@ -20,6 +20,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { ON_SCREEN, type ConnectionWatchState } from "@/machines/connection-watch.machine";
+import { Icon } from "@/components";
 
 export interface ConnectionLostOverlayProps {
     /** Where the reach stands. Only the states of {@link ON_SCREEN} are on screen. */
@@ -90,7 +91,11 @@ export function ConnectionLostOverlay({ state, endpoint, message, onRetry, onLea
                             autoFocus
                             className="rounded-lg bg-primary p-2 px-3 hover:bg-primary/90"
                         >
-                            {trying && <Loader2 className="size-4 animate-spin" />}
+                            {trying && (
+                                <Icon className="animate-spin">
+                                    <Loader2 />
+                                </Icon>
+                            )}
                             <span className="text-label-lg font-medium">{trying ? "Reconnecting" : "Reconnect"}</span>
                         </Button>
                     </div>

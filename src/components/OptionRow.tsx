@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import { motion } from "motion/react";
 import { useMotion } from "@/hooks/useMotion";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
+import { Icon } from "./Icon";
 
 const optionRowVariants = cva(
     [
@@ -57,7 +58,9 @@ function OptionRow({
                 className="flex size-4 items-center justify-center text-primary-text"
             >
                 <motion.span className="flex" {...swap}>
-                    <Check className="size-4" />
+                    <Icon>
+                        <Check />
+                    </Icon>
                 </motion.span>
             </RadioPrimitive.Indicator>
         </RadioPrimitive.Root>

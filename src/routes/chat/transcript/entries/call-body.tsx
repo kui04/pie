@@ -7,6 +7,7 @@ import { useFollowTail } from "@/hooks/useFollowTail";
 import { useMotion } from "@/hooks/useMotion";
 import type { NumberedLine } from "@/lib/text";
 import type { ToolBody, ToolNote } from "@/routes/chat/transcript/presentation";
+import { Icon } from "@/components";
 
 /** The height an open body may take before it scrolls inside itself. */
 export const BODY_MAX = "max-h-[46vh]";
@@ -26,7 +27,9 @@ export function Running() {
     const { turn } = useMotion();
     return (
         <motion.span className="flex shrink-0 text-primary-text" {...turn}>
-            <LoaderCircle className="size-4" aria-label="Running" />
+            <Icon>
+                <LoaderCircle aria-label="Running" />
+            </Icon>
         </motion.span>
     );
 }
@@ -126,7 +129,9 @@ function markTone(mark: string): string {
 function WrapToggle({ id, wrap, onToggle }: { id: string; wrap: boolean; onToggle: () => void }) {
     return (
         <Button id={id} variant="ghost" size="icon-xs" aria-label="Wrap lines" aria-pressed={wrap} onClick={onToggle}>
-            <WrapText />
+            <Icon>
+                <WrapText />
+            </Icon>
         </Button>
     );
 }

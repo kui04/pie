@@ -18,6 +18,7 @@ import { phaseOf } from "@/machines/session.machine";
 import { DeleteSession } from "@/routes/chat/menu/DeleteSession";
 import { ForkSession } from "@/routes/chat/menu/ForkSession";
 import { RenameSession } from "@/routes/chat/menu/RenameSession";
+import { Icon } from "@/components";
 
 export interface SessionMenuProps {
     session?: string | null;
@@ -154,7 +155,9 @@ function BaseSessionMenu({
                         />
                     }
                 >
-                    <EllipsisVertical className="size-4" />
+                    <Icon>
+                        <EllipsisVertical />
+                    </Icon>
                 </PopoverTrigger>
                 <PopoverContent
                     id={`${id}-popup`}
@@ -166,7 +169,11 @@ function BaseSessionMenu({
                 >
                     <MenuRow
                         id={`${id}-rename`}
-                        icon={<Pencil />}
+                        icon={
+                            <Icon>
+                                <Pencil />
+                            </Icon>
+                        }
                         disabled={!activeSession}
                         onSelect={() => choose("rename")}
                     >
@@ -174,25 +181,50 @@ function BaseSessionMenu({
                     </MenuRow>
                     <MenuRow
                         id={`${id}-fork`}
-                        icon={<GitFork />}
+                        icon={
+                            <Icon>
+                                <GitFork />
+                            </Icon>
+                        }
                         disabled={!activeSession || isWorking}
                         onSelect={() => choose("fork")}
                     >
                         Fork…
                     </MenuRow>
-                    <MenuRow id={`${id}-clone`} icon={<Copy />} disabled={!activeSession || isWorking} onSelect={clone}>
+                    <MenuRow
+                        id={`${id}-clone`}
+                        icon={
+                            <Icon>
+                                <Copy />
+                            </Icon>
+                        }
+                        disabled={!activeSession || isWorking}
+                        onSelect={clone}
+                    >
                         Clone
                     </MenuRow>
                     <MenuRow
                         id={`${id}-delete`}
-                        icon={<Trash2 />}
+                        icon={
+                            <Icon>
+                                <Trash2 />
+                            </Icon>
+                        }
                         disabled={file === null}
                         onSelect={() => choose("delete")}
                     >
                         Delete…
                     </MenuRow>
                     {activeSession && (
-                        <MenuRow id={`${id}-detach`} icon={<Unplug />} onSelect={detach}>
+                        <MenuRow
+                            id={`${id}-detach`}
+                            icon={
+                                <Icon>
+                                    <Unplug />
+                                </Icon>
+                            }
+                            onSelect={detach}
+                        >
                             Detach
                         </MenuRow>
                     )}

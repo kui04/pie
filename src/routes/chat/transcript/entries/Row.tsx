@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "cn";
-import { Marker, MarkerIcon } from "@/components/ui";
+import { Icon } from "@/components";
+import { Marker } from "@/components/ui";
 
 export interface RowProps {
     /** The entry this row draws, as the base of its ids. */
@@ -61,7 +62,9 @@ export function Row({
                     />
                 }
             >
-                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">{glyph}</MarkerIcon>
+                <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
+                    {glyph}
+                </Icon>
                 <span
                     className={cn(
                         // The name keeps its own width on one line, however long: what the

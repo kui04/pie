@@ -1,8 +1,8 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Markdown } from "@/components";
-import { Marker, MarkerIcon } from "@/components/ui";
+import { Icon, Markdown } from "@/components";
+import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { compactionGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
 
@@ -31,9 +31,9 @@ export function Compaction({ id, tokensBefore, body, quote = false }: Compaction
     if (body === "") {
         return (
             <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
-                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
+                <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                     {compactionGlyph()}
-                </MarkerIcon>
+                </Icon>
                 <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Compaction</span>
             </Marker>
         );
@@ -50,10 +50,9 @@ export function Compaction({ id, tokensBefore, body, quote = false }: Compaction
                 <span className="flex items-center gap-2">
                     <span className="font-medium text-violet trim">Compaction</span>
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <ChevronRight
-                        className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}
-                        aria-hidden
-                    />
+                    <Icon>
+                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                    </Icon>
                 </span>
             }
             tone="quiet"

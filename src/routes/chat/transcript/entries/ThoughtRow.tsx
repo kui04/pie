@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Markdown } from "@/components";
+import { Icon, Markdown } from "@/components";
 import { useFollowTail } from "@/hooks/useFollowTail";
 import { useMotion } from "@/hooks/useMotion";
 import { Row } from "@/routes/chat/transcript/entries/Row";
@@ -57,10 +57,9 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
                         <span className="trim">Thoughts</span>
                     )}
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <ChevronRight
-                        className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}
-                        aria-hidden
-                    />
+                    <Icon>
+                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                    </Icon>
                 </span>
             }
             tone="quiet"

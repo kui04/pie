@@ -1,8 +1,8 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Markdown } from "@/components";
-import { Marker, MarkerIcon } from "@/components/ui";
+import { Icon, Markdown } from "@/components";
+import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { branchGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
 
@@ -27,7 +27,9 @@ export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
     if (body === "") {
         return (
             <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-8.5">
-                <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">{branchGlyph()}</MarkerIcon>
+                <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
+                    {branchGlyph()}
+                </Icon>
                 <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Summary</span>
             </Marker>
         );
@@ -41,10 +43,9 @@ export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
                 <span className="flex items-center gap-2">
                     <span className="font-medium text-violet trim">Summary</span>
                     {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <ChevronRight
-                        className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")}
-                        aria-hidden
-                    />
+                    <Icon>
+                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                    </Icon>
                 </span>
             }
             tone="quiet"

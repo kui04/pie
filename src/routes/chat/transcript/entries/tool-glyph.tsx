@@ -26,7 +26,7 @@ import { humanize } from "@/lib/text";
  * `tool_search` extensions and the `mcp__server__tool` shape. A name nothing here knows gets
  * the wrench, or the plug when it carries the `__` of a namespaced tool.
  *
- * Size is the caller's: `MarkerIcon` hands every bare svg the 16px the marker keeps.
+ * Size is the caller's: `Icon` hands every bare svg the 16px its box keeps.
  */
 const GLYPHS: Array<[LucideIcon, string[]]> = [
     [Pencil, ["edit"]],

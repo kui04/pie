@@ -12,6 +12,7 @@ import {
 import { useHighlighter } from "@/hooks/useHighlighter";
 import { tokensOf } from "@/lib/code-highlight";
 import { copyText } from "@/lib/clipboard";
+import { Icon } from "./Icon";
 
 export interface CodeBlockProps {
     /** The code, exactly as it arrived. */
@@ -78,7 +79,9 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
                         aria-pressed={wrap}
                         onClick={() => setWrap((was) => !was)}
                     >
-                        <WrapText />
+                        <Icon>
+                            <WrapText />
+                        </Icon>
                     </Button>
                     <Button
                         id={id === undefined ? undefined : `${id}-copy`}
@@ -87,7 +90,15 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
                         aria-label={copied ? "Copied" : "Copy code"}
                         onClick={copy}
                     >
-                        {copied ? <Check /> : <Copy />}
+                        {copied ? (
+                            <Icon>
+                                <Check />
+                            </Icon>
+                        ) : (
+                            <Icon>
+                                <Copy />
+                            </Icon>
+                        )}
                     </Button>
                     <span aria-live="polite" className="sr-only">
                         {copied ? "Copied" : ""}

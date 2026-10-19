@@ -42,6 +42,7 @@ import {
     Skeleton,
     Spinner,
 } from "@/components/ui";
+import { Icon } from "@/components";
 
 /** How long typing must stand still before the host is asked for a level. */
 const READ_DELAY = 300;
@@ -424,7 +425,9 @@ function DirectoryHeader({ touch }: { touch: boolean }) {
         <div className="flex items-center justify-between gap-2">
             <Title className="text-body-md font-normal">{TITLE}</Title>
             <Close render={<Button variant="ghost" size="icon-sm" aria-label="Close" />}>
-                <X />
+                <Icon>
+                    <X />
+                </Icon>
             </Close>
         </div>
     );
@@ -461,7 +464,9 @@ function DirectoryField({
         <div className="flex items-center gap-2">
             <InputGroup id="directory-picker-path" className={cn(touch && "h-12")}>
                 <InputGroupAddon align="inline-start">
-                    <Search aria-hidden />
+                    <Icon>
+                        <Search aria-hidden />
+                    </Icon>
                 </InputGroupAddon>
                 <InputGroupInput
                     ref={inputRef}
@@ -486,7 +491,9 @@ function DirectoryField({
                             title="Clear"
                             onClick={onClear}
                         >
-                            <X />
+                            <Icon>
+                                <X />
+                            </Icon>
                         </InputGroupButton>
                     </InputGroupAddon>
                 )}
@@ -641,9 +648,13 @@ function DirectoryRow({ offer, lit, stub, touch, onPress, hold }: DirectoryRowPr
             )}
         >
             {up ? (
-                <CornerUpLeft className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <Icon className="shrink-0 text-muted-foreground">
+                    <CornerUpLeft aria-hidden />
+                </Icon>
             ) : (
-                <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <Icon className="shrink-0 text-muted-foreground">
+                    <Folder aria-hidden />
+                </Icon>
             )}
             <span className="min-w-0 flex-1 truncate text-body-md">
                 <span className="text-muted-foreground">{parts.head}</span>
@@ -689,7 +700,9 @@ function DirectoryCreateConfirm({
     const body = (
         <>
             <p className="flex items-center gap-2 text-body-md text-foreground">
-                <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <Icon className="shrink-0 text-muted-foreground">
+                    <Folder aria-hidden />
+                </Icon>
                 <span className="min-w-0 flex-1 truncate">{displayPath(making)}</span>
             </p>
             <p id="directory-picker-make-description" className="text-body-md text-muted-foreground">

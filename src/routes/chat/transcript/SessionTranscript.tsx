@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "cn";
 import { Virtualizer } from "virtua";
-import { ScrollPane } from "@/components";
+import { ScrollPane, Icon } from "@/components";
 import {
     MessageScroller,
     MessageScrollerButton,
@@ -123,7 +123,9 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                         dark:hover:bg-surface-bright
                     "
                 >
-                    <ArrowDown className="size-4 text-muted-foreground" />
+                    <Icon className="text-muted-foreground">
+                        <ArrowDown />
+                    </Icon>
                     <span className="text-body-md">To bottom</span>
                 </MessageScrollerButton>
             </MessageScroller>
