@@ -85,8 +85,9 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     className={cn("flex min-w-0 flex-col", folded && "relative mt-1")}
                 >
                     {/* The rail bisects the rows' glyphs, which are drawn over it on the
-                        page's plane. 2px, not 1px: an even width at an integer offset stays
-                        pixel-exact on a glyph's centre, where a 1px line blurs or misses it.
+                        page's plane. A 1px box at the 16px glyph's 8px centre snaps to one
+                        side at 1x, so the rail is a 2px line scaled to half its width about
+                        the centre: it covers the half-pixel evenly and reads as one 1px line.
                         A turn that is not a fold has no rail: its single row's body carries
                         its own line instead, the way a quote does. */}
                     {folded && (
@@ -97,7 +98,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                                 absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 cursor-pointer justify-center
                             "
                         >
-                            <span className="h-full w-0.5 bg-divider" />
+                            <span className="h-full w-0.5 origin-center scale-x-50 bg-divider" />
                         </span>
                     )}
                     {hidden > 0 && (

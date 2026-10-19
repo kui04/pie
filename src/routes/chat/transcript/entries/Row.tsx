@@ -57,7 +57,7 @@ export function Row({
                         aria-expanded={open}
                         aria-controls={open ? `${id}-body` : undefined}
                         onClick={onToggle}
-                        className="min-h-10 w-full pr-1 text-left hover:text-foreground sm:min-h-[34px]"
+                        className="min-h-10 w-full pr-1 text-left hover:text-foreground sm:min-h-8.5"
                     />
                 }
             >
@@ -84,13 +84,14 @@ export function Row({
             {open && children !== undefined && (
                 <div id={`${id}-body`} className="relative mt-1 mb-2 flex min-w-0 flex-col gap-1 pl-8">
                     {/* The line of a body that stands alone: it starts under the glyph rather than
-                        through it, and runs the body - a quote's bar, not a fold's rail. */}
+                        through it, and runs the body - a quote's bar, not a fold's rail. It is
+                        the same 2px line scaled to a centred 1px, like the fold's rail. */}
                     {quote && (
                         <span
                             aria-hidden
                             className="absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 justify-center"
                         >
-                            <span className="h-full w-0.5 bg-divider" />
+                            <span className="h-full w-0.5 origin-center scale-x-50 bg-divider" />
                         </span>
                     )}
                     {children}
