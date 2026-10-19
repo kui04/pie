@@ -402,12 +402,21 @@ describe("SessionSidebar", () => {
         renderSidebar();
 
         // A key of the window's own kind (the three at the end of the bar): the same 24px
-        // box, corner and padding, and the same hover. A key that a second press reached
-        // while the first was still reading would ask the host twice.
+        // box, corner, padding and centred glyph, and the same hover. A key that a second press
+        // reached while the first was still reading would ask the host twice.
         const key = screen.getByRole("button", { name: "Refresh the session list" });
         expect(key).toBeDisabled();
-        for (const each of ["size-6", "rounded-sm", "p-1", "hover:bg-muted", "bg-transparent"]) {
-            expect(key.className.split(" ")).toContain(each);
+        for (const each of [
+            "size-6",
+            "rounded-sm",
+            "p-1",
+            "hover:bg-muted",
+            "bg-transparent",
+            "inline-flex",
+            "items-center",
+            "justify-center",
+        ]) {
+            expect(key.classList.contains(each)).toBe(true);
         }
         // The row the key and the heading share parts the pane's own air, so the key ends
         // where the field and the rows end.

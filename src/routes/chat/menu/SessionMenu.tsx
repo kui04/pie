@@ -295,7 +295,7 @@ function MenuRow({
                 disabled:pointer-events-none disabled:opacity-50
             "
         >
-            <span className="flex size-4 shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden>
+            <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground" aria-hidden>
                 {icon}
             </span>
             {children}

@@ -71,7 +71,11 @@ describe("WindowControls", () => {
         render(<WindowControls />);
 
         for (const name of ["Minimize", "Maximize", "Close"]) {
-            expect(screen.getByRole("button", { name }).className).toContain("size-6");
+            const key = screen.getByRole("button", { name });
+            expect(key.className).toContain("size-6");
+            expect(key.className).toContain("inline-flex");
+            expect(key.className).toContain("items-center");
+            expect(key.className).toContain("justify-center");
         }
     });
 

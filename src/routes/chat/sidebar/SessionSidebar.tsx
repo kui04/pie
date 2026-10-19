@@ -202,8 +202,8 @@ function SessionListPanel({
                             aria-label={allFolded ? "Expand all groups" : "Collapse all groups"}
                             onClick={toggleAll}
                             className="
-                                size-6 shrink-0 cursor-pointer rounded-sm bg-transparent p-1 text-muted-foreground
-                                transition-colors duration-50 ease-in-out
+                                inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm
+                                bg-transparent p-1 text-muted-foreground transition-colors duration-50 ease-in-out
                                 hover:bg-muted hover:text-foreground
                                 focus-visible:outline-primary
                             "
@@ -225,8 +225,8 @@ function SessionListPanel({
                             disabled={reading}
                             onClick={() => void refresh()}
                             className="
-                                size-6 shrink-0 cursor-pointer rounded-sm bg-transparent p-1 text-muted-foreground
-                                transition-colors duration-50 ease-in-out
+                                inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm
+                                bg-transparent p-1 text-muted-foreground transition-colors duration-50 ease-in-out
                                 hover:bg-muted hover:text-foreground
                                 focus-visible:outline-primary
                                 disabled:pointer-events-none disabled:opacity-50

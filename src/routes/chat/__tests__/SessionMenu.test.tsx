@@ -107,6 +107,17 @@ describe("the session menu", () => {
         await waitFor(() => expect(screen.getByRole("menuitem", { name: "Delete…" })).toBeEnabled());
     });
 
+    it("centres each row's glyph in its slot", async () => {
+        renderMenu();
+        openMenu();
+
+        const row = await screen.findByRole("menuitem", { name: "Rename…" });
+        const slot = row.querySelector('[data-slot="icon"]')?.parentElement;
+        for (const each of ["size-4", "items-center", "justify-center"]) {
+            expect(slot?.classList.contains(each)).toBe(true);
+        }
+    });
+
     it("keeps fork and copy out of reach while a run streams", async () => {
         renderMenu(true);
         openMenu();

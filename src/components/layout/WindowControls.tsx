@@ -30,8 +30,8 @@ export function WindowControls() {
                 aria-label="Minimize"
                 onClick={() => void windowControls.minimize()}
                 className="
-                    size-6 shrink-0 rounded-sm bg-transparent p-1 text-foreground transition-colors duration-50
-                    ease-in-out
+                    inline-flex size-6 shrink-0 items-center justify-center rounded-sm bg-transparent p-1
+                    text-foreground transition-colors duration-50 ease-in-out
                     hover:bg-muted
                     focus-visible:outline-primary
                 "
@@ -46,8 +46,8 @@ export function WindowControls() {
                 aria-label={maximized ? "Restore" : "Maximize"}
                 onClick={() => void windowControls.toggleMaximize()}
                 className="
-                    size-6 shrink-0 rounded-sm bg-transparent p-1 text-foreground transition-colors duration-50
-                    ease-in-out
+                    inline-flex size-6 shrink-0 items-center justify-center rounded-sm bg-transparent p-1
+                    text-foreground transition-colors duration-50 ease-in-out
                     hover:bg-muted
                     focus-visible:outline-primary
                 "
@@ -78,7 +78,8 @@ export function WindowControls() {
                 aria-label="Close"
                 onClick={() => void windowControls.close()}
                 className="
-                    size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out
+                    inline-flex size-6 shrink-0 items-center justify-center rounded-sm bg-transparent p-1
+                    transition-colors duration-50 ease-in-out
                     hover:bg-destructive hover:text-destructive-foreground
                     focus-visible:outline-primary
                 "
