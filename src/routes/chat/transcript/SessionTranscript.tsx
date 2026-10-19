@@ -109,15 +109,13 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                     variant="ghost"
                     size="sm"
                     aria-label="To bottom"
-                    // One control at every width, a pill that says what it does. `border-0` is
-                    // not tidying: a button's transparent 1px border would clip the hairline of
-                    // `elevation-raised` into a second edge beside it. Both hovers are written
-                    // out, because the variant's own dark hover is `muted` at half alpha and
-                    // outranks a plain `hover:`. The registry's own height and placement are
-                    // answered in the variants it wrote them in.
+                    // One control at every width, a pill that says what it does. It is flat
+                    // like the composer: a card with the same hairline, and no shadow. Both
+                    // hovers are written out, because the variant's own dark hover is `muted`
+                    // at half alpha and outranks a plain `hover:`. The registry's own height
+                    // and placement are answered in the variants it wrote them in.
                     className="
-                        z-20 h-auto gap-2 rounded-xl border-0 bg-surface-container px-3 py-2 text-foreground
-                        elevation-raised
+                        z-20 h-auto gap-2 rounded-xl border border-foreground/10 bg-card px-3 py-2 text-foreground
                         hover:bg-surface-bright
                         data-[direction=end]:bottom-2
                         dark:hover:bg-surface-bright

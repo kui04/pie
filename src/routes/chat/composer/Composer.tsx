@@ -1,13 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, SendHorizontal, Square, Terminal, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowUp, Paperclip, Square } from "lucide-react";
 import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
-import { useIsMobile } from "@/hooks/usePlatform";
+import { useMotion } from "@/hooks/useMotion";
 import * as bridge from "@/lib/bridge";
-import type { ImageContent, StreamingBehavior } from "@/lib/rpc-protocol";
+import type { StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
+import { Attachments, type StagedImage } from "@/routes/chat/composer/Attachments";
 import { CommandList } from "@/routes/chat/composer/CommandList";
 import { bashCommandOf, commandRows, slashHint, slashName, type CommandRow } from "@/routes/chat/composer/command";
 import { ModelPicker } from "@/routes/chat/composer/ModelPicker";
@@ -17,6 +19,30 @@ import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { useSelector } from "@xstate/react";
 import type { SessionRef } from "@/lib/sessions";
 import { Icon } from "@/components";
+
+/**
+ * The flat treatment and motion the composer's panels share. Their corners differ: the
+ * command list takes the composer's `3xl`, while the two pickers take the menu's `xl`.
+ */
+export const COMPOSER_PANEL = `
+    border border-foreground/10 bg-card shadow-none ring-0 origin-(--transform-origin)
+    motion-safe:transition-[opacity,scale] motion-safe:duration-150 motion-safe:ease-out
+    data-ending-style:scale-95 data-ending-style:opacity-0
+    data-starting-style:scale-95 data-starting-style:opacity-0
+`;
+
+/** The key of a picker at the foot of the composer: a blue pill carrying the value in use. */
+const PICKER_PILL = `
+    h-[34px] min-w-0 max-w-full shrink gap-1 rounded-[18px] border border-primary/25 bg-primary/10 px-2.5
+    text-[length:13px] leading-6 text-primary-text transition-colors duration-200
+    hover:bg-primary-text/20 hover:text-primary-text
+    dark:hover:bg-primary-text/20
+    aria-expanded:bg-primary/15 aria-expanded:text-primary-text
+`;
+
+export function PickerPill({ className, ...props }: ComponentProps<typeof Button>) {
+    return <Button variant="ghost" size="sm" className={cn(PICKER_PILL, className)} {...props} />;
+}
 
 export interface ComposerProps {
     /** The session that this box sends to. */
@@ -30,24 +56,17 @@ export interface ComposerProps {
     machine: SessionRef;
 }
 
-/** One picture the reader staged, with the name of the file it came from. */
-interface Staged {
-    id: string;
-    name: string;
-    image: ImageContent;
-}
-
 export function Composer({ session, working, machine }: ComposerProps) {
     const client = useQueryClient();
-    const isMobile = useIsMobile();
     const [value, setValue] = useState("");
-    const [staged, setStaged] = useState<Staged[]>([]);
+    const [staged, setStaged] = useState<StagedImage[]>([]);
     const [highlighted, setHighlighted] = useState<string | null>(null);
     const [pointed, setPointed] = useState<string | null>(null);
     const [dismissed, setDismissed] = useState(false);
     const [panel, setPanel] = useState<"model" | "thinking" | null>(null);
     const input = useRef<HTMLTextAreaElement>(null);
     const attachment = useRef(0);
+    const { reveal, swap } = useMotion();
 
     const state = useQuery(sessionQueries.state(session));
     const commands = useQuery(sessionQueries.commands(session));
@@ -67,7 +86,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
     const litRow = rows.find((row) => row.id === pointed) ?? highlightedRow;
 
     /** Sends the words and the pictures, and takes the box back when pi refuses. */
-    function send(text: string, sent: Staged[], behavior: StreamingBehavior | undefined) {
+    function send(text: string, sent: StagedImage[], behavior: StreamingBehavior | undefined) {
         setValue("");
         setStaged([]);
         setDismissed(false);
@@ -240,48 +259,22 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     />
                 </div>
             )}
-            {staged.length > 0 && (
-                <div id="composer-attachments" className="flex flex-wrap gap-2">
-                    {staged.map(({ id, name, image }, index) => (
-                        <div
-                            key={id}
-                            id={`composer-attachment-${index}`}
-                            className="
-                                flex max-w-full items-center gap-2 rounded-full border border-border-strong
-                                bg-surface-container-highest p-1
-                            "
-                        >
-                            <img
-                                alt=""
-                                src={`data:${image.mimeType};base64,${image.data}`}
-                                className="size-4 shrink-0 rounded-full object-cover"
-                            />
-                            <span className="max-w-40 truncate text-body-md text-foreground">{name}</span>
-                            <Button
-                                id={`composer-attachment-${index}-remove`}
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`Remove ${name}`}
-                                className="
-                                    size-5 shrink-0 rounded-full p-0 text-muted-foreground
-                                    hover:bg-surface-bright hover:text-foreground
-                                    dark:hover:bg-surface-bright
-                                "
-                                onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
-                            >
-                                <Icon>
-                                    <X />
-                                </Icon>
-                            </Button>
-                        </div>
-                    ))}
-                </div>
-            )}
+            <AnimatePresence initial={false}>
+                {staged.length > 0 && (
+                    <motion.div key="attachments" {...reveal} className="overflow-hidden">
+                        <Attachments
+                            className="mt-3"
+                            items={staged}
+                            onRemove={(id) => setStaged((current) => current.filter((item) => item.id !== id))}
+                        />
+                    </motion.div>
+                )}
+            </AnimatePresence>
             <Textarea
                 id="composer-input"
                 ref={input}
                 value={value}
-                rows={3}
+                rows={2}
                 onChange={(event) => {
                     setValue(event.target.value);
                     setDismissed(false);
@@ -291,42 +284,23 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     setPointed(null);
                 }}
                 onKeyDown={onKeyDown}
-                placeholder={
-                    isMobile
-                        ? "Ask Pi anything, or type / for commands"
-                        : "Ask Pi anything, or type / for commands. Enter steers, Alt+Enter queues a follow-up."
-                }
+                placeholder="Message Pi, or type / for commands"
                 aria-label="Your message"
                 enterKeyHint="send"
                 onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
-                className="
-                    block max-h-25 min-h-15 resize-none rounded-none border-0 bg-transparent p-0 text-body-md
-                    focus-visible:ring-0
-                    dark:bg-transparent
-                "
+                className={cn(
+                    `
+                        block h-15 max-h-15 min-h-15 resize-none rounded-none border-0 bg-transparent pt-3 pr-3 pb-0
+                        pl-4 text-(length:--text-body-lg) leading-6
+                        focus-visible:ring-0
+                        md:text-(length:--text-body-lg) md:leading-6
+                        dark:bg-transparent
+                    `,
+                    staged.length > 0 ? "mt-1" : "mt-3",
+                )}
             />
-            <div id="composer-controls" className="flex items-center justify-between gap-2">
-                <div id="composer-actions" className="flex items-center gap-2">
-                    <ComposerKey id="composer-attach" aria-label="Attach images" onClick={attach}>
-                        <Icon>
-                            <Plus />
-                        </Icon>
-                    </ComposerKey>
-                    <ComposerKey
-                        id="composer-command"
-                        aria-label="Commands"
-                        onClick={() => {
-                            setValue("/");
-                            setDismissed(false);
-                            input.current?.focus();
-                        }}
-                    >
-                        <Icon>
-                            <Terminal />
-                        </Icon>
-                    </ComposerKey>
-                </div>
-                <div id="composer-settings" className="flex min-w-0 items-center gap-2">
+            <div id="composer-controls" className="flex items-center justify-between p-3">
+                <div id="composer-pickers" className="flex min-w-0 flex-1 items-center gap-2.5">
                     <ModelPicker
                         session={session}
                         current={state.data?.model ?? null}
@@ -339,13 +313,30 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         open={panel === "thinking"}
                         onOpenChange={(open) => setPanel(open ? "thinking" : null)}
                     />
+                </div>
+                <div id="composer-actions" className="flex shrink-0 items-center gap-2.5">
+                    <Button
+                        id="composer-attach"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Attach images"
+                        onClick={attach}
+                        className="
+                            size-8.5 shrink-0 rounded-full p-0 text-muted-foreground
+                            hover:bg-muted hover:text-foreground
+                        "
+                    >
+                        <Icon>
+                            <Paperclip />
+                        </Icon>
+                    </Button>
                     <Button
                         id="composer-submit"
                         variant="ghost"
                         size="icon"
                         aria-label={stopShown ? "Stop" : "Send"}
                         className={cn(
-                            "size-8 shrink-0 rounded-full p-0 disabled:opacity-100",
+                            "size-8.5 shrink-0 rounded-full p-0 disabled:opacity-100",
                             stopShown
                                 ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 : shellMode
@@ -359,15 +350,11 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         disabled={!stopShown && !sendable}
                         onClick={() => (stopShown ? stop() : submit(false))}
                     >
-                        {stopShown ? (
-                            <Icon>
-                                <Square />
-                            </Icon>
-                        ) : (
-                            <Icon>
-                                <SendHorizontal />
-                            </Icon>
-                        )}
+                        <AnimatePresence initial={false} mode="wait">
+                            <motion.span key={stopShown ? "stop" : "send"} className="flex" {...swap}>
+                                <Icon>{stopShown ? <Square /> : <ArrowUp />}</Icon>
+                            </motion.span>
+                        </AnimatePresence>
                     </Button>
                 </div>
             </div>
@@ -399,7 +386,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         aria-haspopup={undefined}
                         aria-expanded={undefined}
                         aria-controls={undefined}
-                        className="relative flex flex-col gap-3 rounded-xl bg-card p-4"
+                        className="relative flex flex-col rounded-3xl border border-foreground/10 bg-card"
                     >
                         {card}
                     </div>
@@ -417,25 +404,5 @@ export function Composer({ session, working, machine }: ComposerProps) {
                 />
             )}
         </Popover>
-    );
-}
-
-/** A round key of the composer's action row: 32px and the step of the surface ladder above the card. */
-function ComposerKey({ className, ...props }: ComponentProps<typeof Button>) {
-    return (
-        <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-                `
-                    size-8 shrink-0 rounded-full border border-border-strong bg-surface-container-highest p-0
-                    text-foreground
-                    hover:bg-surface-bright hover:text-foreground
-                    dark:hover:bg-surface-bright
-                `,
-                className,
-            )}
-            {...props}
-        />
     );
 }

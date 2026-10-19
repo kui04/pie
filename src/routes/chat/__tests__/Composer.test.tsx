@@ -145,6 +145,15 @@ describe("the composer sends what was typed", () => {
         expect(bridge.prompt).not.toHaveBeenCalled();
     });
 
+    it("keeps the message box two lines tall, whatever is typed", () => {
+        renderComposer();
+
+        const message = box();
+        expect(message).toHaveAttribute("rows", "2");
+        expect(message.classList.contains("max-h-15")).toBe(true);
+        expect(message.classList.contains("min-h-15")).toBe(true);
+    });
+
     it("keeps the words on screen when pi refuses them", async () => {
         // No model, a compaction in progress: pi refuses, and typing it all again
         // is the one thing the person should not have to do.
@@ -411,7 +420,7 @@ describe("the pictures of a message", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Remove workspace.png" }));
 
-        expect(screen.queryByText("workspace.png")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("workspace.png")).toBeNull());
     });
 
     it("stays on screen when pi refuses the message", async () => {

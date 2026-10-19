@@ -12,6 +12,7 @@ import { cn } from "cn";
 import { ScrollPane } from "@/components";
 import { PopoverContent } from "@/components/ui";
 import type { CommandRow } from "@/routes/chat/composer/command";
+import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 
 export interface CommandListProps {
     /** The base of the ids of this panel. */
@@ -71,7 +72,8 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
             // a capped parent stays as tall as its content, so the rows past the tenth would be
             // clipped rather than scrolled to.
             className={cn(
-                "max-h-[calc(100dvh-14rem)] bg-card text-foreground elevation-raised",
+                "max-h-[calc(100dvh-14rem)] rounded-3xl text-foreground",
+                COMPOSER_PANEL,
                 rows.length > TEN_ROWS && "h-103",
                 "w-(--anchor-width) gap-1 overflow-hidden p-2",
                 className,
@@ -105,8 +107,8 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                                 // where no colour class is there for tailwind-merge to lose
                                 // it to.
                                 className="
-                                    group/item relative flex cursor-default items-center gap-2 rounded-lg p-2 text-sm
-                                    select-none
+                                    group/item relative flex cursor-default items-center gap-2 rounded-xl p-2 text-sm
+                                    transition-colors select-none
                                     data-[lit=true]:bg-accent data-[lit=true]:text-accent-foreground
                                 "
                             >

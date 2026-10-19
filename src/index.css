@@ -184,14 +184,6 @@
   --violet: #b180d7; /* charts.purple: a command the reader ran, a system notice */
   --excluded: #6e7681;
 
-  /* What a surface that leaves the page is drawn with: the shadow that falls under
-     it, and the hairline the light leaves along its edge. Dark and light disagree
-     about both - a dark page reads a depth by a lighter line and needs a heavy black
-     under it, a light page by a darker line and only a hint of shadow - so each theme
-     answers for itself (`elevation-raised`). */
-  --elevation-shadow: rgb(0 0 0 / 50%);
-  --elevation-edge: rgb(255 255 255 / 14%);
-
   --radius: 0.5rem;
 }
 
@@ -236,11 +228,6 @@
     --warning: #667309; /* the olive light lists use; the amber is too weak as text */
     --violet: #652d90; /* charts.purple */
     --excluded: #8e8e90;
-
-    /* A light page needs no light on the edge: its surfaces are already the light,
-       and what it needs is the hairline that says where one ends. */
-    --elevation-shadow: rgb(0 0 0 / 12%);
-    --elevation-edge: rgb(0 0 0 / 12%);
   }
 }
 
@@ -466,30 +453,6 @@
 
 @utility pr-safe {
   padding-right: env(safe-area-inset-right, 0px);
-}
-
-/**
- * A surface that leaves the page: a small, dark shadow under it and a hairline along
- * its own edge.
- *
- * The hairline is a shadow rather than a border, so the surface keeps the size it was
- * given - and it is drawn *inside* the edge, because the surface is already a step
- * above the page: a line outside that step is a second edge, not a crisper one.
- *
- * The shadow is one layer, tight and close to black, and it wraps the whole shape - a
- * shadow this small affords that, where a wide, light one reads as a second edge long
- * before it reads as depth. It is the reference's own shape, to the pixel: an fcitx5
- * theme draws it in SVG as a 2.8/60 drop and a 3/60 Gaussian over half a pixel a unit,
- * which is 1.4px down and right, 3px of blur, in half transparent black.
- *
- * A member whose own primitive brings a transparent border clips its fill to the
- * padding box, so the page shows through that ring and this hairline reads as a
- * second edge beside it: such a member sets `border-0` at the call site.
- */
-@utility elevation-raised {
-  box-shadow:
-    1.4px 1.4px 3px 0 var(--elevation-shadow),
-    inset 0 0 0 0.5px var(--elevation-edge);
 }
 
 /**

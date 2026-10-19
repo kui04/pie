@@ -111,6 +111,8 @@ rounded:
   md: 6px
   lg: 8px
   xl: 12px
+  2xl: 16px
+  3xl: 24px
   full: 9999px
 spacing:
   xs: 4px
@@ -402,7 +404,7 @@ keeps a long transcript readable: no edges accumulate down the column.
 
 **Floating — over the transcript.** The bar floats transparent over the
 transcript's head: no plane, no shadow, no hairline. The composer carries no
-shadow either: it is a flat `card` with the `xl` corner, a row of the column
+shadow either: it is a flat `card` with the `3xl` corner, a row of the column
 under the words. What says depth at both ends is the fade over the rows: the
 page's own plane (`surface`), gradient to transparent one content column wide,
 so the rows scroll under the fade on their way to the bar and to the composer.
@@ -410,32 +412,24 @@ The bar sits on a solid backing with one line of fade below it; the composer
 gets two lines of fade above it. The transcript keeps headroom above for the bar
 and four lines of legroom below, above the fade's dense end, so no row hides
 under either. The composer's own layers — its command list and its two pickers —
-stand above it on the same plane (`card`, the `lg` corner, `elevation-raised`),
-so the family reads as one. That raised utility is the whole treatment for them,
-and for the way back to the end of the transcript: a small, dark shadow under
-the surface and a 0.5px hairline along its own edge, drawn inside the box. The
-shadow is one tight layer that wraps the whole shape, which a shadow this small
-affords — the shape of it is an fcitx5 theme's, drawn in SVG: about 1.4px down
-and to the right, 3px of blur, in black at half opacity. The hairline is a
-shadow and not a border, so a surface keeps the size it was given; and it is
-drawn inside because the surface already stands a step above the page, so a line
-outside that step is a second edge rather than a crisper one. Its two colours
-come from the theme (`--elevation-shadow`, `--elevation-edge`), because dark and
-light disagree about both: a dark page reads a depth by a lighter line, a light
-page by a darker one. The key sits above both fades, so no gradient covers it.
+stand above it on the same plane (`card`): the command list takes the composer's
+`3xl` corner, the two pickers the menu's `xl`; each is flat, with the composer's
+`foreground` at 10% hairline and no shadow. The same flat key floats over the
+transcript to take the reader back to the end; it sits above both fades, so no
+gradient covers it.
 
-**Floating — what the scrim does not.** A layer that leaves the page carries the
-theme's shadow: `shadow-sm` for the gate card, `shadow-md` for a menu or a
-popover, `shadow-lg` for a submenu, and `elevation-raised` for the composer's
-own layers and for a key that floats over the transcript. A toast brings the
-library's own. Its edge is a 1px hairline — `foreground` at 10% as a `ring`
-where the layer is a bare surface, the theme's `border` where it has a frame of
-its own. A layer with a scrim behind it shows no shadow at all: the scrim is
-what separates it, and a shadow on top of one answers the same question twice. A
-dialog dims the page with `bg-black/10`, a sheet with
-`surface-container-highest` at 70%, and each shows only its hairline. Nothing
-else is allowed a shadow: a shadow on an in-flow tile reads as a mistake,
-because the tile is not above anything.
+**Floating — what the scrim does not.** The composer's layers, the session menu,
+and the key that floats over the transcript are flat: `card`, a hairline, and no
+shadow. Other layers that leave the page carry the theme's shadow: `shadow-sm`
+for the gate card, `shadow-md` for a menu or a popover, and `shadow-lg` for a
+submenu. A toast brings the library's own. Its edge is a 1px hairline —
+`foreground` at 10% as a `ring` where the layer is a bare surface, the theme's
+`border` where it has a frame of its own. A layer with a scrim behind it shows
+no shadow at all: the scrim is what separates it, and a shadow on top of one
+answers the same question twice. A dialog dims the page with `bg-black/10`, a
+sheet with `surface-container-highest` at 70%, and each shows only its hairline.
+Nothing else is allowed a shadow: a shadow on an in-flow tile reads as a
+mistake, because the tile is not above anything.
 
 ## Shapes
 
@@ -534,9 +528,10 @@ The body under the bar is the chat, and it is a column: the transcript, then the
 composer at its foot. Both are capped to one content column, 64rem wide at most
 and centred, and both keep 16px inside it, so the composer's box and the words
 of the transcript stand on one line. The composer is a flat card (`card`, the
-`xl` corner, no shadow) at the foot of the column: the transcript ends where the
-band begins, so no row hides under it and the scrollbar maps to the rows alone.
-A fade at each end of the transcript — the page's own plane, gradient to
+`3xl` corner, no shadow, and a hairline that holds where a light page keeps the
+card and the surface close) at the foot of the column: the transcript ends where
+the band begins, so no row hides under it and the scrollbar maps to the rows
+alone. A fade at each end of the transcript — the page's own plane, gradient to
 transparent, one content column wide — is what the rows scroll under, with
 headroom above for the bar and legroom below above the fade's dense end. The
 band takes the region's whole width, because the transcript's bar floats over
@@ -546,6 +541,22 @@ no bar at all. A column that opens — the session list above `lg` — is reveal
 by a clip: its wrapper owns the width the transcript gives up (256px), and the
 column inside it keeps its own width, so what moves is the edge and the hairline
 on it, not the rows.
+
+**Composer** (`src/routes/chat/composer/Composer.tsx`) — the card at the foot,
+with the pictures of the next message above the words. A picture is a card of
+its own: a 64px card with a 48px thumbnail, the name the picker gave it, its
+kind and its size, and a key that removes it — shown on hover and focus, and
+always on a touch pointer. The strip scrolls sideways rather than wrapping,
+because the words and the controls must keep their place; when it overruns, the
+end fades under a gradient of the card's own colour and a chevron pages it. The
+words take the card's width in `text-body-lg`, 60px tall, two lines at most;
+longer words scroll inside the box. The foot is two groups: the model and the
+thinking level as 34px blue-tinted pills with a 13px label on the left, each
+carrying the value in use, and the paperclip that stages pictures beside the
+primary circle that sends, or stops a run, on the right. The pills keep their
+labels at every width and truncate the model's name before the level's, so the
+setting that is one word stays whole. `/` still opens the command list from the
+words; the card has no key for it.
 
 **Landing** (`src/routes/chat/SessionLanding.tsx`) — the window with no
 conversation open, which is where it starts and where `Detach` will return it.
@@ -654,31 +665,32 @@ not a control in the corner.
 **Popup** (`src/routes/chat/composer/ModelPicker.tsx`, `ThinkingLevelPicker.tsx`
 beside it) — the panel a picker of the composer opens, and the command list of
 the message box with it: the composer's own plane (`card`) in the composer's
-shape — the `lg` corner and the raised elevation, `space-sm` of padding,
-`space-xs` between the rows, 17rem wide for the models and 11rem for the levels,
-and a fixed 240px where a host may offer more models than fit — six hundred of
-them on a host with every provider configured, and it draws every one of them
-and scrolls rather than cutting the list short: the model in use leads, the rest
-follow one provider after another, and a search ranks them by pi's own matching,
-so a model that typing finds in pi is found by typing the same here. While the
-catalog is on its way the popup holds those rows as bars, so it opens at the
-height it keeps. A model row reads in the plane's own ink (`foreground`), every
-row the same, and only its light changes: nothing is lit until the pointer or a
-key moves the light, a search lights its best match, and the light leaves with
-the pointer. A row of a level list follows the same rule. The model in use, and
-the level in use, are marked by their check in `primary-text` and by nothing
-else — not by a fill of their own. The mark of a model's provider leads its key
-and its row — 16px, the shape of models.dev in the ink of the surface under it,
-and the key of the composer where models.dev has no mark — fetched once and kept
-for a day. The command menu's panel is the same plane and shape, as wide as the
-card it stands above, and it is ten rows tall past the tenth of them and as tall
-as its rows while there are fewer, so the rows past the ten are scrolled to
-rather than clipped. Its rows take the menu's accent (`selected-row`) — the
-light is the pointer's while the pointer is in the list and the keyboard's when
-it is not, and it leaves with the pointer — and a row of the command menu reads
-in two inks: the name in the plane's own (`foreground`), and what the command
-says about itself in `muted-foreground`. The lit row reads in the accent's own
-ink, because the muted ink on the accent fill is 4.37:1 — under what a sentence
+shape — the command list at the `3xl` corner and the pickers at the menu's `xl`,
+flat with a hairline and no shadow — `space-sm` of padding, `space-xs` between
+the rows, 17rem wide for the models and 11rem for the levels, and a fixed 240px
+where a host may offer more models than fit — six hundred of them on a host with
+every provider configured, and it draws every one of them and scrolls rather
+than cutting the list short: the model in use leads, the rest follow one
+provider after another, and a search ranks them by pi's own matching, so a model
+that typing finds in pi is found by typing the same here. While the catalog is
+on its way the popup holds those rows as bars, so it opens at the height it
+keeps. A model row reads in the plane's own ink (`foreground`), every row the
+same, and only its light changes: nothing is lit until the pointer or a key
+moves the light, a search lights its best match, and the light leaves with the
+pointer. A row of a level list follows the same rule. The model in use, and the
+level in use, are marked by their check in `primary-text` and by nothing else —
+not by a fill of their own. The mark of a model's provider leads its key and its
+row — 16px, the shape of models.dev in the ink of the surface under it, and the
+key of the composer where models.dev has no mark — fetched once and kept for a
+day. The command menu's panel is the same plane and shape, as wide as the card
+it stands above, and it is ten rows tall past the tenth of them and as tall as
+its rows while there are fewer, so the rows past the ten are scrolled to rather
+than clipped. Its rows take the menu's accent (`selected-row`) — the light is
+the pointer's while the pointer is in the list and the keyboard's when it is
+not, and it leaves with the pointer — and a row of the command menu reads in two
+inks: the name in the plane's own (`foreground`), and what the command says
+about itself in `muted-foreground`. The lit row reads in the accent's own ink,
+because the muted ink on the accent fill is 4.37:1 — under what a sentence
 needs.
 
 **Field** — `input` fill, no visible stroke until focus, then a `ring` focus

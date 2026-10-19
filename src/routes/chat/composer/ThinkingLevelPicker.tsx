@@ -11,11 +11,12 @@ import { Brain, Check } from "lucide-react";
 import { useId, useLayoutEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
+import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
 import * as bridge from "@/lib/bridge";
 import type { ModelThinkingLevel } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 import { Icon } from "@/components";
+import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 
 export interface ThinkingLevelPickerProps {
     /** The session whose thinking level this changes. */
@@ -46,37 +47,30 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
         <Popover open={open} onOpenChange={onOpenChange}>
             <PopoverTrigger
                 render={
-                    <Button
+                    <PickerPill
                         id="composer-thinking"
-                        variant="ghost"
-                        size="sm"
                         aria-label="Choose the thinking level"
-                        // The pill grows with its label; below `sm` the label is gone
-                        // and the key is the 32px circle of the other composer keys.
-                        className="
-                            h-8 shrink-0 gap-2 rounded-full border border-border-strong bg-surface-container-highest
-                            px-3 text-foreground
-                            hover:bg-surface-bright
-                            aria-expanded:bg-surface-container-highest
-                            max-sm:w-8 max-sm:justify-center max-sm:px-0
-                        "
+                        className="max-w-32 shrink-0 max-sm:max-w-26"
                     />
                 }
             >
-                <Icon className="shrink-0">
+                <Icon className="size-4 shrink-0">
                     <Brain />
                 </Icon>
-                <span className="hidden max-w-40 truncate text-label-lg sm:block">{current ?? "Thinking"}</span>
+                <span className="min-w-0 truncate">{current ?? "Thinking"}</span>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-thinking-popup"
                 side="top"
                 align="center"
                 sideOffset={12}
-                className="
-                    mx-2 flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden bg-card p-2
-                    text-foreground elevation-raised
-                "
+                className={cn(
+                    `
+                        mx-2 flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden rounded-xl
+                        p-2 text-foreground
+                    `,
+                    COMPOSER_PANEL,
+                )}
             >
                 {levels.isPending ? (
                     <LevelSkeleton />
@@ -195,7 +189,8 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                     onClick={() => onChoose(level)}
                     onMouseMove={() => setHovered(index)}
                     className="
-                        flex cursor-default items-center gap-2 rounded-lg p-2 text-foreground select-none
+                        flex cursor-default items-center gap-2 rounded-lg p-2 text-foreground transition-colors
+                        select-none
                         data-[lit=true]:bg-accent
                     "
                 >

@@ -19,7 +19,8 @@ import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { Bot, Check, Search } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button, Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
+import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
+import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 import { ScrollPane, Icon } from "@/components";
 import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
@@ -68,25 +69,15 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
         <Popover open={open} onOpenChange={onOpenChange}>
             <PopoverTrigger
                 render={
-                    <Button
+                    <PickerPill
                         id="composer-model"
-                        variant="ghost"
-                        size="sm"
                         aria-label="Choose the model"
-                        // The pill grows with its label; below `sm` the label is gone
-                        // and the key is the 32px circle of the other composer keys.
-                        className="
-                            h-8 shrink-0 gap-2 rounded-full border border-border-strong bg-surface-container-highest
-                            px-3 text-foreground
-                            hover:bg-surface-bright
-                            aria-expanded:bg-surface-container-highest
-                            max-sm:w-8 max-sm:justify-center max-sm:px-0
-                        "
+                        className="max-w-48 max-sm:max-w-28"
                     />
                 }
             >
-                <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} />
-                <span className="hidden max-w-40 truncate text-label-lg sm:block">{current?.name ?? "Model"}</span>
+                <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} className="size-4" />
+                <span className="min-w-0 truncate">{current?.name ?? "Model"}</span>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-model-popup"
@@ -97,10 +88,13 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 // popup is the same shape whether a host offers three models or six
                 // hundred. The cap follows the visible viewport, so an open
                 // keyboard cannot push it off screen.
-                className="
-                    mx-2 flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden bg-card p-2
-                    text-foreground elevation-raised
-                "
+                className={cn(
+                    `
+                        mx-2 flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden
+                        rounded-xl p-2 text-foreground
+                    `,
+                    COMPOSER_PANEL,
+                )}
             >
                 <ModelMenu
                     catalogue={catalogue ?? []}
@@ -320,7 +314,7 @@ const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoi
             onClick={() => onChoose(choice)}
             onMouseMove={() => onPoint(at)}
             className="
-                flex h-9 cursor-default items-center gap-2 rounded-lg px-2 text-foreground select-none
+                flex h-9 cursor-default items-center gap-2 rounded-lg px-2 text-foreground transition-colors select-none
                 data-[lit=true]:bg-accent
             "
         >
@@ -458,29 +452,36 @@ function useProviderMarks(catalogue: readonly Model[]): ReadonlyMap<string, stri
  * and lets the theme supply the ink, which an `<img>` cannot: inside an image,
  * `currentColor` is black whatever the page says.
  */
-function ProviderMark({ provider, mark }: { provider: string | null; mark: string | null }) {
-    if (mark === null) {
-        return (
-            <Icon className="shrink-0">
-                <Bot aria-hidden />
-            </Icon>
-        );
-    }
+function ProviderMark({
+    provider,
+    mark,
+    className,
+}: {
+    provider: string | null;
+    mark: string | null;
+    className?: string;
+}) {
     return (
-        <span
-            data-provider={provider}
-            aria-hidden
-            className="size-4 shrink-0 bg-current"
-            style={{
-                maskImage: `url(${mark})`,
-                maskPosition: "center",
-                maskRepeat: "no-repeat",
-                maskSize: "contain",
-                WebkitMaskImage: `url(${mark})`,
-                WebkitMaskPosition: "center",
-                WebkitMaskRepeat: "no-repeat",
-                WebkitMaskSize: "contain",
-            }}
-        />
+        <Icon className={cn("shrink-0", className)}>
+            {mark === null ? (
+                <Bot aria-hidden />
+            ) : (
+                <span
+                    data-provider={provider}
+                    aria-hidden
+                    className="size-4 bg-current"
+                    style={{
+                        maskImage: `url(${mark})`,
+                        maskPosition: "center",
+                        maskRepeat: "no-repeat",
+                        maskSize: "contain",
+                        WebkitMaskImage: `url(${mark})`,
+                        WebkitMaskPosition: "center",
+                        WebkitMaskRepeat: "no-repeat",
+                        WebkitMaskSize: "contain",
+                    }}
+                />
+            )}
+        </Icon>
     );
 }

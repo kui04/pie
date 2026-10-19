@@ -165,7 +165,13 @@ function BaseSessionMenu({
                     side={side}
                     align={align}
                     sideOffset={6}
-                    className="w-56 bg-card p-1 text-foreground elevation-raised"
+                    className="
+                        w-56 origin-(--transform-origin) rounded-xl border border-foreground/10 bg-card p-1
+                        text-foreground shadow-none ring-0
+                        data-ending-style:scale-95 data-ending-style:opacity-0
+                        data-starting-style:scale-95 data-starting-style:opacity-0
+                        motion-safe:transition-[opacity,scale] motion-safe:duration-150 motion-safe:ease-out
+                    "
                 >
                     <MenuRow
                         id={`${id}-rename`}
@@ -289,7 +295,7 @@ function MenuRow({
             disabled={disabled}
             onClick={onSelect}
             className="
-                flex w-full items-center gap-2 rounded-md p-2 text-left text-body-md outline-none
+                flex w-full items-center gap-2 rounded-lg p-2 text-left text-body-md transition-colors outline-none
                 hover:bg-accent
                 focus-visible:bg-accent
                 disabled:pointer-events-none disabled:opacity-50
