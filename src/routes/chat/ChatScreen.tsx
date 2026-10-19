@@ -222,7 +222,10 @@ export function ChatScreen() {
                 <div
                     id="chat-unattached"
                     role="alert"
-                    className="m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md text-muted-foreground"
+                    className="
+                        m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md
+                        text-muted-foreground
+                    "
                 >
                     <p>{detached.message}</p>
                     <div className="flex items-center gap-2">

@@ -250,7 +250,9 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                 <div
                     id="topbar"
                     data-tauri-drag-region="deep"
-                    className="absolute inset-x-0 top-0 z-10 flex min-h-11 items-center gap-1 px-3 pt-safe pr-safe pl-safe"
+                    className="
+                        absolute inset-x-0 top-0 z-10 flex min-h-11 items-center gap-1 px-3 pt-safe pr-safe pl-safe
+                    "
                 >
                     {!isMobile && <WindowControls />}
                 </div>

@@ -89,7 +89,12 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                             id={`session-fork-point-${point.entryId}`}
                             disabled={fork.isPending}
                             onClick={() => fork.mutate(point.entryId)}
-                            className="flex w-full rounded-md p-2 text-left outline-none hover:bg-accent focus-visible:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                            className="
+                                flex w-full rounded-md p-2 text-left outline-none
+                                hover:bg-accent
+                                focus-visible:bg-accent
+                                disabled:pointer-events-none disabled:opacity-50
+                            "
                         >
                             <span className="line-clamp-2 text-body-md wrap-break-word whitespace-pre-wrap">
                                 {point.text}
@@ -105,7 +110,10 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
         return (
             <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="down" showSwipeHandle>
                 <DrawerContent
-                    className="flex h-[70dvh] flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="
+                        flex h-[70dvh] flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]
+                        outline-none
+                    "
                     aria-describedby="session-fork-sheet-description"
                 >
                     <DrawerTitle>{TITLE}</DrawerTitle>

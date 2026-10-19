@@ -71,10 +71,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
             // a capped parent stays as tall as its content, so the rows past the tenth would be
             // clipped rather than scrolled to.
             className={cn(
-                "bg-card text-foreground elevation-raised",
-                // The cap follows the visible viewport, so an open keyboard
-                // cannot push the rows off screen; the scroll pane takes the rest.
-                "max-h-[calc(100dvh-14rem)]",
+                "max-h-[calc(100dvh-14rem)] bg-card text-foreground elevation-raised",
                 rows.length > TEN_ROWS && "h-103",
                 "w-(--anchor-width) gap-1 overflow-hidden p-2",
                 className,
@@ -107,19 +104,23 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                                 // the description recedes. The type ramp sits on the spans,
                                 // where no colour class is there for tailwind-merge to lose
                                 // it to.
-                                className={cn(
-                                    "group/item",
-                                    "data-[lit=true]:bg-accent data-[lit=true]:text-accent-foreground",
-                                    "relative flex cursor-default items-center gap-2",
-                                    "rounded-lg p-2 text-sm select-none",
-                                )}
+                                className="
+                                    group/item relative flex cursor-default items-center gap-2 rounded-lg p-2 text-sm
+                                    select-none
+                                    data-[lit=true]:bg-accent data-[lit=true]:text-accent-foreground
+                                "
                             >
                                 <span className="shrink-0 text-body-md whitespace-nowrap">/{row.name}</span>
                                 {row.description !== null && (
                                     // The description follows the selection too, and not as a
                                     // decoration: `muted-foreground` on the `accent` fill is
                                     // 4.37:1, under the 4.5 a sentence needs.
-                                    <span className="min-w-0 truncate text-body-md text-muted-foreground group-data-[lit=true]/item:text-accent-foreground">
+                                    <span
+                                        className="
+                                            min-w-0 truncate text-body-md text-muted-foreground
+                                            group-data-[lit=true]/item:text-accent-foreground
+                                        "
+                                    >
                                         {row.description}
                                     </span>
                                 )}

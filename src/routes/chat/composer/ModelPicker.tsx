@@ -75,13 +75,13 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                         aria-label="Choose the model"
                         // The pill grows with its label; below `sm` the label is gone
                         // and the key is the 32px circle of the other composer keys.
-                        className={cn(
-                            "border-border-strong bg-surface-container-highest",
-                            "text-foreground hover:bg-surface-bright",
-                            "h-8 aria-expanded:bg-surface-container-highest",
-                            "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
-                            "max-sm:justify-center max-sm:px-0",
-                        )}
+                        className="
+                            h-8 shrink-0 gap-2 rounded-full border border-border-strong bg-surface-container-highest
+                            px-3 text-foreground
+                            hover:bg-surface-bright
+                            aria-expanded:bg-surface-container-highest
+                            max-sm:w-8 max-sm:justify-center max-sm:px-0
+                        "
                     />
                 }
             >
@@ -97,10 +97,10 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 // popup is the same shape whether a host offers three models or six
                 // hundred. The cap follows the visible viewport, so an open
                 // keyboard cannot push it off screen.
-                className={cn(
-                    "mx-2 bg-card text-foreground elevation-raised",
-                    "flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden p-2",
-                )}
+                className="
+                    mx-2 flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden bg-card p-2
+                    text-foreground elevation-raised
+                "
             >
                 <ModelMenu
                     catalogue={catalogue ?? []}
@@ -184,10 +184,9 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-1">
             <div
-                className={cn(
-                    "border-border-strong bg-surface-container-highest",
-                    "flex items-center gap-2 rounded-lg border p-2",
-                )}
+                className="
+                    flex items-center gap-2 rounded-lg border border-border-strong bg-surface-container-highest p-2
+                "
             >
                 <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <input
@@ -318,11 +317,10 @@ const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoi
             data-lit={lit}
             onClick={() => onChoose(choice)}
             onMouseMove={() => onPoint(at)}
-            className={cn(
-                "flex cursor-default items-center gap-2 text-foreground",
-                "h-9 rounded-lg px-2 select-none",
-                "data-[lit=true]:bg-accent",
-            )}
+            className="
+                flex h-9 cursor-default items-center gap-2 rounded-lg px-2 text-foreground select-none
+                data-[lit=true]:bg-accent
+            "
         >
             <ProviderMark provider={model.provider} mark={mark} />
             <span className="min-w-0 flex-1 truncate text-body-md">{model.name}</span>

@@ -71,14 +71,10 @@ export function SessionSidebar({ id, wide, column, sheet, onOpenSheet, sheetClas
                     <motion.div
                         id="sidebar"
                         key="session-list"
-                        className={cn(
-                            "flex min-h-0 flex-none flex-col overflow-hidden border-r border-border bg-surface-dim",
-                            // The width the frame animates is the list's own, and the hairline that
-                            // parts it from the chat sits outside that (`box-content`), so the panel
-                            // below keeps the width it was drawn at and the frame reveals it by
-                            // clipping: what moves is the edge, not the rows.
-                            "box-content",
-                        )}
+                        className="
+                            box-content flex min-h-0 flex-none flex-col overflow-hidden border-r border-border
+                            bg-surface-dim
+                        "
                         {...frame(256)}
                     >
                         <SessionListPanel id={`${id}-drawer`} className="w-64 flex-1" breathing {...list} />
@@ -158,11 +154,11 @@ function SessionListPanel({
                     id={`${id}-new`}
                     type="button"
                     onClick={onNew}
-                    className={cn(
-                        "flex border-border/60 text-foreground hover:bg-accent hover:text-foreground",
-                        "h-8 w-full items-center justify-start gap-2 rounded-lg border bg-surface/50 px-2",
-                        "cursor-pointer text-sm font-normal transition-colors",
-                    )}
+                    className="
+                        flex h-8 w-full cursor-pointer items-center justify-start gap-2 rounded-lg border
+                        border-border/60 bg-surface/50 px-2 text-sm font-normal text-foreground transition-colors
+                        hover:bg-accent hover:text-foreground
+                    "
                 >
                     <Plus className="size-4 shrink-0" aria-hidden />
                     <span className="truncate">New Conversation</span>
@@ -179,11 +175,12 @@ function SessionListPanel({
                             type="button"
                             aria-label={allFolded ? "Expand all groups" : "Collapse all groups"}
                             onClick={toggleAll}
-                            className={cn(
-                                "text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-primary",
-                                "size-6 shrink-0 rounded-sm bg-transparent p-1",
-                                "cursor-pointer transition-colors duration-50 ease-in-out",
-                            )}
+                            className="
+                                size-6 shrink-0 cursor-pointer rounded-sm bg-transparent p-1 text-muted-foreground
+                                transition-colors duration-50 ease-in-out
+                                hover:bg-muted hover:text-foreground
+                                focus-visible:outline-primary
+                            "
                         >
                             {allFolded ? (
                                 <ChevronsUpDown className="size-4" aria-hidden />
@@ -197,12 +194,13 @@ function SessionListPanel({
                             aria-label="Refresh the session list"
                             disabled={reading}
                             onClick={() => void refresh()}
-                            className={cn(
-                                "text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-primary",
-                                "size-6 shrink-0 rounded-sm bg-transparent p-1",
-                                "disabled:pointer-events-none disabled:opacity-50",
-                                "cursor-pointer transition-colors duration-50 ease-in-out",
-                            )}
+                            className="
+                                size-6 shrink-0 cursor-pointer rounded-sm bg-transparent p-1 text-muted-foreground
+                                transition-colors duration-50 ease-in-out
+                                hover:bg-muted hover:text-foreground
+                                focus-visible:outline-primary
+                                disabled:pointer-events-none disabled:opacity-50
+                            "
                         >
                             <RotateCw
                                 className={cn("size-4", (reading || asked) && "animate-spin text-primary")}
@@ -237,11 +235,12 @@ function SessionListPanel({
                                             type="button"
                                             aria-expanded={!folded.has(group.cwd)}
                                             onClick={() => toggle(group.cwd)}
-                                            className={cn(
-                                                "flex text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                                                "h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left select-none",
-                                                "transition-colors duration-100 ease-in-out",
-                                            )}
+                                            className="
+                                                flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2
+                                                text-left text-muted-foreground transition-colors duration-100
+                                                ease-in-out select-none
+                                                hover:bg-accent/50 hover:text-foreground
+                                            "
                                         >
                                             {folded.has(group.cwd) ? (
                                                 <Folder className="size-4 shrink-0" aria-hidden />
@@ -264,7 +263,12 @@ function SessionListPanel({
                                         </button>
                                         {!folded.has(group.cwd) &&
                                             (group.sessions.length === 0 ? (
-                                                <p className="flex h-8 items-center px-2 pl-8 text-body-md text-muted-foreground/60 select-none">
+                                                <p
+                                                    className="
+                                                        flex h-8 items-center px-2 pl-8 text-body-md
+                                                        text-muted-foreground/60 select-none
+                                                    "
+                                                >
                                                     No conversations yet
                                                 </p>
                                             ) : (
@@ -294,11 +298,11 @@ function SessionListPanel({
                 <button
                     id={`${id}-settings`}
                     type="button"
-                    className={cn(
-                        "flex text-muted-foreground hover:bg-accent hover:text-foreground",
-                        "h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm",
-                        "transition-colors duration-100 ease-in-out",
-                    )}
+                    className="
+                        flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm
+                        text-muted-foreground transition-colors duration-100 ease-in-out
+                        hover:bg-accent hover:text-foreground
+                    "
                 >
                     <Settings className="size-4 shrink-0" aria-hidden />
                     <span className="truncate">Settings</span>
@@ -414,7 +418,7 @@ function SessionSheet({
 
     return (
         <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="left">
-            <DrawerContent id={id} className={cn("w-72 max-w-[85%] border-border", "lg:hidden", className)}>
+            <DrawerContent id={id} className={cn("w-72 max-w-[85%] border-border lg:hidden", className)}>
                 <DrawerTitle className="sr-only">Sessions</DrawerTitle>
                 {/* The sheet leaves the page for a portal, where the shell's safe area
                     does not reach: it keeps its own sides, or the panel's first and last
@@ -474,8 +478,11 @@ function SessionRow({
             aria-current={held !== null ? "true" : undefined}
             onClick={() => onPick(session.path)}
             className={cn(
-                "group relative flex h-8 w-full items-center gap-2 hover:bg-accent",
-                "cursor-pointer rounded-md px-2 text-left select-none",
+                `
+                    group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
+                    select-none
+                    hover:bg-accent
+                `,
                 menuOpen && "bg-accent",
             )}
         >
@@ -504,8 +511,7 @@ function SessionRow({
                 {title !== null && (
                     <div
                         className={cn(
-                            "absolute inset-0 flex items-center justify-center",
-                            "transition-opacity duration-150 ease-out",
+                            "absolute inset-0 flex items-center justify-center transition-opacity duration-150 ease-out",
                             menuOpen ? "pointer-events-none opacity-0" : "opacity-100 group-hover:opacity-0",
                         )}
                     >
@@ -516,11 +522,14 @@ function SessionRow({
                 )}
                 <div
                     className={cn(
-                        "absolute inset-0 flex items-center justify-center",
-                        "transition-opacity duration-150 ease-out",
+                        "absolute inset-0 flex items-center justify-center transition-opacity duration-150 ease-out",
                         menuOpen
                             ? "pointer-events-auto opacity-100"
-                            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 has-focus-visible:pointer-events-auto has-focus-visible:opacity-100",
+                            : `
+                                pointer-events-none opacity-0
+                                group-hover:pointer-events-auto group-hover:opacity-100
+                                has-focus-visible:pointer-events-auto has-focus-visible:opacity-100
+                            `,
                     )}
                     onClick={(event) => event.stopPropagation()}
                 >

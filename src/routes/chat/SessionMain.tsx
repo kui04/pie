@@ -113,7 +113,10 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                 <div
                     id="chat-failure"
                     role="alert"
-                    className="m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md text-muted-foreground"
+                    className="
+                        m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md
+                        text-muted-foreground
+                    "
                 >
                     <p>{bridge.asPieError(failure).message}</p>
                     <div className="flex items-center gap-2">

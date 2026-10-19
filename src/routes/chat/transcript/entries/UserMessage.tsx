@@ -47,9 +47,11 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             tabIndex={0}
             aria-label="Your message"
             className={cn(
-                "bg-primary text-primary-foreground focus-visible:ring-ring",
-                "max-w-[80%] min-w-0 space-y-2 rounded-md wrap-break-word",
-                "outline-none focus-visible:ring-2",
+                `
+                    max-w-[80%] min-w-0 space-y-2 rounded-md bg-primary wrap-break-word text-primary-foreground
+                    outline-none
+                    focus-visible:ring-2 focus-visible:ring-ring
+                `,
                 oneLine ? "px-4 py-2" : "p-3",
                 queued !== undefined && "opacity-60",
             )}
@@ -65,7 +67,11 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             {text !== "" && (
                 <Markdown
                     id={`${id}-text`}
-                    className="space-y-2 text-body-md text-primary-foreground [&_a]:text-primary-foreground [&_a]:underline [&_code]:bg-primary-foreground/20"
+                    className="
+                        space-y-2 text-body-md text-primary-foreground
+                        [&_a]:text-primary-foreground [&_a]:underline
+                        [&_code]:bg-primary-foreground/20
+                    "
                 >
                     {text}
                 </Markdown>

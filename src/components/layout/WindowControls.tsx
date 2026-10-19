@@ -12,7 +12,6 @@ import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
 import { useMaximized } from "@/hooks/useMaximized";
 import { useMotion } from "@/hooks/useMotion";
 import { windowControls } from "@/lib/bridge";
-import { cn } from "cn";
 
 /**
  * The keys sit at the end of the bar whatever the bar carries on the left, so
@@ -29,11 +28,12 @@ export function WindowControls() {
                 type="button"
                 aria-label="Minimize"
                 onClick={() => void windowControls.minimize()}
-                className={cn(
-                    "text-foreground hover:bg-muted focus-visible:outline-primary",
-                    "size-6 shrink-0 rounded-sm bg-transparent p-1",
-                    "transition-colors duration-50 ease-in-out",
-                )}
+                className="
+                    size-6 shrink-0 rounded-sm bg-transparent p-1 text-foreground transition-colors duration-50
+                    ease-in-out
+                    hover:bg-muted
+                    focus-visible:outline-primary
+                "
             >
                 <Minus id="window-minimize-icon" className="size-4" aria-hidden />
             </button>
@@ -42,11 +42,12 @@ export function WindowControls() {
                 type="button"
                 aria-label={maximized ? "Restore" : "Maximize"}
                 onClick={() => void windowControls.toggleMaximize()}
-                className={cn(
-                    "text-foreground hover:bg-muted focus-visible:outline-primary",
-                    "size-6 shrink-0 rounded-sm bg-transparent p-1",
-                    "transition-colors duration-50 ease-in-out",
-                )}
+                className="
+                    size-6 shrink-0 rounded-sm bg-transparent p-1 text-foreground transition-colors duration-50
+                    ease-in-out
+                    hover:bg-muted
+                    focus-visible:outline-primary
+                "
             >
                 <AnimatePresence initial={false} mode="wait">
                     <motion.span
@@ -69,11 +70,11 @@ export function WindowControls() {
                 type="button"
                 aria-label="Close"
                 onClick={() => void windowControls.close()}
-                className={cn(
-                    "hover:bg-destructive focus-visible:outline-primary",
-                    "size-6 shrink-0 hover:text-destructive-foreground",
-                    "rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out",
-                )}
+                className="
+                    size-6 shrink-0 rounded-sm bg-transparent p-1 transition-colors duration-50 ease-in-out
+                    hover:bg-destructive hover:text-destructive-foreground
+                    focus-visible:outline-primary
+                "
             >
                 <X id="window-close-icon" className="size-4" aria-hidden />
             </button>

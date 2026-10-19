@@ -26,7 +26,7 @@ export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
 
     if (body === "") {
         return (
-            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
+            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-8.5">
                 <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">{branchGlyph()}</MarkerIcon>
                 <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Summary</span>
             </Marker>

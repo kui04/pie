@@ -1,6 +1,6 @@
 import js from "@eslint/js";
 import prettierConfig from "eslint-config-prettier";
-import eslintPluginTailwindcss from "eslint-plugin-tailwindcss";
+import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
@@ -66,13 +66,14 @@ export default defineConfig(
         // primitives are left out: they are the registry's bytes, which `pnpm ui-check` holds.
         files: ["src/**/*.{ts,tsx}"],
         ignores: ["src/components/ui/**"],
-        extends: [eslintPluginTailwindcss.configs.recommended],
-        settings: { tailwindcss: { cssConfigPath: "./src/index.css" } },
+        plugins: { "better-tailwindcss": eslintPluginBetterTailwindcss },
+        settings: { "better-tailwindcss": { entryPoint: "src/index.css" } },
         rules: {
-            // `src/components/Markdown.tsx` sets its heading sizes with arbitrary values
-            // (`text-[20px]`, `leading-[1.3]`). This rule offers a line-height token for a font
-            // size, and `leading-1.3`, which is not a class. Its fixes cannot be trusted.
-            "tailwindcss/no-unnecessary-arbitrary-value": "off",
+            "better-tailwindcss/enforce-consistent-class-order": "warn",
+            "better-tailwindcss/enforce-consistent-line-wrapping": [
+                "warn",
+                { printWidth: 120, indent: 4, preferSingleLine: true, strictness: "loose" },
+            ],
         },
     },
     prettierConfig,

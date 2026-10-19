@@ -256,7 +256,12 @@ function MenuRow({
             role="menuitem"
             disabled={disabled}
             onClick={onSelect}
-            className="flex w-full items-center gap-2 rounded-md p-2 text-left text-body-md outline-none hover:bg-accent focus-visible:bg-accent disabled:pointer-events-none disabled:opacity-50"
+            className="
+                flex w-full items-center gap-2 rounded-md p-2 text-left text-body-md outline-none
+                hover:bg-accent
+                focus-visible:bg-accent
+                disabled:pointer-events-none disabled:opacity-50
+            "
         >
             <span className="flex size-4 shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden>
                 {icon}

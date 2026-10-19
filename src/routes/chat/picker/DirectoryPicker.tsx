@@ -373,7 +373,10 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
                     initialFocus={inputRef}
                     // A cap, not a height: the sheet wraps its content, and a long
                     // level scrolls inside it instead of pushing its keys away.
-                    className="flex max-h-[70dvh] flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="
+                        flex max-h-[70dvh] flex-col gap-4 border-border px-6
+                        pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none
+                    "
                 >
                     {header}
                     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -394,7 +397,11 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
                 showCloseButton={false}
                 initialFocus={inputRef}
                 // Anchored to the top so content height changes do not shift the field.
-                className="top-[15vh] flex max-h-[70dvh] translate-y-0 flex-col rounded-xl border border-border bg-card p-6 text-foreground sm:w-full sm:max-w-2xl"
+                className="
+                    top-[15vh] flex max-h-[70dvh] translate-y-0 flex-col rounded-xl border border-border bg-card p-6
+                    text-foreground
+                    sm:w-full sm:max-w-2xl
+                "
             >
                 {header}
                 <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -624,8 +631,12 @@ function DirectoryRow({ offer, lit, stub, touch, onPress, hold }: DirectoryRowPr
             ref={(element) => hold(offer, element)}
             onClick={() => onPress(offer)}
             className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 text-left text-foreground outline-none focus-visible:bg-accent",
-                "data-[lit=true]:bg-accent",
+                `
+                    \n outline-none\n
+                    focus-visible:bg-accent\n
+                    flex w-full items-center gap-2 rounded-md px-2 text-left text-foreground
+                    data-[lit=true]:bg-accent
+                `,
                 touch ? "min-h-12" : "min-h-9",
             )}
         >
@@ -703,7 +714,10 @@ function DirectoryCreateConfirm({
         return (
             <Drawer open onOpenChange={(next) => !next && onCloseMake()} swipeDirection="down">
                 <DrawerContent
-                    className="flex flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
+                    className="
+                        flex flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]
+                        outline-none
+                    "
                     aria-describedby="directory-picker-make-description"
                 >
                     <DrawerTitle>Create folder</DrawerTitle>
@@ -716,7 +730,10 @@ function DirectoryCreateConfirm({
         <Dialog open onOpenChange={(next) => !next && onCloseMake()}>
             <DialogContent
                 showCloseButton={false}
-                className="top-[15vh] flex translate-y-0 flex-col gap-4 rounded-xl border border-border bg-card p-6 text-foreground"
+                className="
+                    top-[15vh] flex translate-y-0 flex-col gap-4 rounded-xl border border-border bg-card p-6
+                    text-foreground
+                "
                 aria-describedby="directory-picker-make-description"
             >
                 <DialogTitle className="text-body-md font-normal">Create folder</DialogTitle>

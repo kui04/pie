@@ -52,13 +52,13 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                         aria-label="Choose the thinking level"
                         // The pill grows with its label; below `sm` the label is gone
                         // and the key is the 32px circle of the other composer keys.
-                        className={cn(
-                            "border-border-strong bg-surface-container-highest",
-                            "text-foreground hover:bg-surface-bright",
-                            "h-8 aria-expanded:bg-surface-container-highest",
-                            "shrink-0 gap-2 rounded-full border px-3 max-sm:w-8",
-                            "max-sm:justify-center max-sm:px-0",
-                        )}
+                        className="
+                            h-8 shrink-0 gap-2 rounded-full border border-border-strong bg-surface-container-highest
+                            px-3 text-foreground
+                            hover:bg-surface-bright
+                            aria-expanded:bg-surface-container-highest
+                            max-sm:w-8 max-sm:justify-center max-sm:px-0
+                        "
                     />
                 }
             >
@@ -70,12 +70,10 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                 side="top"
                 align="center"
                 sideOffset={12}
-                className={cn(
-                    // The cap follows the visible viewport, so an open keyboard
-                    // cannot push the list off screen.
-                    "mx-2 bg-card text-foreground elevation-raised",
-                    "flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden p-2",
-                )}
+                className="
+                    mx-2 flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden bg-card p-2
+                    text-foreground elevation-raised
+                "
             >
                 {levels.isPending ? (
                     <LevelSkeleton />
@@ -193,11 +191,10 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                     data-lit={index === lit}
                     onClick={() => onChoose(level)}
                     onMouseMove={() => setHovered(index)}
-                    className={cn(
-                        "flex cursor-default items-center gap-2 text-foreground",
-                        "rounded-lg p-2 select-none",
-                        "data-[lit=true]:bg-accent",
-                    )}
+                    className="
+                        flex cursor-default items-center gap-2 rounded-lg p-2 text-foreground select-none
+                        data-[lit=true]:bg-accent
+                    "
                 >
                     <span className="min-w-0 flex-1 truncate text-body-md">{level}</span>
                     {level === value && <Check className="size-4 shrink-0 text-primary-text" aria-label="In use" />}

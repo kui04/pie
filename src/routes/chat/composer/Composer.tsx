@@ -245,10 +245,10 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         <div
                             key={id}
                             id={`composer-attachment-${index}`}
-                            className={cn(
-                                "border-border-strong bg-surface-container-highest",
-                                "flex max-w-full items-center gap-2 rounded-full border p-1",
-                            )}
+                            className="
+                                flex max-w-full items-center gap-2 rounded-full border border-border-strong
+                                bg-surface-container-highest p-1
+                            "
                         >
                             <img
                                 alt=""
@@ -261,11 +261,11 @@ export function Composer({ session, working, machine }: ComposerProps) {
                                 variant="ghost"
                                 size="icon"
                                 aria-label={`Remove ${name}`}
-                                className={cn(
-                                    "text-muted-foreground hover:bg-surface-bright",
-                                    "hover:text-foreground dark:hover:bg-surface-bright",
-                                    "size-5 shrink-0 rounded-full p-0",
-                                )}
+                                className="
+                                    size-5 shrink-0 rounded-full p-0 text-muted-foreground
+                                    hover:bg-surface-bright hover:text-foreground
+                                    dark:hover:bg-surface-bright
+                                "
                                 onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
                             >
                                 <X className="size-3" />
@@ -296,11 +296,11 @@ export function Composer({ session, working, machine }: ComposerProps) {
                 aria-label="Your message"
                 enterKeyHint="send"
                 onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
-                className={cn(
-                    "block max-h-25 min-h-15 resize-none text-body-md",
-                    "rounded-none border-0 bg-transparent p-0",
-                    "focus-visible:ring-0 dark:bg-transparent",
-                )}
+                className="
+                    block max-h-25 min-h-15 resize-none rounded-none border-0 bg-transparent p-0 text-body-md
+                    focus-visible:ring-0
+                    dark:bg-transparent
+                "
             />
             <div id="composer-controls" className="flex items-center justify-between gap-2">
                 <div id="composer-actions" className="flex items-center gap-2">
@@ -343,7 +343,11 @@ export function Composer({ session, working, machine }: ComposerProps) {
                                 ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 : shellMode
                                   ? "bg-surface-container-highest text-violet hover:bg-surface-bright"
-                                  : "bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-foreground/12 disabled:text-foreground/40",
+                                  : `
+                                      bg-primary text-primary-foreground
+                                      hover:bg-primary/90
+                                      disabled:bg-foreground/12 disabled:text-foreground/40
+                                  `,
                         )}
                         disabled={!stopShown && !sendable}
                         onClick={() => (stopShown ? stop() : submit(false))}
@@ -408,9 +412,12 @@ function ComposerKey({ className, ...props }: ComponentProps<typeof Button>) {
             variant="ghost"
             size="icon"
             className={cn(
-                "border-border-strong bg-surface-container-highest",
-                "text-foreground hover:bg-surface-bright hover:text-foreground",
-                "size-8 shrink-0 rounded-full border p-0 dark:hover:bg-surface-bright",
+                `
+                    size-8 shrink-0 rounded-full border border-border-strong bg-surface-container-highest p-0
+                    text-foreground
+                    hover:bg-surface-bright hover:text-foreground
+                    dark:hover:bg-surface-bright
+                `,
                 className,
             )}
             {...props}

@@ -117,7 +117,14 @@ function MarkdownInner({ children, id, className }: MarkdownProps) {
             // Numbers get the tabular figures, and the header keeps its own line.
             table: ({ children: content }) => (
                 <ScrollPane bars="horizontal">
-                    <table className="w-full border-collapse border-divider text-[14px] leading-normal tabular-nums [&_thead]:border-b [&_tr]:border-b [&_tr]:border-divider [&_tr:last-child]:border-0">
+                    <table
+                        className="
+                            w-full border-collapse border-divider text-[14px] leading-normal tabular-nums
+                            [&_thead]:border-b
+                            [&_tr]:border-b [&_tr]:border-divider
+                            [&_tr:last-child]:border-0
+                        "
+                    >
                         {content}
                     </table>
                 </ScrollPane>

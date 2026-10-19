@@ -115,12 +115,13 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                     // out, because the variant's own dark hover is `muted` at half alpha and
                     // outranks a plain `hover:`. The registry's own height and placement are
                     // answered in the variants it wrote them in.
-                    className={cn(
-                        "bg-surface-container elevation-raised hover:bg-surface-bright",
-                        "border-0 text-foreground dark:hover:bg-surface-bright",
-                        // Above both fades, so the gradient never covers it.
-                        "z-20 h-auto gap-2 rounded-xl px-3 py-2 data-[direction=end]:bottom-2",
-                    )}
+                    className="
+                        z-20 h-auto gap-2 rounded-xl border-0 bg-surface-container px-3 py-2 text-foreground
+                        elevation-raised
+                        hover:bg-surface-bright
+                        data-[direction=end]:bottom-2
+                        dark:hover:bg-surface-bright
+                    "
                 >
                     <ArrowDown className="size-4 text-muted-foreground" />
                     <span className="text-body-md">To bottom</span>

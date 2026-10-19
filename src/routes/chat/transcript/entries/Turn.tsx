@@ -93,7 +93,9 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                         <span
                             aria-hidden
                             onClick={() => setManual(false)}
-                            className="absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 cursor-pointer justify-center"
+                            className="
+                                absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 cursor-pointer justify-center
+                            "
                         >
                             <span className="h-full w-0.5 bg-divider" />
                         </span>

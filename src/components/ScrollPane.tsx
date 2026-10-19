@@ -59,9 +59,11 @@ function ScrollBar({ className, orientation = "vertical", ...props }: ScrollArea
             // appear. It stays mounted for that reason.
             keepMounted
             className={cn(
-                "flex touch-none select-none",
-                "data-vertical:w-2 data-vertical:px-0.5 data-vertical:py-px",
-                "data-horizontal:h-2 data-horizontal:px-px data-horizontal:py-0.5",
+                `
+                    flex touch-none select-none
+                    data-horizontal:h-2 data-horizontal:px-px data-horizontal:py-0.5
+                    data-vertical:w-2 data-vertical:px-0.5 data-vertical:py-px
+                `,
                 className,
             )}
             {...props}
