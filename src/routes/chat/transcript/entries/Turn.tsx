@@ -65,8 +65,10 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     <MarkerIcon className="relative z-10 flex size-6 items-center bg-surface">
                         <Layers />
                     </MarkerIcon>
-                    <span className="text-body-md font-medium text-foreground trim">{heading.lead}</span>
-                    <span className="min-w-0 truncate trim">
+                    {/* Both text spans carry the same box; the truncating span also needs
+                        the vertical padding as room for the ascenders `truncate` would clip. */}
+                    <span className="py-0.5 text-body-md font-medium text-foreground trim">{heading.lead}</span>
+                    <span className="min-w-0 truncate py-0.5 text-body-md trim">
                         {heading.files !== null && <span> · {heading.files}</span>}
                         {heading.failed !== null && <span className="text-destructive"> · {heading.failed}</span>}
                         {heading.calls !== null && <span className="hidden lg:inline"> · {heading.calls}</span>}
