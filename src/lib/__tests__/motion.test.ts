@@ -60,8 +60,8 @@ describe("the app's motion", () => {
 
     it("keeps the endless things in step with the CSS that draws them", () => {
         // Tailwind's `animate-spin` is one second, its own `transition` is 150ms, `duration-50`
-        // is 50ms, and `index.css` declares the shimmer at two seconds: one file answers how
-        // fast each of them is.
+        // is 50ms, and `shadcn/tailwind.css` declares the shimmer at two seconds: one file answers
+        // how fast each of them is.
         expect(MOTION.turn).toBe(1);
         expect(MOTION.flip).toBe(0.15);
         expect(MOTION.feedback).toBe(0.05);

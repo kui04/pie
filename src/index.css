@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 /*
  * IBM Plex, statically bundled: the woff2 files ship inside the app, so no machine needs the font
  * installed and nothing is fetched at runtime. Each face below names one file of the package - the
@@ -283,8 +283,7 @@
    * bar. Firefox paints nothing with the pseudo-element, and the layer below it is
    * where the standard properties say the same thing in its language.
    *
-   * These rules belong to `@layer base`: a utility that wants no bar at all has to
-   * stay able to say so (see `no-scrollbar`).
+   * These rules belong to `@layer base`.
    */
   :root {
     --sb-size: 8px;
@@ -435,239 +434,14 @@
   }
 }
 
-/*
- * A drawer dims the page with the theme's own scrim, not the registry's
- * black: the sheet is what separates it, and a shadow on top of one answers
- * the same question twice (see DESIGN.md Overlay). Unlayered on purpose, so it
- * outranks the `bg-black/10` utility the registry's overlay carries.
- */
-[data-slot="drawer-overlay"] {
-  background-color: color-mix(
-    in oklab,
-    var(--color-surface-container-highest) 70%,
-    transparent
-  );
-}
-
-/*
- * The shorthand variants the registry items are written in, vendored from the
- * same `shadcn` package's `tailwind.css` (4.21.3) as the shimmer below.
- *
- * Two jobs, since the primitives moved to Base UI. `data-open:` and its
- * neighbours still carry the `[data-state]` clause the radix-nova style
- * needed, but Base UI writes presence attributes (`data-open`, `data-checked`,
- * `data-disabled`), which the same definitions already match. And the
- * orientation names are still a translation: the components say
- * `data-vertical:` and Base UI writes `data-orientation="vertical"`, which
- * Tailwind alone would compile to `[data-vertical]` - an attribute no element
- * carries. Without this block a separator has no height and a scroll area's
- * bar has no width.
- *
- * Left out of the copy: `no-scrollbar` (pie has its own) and the accordion
- * keyframes (pie uses no accordion).
- */
-@custom-variant data-open {
-  &:where([data-state="open"]),
-  &:where([data-open]:not([data-open="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-closed {
-  &:where([data-state="closed"]),
-  &:where([data-closed]:not([data-closed="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-checked {
-  &:where([data-state="checked"]),
-  &:where([data-checked]:not([data-checked="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-unchecked {
-  &:where([data-state="unchecked"]),
-  &:where([data-unchecked]:not([data-unchecked="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-selected {
-  &:where([data-selected="true"]) {
-    @slot;
-  }
-}
-
-@custom-variant data-disabled {
-  &:where([data-disabled="true"]),
-  &:where([data-disabled]:not([data-disabled="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-active {
-  &:where([data-state="active"]),
-  &:where([data-active]:not([data-active="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-horizontal {
-  &:where([data-orientation="horizontal"]) {
-    @slot;
-  }
-}
-
-@custom-variant data-vertical {
-  &:where([data-orientation="vertical"]) {
-    @slot;
-  }
-}
-
-/*
- * The `shimmer` utility, vendored from the `shadcn` package's own
- * `tailwind.css` (4.21.3) so the app needs no package for it: the light is
- * pure CSS, the highlight is derived from `currentColor`, it brightens itself
- * in dark, and `prefers-reduced-motion` stops it. Left out of the copy: the RTL
- * flip (nothing here sets `dir`) and the modifiers that package also ships
- * (`shimmer-color-*`, `shimmer-duration-*`, `shimmer-spread-*`,
- * `shimmer-angle-*`, `shimmer-once`, `shimmer-reverse`, `shimmer-none`) - take
- * one from the package when a call site needs it.
- */
-/* shimmer */
-@property --shimmer-angle {
-  syntax: "<angle>";
-  inherits: true;
-  initial-value: 20deg;
-}
-@property --shimmer-image {
-  syntax: "*";
-  inherits: false;
-}
-@property --shimmer-text-fill {
-  syntax: "*";
-  inherits: false;
-}
-
-@theme inline {
-  @keyframes tw-shimmer {
-    from {
-      background-position: 100% 0;
-    }
-    to {
-      background-position: 0 0;
-    }
-  }
-}
-
-@utility shimmer {
-  --_spread: var(--shimmer-spread, calc(3ch + 40px));
-  --_base: currentColor;
-  --_highlight: var(
-    --shimmer-color,
-    oklch(from currentColor l c h / calc(alpha* 0.2))
-  );
-
-  background-image: var(
-    --shimmer-image,
-    linear-gradient(
-      calc(90deg + var(--shimmer-angle)),
-      var(--_base) calc(50% - var(--_spread)),
-      color-mix(in oklch, var(--_highlight), var(--_base) 50%)
-        calc(50% - var(--_spread) * 0.5),
-      var(--_highlight) 50%,
-      color-mix(in oklch, var(--_highlight), var(--_base) 50%)
-        calc(50% + var(--_spread) * 0.5),
-      var(--_base) calc(50% + var(--_spread))
-    )
-  );
-  background-repeat: no-repeat;
-  background-size: calc(200% + var(--_spread) * 2) 100%;
-  background-position: 0 0;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: var(--shimmer-text-fill, transparent);
-  /* Two seconds, the shimmer of `lib/motion.ts`; a reader who asked for less motion
-     gets the word alone (below). */
-  animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;
-
-  @variant dark {
-    --_highlight: var(
-      --shimmer-color,
-      oklch(from currentColor max(0.8, calc(l + 0.4)) c h / calc(alpha + 0.4))
-    );
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    background-image: none;
-    -webkit-text-fill-color: currentColor;
-  }
-}
-
-/*
- * An engine without relative colours cannot compute the highlight, and a
- * background image that cannot be computed stays at `none` while the fill is
- * still transparent: the word would be invisible. There it is a plain word - no
- * light and no animation, which is what a reader who asked for less motion gets
- * anyway. `oklch(from ...)` is the newest link of that chain, so an engine too
- * old for it is too old for the rest of the utility as well.
- */
-@supports not (color: oklch(from red l c h)) {
-  .shimmer {
-    animation: none;
-    background-image: none;
-    -webkit-text-fill-color: currentColor;
-  }
-}
-
 /**
  * Trim the ghost space above caps and below the baseline, so flex centers the
- * ink instead of the font box. `trim` is the default (`cap alphabetic`, the
- * common case); `trim-ex` fits lowercase-heavy words. One-sided trims fall back
- * to the default `text` edge unless stated. Engines without it ignore it and
- * keep the old centering.
+ * ink instead of the font box.
  */
 @utility trim {
   text-box: trim-both cap alphabetic;
 }
 
-@utility trim-cap {
-  text-box: trim-both cap alphabetic;
-}
-
-@utility trim-ex {
-  text-box: trim-both ex alphabetic;
-}
-
-@utility trim-none {
-  text-box-trim: none;
-}
-
-@utility trim-start {
-  text-box-trim: trim-start;
-}
-
-@utility trim-end {
-  text-box-trim: trim-end;
-}
-
-/** A surface that scrolls without saying so, for a short list that wants no bar. */
-@utility no-scrollbar {
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-/**
- * The room the pill scrollbar takes out of a region, for a neighbour that has to
- * stay on the same centreline as the rows inside it. Tailwind will not take a
- * value of `var(--sb-size)` here, so the utility keeps the two in step.
- */
 /*
  * The room a phone's system bars take, as the engine reports it.
  *

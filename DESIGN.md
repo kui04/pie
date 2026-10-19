@@ -604,9 +604,9 @@ own.
 
 **Stream** — what a model is doing while it works. A thought that is still
 arriving says `Thinking…` in shadcn's **marker** with its **`shimmer`** utility
-(vendored into `src/index.css`): the light is pure CSS off the text's own
-colour, it brightens itself in dark, and it stands still where a reader asked
-for less motion. No icon — the word is the whole signal.
+(from `shadcn/tailwind.css`, imported by `src/index.css`): the light is pure CSS
+off the text's own colour, it brightens itself in dark, and it stands still
+where a reader asked for less motion. No icon — the word is the whole signal.
 
 A message of a run is drawn while the run writes it, not when it is over: the
 answer, the call's arguments and the output a call streams all arrive as a row

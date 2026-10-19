@@ -5,8 +5,8 @@
  * movement - no travel, no scale, no turn, and every fade cut to `MOTION.reduce`.
  *
  * Not here: the class-based motions - Tailwind's `transition`, `animate-spin`, the shimmer of
- * `index.css` - whose numbers are the `MOTION` entries below, and what Radix, Vaul and sonner
- * move in their own files.
+ * `shadcn/tailwind.css`, which `index.css` imports - whose numbers are the `MOTION` entries below,
+ * and what Radix, Vaul and sonner move in their own files.
  */
 
 import type { MotionProps, Transition } from "motion/react";
