@@ -27,6 +27,7 @@ import {
 } from "@/components/ui";
 import { SafeArea, ScrollPane, Icon, TruncatedText } from "@/components";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { useLongPress } from "@/hooks/useLongPress";
 import { useMotion } from "@/hooks/useMotion";
 import { useWideWindow } from "@/hooks/useWideWindow";
 import * as bridge from "@/lib/bridge";
@@ -532,6 +533,7 @@ function SessionRow({
     onPick: (path: string) => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    const longPress = useLongPress(() => setMenuOpen(true));
     const title = sessionTitle(session);
     const when = relativeTime(session.modified, now);
     const ago = relativeTimeAgo(session.modified, now);
@@ -543,7 +545,20 @@ function SessionRow({
                 render={<div data-path={session.path} />}
                 id={`${id}-row-${pathKey(session.path)}`}
                 aria-current={held !== null ? "true" : undefined}
-                onClick={() => onPick(session.path)}
+                onClick={() => {
+                    if (!longPress.consumeClick()) onPick(session.path);
+                }}
+                onClickCapture={(event) => {
+                    if (longPress.consumeClick()) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }
+                }}
+                onPointerDown={longPress.onPointerDown}
+                onPointerMove={longPress.onPointerMove}
+                onPointerUp={longPress.onPointerUp}
+                onPointerCancel={longPress.onPointerCancel}
+                onContextMenu={longPress.onContextMenu}
                 delay={200}
                 closeDelay={100}
                 className={cn(

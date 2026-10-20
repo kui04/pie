@@ -310,6 +310,24 @@ describe("SessionSidebar", () => {
         expect(screen.getByText("Delete")).toBeInTheDocument();
     });
 
+    it("opens the actions menu on a long touch", async () => {
+        const session = sessionSummary({ name: "Pie work" });
+        bridge.listSessions.mockResolvedValue([session]);
+
+        renderSidebar();
+
+        const title = await screen.findByText("Pie work");
+        const row = title.closest("[data-path]");
+        expect(row).not.toBeNull();
+
+        fireEvent.pointerDown(row as HTMLElement, { pointerType: "touch", pointerId: 1, clientX: 10, clientY: 10 });
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        fireEvent.pointerUp(row as HTMLElement, { pointerType: "touch", pointerId: 1 });
+        fireEvent.click(row as HTMLElement);
+
+        expect(await screen.findByText("Rename", {}, { timeout: 1500 })).toBeInTheDocument();
+    });
+
     it("folds a group away, and keeps the rows of the others", async () => {
         bridge.listSessions.mockResolvedValue([
             sessionSummary({ cwd: "/work/pie", name: "Pie work" }),
