@@ -9,7 +9,7 @@
 
 import { useRef } from "react";
 import { cn } from "cn";
-import { ScrollPane } from "@/components";
+import { ScrollPane, TruncatedText } from "@/components";
 import { PopoverContent } from "@/components/ui";
 import type { CommandRow } from "@/routes/chat/composer/command";
 import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
@@ -117,14 +117,18 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                                     // The description follows the selection too, and not as a
                                     // decoration: `muted-foreground` on the `accent` fill is
                                     // 4.37:1, under the 4.5 a sentence needs.
-                                    <span
+                                    <TruncatedText
+                                        content={row.description}
+                                        side="right"
+                                        align="center"
+                                        offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
                                         className="
-                                            min-w-0 truncate text-body-md text-muted-foreground
+                                            min-w-0 text-body-md text-muted-foreground
                                             group-data-[lit=true]/item:text-accent-foreground
                                         "
                                     >
                                         {row.description}
-                                    </span>
+                                    </TruncatedText>
                                 )}
                             </div>
                         ))}

@@ -30,7 +30,7 @@ import {
     DrawerTitle,
     Skeleton,
 } from "@/components/ui";
-import { ScrollPane } from "@/components";
+import { ScrollPane, TruncatedText } from "@/components";
 import { useIsMobile } from "@/hooks/usePlatform";
 import * as bridge from "@/lib/bridge";
 import { sessionQueries } from "@/lib/query";
@@ -96,9 +96,15 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                                 disabled:pointer-events-none disabled:opacity-50
                             "
                         >
-                            <span className="line-clamp-2 text-body-md wrap-break-word whitespace-pre-wrap">
+                            <TruncatedText
+                                content={point.text}
+                                contentClassName="max-h-[min(60dvh,var(--available-height))] overflow-y-auto whitespace-pre-wrap"
+                                lines={2}
+                                offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                                className="text-body-md wrap-break-word"
+                            >
                                 {point.text}
-                            </span>
+                            </TruncatedText>
                         </button>
                     ))}
                 </div>

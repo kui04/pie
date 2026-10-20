@@ -42,7 +42,7 @@ import {
     Skeleton,
     Spinner,
 } from "@/components/ui";
-import { Icon } from "@/components";
+import { Icon, TruncatedText } from "@/components";
 
 /** How long typing must stand still before the host is asked for a level. */
 const READ_DELAY = 300;
@@ -656,11 +656,16 @@ function DirectoryRow({ offer, lit, stub, touch, onPress, hold }: DirectoryRowPr
                     <Folder aria-hidden />
                 </Icon>
             )}
-            <span className="min-w-0 flex-1 truncate text-body-md">
+            <TruncatedText
+                content={offer.path}
+                contentClassName="break-all"
+                className="min-w-0 flex-1 text-body-md"
+                offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
+            >
                 <span className="text-muted-foreground">{parts.head}</span>
                 <Name name={parts.leaf} stub={stub} />
                 {parts.leaf !== "" && <span className="text-muted-foreground">/</span>}
-            </span>
+            </TruncatedText>
         </button>
     );
 }
@@ -703,7 +708,13 @@ function DirectoryCreateConfirm({
                 <Icon className="shrink-0 text-muted-foreground">
                     <Folder aria-hidden />
                 </Icon>
-                <span className="min-w-0 flex-1 truncate">{displayPath(making)}</span>
+                <TruncatedText
+                    content={displayPath(making)}
+                    offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
+                    className="min-w-0 flex-1"
+                >
+                    {displayPath(making)}
+                </TruncatedText>
             </p>
             <p id="directory-picker-make-description" className="text-body-md text-muted-foreground">
                 This folder does not exist.

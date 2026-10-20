@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useMotion } from "@/hooks/useMotion";
 import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
 import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
-import { OptionRow, Icon } from "@/components";
+import { OptionRow, Icon, TruncatedText } from "@/components";
 import { ScrollPane } from "@/components";
 
 export type Transport = "local" | "ssh";
@@ -102,12 +102,13 @@ export function ConnectionCard({
                                     >
                                         Local process
                                     </span>
-                                    <span
+                                    <TruncatedText
                                         id="connection-card-transport-local-desc"
-                                        className="truncate text-body-sm text-muted-foreground"
+                                        className="text-body-sm text-muted-foreground"
+                                        offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
                                     >
                                         Spawn pi here
-                                    </span>
+                                    </TruncatedText>
                                 </span>
                             </OptionRow>
 
@@ -125,12 +126,13 @@ export function ConnectionCard({
                                     >
                                         SSH
                                     </span>
-                                    <span
+                                    <TruncatedText
                                         id="connection-card-transport-ssh-desc"
-                                        className="truncate text-body-sm text-muted-foreground"
+                                        className="text-body-sm text-muted-foreground"
+                                        offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
                                     >
                                         Connect to a remote host
-                                    </span>
+                                    </TruncatedText>
                                 </span>
                             </OptionRow>
                         </RadioGroup>

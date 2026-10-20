@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Icon, Markdown } from "@/components";
+import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { skillGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
@@ -32,15 +32,15 @@ export function Skill({ id, summary, body, quote = false }: SkillProps) {
 
     if (body === null) {
         return (
-            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
+            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-8.5">
                 <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                     {skillGlyph()}
                 </Icon>
                 <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">Skill</span>
                 {summary !== "" && (
-                    <span className="min-w-0 truncate" title={summary}>
+                    <TruncatedText content={summary} offset={{ top: 6, right: 12, bottom: 6, left: 12 }} tabIndex={0}>
                         {summary}
-                    </span>
+                    </TruncatedText>
                 )}
             </Marker>
         );

@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useMotion } from "@/hooks/useMotion";
+import { TruncatedText } from "@/components";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
 import type { SessionStats } from "@/lib/rpc-protocol";
 
@@ -38,8 +39,16 @@ export function SessionTopbar({
                     key={name ?? cwd ?? "session"}
                     className="flex min-w-0 flex-1 items-center gap-1"
                 >
-                    <h1 id="session_name" className="min-w-0 flex-1 truncate px-2 text-center text-title-sm">
-                        {title(name, cwd)}
+                    <h1 id="session_name" className="min-w-0 flex-1 px-2 text-center text-title-sm">
+                        <TruncatedText
+                            content={title(name, cwd)}
+                            align="center"
+                            textAlign="center"
+                            offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                            tabIndex={0}
+                        >
+                            {title(name, cwd)}
+                        </TruncatedText>
                     </h1>
                     <span id="session_controllers" className="flex shrink-0 items-center gap-1">
                         <UsagePopover id="session-usage" stats={stats} auto={auto} />

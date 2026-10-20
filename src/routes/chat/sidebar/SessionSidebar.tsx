@@ -25,7 +25,7 @@ import {
     HoverCardTrigger,
     Skeleton,
 } from "@/components/ui";
-import { SafeArea, ScrollPane, Icon } from "@/components";
+import { SafeArea, ScrollPane, Icon, TruncatedText } from "@/components";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { useMotion } from "@/hooks/useMotion";
 import { useWideWindow } from "@/hooks/useWideWindow";
@@ -77,9 +77,9 @@ export interface SessionSidebarProps extends SessionList {
     sheetClassName?: string;
 }
 
-/** The preview a directory or a session row opens: a card of the list's own colour, with a short enter and exit. */
-const PREVIEW_CARD = `
-    w-56 bg-card p-3 duration-150 ease-out
+/** The session row preview: the full name and the relative time the row yields to its menu. */
+const ROW_PREVIEW = `
+    w-max min-w-56 max-w-[var(--available-width,calc(100vw-2rem))] bg-card p-3 duration-150 ease-out
     motion-safe:transition-[opacity,scale]
     motion-safe:data-ending-style:scale-95 motion-safe:data-ending-style:opacity-0
     motion-safe:data-starting-style:scale-95 motion-safe:data-starting-style:opacity-0
@@ -187,7 +187,7 @@ function SessionListPanel({
                     <Icon className="shrink-0">
                         <Plus aria-hidden />
                     </Icon>
-                    <span className="truncate">New Conversation</span>
+                    <TruncatedText offset={{ top: 8, right: 12, bottom: 8, left: 12 }}>New Conversation</TruncatedText>
                 </button>
             </div>
 
@@ -263,47 +263,12 @@ function SessionListPanel({
                             <motion.div key="rows" className="space-y-2" {...stage}>
                                 {groups.map((group) => (
                                     <section key={group.cwd} className="space-y-0.5">
-                                        <HoverCard>
-                                            <HoverCardTrigger
-                                                render={<button type="button" />}
-                                                aria-expanded={!folded.has(group.cwd)}
-                                                onClick={() => toggle(group.cwd)}
-                                                delay={200}
-                                                closeDelay={100}
-                                                className="
-                                                    flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2
-                                                    text-left text-muted-foreground transition-colors duration-100
-                                                    ease-in-out select-none
-                                                    hover:bg-accent/50 hover:text-foreground
-                                                "
-                                            >
-                                                {folded.has(group.cwd) ? (
-                                                    <Icon className="shrink-0">
-                                                        <Folder aria-hidden />
-                                                    </Icon>
-                                                ) : (
-                                                    <Icon className="shrink-0">
-                                                        <FolderOpen aria-hidden />
-                                                    </Icon>
-                                                )}
-                                                <span className="min-w-0 flex-1 truncate text-body-md font-normal">
-                                                    {group.cwd ? formatCwd(group.cwd, homePath) : "No directory"}
-                                                </span>
-                                            </HoverCardTrigger>
-                                            {group.cwd && (
-                                                <HoverCardContent
-                                                    side="right"
-                                                    align="center"
-                                                    alignOffset={0}
-                                                    sideOffset={16}
-                                                    className={PREVIEW_CARD}
-                                                >
-                                                    <p className="text-body-md break-all text-foreground">
-                                                        {group.cwd}
-                                                    </p>
-                                                </HoverCardContent>
-                                            )}
-                                        </HoverCard>
+                                        <SessionDirectory
+                                            cwd={group.cwd}
+                                            homePath={homePath}
+                                            folded={folded.has(group.cwd)}
+                                            onToggle={() => toggle(group.cwd)}
+                                        />
                                         {!folded.has(group.cwd) &&
                                             (group.sessions.length === 0 ? (
                                                 <p
@@ -350,7 +315,7 @@ function SessionListPanel({
                     <Icon className="shrink-0">
                         <Settings aria-hidden />
                     </Icon>
-                    <span className="truncate">Settings</span>
+                    <TruncatedText offset={{ top: 8, right: 12, bottom: 8, left: 12 }}>Settings</TruncatedText>
                 </button>
             </div>
         </div>
@@ -481,6 +446,58 @@ function SessionSheet({
     );
 }
 
+/** The directory heading: a button whose clipped path opens the full path. */
+function SessionDirectory({
+    cwd,
+    homePath,
+    folded,
+    onToggle,
+}: {
+    cwd: string;
+    homePath: string;
+    folded: boolean;
+    onToggle: () => void;
+}) {
+    const text = useRef<HTMLSpanElement>(null);
+
+    return (
+        <TruncatedText
+            render={
+                <button
+                    type="button"
+                    aria-expanded={!folded}
+                    onClick={onToggle}
+                    className="
+                        flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
+                        text-muted-foreground transition-colors duration-100 ease-in-out select-none
+                        hover:bg-accent/50 hover:text-foreground
+                    "
+                />
+            }
+            measureRef={text}
+            content={cwd === "" ? null : cwd}
+            contentClassName="break-all"
+            side="right"
+            align="center"
+            offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+            alignOffset={0}
+        >
+            {folded ? (
+                <Icon className="shrink-0">
+                    <Folder aria-hidden />
+                </Icon>
+            ) : (
+                <Icon className="shrink-0">
+                    <FolderOpen aria-hidden />
+                </Icon>
+            )}
+            <span ref={text} className="min-w-0 flex-1 truncate text-body-md font-normal">
+                {cwd ? formatCwd(cwd, homePath) : "No directory"}
+            </span>
+        </TruncatedText>
+    );
+}
+
 /**
  * One session of the list.
  *
@@ -596,7 +613,7 @@ function SessionRow({
                 </div>
             </HoverCardTrigger>
             {title !== null && (
-                <HoverCardContent side="right" align="center" alignOffset={0} sideOffset={16} className={PREVIEW_CARD}>
+                <HoverCardContent side="right" align="center" alignOffset={0} sideOffset={16} className={ROW_PREVIEW}>
                     <div className="flex flex-col gap-1">
                         <p className="text-body-md font-medium wrap-break-word text-foreground">{title}</p>
                         <p className="text-body-sm text-muted-foreground">{ago}</p>

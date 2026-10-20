@@ -1,7 +1,7 @@
 import { ChevronRight, Layers, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Icon, Markdown } from "@/components";
+import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
 import { BranchSummary } from "@/routes/chat/transcript/entries/BranchSummary";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
@@ -47,6 +47,10 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
     const shown = folded && live && items.length > LIVE_ROWS ? items.slice(items.length - LIVE_ROWS) : items;
     const hidden = items.length - shown.length;
     const heading = workedHeading(facts, live);
+    const detail = [heading.files, heading.failed, heading.calls]
+        .filter((part): part is string => part !== null)
+        .map((part) => ` · ${part}`)
+        .join("");
 
     return (
         <div className="flex min-w-0 flex-col">
@@ -68,11 +72,15 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     {/* Both text spans carry the same box; the truncating span also needs
                         the vertical padding as room for the ascenders `truncate` would clip. */}
                     <span className="py-0.5 text-body-md font-medium text-foreground trim">{heading.lead}</span>
-                    <span className="min-w-0 truncate py-0.5 text-body-md trim">
+                    <TruncatedText
+                        content={`${heading.lead}${detail}`}
+                        className="py-0.5 text-body-md trim"
+                        offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
+                    >
                         {heading.files !== null && <span> · {heading.files}</span>}
                         {heading.failed !== null && <span className="text-destructive"> · {heading.failed}</span>}
                         {heading.calls !== null && <span className="hidden lg:inline"> · {heading.calls}</span>}
-                    </span>
+                    </TruncatedText>
                     {facts.failed > 0 && (
                         <Icon className="shrink-0 text-destructive">
                             <X aria-hidden />

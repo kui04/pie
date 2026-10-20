@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Icon, Markdown } from "@/components";
+import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { customGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
@@ -37,9 +37,9 @@ export function CustomMessage({ id, label, summary, body, quote = false }: Custo
                 </Icon>
                 <span className="shrink-0 text-body-md font-medium whitespace-nowrap text-violet trim">{label}</span>
                 {summary !== "" && (
-                    <span className="min-w-0 truncate" title={summary}>
+                    <TruncatedText content={summary} offset={{ top: 6, right: 12, bottom: 6, left: 12 }} tabIndex={0}>
                         {summary}
-                    </span>
+                    </TruncatedText>
                 )}
             </Marker>
         );

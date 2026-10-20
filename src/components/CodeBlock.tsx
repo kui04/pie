@@ -13,6 +13,7 @@ import { useHighlighter } from "@/hooks/useHighlighter";
 import { tokensOf } from "@/lib/code-highlight";
 import { copyText } from "@/lib/clipboard";
 import { Icon } from "./Icon";
+import { TruncatedText } from "./TruncatedText";
 
 export interface CodeBlockProps {
     /** The code, exactly as it arrived. */
@@ -71,7 +72,11 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     return (
         <CodeBlockFrame className={className} data-language={language ?? "text"}>
             <CodeBlockHeader>
-                <CodeBlockTitle>{language ?? "text"}</CodeBlockTitle>
+                <CodeBlockTitle>
+                    <TruncatedText content={language ?? "text"} offset={{ top: 6, right: 12, bottom: 6, left: 12 }}>
+                        {language ?? "text"}
+                    </TruncatedText>
+                </CodeBlockTitle>
                 <CodeBlockActions>
                     <Button
                         id={id === undefined ? undefined : `${id}-wrap`}

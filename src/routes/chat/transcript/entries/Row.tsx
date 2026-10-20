@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "cn";
-import { Icon } from "@/components";
+import { Icon, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
 
 export interface RowProps {
@@ -78,9 +78,9 @@ export function Row({
                     {name}
                 </span>
                 {target !== null && target !== undefined && target !== "" && (
-                    <span className="min-w-0 truncate" title={target}>
+                    <TruncatedText content={target} offset={{ top: 6, right: 12, bottom: 6, left: 12 }}>
                         {target}
-                    </span>
+                    </TruncatedText>
                 )}
                 {end !== undefined && <span className="ml-auto flex shrink-0 items-center gap-1.5">{end}</span>}
             </Marker>

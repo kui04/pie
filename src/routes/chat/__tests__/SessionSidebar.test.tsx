@@ -51,6 +51,13 @@ function Wrapper({ children }: { children: ReactNode }) {
     return <div style={{ height: 400 }}>{children}</div>;
 }
 
+/** Make the row report a clipped label, the way a browser reports an ellipsis. */
+function clip(element: HTMLElement) {
+    Object.defineProperty(element, "scrollWidth", { configurable: true, value: 240 });
+    Object.defineProperty(element, "clientWidth", { configurable: true, value: 100 });
+    window.dispatchEvent(new Event("resize"));
+}
+
 /** The pointer a preview card listens for, without a browser's own hover. */
 function hover(element: HTMLElement) {
     const trigger = element.closest<HTMLElement>(String.raw`[data-slot="hover-card-trigger"]`) ?? element;
@@ -126,7 +133,9 @@ describe("SessionSidebar", () => {
 
         renderSidebar();
 
-        hover(await screen.findByText("~/pie"));
+        const path = await screen.findByText("~/pie");
+        clip(path);
+        hover(path);
         const card = await previewCard();
         expect(within(card).getByText("/home/user/pie")).toBeInTheDocument();
     });

@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui";
-import { Icon } from "@/components";
+import { Icon, TruncatedText } from "@/components";
 import { useMotion } from "@/hooks/useMotion";
 import { EASE, MOTION } from "@/lib/motion";
 import type { ImageContent } from "@/lib/rpc-protocol";
@@ -90,12 +90,20 @@ export function Attachments({ items, onRemove, className }: AttachmentsProps) {
                                 className="size-12 shrink-0 rounded-xl object-cover"
                             />
                             <div className="flex min-w-0 flex-col">
-                                <span className="truncate text-body-md leading-5.5 font-medium text-foreground">
+                                <TruncatedText
+                                    content={name}
+                                    className="text-body-md leading-5.5 font-medium text-foreground"
+                                    offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                                >
                                     {name}
-                                </span>
-                                <span className="truncate text-body-sm leading-3.75 text-muted-foreground">
+                                </TruncatedText>
+                                <TruncatedText
+                                    content={`${kindOf(name, image.mimeType)} · ${sizeOf(image.data)}`}
+                                    className="text-body-sm leading-3.75 text-muted-foreground"
+                                    offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                                >
                                     {kindOf(name, image.mimeType)} · {sizeOf(image.data)}
-                                </span>
+                                </TruncatedText>
                             </div>
                             <Button
                                 type="button"

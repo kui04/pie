@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
 import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
-import { ScrollPane, Icon } from "@/components";
+import { ScrollPane, Icon, TruncatedText } from "@/components";
 import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
@@ -77,7 +77,17 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 }
             >
                 <ProviderMark provider={current?.provider ?? null} mark={mark.data ?? null} className="size-4" />
-                <span className="min-w-0 truncate">{current?.name ?? "Model"}</span>
+                <TruncatedText
+                    content={current?.name ?? "Model"}
+                    side="top"
+                    align="center"
+                    alignOffset={-10}
+                    // The label's centre is 10px right of the pill's centre; the 13px
+                    // vertical offset leaves 8px between the card and the 34px pill.
+                    offset={{ top: 13, right: 23, bottom: 13, left: 43 }}
+                >
+                    {current?.name ?? "Model"}
+                </TruncatedText>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-model-popup"
@@ -319,7 +329,15 @@ const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoi
             "
         >
             <ProviderMark provider={model.provider} mark={mark} />
-            <span className="min-w-0 flex-1 truncate text-body-md">{model.name}</span>
+            <TruncatedText
+                content={model.name}
+                side="right"
+                align="center"
+                offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                className="min-w-0 flex-1 text-body-md"
+            >
+                {model.name}
+            </TruncatedText>
             {inUse && (
                 <Icon className="shrink-0 text-primary-text">
                     <Check aria-label="In use" />

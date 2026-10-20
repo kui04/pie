@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/
 import * as bridge from "@/lib/bridge";
 import type { ModelThinkingLevel } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
-import { Icon } from "@/components";
+import { Icon, TruncatedText } from "@/components";
 import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 
 export interface ThinkingLevelPickerProps {
@@ -57,7 +57,14 @@ export function ThinkingLevelPicker({ session, current, open, onOpenChange }: Th
                 <Icon className="size-4 shrink-0">
                     <Brain />
                 </Icon>
-                <span className="min-w-0 truncate">{current ?? "Thinking"}</span>
+                <TruncatedText
+                    content={current ?? "Thinking"}
+                    side="top"
+                    align="center"
+                    offset={{ top: 10, right: 12, bottom: 10, left: 12 }}
+                >
+                    {current ?? "Thinking"}
+                </TruncatedText>
             </PopoverTrigger>
             <PopoverContent
                 id="composer-thinking-popup"
@@ -194,7 +201,15 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                         data-[lit=true]:bg-accent
                     "
                 >
-                    <span className="min-w-0 flex-1 truncate text-body-md">{level}</span>
+                    <TruncatedText
+                        content={level}
+                        side="right"
+                        align="center"
+                        offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                        className="min-w-0 flex-1 text-body-md"
+                    >
+                        {level}
+                    </TruncatedText>
                     {level === value && (
                         <Icon className="shrink-0 text-primary-text">
                             <Check aria-label="In use" />

@@ -354,6 +354,16 @@ Monospace is for code and for nothing else: a tool's header, footer and notes
 are sans, a log body is sans, and a markdown body is sans. The one exception is
 a numbered body — a file or a diff — whose line numbers and text are code.
 
+**Truncation** — a clipped label keeps its full value in the DOM, so a screen
+reader reads it without opening anything, and it opens the preview card only
+when the label is actually clipped. The session row is the exception: its card
+also carries the relative time, which the row yields to its menu on hover. Its
+card has a 14rem minimum width; otherwise the card is as wide as its content up
+to the space Base UI measures against the viewport, so a value that fits stays
+on one line instead of wrapping at a fixed width; a longer value wraps only when
+that space runs out. The gap follows the side the card lands on, so a card that
+flips from right to bottom keeps a different gap for each.
+
 ## Layout
 
 The window is two regions, edge to edge: the list of sessions in a column of its
