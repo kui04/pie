@@ -963,7 +963,9 @@ describe("the window the chat draws", () => {
         // in it keep their own clicks (see tauri's `window/scripts/drag.js`).
         expect(bar?.getAttribute("data-tauri-drag-region")).toBe("deep");
         const ids = [...(bar?.children ?? [])].map((child) => child.id);
-        expect(ids).toEqual(["sidebar_toggle", "window_controllers"]);
+        expect(ids).toEqual(["topbar-start", "topbar-end"]);
+        expect(bar?.querySelector("#topbar-start #sidebar_toggle")).not.toBeNull();
+        expect(bar?.querySelector("#topbar-end #window_controllers")).not.toBeNull();
         // A row of the content column, not a fixed height: its own content decides.
         expect(bar?.className.split(" ")).toContain("min-h-11");
     });

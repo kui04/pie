@@ -211,10 +211,10 @@ describe("SessionSidebar", () => {
         await waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
         const row = document.querySelector(selector) as HTMLElement;
         expect(within(row).getByText("attached")).toBeInTheDocument();
-        // The BreathLight dot is rendered with size-2
+        // The BreathLight dot is rendered with size-1.5
         const mark = row.querySelector("span.rounded-full");
         expect(mark).not.toBeNull();
-        expect(mark?.className).toContain("size-2");
+        expect(mark?.className).toContain("size-1.5");
         // Both active and inactive sessions render timestamp with aligned layout
         expect(row.querySelector("span.text-label-md")).not.toBeNull();
 

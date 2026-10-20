@@ -17,7 +17,7 @@ import { SessionLanding } from "@/routes/chat/SessionLanding";
 import { SessionSidebar, type AttachedConversation } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
 import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
-import { SessionSlots } from "@/routes/chat/topbar/SessionSlots";
+import { SessionSlots, SessionUsage } from "@/routes/chat/topbar/SessionSlots";
 import { SessionMain } from "@/routes/chat/SessionMain";
 import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
 import { DirectoryPicker } from "@/routes/chat/picker/DirectoryPicker";
@@ -170,29 +170,34 @@ export function ChatScreen() {
             }
         >
             {/* The bar is the window's: only the conversation's own slots in it change. */}
-            <ChatTopbar>
-                <SidebarToggle expanded={expanded} onToggleSessions={toggleSessions} />
-                {/* A conversation that is on its way has nothing to say about itself: its slots
-                    arrive with its words, and the bar keeps the window's own keys until then. */}
-                {stage === "viewing" && chart !== null && session !== null && (
+            <ChatTopbar
+                start={
                     <>
-                        <SessionSlots session={session} machine={chart} cwd={cwd} />
-                        {/* The conversation's own actions stand at the end of its slots, where
-                            the window's keys are not disturbed. */}
-                        <SessionMenu
-                            session={session}
-                            machine={chart}
-                            endpoint={endpoint}
-                            open={menu}
-                            onOpenChange={setMenu}
-                            onClose={() => machine.send({ type: "CLOSE" })}
-                            onGone={() => machine.send({ type: "GONE" })}
-                            triggerIcon="menu"
-                            alignOffset={2}
-                        />
+                        <SidebarToggle expanded={expanded} onToggleSessions={toggleSessions} />
+                        {stage === "viewing" && chart !== null && session !== null && (
+                            <SessionSlots session={session} machine={chart} endpoint={endpoint} cwd={cwd} />
+                        )}
                     </>
-                )}
-            </ChatTopbar>
+                }
+                end={
+                    stage === "viewing" && chart !== null && session !== null ? (
+                        <>
+                            <SessionUsage session={session} machine={chart} />
+                            <SessionMenu
+                                session={session}
+                                machine={chart}
+                                endpoint={endpoint}
+                                open={menu}
+                                onOpenChange={setMenu}
+                                onClose={() => machine.send({ type: "CLOSE" })}
+                                onGone={() => machine.send({ type: "GONE" })}
+                                triggerClassName="size-6"
+                                alignOffset={2}
+                            />
+                        </>
+                    ) : undefined
+                }
+            />
             <AnimatePresence mode="wait" initial={false}>
                 <motion.div id="session-page" key={page} {...pageOf} className={COLUMN}>
                     {body()}

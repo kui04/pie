@@ -7,7 +7,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
-import { Copy, EllipsisVertical, GitFork, Menu, Pencil, Trash2, Unplug } from "lucide-react";
+import { Copy, EllipsisVertical, GitFork, Pencil, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 
@@ -43,8 +43,6 @@ export interface SessionMenuProps {
     id?: string;
     /** Custom className for the trigger button. */
     triggerClassName?: string;
-    /** What the trigger draws: the top bar names the actions, a session row keeps its ellipsis. */
-    triggerIcon?: "menu" | "ellipsis";
     /** Popover alignment. Defaults to "end". */
     align?: "start" | "center" | "end";
     /** Shift along the align edge, for a trigger whose glyph is inset from its box. */
@@ -80,7 +78,6 @@ function BaseSessionMenu({
     isWorking,
     id = "session-menu",
     triggerClassName,
-    triggerIcon = "ellipsis",
     align = "end",
     alignOffset = 0,
     side = "bottom",
@@ -163,7 +160,9 @@ function BaseSessionMenu({
                         />
                     }
                 >
-                    <Icon>{triggerIcon === "menu" ? <Menu /> : <EllipsisVertical />}</Icon>
+                    <Icon>
+                        <EllipsisVertical />
+                    </Icon>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                     id={`${id}-popup`}

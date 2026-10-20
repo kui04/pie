@@ -9,8 +9,10 @@ import {
     Separator,
 } from "@/components/ui";
 import { Icon } from "@/components";
+import { cn } from "cn";
 import type { SessionStats } from "@/lib/rpc-protocol";
 import { costText, formatTokens, percentText, tokenBreakdown, usageTone } from "@/routes/chat/topbar/usage";
+import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 
 const RING_RADIUS = 8;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -55,9 +57,12 @@ export function UsagePopover({
                     </Button>
                 }
             />
-            <PopoverContent align="end" className="w-60 gap-2">
-                <PopoverHeader>
-                    <PopoverTitle className="text-label-md">Context usage</PopoverTitle>
+            <PopoverContent
+                align="end"
+                className={cn("w-60 gap-1 rounded-xl p-2 font-sans text-body-md text-foreground", COMPOSER_PANEL)}
+            >
+                <PopoverHeader className="gap-1 text-body-md">
+                    <PopoverTitle className="text-body-md">Context usage</PopoverTitle>
                 </PopoverHeader>
                 <p className={`text-title-md font-medium tabular-nums ${tone.text}`}>{percentText(percent)}</p>
                 {usage !== null && (
@@ -109,7 +114,7 @@ function Ring({ percent, stroke }: { percent: number | null; stroke: string }) {
     const fraction = percent === null ? 0 : Math.min(1, Math.max(0, percent / 100));
     return (
         <Icon>
-            <svg viewBox="0 0 20 20" className="shrink-0 -rotate-90" aria-hidden="true">
+            <svg viewBox="0 0 20 20" className="size-4 shrink-0 -rotate-90" aria-hidden="true">
                 <circle cx="10" cy="10" r={RING_RADIUS} fill="none" strokeWidth="2.5" className="stroke-border" />
                 {percent !== null && (
                     <circle

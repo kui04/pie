@@ -69,9 +69,7 @@ const meta = {
                         >
                             {/* The bar is the window's, and no conversation is open: it carries
                                 only the way to the list and the window's own keys. */}
-                            <ChatTopbar>
-                                <SidebarToggle onToggleSessions={() => undefined} />
-                            </ChatTopbar>
+                            <ChatTopbar start={<SidebarToggle onToggleSessions={() => undefined} />} />
                             <Story />
                         </ChatFrame>
                     </MemoryRouter>

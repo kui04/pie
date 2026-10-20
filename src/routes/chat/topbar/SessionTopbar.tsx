@@ -1,33 +1,30 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useMotion } from "@/hooks/useMotion";
-import { TruncatedText } from "@/components";
-import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
-import type { SessionStats } from "@/lib/rpc-protocol";
 
 /**
- * The session's own slots of the bar: what it is called, and how full its context is.
+ * The conversation's own slot of the bar: what it is called.
  *
- * The rest of the bar belongs to the window - the way to the list, and the window's own
- * keys - so it stands still; these two belong to the conversation in view, and they are the
- * only part of the bar that changes when another conversation opens. A session that is
- * still on its way has nothing to say about itself, so its slots arrive with its words.
+ * The rest of the bar belongs to the window - the way to the list, its actions and the
+ * window's keys - so it stands still; this slot belongs to the conversation in view, and it
+ * is the only part of the bar that changes when another conversation opens. A session that
+ * is still on its way has nothing to say about itself, so its slot arrives with its words.
  */
 export function SessionTopbar({
     name,
+    firstMessage,
     cwd,
-    stats,
-    auto,
     ready = true,
 }: {
     name: string | null;
-    /** The directory the session runs in, for a session pi has no name for. */
+    /** The words that opened the session, when pi has no name for it. */
+    firstMessage?: string | null;
+    /** The directory the session runs in, for a session with neither words nor a name. */
     cwd: string | null;
-    stats: SessionStats | null;
-    auto: boolean;
-    /** Whether the conversation has arrived; its slots wait for it until it has. */
+    /** Whether the conversation has arrived; its slot waits for it until it has. */
     ready?: boolean;
 }) {
     const { slot } = useMotion();
+    const shown = title(name, firstMessage ?? null, cwd);
 
     return (
         <AnimatePresence initial={false}>
@@ -36,32 +33,35 @@ export function SessionTopbar({
                     {...slot}
                     // The words are the identity: another session brings other ones, and the
                     // block that says them fades rather than swapping its text in place.
-                    key={name ?? cwd ?? "session"}
-                    className="flex min-w-0 flex-1 items-center gap-1"
+                    key={name ?? firstMessage ?? cwd ?? "session"}
+                    className="flex min-w-0 flex-1 items-center"
                 >
-                    <h1 id="session_name" className="min-w-0 flex-1 px-2 text-center text-title-sm">
-                        <TruncatedText
-                            content={title(name, cwd)}
-                            align="center"
-                            textAlign="center"
-                            offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
-                            tabIndex={0}
-                        >
-                            {title(name, cwd)}
-                        </TruncatedText>
+                    {/* No preview card on this one: it is a position, not a reading. */}
+                    <h1
+                        id="session_name"
+                        className="
+                            me-12 max-w-160 min-w-0 flex-1 truncate ps-1 text-left text-title-sm
+                            xl:absolute xl:top-1/2 xl:left-1/2 xl:m-0 xl:w-max xl:-translate-x-1/2 xl:-translate-y-1/2
+                            xl:p-0 xl:text-center
+                        "
+                    >
+                        {shown}
                     </h1>
-                    <span id="session_controllers" className="flex shrink-0 items-center gap-1">
-                        <UsagePopover id="session-usage" stats={stats} auto={auto} />
-                    </span>
                 </motion.div>
             )}
         </AnimatePresence>
     );
 }
 
-/** The name pi holds, else the last part of the directory, as pi's own title falls back. */
-function title(name: string | null, cwd: string | null): string {
-    if (name !== null && name !== "") return name;
+/**
+ * The name pi holds, else the words that opened the conversation, else the last
+ * part of its directory: the same title the session row says.
+ */
+function title(name: string | null, firstMessage: string | null, cwd: string | null): string {
+    const given = name?.trim();
+    if (given) return given;
+    const opened = firstMessage?.trim().replace(/\s+/g, " ");
+    if (opened) return opened;
     const parts = cwd?.split(/[\\/]/).filter(Boolean) ?? [];
     return parts[parts.length - 1] ?? "Untitled";
 }

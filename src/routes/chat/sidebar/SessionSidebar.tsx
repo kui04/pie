@@ -180,11 +180,12 @@ function SessionListPanel({
                     onClick={onNew}
                     className="
                         flex h-8 w-full cursor-pointer items-center justify-start gap-2 rounded-lg border
-                        border-border/60 bg-surface/50 px-2 text-sm font-normal text-foreground transition-colors
+                        border-border/60 bg-surface/50 ps-1.75 pe-2 text-sm font-normal text-foreground
+                        transition-colors
                         hover:bg-accent hover:text-foreground
                     "
                 >
-                    <Icon className="shrink-0">
+                    <Icon className="shrink-0 justify-start">
                         <Plus aria-hidden />
                     </Icon>
                     <TruncatedText offset={{ top: 8, right: 12, bottom: 8, left: 12 }}>New Conversation</TruncatedText>
@@ -312,7 +313,7 @@ function SessionListPanel({
                         hover:bg-accent hover:text-foreground
                     "
                 >
-                    <Icon className="shrink-0">
+                    <Icon className="shrink-0 justify-start">
                         <Settings aria-hidden />
                     </Icon>
                     <TruncatedText offset={{ top: 8, right: 12, bottom: 8, left: 12 }}>Settings</TruncatedText>
@@ -338,13 +339,15 @@ function SessionSkeleton({ id, height }: { id: string; height: number }) {
                     {/* The folder stands where the directory's folder stands, from the edge the
                         heading starts at. */}
                     <div aria-hidden className="flex h-8 items-center gap-2 px-2">
-                        <Skeleton className="size-4 shrink-0 motion-reduce:animate-none" />
+                        <span className="flex size-6 shrink-0 items-center justify-start">
+                            <Skeleton className="size-4 motion-reduce:animate-none" />
+                        </span>
                         <Skeleton className={cn("h-4", group.heading, "motion-reduce:animate-none")} />
                     </div>
                     {group.sessions.map((width, row) => (
                         <div key={row} aria-hidden className="flex h-8 items-center gap-2 px-2">
                             {/* Where a session's light stands, and a name beside it. */}
-                            <span className="size-4 shrink-0" />
+                            <span className="size-6 shrink-0" />
                             <Skeleton className={cn("h-4", width, "motion-reduce:animate-none")} />
                         </div>
                     ))}
@@ -483,11 +486,11 @@ function SessionDirectory({
             alignOffset={0}
         >
             {folded ? (
-                <Icon className="shrink-0">
+                <Icon className="shrink-0 justify-start">
                     <Folder aria-hidden />
                 </Icon>
             ) : (
-                <Icon className="shrink-0">
+                <Icon className="shrink-0 justify-start">
                     <FolderOpen aria-hidden />
                 </Icon>
             )}
@@ -556,8 +559,9 @@ function SessionRow({
                     type="button"
                     className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left outline-none"
                 >
-                    {/* A 24px slot puts the title on the directory's left edge; the 8px light sits in its centre. */}
-                    <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>
+                    {/* A 24px slot puts the title on the directory's left edge; the light is
+                        centred on the folder's 16px glyph. */}
+                    <span className="flex size-6 shrink-0 items-center justify-start ps-1.25" aria-hidden>
                         {mark !== null && <BreathLight breathing={breathing} mark={mark} />}
                     </span>
                     {mark !== null && <span className="sr-only">{mark === "working" ? "working" : "attached"}</span>}
@@ -625,10 +629,10 @@ function SessionRow({
 }
 
 /**
- * The light of a row: a dot that breathes while a process is there.
+ * The light of a row: one crisp dot that breathes while a process is there.
  *
- * It is 8px in total diameter, rendered as concentric gradient layers (2px per layer step)
- * with the outer layers fainter for a soft glow and smooth breathing effect.
+ * The former concentric layers read as a blur at this size; a single 8px dot fades as
+ * a whole, so its edge stays sharp through the breath.
  */
 function BreathLight({
     className,
@@ -656,17 +660,11 @@ function BreathLight({
             ref={dot}
             aria-hidden
             className={cn(
-                "flex size-2 shrink-0 items-center justify-center rounded-full",
+                "size-1.5 shrink-0 rounded-full bg-current",
                 mark === "working" ? "text-primary" : "text-tertiary",
                 className,
             )}
-        >
-            <svg viewBox="0 0 8 8" className="size-2 shrink-0">
-                <circle cx="4" cy="4" r="4" fill="currentColor" opacity="0.2" />
-                <circle cx="4" cy="4" r="3" fill="currentColor" opacity="0.5" />
-                <circle cx="4" cy="4" r="2" fill="currentColor" opacity="1" />
-            </svg>
-        </span>
+        />
     );
 }
 
