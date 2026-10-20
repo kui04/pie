@@ -576,10 +576,9 @@ It draws the words of pi and the keys the window will answer to, centred, and
 the bar above it carries only the way to the list and the window's own keys: a
 session's slots (name, context) belong to a conversation, and there is none yet.
 A key is shadcn's **kbd** (`text-body-md` at its side, `muted` under it), and
-its binding is not made yet — the rows are the plan a reader can read
-(`docs/TODO.md`). The chat has three pages and this is the first; the others are
-the loading page and the conversation itself, and a page leaves before the next
-arrives (`STAGE`).
+its binding is not made yet — the rows are the plan a reader can read. The chat
+has three pages and this is the first; the others are the loading page and the
+conversation itself, and a page leaves before the next arrives (`STAGE`).
 
 **Loading** (`src/routes/chat/SessionLoading.tsx`) — a conversation is on its
 way: the window keeps the bar of the landing — a conversation that has not

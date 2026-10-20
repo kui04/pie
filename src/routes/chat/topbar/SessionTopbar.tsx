@@ -40,7 +40,7 @@ export function SessionTopbar({
                     <h1
                         id="session_name"
                         className="
-                            me-12 max-w-160 min-w-0 flex-1 truncate ps-1 text-left text-title-sm
+                            me-12 max-w-160 min-w-0 flex-1 truncate ps-2 text-left text-title-sm
                             xl:absolute xl:top-1/2 xl:left-1/2 xl:m-0 xl:w-max xl:-translate-x-1/2 xl:-translate-y-1/2
                             xl:p-0 xl:text-center
                         "

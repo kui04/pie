@@ -26,10 +26,10 @@ export function SidebarToggle({
             aria-expanded={expanded}
             onClick={onToggleSessions}
             // The icon is what says whether the list is out beside the chat, so the key
-            // does not fill for it: the ghost variant would fill an expanded key. The glyph
-            // starts at the leading edge, on the axis the session groups use; the button's
-            // transparent border would add a pixel of inset.
-            className="justify-start border-0 aria-expanded:bg-transparent"
+            // does not fill for it: the ghost variant would fill an expanded key. The key is
+            // the 24px Icon itself, so the hover fill and the glyph share one centre, while
+            // the glyph's left edge stays on the session axis at x=16.
+            className="size-6 border-0 aria-expanded:bg-transparent"
         >
             {/* What the press does: it folds a column that is out, and opens the sheet
                 that holds the list where there is no column. */}
