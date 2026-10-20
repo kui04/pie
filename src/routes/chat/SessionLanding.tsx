@@ -53,7 +53,7 @@ function Shortcut({
             type="button"
             id={id}
             onClick={onPress}
-            className="flex items-center justify-between gap-8 rounded-md px-3 py-2 hover:bg-accent"
+            className="flex items-center justify-between gap-8 rounded-md px-3 py-2 hover:bg-accent/50"
         >
             <span className="text-body-md text-muted-foreground">{label}</span>
             <KbdGroup className="text-muted-foreground">{children}</KbdGroup>

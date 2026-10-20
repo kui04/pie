@@ -323,7 +323,8 @@ export function Composer({ session, working, machine }: ComposerProps) {
                         onClick={attach}
                         className="
                             size-8.5 shrink-0 rounded-full p-0 text-muted-foreground
-                            hover:bg-muted hover:text-foreground
+                            hover:bg-accent/50 hover:text-foreground
+                            dark:hover:bg-accent/50
                         "
                     >
                         <Icon>

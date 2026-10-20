@@ -419,7 +419,7 @@ describe("SessionSidebar", () => {
             "size-6",
             "rounded-sm",
             "p-1",
-            "hover:bg-muted",
+            "hover:bg-accent/50",
             "bg-transparent",
             "inline-flex",
             "items-center",

@@ -109,7 +109,7 @@ export function CommandList({ id, rows, highlighted, lit, onPoint, onChoose, cla
                                 className="
                                     group/item relative flex cursor-default items-center gap-2 rounded-xl p-2 text-sm
                                     transition-colors select-none
-                                    data-[lit=true]:bg-accent data-[lit=true]:text-accent-foreground
+                                    data-[lit=true]:bg-accent/50 data-[lit=true]:text-accent-foreground
                                 "
                             >
                                 <span className="shrink-0 text-body-md whitespace-nowrap">/{row.name}</span>

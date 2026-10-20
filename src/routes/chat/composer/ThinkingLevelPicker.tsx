@@ -198,7 +198,7 @@ function LevelList({ levels, value, onChoose }: LevelListProps) {
                     className="
                         flex cursor-default items-center gap-2 rounded-lg p-2 text-foreground transition-colors
                         select-none
-                        data-[lit=true]:bg-accent
+                        data-[lit=true]:bg-accent/50
                     "
                 >
                     <TruncatedText

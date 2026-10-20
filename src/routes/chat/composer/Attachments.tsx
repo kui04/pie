@@ -161,7 +161,8 @@ function Edge({ side, onPress }: { side: "left" | "right"; onPress: () => void }
                 onClick={onPress}
                 className="
                     pointer-events-auto size-9 rounded-full text-muted-foreground
-                    hover:bg-muted hover:text-foreground
+                    hover:bg-accent/50 hover:text-foreground
+                    dark:hover:bg-accent/50
                 "
             >
                 <Icon className="size-4">{side === "left" ? <ChevronLeft /> : <ChevronRight />}</Icon>

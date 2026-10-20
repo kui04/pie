@@ -91,7 +91,7 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                             onClick={() => fork.mutate(point.entryId)}
                             className="
                                 flex w-full rounded-md p-2 text-left outline-none
-                                hover:bg-accent
+                                hover:bg-accent/50
                                 focus-visible:bg-accent
                                 disabled:pointer-events-none disabled:opacity-50
                             "

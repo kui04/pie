@@ -170,14 +170,15 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                     aria-label="To bottom"
                     // One control at every width, a pill that says what it does. It is flat
                     // like the composer: a card with the same hairline, and no shadow. Both
-                    // hovers are written out, because the variant's own dark hover is `muted`
+                    // hovers keep the card fill, because the variant's own dark hover is `muted`
                     // at half alpha and outranks a plain `hover:`. The registry's own height
                     // and placement are answered in the variants it wrote them in.
                     className="
-                        z-20 h-auto gap-2 rounded-xl border border-foreground/10 bg-card px-3 py-2 text-foreground
-                        hover:bg-surface-bright
+                        z-20 h-auto cursor-pointer gap-2 rounded-xl border border-foreground/10 bg-card px-3 py-2
+                        text-foreground
+                        hover:bg-card
                         data-[direction=end]:bottom-2
-                        dark:hover:bg-surface-bright
+                        dark:hover:bg-card
                     "
                 >
                     <Icon className="text-muted-foreground">

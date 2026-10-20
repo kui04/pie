@@ -32,7 +32,7 @@ export function WindowControls() {
                 className="
                     inline-flex size-6 shrink-0 items-center justify-center rounded-sm bg-transparent p-1
                     text-foreground transition-colors duration-50 ease-in-out
-                    hover:bg-muted
+                    hover:bg-accent/50
                     focus-visible:outline-primary
                 "
             >
@@ -48,7 +48,7 @@ export function WindowControls() {
                 className="
                     inline-flex size-6 shrink-0 items-center justify-center rounded-sm bg-transparent p-1
                     text-foreground transition-colors duration-50 ease-in-out
-                    hover:bg-muted
+                    hover:bg-accent/50
                     focus-visible:outline-primary
                 "
             >

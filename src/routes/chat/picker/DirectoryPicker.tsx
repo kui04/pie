@@ -640,9 +640,9 @@ function DirectoryRow({ offer, lit, stub, touch, onPress, hold }: DirectoryRowPr
             className={cn(
                 `
                     \n outline-none\n
-                    focus-visible:bg-accent\n
+                    focus-visible:bg-accent/50\n
                     flex w-full items-center gap-2 rounded-md px-2 text-left text-foreground
-                    data-[lit=true]:bg-accent
+                    data-[lit=true]:bg-accent/50
                 `,
                 touch ? "min-h-12" : "min-h-9",
             )}

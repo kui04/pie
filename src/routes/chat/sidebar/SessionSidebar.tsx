@@ -182,7 +182,7 @@ function SessionListPanel({
                         flex h-8 w-full cursor-pointer items-center justify-start gap-2 rounded-lg border
                         border-border/60 bg-surface/50 ps-1.75 pe-2 text-sm font-normal text-foreground
                         transition-colors
-                        hover:bg-accent hover:text-foreground
+                        hover:bg-accent/50 hover:text-foreground
                     "
                 >
                     <Icon className="shrink-0 justify-start">
@@ -205,7 +205,7 @@ function SessionListPanel({
                             className="
                                 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm
                                 bg-transparent p-1 text-muted-foreground transition-colors duration-50 ease-in-out
-                                hover:bg-muted hover:text-foreground
+                                hover:bg-accent/50 hover:text-foreground
                                 focus-visible:outline-primary
                             "
                         >
@@ -228,7 +228,7 @@ function SessionListPanel({
                             className="
                                 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm
                                 bg-transparent p-1 text-muted-foreground transition-colors duration-50 ease-in-out
-                                hover:bg-muted hover:text-foreground
+                                hover:bg-accent/50 hover:text-foreground
                                 focus-visible:outline-primary
                                 disabled:pointer-events-none disabled:opacity-50
                             "
@@ -310,7 +310,7 @@ function SessionListPanel({
                     className="
                         flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm
                         text-muted-foreground transition-colors duration-100 ease-in-out
-                        hover:bg-accent hover:text-foreground
+                        hover:bg-accent/50 hover:text-foreground
                     "
                 >
                     <Icon className="shrink-0 justify-start">
@@ -550,7 +550,7 @@ function SessionRow({
                     `
                         group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
                         select-none
-                        hover:bg-accent
+                        hover:bg-accent/50
                     `,
                     menuOpen && "bg-accent",
                 )}
@@ -611,7 +611,7 @@ function SessionRow({
                             endpoint={endpoint}
                             open={menuOpen}
                             onOpenChange={setMenuOpen}
-                            triggerClassName="hover:bg-muted text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
+                            triggerClassName="hover:bg-accent/50 dark:hover:bg-accent/50 text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
                         />
                     </div>
                 </div>

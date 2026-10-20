@@ -325,7 +325,7 @@ const ModelRow = memo(function ModelRow({ id, model, mark, at, inUse, lit, onPoi
             onMouseMove={() => onPoint(at)}
             className="
                 flex h-9 cursor-default items-center gap-2 rounded-lg px-2 text-foreground transition-colors select-none
-                data-[lit=true]:bg-accent
+                data-[lit=true]:bg-accent/50
             "
         >
             <ProviderMark provider={model.provider} mark={mark} />
