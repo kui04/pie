@@ -573,13 +573,15 @@ function SessionRow({
                 </button>
 
                 {/* Trailing slot: relative timestamp when idle, session actions menu on hover/open */}
-                <div className="relative ml-auto flex size-6 shrink-0 items-center justify-center">
+                <div className="group/slot relative ml-auto flex size-6 shrink-0 items-center justify-center">
                     {title !== null && (
                         <div
                             className={cn(
                                 `
                                     absolute inset-0 flex items-center justify-center transition-opacity duration-150
                                     ease-out
+                                    group-has-focus-visible/slot:pointer-events-none
+                                    group-has-focus-visible/slot:opacity-0
                                 `,
                                 menuOpen ? "pointer-events-none opacity-0" : "opacity-100 group-hover:opacity-0",
                             )}

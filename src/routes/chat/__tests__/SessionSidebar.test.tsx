@@ -296,6 +296,11 @@ describe("SessionSidebar", () => {
         expect(await screen.findByText("Pie work")).toBeInTheDocument();
         const actionButton = screen.getByRole("button", { name: "Session actions" });
         expect(actionButton).toBeInTheDocument();
+        expect(
+            actionButton.parentElement?.parentElement?.firstElementChild?.classList.contains(
+                "group-has-focus-visible/slot:opacity-0",
+            ),
+        ).toBe(true);
 
         fireEvent.click(actionButton);
         expect(await screen.findByText("Rename")).toBeInTheDocument();
