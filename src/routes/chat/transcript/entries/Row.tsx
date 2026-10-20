@@ -16,7 +16,7 @@ export interface RowProps {
     tone?: "model" | "user-run" | "quiet";
     /** What the call aimed at: a path, a pattern, a command. One line, truncated. */
     target?: string | null;
-    /** What the row's end says: a clock, a ring while it runs, a mark when it failed. */
+    /** What the row's end says: a clock, a ring while it runs, a mark when it failed, or a fold's chevron. */
     end?: ReactNode;
     /**
      * Whether the body carries a line of its own - the way a quote does. A row inside a fold
@@ -62,7 +62,7 @@ export function Row({
                         aria-expanded={open}
                         aria-controls={open ? `${id}-body` : undefined}
                         onClick={onToggle}
-                        className="min-h-10 w-full pr-1 text-left hover:text-foreground sm:min-h-8.5"
+                        className="min-h-10 w-full cursor-pointer pr-1 text-left hover:text-foreground sm:min-h-8.5"
                     />
                 }
             >

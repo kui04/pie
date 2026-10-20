@@ -43,17 +43,11 @@ export function Compaction({ id, tokensBefore, body, quote = false }: Compaction
         <Row
             id={id}
             glyph={compactionGlyph()}
-            name={
-                // The chevron stands with the word, not at the row's end: a compaction sits beside
-                // collapsed work often enough that "this is a notice, and it opens" has to be
-                // readable from the word itself.
-                <span className="flex items-center gap-2">
-                    <span className="font-medium text-violet trim">Compaction</span>
-                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <Icon>
-                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
-                    </Icon>
-                </span>
+            name={<span className="font-medium text-violet trim">Compaction</span>}
+            end={
+                <Icon>
+                    <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                </Icon>
             }
             tone="quiet"
             target={`Compacted from ${tokensBefore.toLocaleString("en-US")} tokens`}

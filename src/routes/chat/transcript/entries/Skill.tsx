@@ -50,14 +50,11 @@ export function Skill({ id, summary, body, quote = false }: SkillProps) {
         <Row
             id={id}
             glyph={skillGlyph()}
-            name={
-                <span className="flex items-center gap-2">
-                    <span className="font-medium text-violet trim">Skill</span>
-                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <Icon>
-                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
-                    </Icon>
-                </span>
+            name={<span className="font-medium text-violet trim">Skill</span>}
+            end={
+                <Icon>
+                    <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                </Icon>
             }
             tone="quiet"
             // A skill that opens reads no excerpt: the header is the word alone.

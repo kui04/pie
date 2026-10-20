@@ -45,22 +45,18 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
             id={id}
             glyph={thoughtGlyph()}
             name={
-                // The chevron stands with the word, not at the row's end: a thought sits beside
-                // collapsed work often enough that "this is a thought, and it opens" has to be
-                // readable from the word itself.
-                <span className="flex items-center gap-2">
-                    {stillThinking ? (
-                        <span className="shimmer font-medium trim" role="status">
-                            Thinking…
-                        </span>
-                    ) : (
-                        <span className="trim">Thoughts</span>
-                    )}
-                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <Icon>
-                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
-                    </Icon>
-                </span>
+                stillThinking ? (
+                    <span className="shimmer font-medium trim" role="status">
+                        Thinking…
+                    </span>
+                ) : (
+                    <span className="trim">Thoughts</span>
+                )
+            }
+            end={
+                <Icon>
+                    <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                </Icon>
             }
             tone="quiet"
             quote={quote}

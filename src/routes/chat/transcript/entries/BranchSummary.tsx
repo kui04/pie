@@ -39,14 +39,11 @@ export function BranchSummary({ id, body, quote = false }: BranchSummaryProps) {
         <Row
             id={id}
             glyph={branchGlyph()}
-            name={
-                <span className="flex items-center gap-2">
-                    <span className="font-medium text-violet trim">Summary</span>
-                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <Icon>
-                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
-                    </Icon>
-                </span>
+            name={<span className="font-medium text-violet trim">Summary</span>}
+            end={
+                <Icon>
+                    <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                </Icon>
             }
             tone="quiet"
             quote={quote}

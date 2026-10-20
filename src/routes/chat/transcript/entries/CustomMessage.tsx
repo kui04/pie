@@ -49,14 +49,11 @@ export function CustomMessage({ id, label, summary, body, quote = false }: Custo
         <Row
             id={id}
             glyph={customGlyph()}
-            name={
-                <span className="flex items-center gap-2">
-                    <span className="font-medium text-violet trim">{label}</span>
-                    {/* One icon, turned: `>` is closed, and a quarter turn opens it. */}
-                    <Icon>
-                        <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
-                    </Icon>
-                </span>
+            name={<span className="font-medium text-violet trim">{label}</span>}
+            end={
+                <Icon>
+                    <ChevronRight className={cn("transition-transform", open && "rotate-90")} aria-hidden />
+                </Icon>
             }
             tone="quiet"
             // A message that opens reads no excerpt: the header is the word alone.
