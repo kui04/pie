@@ -19,7 +19,7 @@ import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
 import { SessionExtensions } from "@/routes/chat/topbar/SessionExtensions";
 import { SessionSlots, SessionUsage } from "@/routes/chat/topbar/SessionSlots";
 import { SessionMain } from "@/routes/chat/SessionMain";
-import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
+import { SessionMenu } from "@/routes/chat/SessionMenu";
 import { DirectoryPicker } from "@/routes/chat/picker/DirectoryPicker";
 
 /** The page fills the column the frame gives it, and nothing of it scrolls as a whole. */

@@ -1,4 +1,16 @@
 export { CodeBlock, type CodeBlockProps } from "./CodeBlock";
+export {
+    ConfirmDialog,
+    type ConfirmDialogProps,
+    DialogAction,
+    type DialogActionProps,
+    DialogFrame,
+    type DialogFrameProps,
+    SelectDialog,
+    type SelectDialogProps,
+    TextDialog,
+    type TextDialogProps,
+} from "./dialog";
 export { Hourglass } from "./Hourglass";
 export { Icon } from "./Icon";
 export { Markdown, type MarkdownProps } from "./Markdown";

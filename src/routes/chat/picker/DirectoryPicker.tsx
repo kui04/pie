@@ -27,14 +27,6 @@ import { directoryQueries, sessionsQueries } from "@/lib/query";
 import { groupSessions, pathKey } from "@/routes/chat/sidebar/session-list";
 import {
     Button,
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogTitle,
-    Drawer,
-    DrawerClose,
-    DrawerContent,
-    DrawerTitle,
     InputGroup,
     InputGroupAddon,
     InputGroupButton,
@@ -42,7 +34,7 @@ import {
     Skeleton,
     Spinner,
 } from "@/components/ui";
-import { Icon, ScrollPane, TruncatedText } from "@/components";
+import { DialogFrame, Icon, ScrollPane, TruncatedText } from "@/components";
 
 /** How long typing must stand still before the host is asked for a level. */
 const READ_DELAY = 300;
@@ -327,7 +319,6 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         });
     };
 
-    const header = <DirectoryHeader touch={touch} />;
     const fieldRow = (
         <DirectoryField
             inputRef={inputRef}
@@ -367,69 +358,32 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         />
     );
 
-    if (touch) {
-        return (
-            <Drawer open={open} onOpenChange={changeOpen} swipeDirection="down" showSwipeHandle>
-                <DrawerContent
-                    initialFocus={inputRef}
-                    // A cap, not a height: the sheet wraps its content, and a long
-                    // level scrolls inside it instead of pushing its keys away.
-                    className="
-                        flex max-h-[70dvh] flex-col gap-4 border-border px-6
-                        pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none
-                    "
+    return (
+        <DialogFrame
+            open={open}
+            onOpenChange={changeOpen}
+            isMobile={touch}
+            id="directory-picker"
+            title={TITLE}
+            showClose
+            initialFocus={inputRef}
+            // A cap, not a height: the sheet wraps its content, and a long
+            // level scrolls inside it instead of pushing its keys away.
+            className="flex max-h-[70dvh] flex-col"
+            dialogClassName="top-[15vh] translate-y-0 sm:w-full sm:max-w-2xl"
+        >
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+                {fieldRow}
+                <ScrollPane
+                    id="directory-picker-scroll"
+                    className="min-h-0"
+                    viewportClassName={touch ? "max-h-96" : "max-h-64"}
                 >
-                    {header}
-                    <div className="flex min-h-0 flex-1 flex-col gap-3">
-                        {fieldRow}
-                        <ScrollPane id="directory-picker-scroll" className="min-h-0" viewportClassName="max-h-96">
-                            {list}
-                        </ScrollPane>
-                    </div>
-                    {confirm}
-                </DrawerContent>
-            </Drawer>
-        );
-    }
-
-    return (
-        <Dialog open={open} onOpenChange={changeOpen}>
-            <DialogContent
-                showCloseButton={false}
-                initialFocus={inputRef}
-                // Anchored to the top so content height changes do not shift the field.
-                className="
-                    top-[15vh] flex max-h-[70dvh] translate-y-0 flex-col rounded-xl border border-border bg-card p-6
-                    text-foreground
-                    sm:w-full sm:max-w-2xl
-                "
-            >
-                {header}
-                <div className="flex min-h-0 flex-1 flex-col gap-3">
-                    {fieldRow}
-                    <ScrollPane id="directory-picker-scroll" className="min-h-0" viewportClassName="max-h-64">
-                        {list}
-                    </ScrollPane>
-                </div>
-                {confirm}
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-/** The title with its own close key, level with it. */
-function DirectoryHeader({ touch }: { touch: boolean }) {
-    const Title = touch ? DrawerTitle : DialogTitle;
-    const Close = touch ? DrawerClose : DialogClose;
-    return (
-        <div className="flex items-center justify-between gap-2">
-            <Title className="text-body-md font-normal">{TITLE}</Title>
-            <Close render={<Button variant="ghost" size="icon-sm" aria-label="Close" />}>
-                <Icon>
-                    <X />
-                </Icon>
-            </Close>
-        </div>
+                    {list}
+                </ScrollPane>
+            </div>
+            {confirm}
+        </DialogFrame>
     );
 }
 
@@ -737,36 +691,21 @@ function DirectoryCreateConfirm({
             </div>
         </>
     );
-    if (touch) {
-        return (
-            <Drawer open onOpenChange={(next) => !next && onCloseMake()} swipeDirection="down">
-                <DrawerContent
-                    className="
-                        flex flex-col gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]
-                        outline-none
-                    "
-                    aria-describedby="directory-picker-make-description"
-                >
-                    <DrawerTitle>Create folder</DrawerTitle>
-                    <div className="mt-4 flex flex-col gap-2 text-muted-foreground">{body}</div>
-                </DrawerContent>
-            </Drawer>
-        );
-    }
     return (
-        <Dialog open onOpenChange={(next) => !next && onCloseMake()}>
-            <DialogContent
-                showCloseButton={false}
-                className="
-                    top-[15vh] flex translate-y-0 flex-col gap-4 rounded-xl border border-border bg-card p-6
-                    text-foreground
-                "
-                aria-describedby="directory-picker-make-description"
-            >
-                <DialogTitle className="text-body-md font-normal">Create folder</DialogTitle>
-                <div className="flex flex-col gap-2 text-muted-foreground">{body}</div>
-            </DialogContent>
-        </Dialog>
+        <DialogFrame
+            open
+            onOpenChange={(next) => {
+                if (!next) onCloseMake();
+            }}
+            isMobile={touch}
+            id="directory-picker-make"
+            title="Create folder"
+            showSwipeHandle={false}
+            dialogClassName="top-[15vh] translate-y-0"
+            describedBy="directory-picker-make-description"
+        >
+            <div className="flex flex-col gap-2 text-muted-foreground">{body}</div>
+        </DialogFrame>
     );
 }
 

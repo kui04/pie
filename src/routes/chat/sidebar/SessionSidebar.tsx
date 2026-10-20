@@ -29,7 +29,7 @@ import { SafeArea, ScrollPane, Icon, TruncatedText } from "@/components";
 import { useKeyboardInset, useLongPress, useMotion, useWideWindow } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { directoryQueries, sessionsQueries } from "@/lib/query";
-import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
+import { SessionMenu } from "@/routes/chat/SessionMenu";
 import {
     breatheAt,
     formatCwd,

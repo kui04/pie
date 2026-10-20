@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { DeleteSession } from "@/routes/chat/menu/DeleteSession";
+import { DeleteSession } from "@/routes/chat/SessionMenu";
 
 const meta = {
     title: "Chat/DeleteSession",
@@ -8,8 +8,7 @@ const meta = {
     args: {
         session: "main:1",
         file: "/home/kui/.pi/agent/sessions/pie/2026-01-01T00-00-00-000Z_0193f0c4.jsonl",
-        open: true,
-        onOpenChange: () => undefined,
+        onClose: () => undefined,
         onDeleted: () => undefined,
         isMobile: false,
     },

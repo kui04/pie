@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { queryDefaults } from "@/lib/query";
-import { ForkSession } from "@/routes/chat/menu/ForkSession";
+import { ForkSession } from "@/routes/chat/SessionMenu";
 
 /**
  * The fork points come from pi (`get_fork_messages`), which no story can call: each
@@ -40,8 +40,7 @@ const meta = {
     ],
     args: {
         session: "main:1",
-        open: true,
-        onOpenChange: () => undefined,
+        onClose: () => undefined,
         onForked: () => undefined,
         isMobile: false,
     },

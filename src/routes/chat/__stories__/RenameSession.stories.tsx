@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { RenameSession } from "@/routes/chat/menu/RenameSession";
+import { RenameSession } from "@/routes/chat/SessionMenu";
 
 const meta = {
     title: "Chat/RenameSession",
@@ -7,8 +7,7 @@ const meta = {
     parameters: { layout: "fullscreen" },
     args: {
         session: "main:1",
-        open: true,
-        onOpenChange: () => undefined,
+        onClose: () => undefined,
         initial: "Fix the parser",
         onRenamed: () => undefined,
         isMobile: false,

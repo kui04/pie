@@ -78,7 +78,7 @@ export const Confirm: Story = { args: { request: confirm } };
 /** One line of text. */
 export const Input: Story = { args: { request: input } };
 
-/** A multi-line editor with a prefill. */
+/** Text with a prefill, in the same field as Input. */
 export const Editor: Story = { args: { request: editor } };
 
 /** The same question on a phone: the dialog becomes a bottom sheet. */

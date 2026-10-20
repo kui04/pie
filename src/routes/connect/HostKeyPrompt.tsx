@@ -1,17 +1,4 @@
-import {
-    Button,
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-    Drawer,
-    DrawerClose,
-    DrawerContent,
-    DrawerDescription,
-    DrawerFooter,
-    DrawerTitle,
-} from "@/components/ui";
+import { ConfirmDialog } from "@/components";
 import { useIsMobile } from "@/hooks";
 import type { PresentedKey } from "@/lib/bridge";
 
@@ -45,77 +32,19 @@ export function HostKeyPrompt({ presentedKey, onAnswer, isMobile }: HostKeyPromp
         if (!next && open) onAnswer(false);
     };
 
-    if (isMobile ?? mobile) {
-        return (
-            <Drawer open={open} onOpenChange={refuseOnClose} swipeDirection="down" showSwipeHandle>
-                <DrawerContent
-                    // Full registry look for review: no face overrides here. The
-                    // border color stays pie's own: without it the hairline paints
-                    // in currentColor, which reads as a light rim in dark mode.
-                    className="gap-4 border-border px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none"
-                    aria-describedby="host-key-sheet-message"
-                >
-                    <DrawerTitle>Trust this host?</DrawerTitle>
-                    <DrawerDescription id="host-key-sheet-message" className="mt-4 break-all text-muted-foreground">
-                        {message}
-                    </DrawerDescription>
-                    <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">
-                        <DrawerClose
-                            render={
-                                <Button
-                                    id="host-key-sheet-cancel"
-                                    variant="outline"
-                                    className="h-10 flex-1 text-label-lg font-medium"
-                                />
-                            }
-                        >
-                            Cancel
-                        </DrawerClose>
-                        <Button
-                            id="host-key-sheet-trust"
-                            className="h-10 flex-1 text-label-lg font-medium"
-                            onClick={() => onAnswer(true)}
-                        >
-                            Trust
-                        </Button>
-                    </DrawerFooter>
-                </DrawerContent>
-            </Drawer>
-        );
-    }
-
     return (
-        <Dialog open={open} onOpenChange={refuseOnClose}>
-            <DialogContent
-                showCloseButton={false}
-                className="rounded-xl border border-border bg-card p-6 text-foreground"
-                aria-describedby="host-key-dialog-message"
-            >
-                <DialogTitle className="text-body-md font-normal">Trust this host?</DialogTitle>
-                <DialogDescription
-                    id="host-key-dialog-message"
-                    className="text-body-md break-all text-muted-foreground"
-                >
-                    {message}
-                </DialogDescription>
-                <DialogFooter className="mt-0 flex flex-row justify-end gap-4 border-0 bg-transparent">
-                    <Button
-                        id="host-key-dialog-cancel"
-                        variant="outline"
-                        onClick={() => onAnswer(false)}
-                        className="rounded-lg px-4 py-3"
-                    >
-                        <span className="text-label-lg font-medium">Cancel</span>
-                    </Button>
-                    <Button
-                        id="host-key-dialog-trust"
-                        onClick={() => onAnswer(true)}
-                        className="rounded-lg bg-primary px-4 py-3 hover:bg-primary/90"
-                    >
-                        <span className="text-label-lg font-medium">Trust</span>
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <ConfirmDialog
+            open={open}
+            onOpenChange={refuseOnClose}
+            isMobile={isMobile ?? mobile}
+            id="host-key"
+            title="Trust this host?"
+            description={message}
+            descriptionClassName="break-all"
+            confirmLabel="Trust"
+            confirmId="host-key-trust"
+            cancelId="host-key-cancel"
+            onConfirm={() => onAnswer(true)}
+        />
     );
 }

@@ -15,7 +15,7 @@ import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { queryDefaults } from "@/lib/query";
 import { sessionMachine, type SessionDeps } from "@/machines/session.machine";
 import type { SessionRef } from "@/lib/sessions";
-import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
+import { SessionMenu } from "@/routes/chat/SessionMenu";
 import { sessionState } from "@/preview/fixtures";
 
 type Call = (...args: never[]) => Promise<unknown>;

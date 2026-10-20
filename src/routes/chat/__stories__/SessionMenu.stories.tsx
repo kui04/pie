@@ -7,7 +7,7 @@ import { queryDefaults } from "@/lib/query";
 import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { sessionMachine } from "@/machines/session.machine";
 import type { SessionRef } from "@/lib/sessions";
-import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
+import { SessionMenu } from "@/routes/chat/SessionMenu";
 import { sessionState } from "@/preview/fixtures";
 
 /**
