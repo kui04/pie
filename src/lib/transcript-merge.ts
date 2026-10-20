@@ -134,8 +134,36 @@ export function mergedTranscript(base: EntriesData | null, overlay: Overlay): Me
         }
     }
     // An overlay leaf the base carries is not newer than the base: the base leaf is.
-    const leaf = overlay.leaf !== null && !carriesLeaf ? overlay.leaf : (base?.leafId ?? null);
+    // An overlay leaf whose parent chain does not reach a root is a branch the
+    // transcript cannot walk (an extension record can point outside the current
+    // branch). Take the last entry whose chain is whole then, rather than losing
+    // the history above it.
+    const preferred = overlay.leaf !== null && !carriesLeaf ? overlay.leaf : (base?.leafId ?? null);
+    let leaf = preferred !== null && reachesRoot(entries, preferred) ? preferred : null;
+    if (leaf === null) {
+        for (let index = order.length - 1; index >= 0; index -= 1) {
+            const id = order[index];
+            if (reachesRoot(entries, id)) {
+                leaf = id;
+                break;
+            }
+        }
+    }
     return { entries, order, leaf };
+}
+
+/** Whether the parent chain of one entry reaches a root without a missing link. */
+function reachesRoot(entries: Map<string, SessionEntry>, leaf: string): boolean {
+    const seen = new Set<string>();
+    let current: string | null = leaf;
+    while (current !== null) {
+        if (seen.has(current)) return false;
+        seen.add(current);
+        const entry = entries.get(current);
+        if (entry === undefined) return false;
+        current = entry.parentId;
+    }
+    return true;
 }
 
 /**

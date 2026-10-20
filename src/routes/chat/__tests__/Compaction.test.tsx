@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Compaction } from "@/routes/chat/transcript/entries/Compaction";
 
 describe("Compaction", () => {
-    it("draws the word and the size it cut from, and opens the summary behind it", () => {
+    it("draws the word and the size it cut from, and opens the summary behind it", async () => {
         render(
             <Compaction
                 id="n1"
@@ -18,7 +18,7 @@ describe("Compaction", () => {
         fireEvent.click(screen.getByRole("button", { name: /Compaction/ }));
         expect(screen.getByText("and then stopped")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: /Compaction/ }));
-        expect(screen.queryByText("and then stopped")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("and then stopped")).toBeNull());
     });
 
     it("carries its own line under itself when it stands outside a fold", () => {

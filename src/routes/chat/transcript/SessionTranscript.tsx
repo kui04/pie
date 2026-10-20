@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "cn";
 import { Virtualizer } from "virtua";
@@ -29,9 +29,10 @@ export interface SessionTranscriptProps {
 /**
  * How much of the list beyond the viewport is drawn, in pixels: virtua's
  * `bufferSize`, which its own note raises "to avoid showing blank items in fast
- * scrolling". Its default of 200 is about one of these rows.
+ * scrolling". A live turn can be taller than the viewport, so two screens of
+ * history stay mounted above it; the list still virtualizes long sessions.
  */
-const AHEAD = 800;
+const AHEAD = 2400;
 
 /**
  * The transcript, as a list that draws only what is on screen.
@@ -44,14 +45,72 @@ const AHEAD = 800;
  */
 export function SessionTranscript({ rows, working = false, className, onRetractQueued }: SessionTranscriptProps) {
     const viewport = useRef<HTMLDivElement>(null);
+    const follow = useRef(true);
+    const lastScroll = useRef(0);
     // One turn's work is one block: the rows are folded before virtua sees them, so a
     // long session draws headings and answers rather than a card per call. The run is
     // at work on its own last turn, which is the one the line under the list names.
     const slots = useMemo(() => foldTurns(rows), [rows]);
     const lastWork = slots.reduce((found, slot, index) => (slot.kind === "work" ? index : found), -1);
+    // While a run writes, keep the settled turns mounted: the growing live turn makes
+    // Virtua drop the rest of its window, and the reader loses the history above it.
+    const keepMounted = useMemo(() => (working ? slots.map((_, index) => index) : undefined), [working, slots]);
+
+    // Virtua remeasures while a live turn grows. Keep the reader's place if they
+    // have left the end, and keep the end in view while they are following it.
+    useEffect(() => {
+        const element = viewport.current;
+        if (element === null) return;
+        const atEnd = () => element.scrollHeight - element.scrollTop - element.clientHeight <= 24;
+        let touched = 0;
+        const onScroll = () => {
+            lastScroll.current = element.scrollTop;
+            // Content growth while following the end must not take the lock away.
+            if (atEnd()) follow.current = true;
+        };
+        const onWheel = (event: WheelEvent) => {
+            if (event.deltaY < 0) follow.current = false;
+            else if (atEnd()) follow.current = true;
+        };
+        const onTouchStart = () => {
+            touched = element.scrollTop;
+        };
+        const onTouchMove = () => {
+            if (element.scrollTop < touched) follow.current = false;
+        };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") follow.current = false;
+            else if (event.key === "End") follow.current = true;
+        };
+        element.addEventListener("scroll", onScroll, { passive: true });
+        element.addEventListener("wheel", onWheel, { passive: true });
+        element.addEventListener("touchstart", onTouchStart, { passive: true });
+        element.addEventListener("touchmove", onTouchMove, { passive: true });
+        element.addEventListener("keydown", onKeyDown);
+        onScroll();
+        return () => {
+            element.removeEventListener("scroll", onScroll);
+            element.removeEventListener("wheel", onWheel);
+            element.removeEventListener("touchstart", onTouchStart);
+            element.removeEventListener("touchmove", onTouchMove);
+            element.removeEventListener("keydown", onKeyDown);
+        };
+    }, []);
+
+    useLayoutEffect(() => {
+        const element = viewport.current;
+        if (element === null) return;
+        if (follow.current) element.scrollTop = element.scrollHeight;
+        else element.scrollTop = lastScroll.current;
+        const frame = requestAnimationFrame(() => {
+            if (viewport.current !== element) return;
+            element.scrollTop = follow.current ? element.scrollHeight : lastScroll.current;
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [rows]);
 
     return (
-        <MessageScrollerProvider autoScroll>
+        <MessageScrollerProvider autoScroll={false}>
             <MessageScroller id="transcript-list" className={cn("min-h-0 flex-1", className)}>
                 <ScrollPane
                     className="min-h-0 w-full flex-1 rounded-b-lg"
@@ -67,7 +126,7 @@ export function SessionTranscript({ rows, working = false, className, onRetractQ
                         {/* Headroom for the floating bar above, four lines of
                             legroom above the fade's dense end below. */}
                         <div className="mx-auto w-full max-w-5xl px-4 pt-16 pb-20">
-                            <Virtualizer data={slots} bufferSize={AHEAD} scrollRef={viewport}>
+                            <Virtualizer data={slots} bufferSize={AHEAD} keepMounted={keepMounted} scrollRef={viewport}>
                                 {(slot, index) => (
                                     // Keyed by the row or the turn: virtua draws by position, and
                                     // React would otherwise keep a fold's state (an open body, a

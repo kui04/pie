@@ -71,6 +71,18 @@ describe("the transcript the fold reads", () => {
         expect(mergedTranscript(base, overlayOf([entryOf("late", user("later"), "b")])).leaf).toBe("late");
     });
 
+    it("keeps the base leaf when an overlay leaf points outside its branch", () => {
+        const base: EntriesData = {
+            entries: [entryOf("a", user("hello")), entryOf("b", user("again"), "a")],
+            leafId: "b",
+        };
+        // An extension record can name a parent the base does not carry; the
+        // overlay must not take the transcript off that branch.
+        const merged = mergedTranscript(base, overlayOf([entryOf("orphan", user("outside"), "missing")]));
+
+        expect(merged.leaf).toBe("b");
+    });
+
     it("answers the overlay alone when no base read has landed", () => {
         const merged = mergedTranscript(null, overlayOf([entryOf("a", user("hello"))]));
 

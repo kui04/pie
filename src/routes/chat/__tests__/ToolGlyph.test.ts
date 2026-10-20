@@ -8,7 +8,7 @@ import {
     skillGlyph,
     thoughtGlyph,
     toolLabel,
-} from "@/routes/chat/transcript/entries/tool-glyph";
+} from "@/routes/chat/transcript/entries/ToolGlyph";
 
 function iconOf(node: ReactNode): string | null {
     if (!isValidElement(node)) return null;

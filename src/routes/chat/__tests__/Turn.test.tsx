@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { transcriptRows } from "@/lib/transcript";
 import {
     AT,
@@ -56,6 +56,7 @@ describe("Turn", () => {
         // The heading counts what the turn did, and the work waits behind it.
         expect(screen.getByRole("button", { name: /Worked for/ })).toBeInTheDocument();
         expect(screen.getByText("done")).toBeInTheDocument();
+        // The prose is a row of the run: it is hidden by the fold like the rest.
         expect(screen.queryByText("let me look")).toBeNull();
     });
 
@@ -67,7 +68,7 @@ describe("Turn", () => {
         expect(screen.getByText("pnpm test")).toBeInTheDocument();
     });
 
-    it("keeps a live turn open, and folds it when its answer lands", () => {
+    it("keeps a live turn open, and folds it when its answer lands", async () => {
         const entries = chain(
             messageEntry(user("make the parser skip empty lines", Date.parse(AT))),
             messageEntry(
@@ -98,17 +99,19 @@ describe("Turn", () => {
                 live={false}
             />,
         );
-        expect(screen.queryByText("/a.ts")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("/a.ts")).toBeNull());
+        expect(screen.getByText("done")).toBeInTheDocument();
+        expect(document.querySelector('[id$="-answer"]')).not.toBeNull();
     });
 
-    it("lets the reader's own toggle outrank the fold's rule", () => {
+    it("lets the reader's own toggle outrank the fold's rule", async () => {
         renderTurn(oneCall(Date.parse(AT), 5200));
 
         const row = screen.getByRole("button", { name: /pnpm test/ });
         fireEvent.click(row);
         expect(screen.getByText("36 passed")).toBeInTheDocument();
         fireEvent.click(row);
-        expect(screen.queryByText("36 passed")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("36 passed")).toBeNull());
     });
 
     it("draws a notice inside the fold as a row of its own kind", () => {
@@ -144,7 +147,7 @@ describe("Turn", () => {
         expect(screen.getByText("and kept notes")).toBeInTheDocument();
     });
 
-    it("stands the model's prose past the rail once the turn is folded", () => {
+    it("keeps the model's prose in its place in the timeline, without a fold", () => {
         renderTurn(
             chain(
                 messageEntry(user("make the parser skip empty lines", Date.parse(AT))),
@@ -158,10 +161,35 @@ describe("Turn", () => {
             ),
         );
 
-        // A thought and a call open the fold; the prose that stayed inside it stands with them.
         fireEvent.click(screen.getByRole("button", { name: /Worked for/ }));
-        const grouped = screen.getByText("let me look");
-        expect(grouped.closest("div.pl-8")).not.toBeNull();
+        const prose = screen.getByText("let me look");
+        const row = prose.closest('[data-slot="marker"]');
+        expect(row?.tagName).toBe("DIV");
+        expect(row?.querySelector("button")).toBeNull();
+        expect(row?.querySelector("svg.lucide-dot")).not.toBeNull();
+
+        // It stands before the call it introduced, not after the whole fold.
+        const call = screen.getByRole("button", { name: /\/a\.ts/ });
+        expect(prose.compareDocumentPosition(call) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    });
+    it("leaves the final answer plain, apart from the fold", () => {
+        renderTurn(
+            chain(
+                messageEntry(user("make the parser skip empty lines", Date.parse(AT))),
+                messageEntry(
+                    assistant([toolCall("c1", "read", { path: "/a.ts" })], {
+                        timestamp: Date.parse(AT),
+                    }),
+                ),
+                messageEntry(toolResult("c1", "read", "1 line")),
+                messageEntry(assistant([text("done")], { timestamp: Date.parse(AT) })),
+            ),
+        );
+
+        const answer = document.querySelector('[id$="-answer"]');
+        expect(answer).not.toBeNull();
+        expect(answer?.querySelector("svg.lucide-dot")).toBeNull();
+        expect(screen.getByText("done")).toBeInTheDocument();
     });
 });
 

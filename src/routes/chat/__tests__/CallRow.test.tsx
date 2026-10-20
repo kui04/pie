@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
 import { presentCall } from "@/routes/chat/transcript/presentation";
 import { toolResult } from "@/preview/fixtures";
@@ -79,7 +79,7 @@ describe("CallRow", () => {
         expect(screen.getByText("0.9s")).toBeInTheDocument();
     });
 
-    it("opens a call that runs while it runs, and folds it when the result lands", () => {
+    it("opens a call that runs while it runs, and folds it when the result lands", async () => {
         const line = toolResult("c1", "bash", "PASS so far");
         const { rerender } = render(
             <CallRow
@@ -92,7 +92,20 @@ describe("CallRow", () => {
         expect(screen.getByLabelText("Running")).toBeInTheDocument();
 
         rerender(<CallRow id="e2-c1" tool="bash" presentation={presentCall("bash", { command: "pnpm test" }, line)} />);
-        expect(screen.queryByText("PASS so far")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("PASS so far")).toBeNull());
+    });
+
+    it("keeps a running call closed until it has a body", () => {
+        render(
+            <CallRow
+                id="e2-c1"
+                tool="bash"
+                presentation={presentCall("bash", { command: "sleep 5" }, null, true, true)}
+            />,
+        );
+
+        expect(screen.getByRole("button", { name: /sleep 5/ })).toHaveAttribute("aria-expanded", "false");
+        expect(document.querySelector('[id$="-body"]')).toBeNull();
     });
 });
 

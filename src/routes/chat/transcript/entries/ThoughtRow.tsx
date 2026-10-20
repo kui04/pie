@@ -5,7 +5,7 @@ import { Icon, Markdown } from "@/components";
 import { useFollowTail } from "@/hooks/useFollowTail";
 import { useMotion } from "@/hooks/useMotion";
 import { Row } from "@/routes/chat/transcript/entries/Row";
-import { thoughtGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
+import { thoughtGlyph } from "@/routes/chat/transcript/entries/ToolGlyph";
 
 export interface ThoughtRowProps {
     /** The entry this row draws, as the base of its ids. */

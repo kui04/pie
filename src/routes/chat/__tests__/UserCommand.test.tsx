@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { presentExecution, presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { bashExecution } from "@/preview/fixtures";
@@ -21,7 +21,7 @@ describe("UserCommand", () => {
         expect(body?.hasAttribute("data-wrap")).toBe(true);
     });
 
-    it("opens a command that runs while it runs, and folds it when it settles", () => {
+    it("opens a command that runs while it runs, and folds it when it settles", async () => {
         const { rerender } = render(
             <UserCommand
                 id="e3"
@@ -35,7 +35,7 @@ describe("UserCommand", () => {
         rerender(
             <UserCommand id="e3" tool="bash" presentation={presentExecution(bashExecution("sleep 5", "one\n"))} />,
         );
-        expect(screen.queryByText("one")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("one")).toBeNull());
     });
 
     it("carries its own line under itself when it stands outside a fold", () => {

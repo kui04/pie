@@ -607,6 +607,14 @@ outline, no shadow, 12px of padding at the header's and the footer's ends. The
 header is one line, truncated, with the status mark at its end and centred in
 it; the footer is a full-width button over a hairline.
 
+**Turn** — one reader message and the work it set going. The heading is the
+fold: calls and thoughts stand behind its rail, and a live run keeps its latest
+rows before counting the rest. Prose the model writes between steps is a `dot`
+node in its place in the run: it has no body to fold, and the closing turn hides
+it with the rest. The answer the turn finished on is plain below the fold,
+without a node. A body opens and closes with `reveal`, so a settling run does
+not cut the transcript.
+
 **Markdown** — what a model writes is read as a model writes it. GFM carries the
 tables, the task lists and the footnotes; `$x^2$` and a `$$ … $$` block are set
 as formulas by KaTeX; and a single newline ends a line, because that is what a

@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
-import { customGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
+import { customGlyph } from "@/routes/chat/transcript/entries/ToolGlyph";
 
 export interface CustomMessageProps {
     /** The entry this row draws, as the base of its ids. */

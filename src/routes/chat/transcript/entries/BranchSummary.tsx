@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { Icon, Markdown } from "@/components";
 import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
-import { branchGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
+import { branchGlyph } from "@/routes/chat/transcript/entries/ToolGlyph";
 
 export interface BranchSummaryProps {
     /** The entry this row draws, as the base of its ids. */

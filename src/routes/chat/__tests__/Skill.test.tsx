@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Skill } from "@/routes/chat/transcript/entries/Skill";
 
 describe("Skill", () => {
@@ -11,7 +11,7 @@ describe("Skill", () => {
         expect(screen.queryByRole("button")).toBeNull();
     });
 
-    it("opens a longer skill on its own row, and folds it again", () => {
+    it("opens a longer skill on its own row, and folds it again", async () => {
         render(
             <Skill
                 id="n1"
@@ -26,6 +26,6 @@ describe("Skill", () => {
         fireEvent.click(screen.getByRole("button", { name: /^Skill$/ }));
         expect(screen.getByText("It wrote three entries.")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: /^Skill$/ }));
-        expect(screen.queryByText("It wrote three entries.")).toBeNull();
+        await waitFor(() => expect(screen.queryByText("It wrote three entries.")).toBeNull());
     });
 });

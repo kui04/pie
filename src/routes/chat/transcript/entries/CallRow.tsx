@@ -1,9 +1,9 @@
 import { X } from "lucide-react";
 import { useState } from "react";
-import { Body, Clock, Notes, Running } from "@/routes/chat/transcript/entries/call-body";
-import { useCallClock } from "@/routes/chat/transcript/entries/useCallClock";
+import { Body, Clock, Notes, Running } from "@/routes/chat/transcript/entries/CallBody";
+import { useCallClock } from "@/hooks/useCallClock";
 import { Row } from "@/routes/chat/transcript/entries/Row";
-import { glyphFor, toolLabel } from "@/routes/chat/transcript/entries/tool-glyph";
+import { glyphFor, toolLabel } from "@/routes/chat/transcript/entries/ToolGlyph";
 import type { ToolPresentation, ToolStatus } from "@/routes/chat/transcript/presentation";
 import { Icon } from "@/components";
 
@@ -29,9 +29,10 @@ export function CallRow({ id, tool, presentation, quote = false }: CallRowProps)
     // reader's own toggle wins from then on.
     const [manual, setManual] = useState<boolean | null>(null);
     const { detail, tone, status, body, notes } = presentation;
-    const open = manual ?? status === "running";
-    const clock = useCallClock(id, status, presentation.durationMs);
     const lines = body.kind === "none" ? [] : body.lines;
+    const hasBody = lines.length > 0 || notes.length > 0;
+    const open = hasBody && (manual ?? status === "running");
+    const clock = useCallClock(id, status, presentation.durationMs);
     // The name of the tool, spelled as a name rather than as pi's identifier for it.
     const name = toolLabel(tool);
     const end =
@@ -49,10 +50,14 @@ export function CallRow({ id, tool, presentation, quote = false }: CallRowProps)
             end={end}
             quote={quote}
             open={open}
-            onToggle={() => setManual((was) => !(was ?? status === "running"))}
+            onToggle={() => setManual((was) => !(was ?? open))}
         >
-            {lines.length > 0 && <Body id={id} body={body} live={status === "running"} />}
-            <Notes notes={notes} />
+            {hasBody && (
+                <>
+                    {lines.length > 0 && <Body id={id} body={body} live={status === "running"} />}
+                    <Notes notes={notes} />
+                </>
+            )}
         </Row>
     );
 }

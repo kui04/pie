@@ -1,8 +1,10 @@
-import { ChevronRight, Layers, X } from "lucide-react";
+import { ChevronRight, Dot, Layers, X } from "lucide-react";
 import { useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "cn";
 import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
+import { useMotion } from "@/hooks/useMotion";
 import { BranchSummary } from "@/routes/chat/transcript/entries/BranchSummary";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
 import { Compaction } from "@/routes/chat/transcript/entries/Compaction";
@@ -31,8 +33,10 @@ export interface TurnProps {
  *
  * The heading is the fold: `Worked for 2m 34s · 4 files`, counting up while the run is
  * live and frozen when it settles. What the work did stands behind a 1px rail, one line
- * each, and a live run keeps only its latest rows before it counts the rest. The answer
- * the turn finished on stands below the fold, never inside it.
+ * each, and a live run keeps only its latest rows before it counts the rest. Text the
+ * model writes between steps is a timeline node of its own, in its place in the run: it
+ * has no body to fold, so it never opens or closes by itself. The answer the turn
+ * finished on stands below the fold, plain and never inside it.
  */
 export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
     // A run at work is read while it happens, and the fold closes itself once the answer of
@@ -40,6 +44,7 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
     // is why a reader who returns to a node of the session finds its work where pi wrote it.
     // An explicit toggle by the reader outranks both.
     const [manual, setManual] = useState<boolean | null>(null);
+    const { reveal } = useMotion();
     const open = manual ?? live;
     // A fold of one is a layer with nothing to fold: the row stands on its own, exactly as it
     // stands inside a fold. OpenHands draws the same line (`EVENT_GROUP_MIN_SIZE = 2`).
@@ -92,115 +97,114 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
                     </Icon>
                 </Marker>
             )}
-            {(open || !folded) && (
-                <div
-                    id={folded ? `${id}-work` : undefined}
-                    className={cn("flex min-w-0 flex-col", folded && "relative mt-1")}
-                >
-                    {/* The rail bisects the rows' glyphs, which are drawn over it on the
+            <AnimatePresence initial={false}>
+                {(open || !folded) && items.length > 0 && (
+                    <motion.div
+                        key="work"
+                        id={folded ? `${id}-work` : undefined}
+                        className="overflow-hidden"
+                        {...reveal}
+                    >
+                        <div className={cn("flex min-w-0 flex-col", folded && "relative mt-1")}>
+                            {/* The rail bisects the rows' glyphs, which are drawn over it on the
                         page's plane. A 1px box at the 16px glyph's 8px centre snaps to one
                         side at 1x, so the rail is a 2px line scaled to half its width about
                         the centre: it covers the half-pixel evenly and reads as one 1px line.
                         A turn that is not a fold has no rail: its single row's body carries
                         its own line instead, the way a quote does. */}
-                    {folded && (
-                        <span
-                            aria-hidden
-                            onClick={() => setManual(false)}
-                            className="
-                                absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 cursor-pointer justify-center
-                            "
-                        >
-                            <span className="h-full w-0.5 origin-center scale-x-50 bg-divider" />
-                        </span>
-                    )}
-                    {hidden > 0 && (
-                        <span className="py-1 pl-8 text-body-sm text-muted-foreground">+{hidden} more…</span>
-                    )}
-                    {shown.map((item) => {
-                        if (item.kind === "call") {
-                            return (
-                                <CallRow
-                                    key={item.id}
-                                    id={item.id}
-                                    tool={item.tool}
-                                    presentation={item.presentation}
-                                    quote={!folded}
-                                />
-                            );
-                        }
-                        if (item.kind === "text") {
-                            return (
-                                // Whatever words a turn holds are its work while they are inside it, so
-                                // they stand past the rail with the rows' names - the words being
-                                // written included, because the fold holds them the moment they are
-                                // not the answer. The answer is the text the fold leaves out, and that
-                                // keeps the block's own left edge.
-                                <div key={item.id} className="pl-8">
-                                    <Markdown id={item.id} className="py-1 text-muted-foreground">
-                                        {item.text}
-                                    </Markdown>
-                                </div>
-                            );
-                        }
-                        if (item.kind === "thinking") {
-                            return (
-                                <ThoughtRow
-                                    key={item.id}
-                                    id={item.id}
-                                    thinking={item.thinking}
-                                    stillThinking={item.streaming}
-                                    quote={!folded}
-                                />
-                            );
-                        }
-                        if (item.kind === "compaction") {
-                            return (
-                                <Compaction
-                                    key={item.id}
-                                    id={item.id}
-                                    tokensBefore={item.tokensBefore}
-                                    body={item.body}
-                                    quote={!folded}
-                                />
-                            );
-                        }
-                        if (item.kind === "branch_summary") {
-                            return <BranchSummary key={item.id} id={item.id} body={item.body} quote={!folded} />;
-                        }
-                        if (item.kind === "skill") {
-                            return (
-                                <Skill
-                                    key={item.id}
-                                    id={item.id}
-                                    summary={item.summary}
-                                    body={item.body}
-                                    quote={!folded}
-                                />
-                            );
-                        }
-                        if (item.kind === "custom_message") {
-                            return (
-                                <CustomMessage
-                                    key={item.id}
-                                    id={item.id}
-                                    label={item.label}
-                                    summary={item.summary}
-                                    body={item.body}
-                                    quote={!folded}
-                                />
-                            );
-                        }
-                        // A kind pi adds is a compile error here, never a row
-                        // of the wrong family: the fold only builds the kinds
-                        // above, so this is unreachable, not a fallback.
-                        const unhandled: never = item;
-                        return nothing(unhandled);
-                    })}
-                </div>
-            )}
+                            {folded && (
+                                <span
+                                    aria-hidden
+                                    onClick={() => setManual(false)}
+                                    className="
+                                        absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 cursor-pointer
+                                        justify-center
+                                    "
+                                >
+                                    <span className="h-full w-0.5 origin-center scale-x-50 bg-divider" />
+                                </span>
+                            )}
+                            {hidden > 0 && (
+                                <span className="py-1 pl-8 text-body-sm text-muted-foreground">+{hidden} more…</span>
+                            )}
+                            {shown.map((item) => {
+                                if (item.kind === "text") {
+                                    return <TextRow key={item.id} id={item.id} text={item.text} />;
+                                }
+                                if (item.kind === "call") {
+                                    return (
+                                        <CallRow
+                                            key={item.id}
+                                            id={item.id}
+                                            tool={item.tool}
+                                            presentation={item.presentation}
+                                            quote={!folded}
+                                        />
+                                    );
+                                }
+                                if (item.kind === "thinking") {
+                                    return (
+                                        <ThoughtRow
+                                            key={item.id}
+                                            id={item.id}
+                                            thinking={item.thinking}
+                                            stillThinking={item.streaming}
+                                            quote={!folded}
+                                        />
+                                    );
+                                }
+                                if (item.kind === "compaction") {
+                                    return (
+                                        <Compaction
+                                            key={item.id}
+                                            id={item.id}
+                                            tokensBefore={item.tokensBefore}
+                                            body={item.body}
+                                            quote={!folded}
+                                        />
+                                    );
+                                }
+                                if (item.kind === "branch_summary") {
+                                    return (
+                                        <BranchSummary key={item.id} id={item.id} body={item.body} quote={!folded} />
+                                    );
+                                }
+                                if (item.kind === "skill") {
+                                    return (
+                                        <Skill
+                                            key={item.id}
+                                            id={item.id}
+                                            summary={item.summary}
+                                            body={item.body}
+                                            quote={!folded}
+                                        />
+                                    );
+                                }
+                                if (item.kind === "custom_message") {
+                                    return (
+                                        <CustomMessage
+                                            key={item.id}
+                                            id={item.id}
+                                            label={item.label}
+                                            summary={item.summary}
+                                            body={item.body}
+                                            quote={!folded}
+                                        />
+                                    );
+                                }
+                                // A kind pi adds is a compile error here, never a row
+                                // of the wrong family: the fold only builds the kinds
+                                // above, so this is unreachable, not a fallback.
+                                const unhandled: never = item;
+                                return nothing(unhandled);
+                            })}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
             {answer !== null && (
-                <div className="mt-2 flex min-w-0 flex-col gap-2">
+                // The answer is plain: it stands below the work and never folds with it.
+                <div id={`${id}-answer`} className="mt-2 flex min-w-0 flex-col gap-2">
                     {answer.parts.map((part) => (
                         <Markdown key={part.id} id={part.id}>
                             {part.text}
@@ -210,6 +214,24 @@ export function Turn({ id, facts, items, answer, note, live }: TurnProps) {
             )}
             {note !== null && <p className="mt-2 text-body-sm text-destructive">{note}</p>}
         </div>
+    );
+}
+
+/**
+ * A node of the run that is only words: the marker's anatomy with the dot of the
+ * timeline, no body, and no toggle. It stands in its place in the run, so a reader
+ * reads the model's steps in the order it wrote them.
+ */
+function TextRow({ id, text }: { id: string; text: string }) {
+    return (
+        <Marker id={id} className="min-h-10 items-start sm:min-h-8.5">
+            <Icon className="relative z-10 mt-0.75 shrink-0 justify-start bg-surface" aria-hidden>
+                <Dot className="fill-current" />
+            </Icon>
+            <Markdown id={`${id}-text`} className="min-w-0 flex-1 py-1 text-muted-foreground">
+                {text}
+            </Markdown>
+        </Marker>
     );
 }
 

@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
 import { Row } from "@/routes/chat/transcript/entries/Row";
-import { skillGlyph } from "@/routes/chat/transcript/entries/tool-glyph";
+import { skillGlyph } from "@/routes/chat/transcript/entries/ToolGlyph";
 
 export interface SkillProps {
     /** The entry this row draws, as the base of its ids. */

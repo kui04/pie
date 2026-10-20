@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "cn";
 import { Icon, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
+import { useMotion } from "@/hooks/useMotion";
 
 export interface RowProps {
     /** The entry this row draws, as the base of its ids. */
@@ -49,6 +51,8 @@ export function Row({
     onToggle,
     children,
 }: RowProps) {
+    const { reveal } = useMotion();
+
     return (
         <div id={id} className="flex min-w-0 flex-col">
             <Marker
@@ -84,22 +88,26 @@ export function Row({
                 )}
                 {end !== undefined && <span className="ml-auto flex shrink-0 items-center gap-1.5">{end}</span>}
             </Marker>
-            {open && children !== undefined && (
-                <div id={`${id}-body`} className="relative mt-1 mb-2 flex min-w-0 flex-col gap-1 pl-8">
-                    {/* The line of a body that stands alone: it starts under the glyph rather than
-                        through it, and runs the body - a quote's bar, not a fold's rail. It is
-                        the same 2px line scaled to a centred 1px, like the fold's rail. */}
-                    {quote && (
-                        <span
-                            aria-hidden
-                            className="absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 justify-center"
-                        >
-                            <span className="h-full w-0.5 origin-center scale-x-50 bg-divider" />
-                        </span>
-                    )}
-                    {children}
-                </div>
-            )}
+            <AnimatePresence initial={false}>
+                {open && children !== undefined && (
+                    <motion.div key="body" id={`${id}-body`} className="overflow-hidden" {...reveal}>
+                        <div className="relative mt-1 mb-2 flex min-w-0 flex-col gap-1 pl-8">
+                            {/* The line of a body that stands alone: it starts under the glyph rather than
+                                through it, and runs the body - a quote's bar, not a fold's rail. It is
+                                the same 2px line scaled to a centred 1px, like the fold's rail. */}
+                            {quote && (
+                                <span
+                                    aria-hidden
+                                    className="absolute inset-y-0 left-2 z-0 flex w-3 -translate-x-1/2 justify-center"
+                                >
+                                    <span className="h-full w-0.5 origin-center scale-x-50 bg-divider" />
+                                </span>
+                            )}
+                            {children}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
