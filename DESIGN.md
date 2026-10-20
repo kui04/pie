@@ -156,7 +156,7 @@ components:
   bubble-user:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.primary-foreground}"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.2xl}"
     padding: 12px
   button-primary:
     backgroundColor: "{colors.primary}"
@@ -446,9 +446,11 @@ mistake, because the tile is not above anything.
 | Token  | Value  | Where                                                    |
 | ------ | ------ | -------------------------------------------------------- |
 | `sm`   | 4px    | A small control, a menu row, a radio pill inside a group |
-| `md`   | 6px    | A tile, a code block, an inline code pill, the bubble    |
+| `md`   | 6px    | A tile, a code block, an inline code pill                |
 | `lg`   | 8px    | A button, a field, a popover                             |
 | `xl`   | 12px   | The gate card, a dialog, a sheet                         |
+| `2xl`  | 16px   | An attachment card, the reader's bubble                  |
+| `3xl`  | 24px   | The composer, the command list                           |
 | `full` | 9999px | A round key, a status dot                                |
 
 A divider is a hairline, not a shape. Nothing else is rounded, and a radius
@@ -667,10 +669,10 @@ number, mark, text; the two columns scroll as one and only the text column
 scrolls sideways). Closed, a log shows its last five lines and a file or diff
 its first three; the rest arrives through the footer.
 
-**Bubble** — the reader's own message: `primary`, `primary-foreground`, the same
-6px a tile takes, and right-aligned. One shape whatever the length; a single
-line is the same bubble in a tighter box. Its actions are its own context menu,
-not a control in the corner.
+**Bubble** — the reader's own message: `primary`, `primary-foreground`, the
+`2xl` corner, and right-aligned. One shape whatever the length; a single line is
+the same bubble in a tighter box. Its actions are its own context menu, not a
+control in the corner.
 
 **Popup** (`src/routes/chat/composer/ModelPicker.tsx`, `ThinkingLevelPicker.tsx`
 beside it) — the panel a picker of the composer opens, and the command list of

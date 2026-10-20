@@ -24,8 +24,8 @@ export interface UserMessageProps {
 }
 
 /**
- * What the reader asked, on their side of the transcript. Every bubble has the same
- * corners as a tile, whatever the words inside: only the box follows them, a single
+ * What the reader asked, on their side of the transcript. Every bubble keeps the
+ * same 16px corner whatever the words inside: only the box follows them, a single
  * line taking a tighter one than a paragraph. The actions are a menu on the bubble
  * itself (a right-click, or the long press a touch screen turns into one), not a key
  * in a corner of the reader's own words.
@@ -48,7 +48,7 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
             aria-label="Your message"
             className={cn(
                 `
-                    max-w-[80%] min-w-0 space-y-2 rounded-md bg-primary wrap-break-word text-primary-foreground
+                    max-w-[80%] min-w-0 space-y-2 rounded-2xl bg-primary wrap-break-word text-primary-foreground
                     outline-none
                     focus-visible:ring-2 focus-visible:ring-ring
                 `,

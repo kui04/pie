@@ -18,17 +18,16 @@ describe("UserMessage", () => {
     it("gives every bubble the same corners, and a single line a tighter box", () => {
         const { unmount } = render(<UserMessage id="e1" message={asUser(userMessage("one line"))} />);
         const one = screen.getByText("one line").closest("[id]");
-        // One radius whatever the length - the tile's - and the words decide only
-        // the box.
-        expect(one?.className).toContain("rounded-md");
+        // One radius whatever the length, and the words decide only the box.
+        expect(one?.className).toContain("rounded-2xl");
         expect(one?.className).not.toContain("rounded-full");
-        expect(one?.className).not.toContain("rounded-xl");
+        expect(one?.className).not.toContain("rounded-md");
         expect(one?.className).toContain("py-2");
         unmount();
 
         render(<UserMessage id="e2" message={asUser(userMessage("one line\nand another"))} />);
         const many = screen.getByText(/and another/).closest("[id]");
-        expect(many?.className).toContain("rounded-md");
+        expect(many?.className).toContain("rounded-2xl");
         expect(many?.className).toContain("p-3");
     });
 
