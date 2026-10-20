@@ -187,6 +187,8 @@ export function ChatScreen() {
                             onOpenChange={setMenu}
                             onClose={() => machine.send({ type: "CLOSE" })}
                             onGone={() => machine.send({ type: "GONE" })}
+                            triggerIcon="menu"
+                            alignOffset={2}
                         />
                     </>
                 )}

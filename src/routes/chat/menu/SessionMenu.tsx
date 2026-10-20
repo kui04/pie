@@ -7,14 +7,16 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
-import { Copy, EllipsisVertical, GitFork, Pencil, Trash2, Unplug } from "lucide-react";
+import { Copy, EllipsisVertical, GitFork, Menu, Pencil, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "cn";
 
-import { Button, Popover, PopoverContent, PopoverTrigger } from "@/components/ui";
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys, sessionQueries } from "@/lib/query";
 import type { SessionRef } from "@/lib/sessions";
 import { phaseOf } from "@/machines/session.machine";
+import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 import { DeleteSession } from "@/routes/chat/menu/DeleteSession";
 import { ForkSession } from "@/routes/chat/menu/ForkSession";
 import { RenameSession } from "@/routes/chat/menu/RenameSession";
@@ -41,8 +43,12 @@ export interface SessionMenuProps {
     id?: string;
     /** Custom className for the trigger button. */
     triggerClassName?: string;
+    /** What the trigger draws: the top bar names the actions, a session row keeps its ellipsis. */
+    triggerIcon?: "menu" | "ellipsis";
     /** Popover alignment. Defaults to "end". */
     align?: "start" | "center" | "end";
+    /** Shift along the align edge, for a trigger whose glyph is inset from its box. */
+    alignOffset?: number;
     /** Popover side. Defaults to "bottom". */
     side?: "top" | "bottom" | "left" | "right";
     /** Pins which shape the sheets draw, for previews and tests. */
@@ -74,7 +80,9 @@ function BaseSessionMenu({
     isWorking,
     id = "session-menu",
     triggerClassName,
+    triggerIcon = "ellipsis",
     align = "end",
+    alignOffset = 0,
     side = "bottom",
     isMobile,
 }: SessionMenuProps & { isWorking: boolean }) {
@@ -143,8 +151,8 @@ function BaseSessionMenu({
 
     return (
         <>
-            <Popover open={open} onOpenChange={onOpenChange}>
-                <PopoverTrigger
+            <DropdownMenu open={open} onOpenChange={onOpenChange}>
+                <DropdownMenuTrigger
                     render={
                         <Button
                             id={id}
@@ -155,23 +163,21 @@ function BaseSessionMenu({
                         />
                     }
                 >
-                    <Icon>
-                        <EllipsisVertical />
-                    </Icon>
-                </PopoverTrigger>
-                <PopoverContent
+                    <Icon>{triggerIcon === "menu" ? <Menu /> : <EllipsisVertical />}</Icon>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
                     id={`${id}-popup`}
-                    role="menu"
                     side={side}
                     align={align}
+                    alignOffset={alignOffset}
                     sideOffset={6}
-                    className="
-                        w-56 origin-(--transform-origin) rounded-xl border border-foreground/10 bg-card p-1
-                        text-foreground shadow-none ring-0
-                        data-ending-style:scale-95 data-ending-style:opacity-0
-                        data-starting-style:scale-95 data-starting-style:opacity-0
-                        motion-safe:transition-[opacity,scale] motion-safe:duration-150 motion-safe:ease-out
-                    "
+                    className={cn(
+                        `
+                            flex max-h-[min(15rem,calc(100dvh-12rem))] w-44 flex-col gap-1 overflow-hidden rounded-xl
+                            p-2 text-foreground
+                        `,
+                        COMPOSER_PANEL,
+                    )}
                 >
                     <MenuRow
                         id={`${id}-rename`}
@@ -183,7 +189,7 @@ function BaseSessionMenu({
                         disabled={!activeSession}
                         onSelect={() => choose("rename")}
                     >
-                        Rename…
+                        Rename
                     </MenuRow>
                     <MenuRow
                         id={`${id}-fork`}
@@ -195,7 +201,7 @@ function BaseSessionMenu({
                         disabled={!activeSession || isWorking}
                         onSelect={() => choose("fork")}
                     >
-                        Fork…
+                        Fork
                     </MenuRow>
                     <MenuRow
                         id={`${id}-clone`}
@@ -217,9 +223,10 @@ function BaseSessionMenu({
                             </Icon>
                         }
                         disabled={file === null}
+                        tone="destructive"
                         onSelect={() => choose("delete")}
                     >
-                        Delete…
+                        Delete
                     </MenuRow>
                     {activeSession && (
                         <MenuRow
@@ -229,13 +236,14 @@ function BaseSessionMenu({
                                     <Unplug />
                                 </Icon>
                             }
+                            tone="warning"
                             onSelect={detach}
                         >
                             Detach
                         </MenuRow>
                     )}
-                </PopoverContent>
-            </Popover>
+                </DropdownMenuContent>
+            </DropdownMenu>
             {activeSession && (
                 <RenameSession
                     session={activeSession}
@@ -278,33 +286,39 @@ function MenuRow({
     id,
     icon,
     disabled = false,
+    tone = "default",
     onSelect,
     children,
 }: {
     id: string;
     icon: ReactNode;
     disabled?: boolean;
+    tone?: "default" | "destructive" | "warning";
     onSelect: () => void;
     children: ReactNode;
 }) {
     return (
-        <button
-            type="button"
+        <DropdownMenuItem
             id={id}
-            role="menuitem"
             disabled={disabled}
+            variant={tone === "destructive" ? "destructive" : "default"}
             onClick={onSelect}
-            className="
-                flex w-full items-center gap-2 rounded-lg p-2 text-left text-body-md transition-colors outline-none
-                hover:bg-accent
-                focus-visible:bg-accent
-                disabled:pointer-events-none disabled:opacity-50
-            "
+            className={cn(
+                `
+                    flex w-full cursor-default items-center gap-2 rounded-lg p-2 text-left text-body-md
+                    transition-colors outline-none select-none
+                `,
+                "hover:**:text-inherit!",
+                "focus:**:text-inherit!",
+                tone === "default" && "focus:text-foreground",
+                tone === "destructive" && "focus:text-destructive",
+                tone === "warning" && "text-warning focus:text-warning",
+            )}
         >
-            <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground" aria-hidden>
+            <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
                 {icon}
             </span>
             {children}
-        </button>
+        </DropdownMenuItem>
     );
 }

@@ -53,6 +53,7 @@ export {
     DrawerTitle,
     DrawerTrigger,
 } from "./drawer";
+export { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./dropdown-menu";
 export { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card";
 export {
     InputGroup,

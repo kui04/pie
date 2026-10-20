@@ -99,34 +99,44 @@ describe("the session menu", () => {
         renderMenu();
         openMenu();
 
-        expect(await screen.findByRole("menuitem", { name: "Rename…" })).toBeEnabled();
-        expect(screen.getByRole("menuitem", { name: "Fork…" })).toBeEnabled();
-        expect(screen.getByRole("menuitem", { name: "Clone" })).toBeEnabled();
-        expect(screen.getByRole("menuitem", { name: "Detach" })).toBeEnabled();
+        expect(await screen.findByRole("menuitem", { name: "Rename" })).not.toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Fork" })).not.toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Clone" })).not.toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Detach" })).not.toHaveAttribute("aria-disabled", "true");
         // Deleting needs the file, which the state read answers with.
-        await waitFor(() => expect(screen.getByRole("menuitem", { name: "Delete…" })).toBeEnabled());
+        await waitFor(() =>
+            expect(screen.getByRole("menuitem", { name: "Delete" })).not.toHaveAttribute("aria-disabled", "true"),
+        );
     });
 
     it("centres each row's glyph in its slot", async () => {
         renderMenu();
         openMenu();
 
-        const row = await screen.findByRole("menuitem", { name: "Rename…" });
+        const row = await screen.findByRole("menuitem", { name: "Rename" });
         const slot = row.querySelector('[data-slot="icon"]')?.parentElement;
         for (const each of ["size-4", "items-center", "justify-center"]) {
             expect(slot?.classList.contains(each)).toBe(true);
         }
     });
 
+    it("marks deleting as destructive, apart from detaching", async () => {
+        renderMenu();
+        openMenu();
+
+        expect(await screen.findByRole("menuitem", { name: "Delete" })).toHaveAttribute("data-variant", "destructive");
+        expect(screen.getByRole("menuitem", { name: "Detach" })).toHaveClass("text-warning");
+    });
+
     it("keeps fork and copy out of reach while a run streams", async () => {
         renderMenu(true);
         openMenu();
 
-        expect(await screen.findByRole("menuitem", { name: "Fork…" })).toBeDisabled();
-        expect(screen.getByRole("menuitem", { name: "Clone" })).toBeDisabled();
+        expect(await screen.findByRole("menuitem", { name: "Fork" })).toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Clone" })).toHaveAttribute("aria-disabled", "true");
         // The name, the file and the process can be reached at any time.
-        expect(screen.getByRole("menuitem", { name: "Rename…" })).toBeEnabled();
-        expect(screen.getByRole("menuitem", { name: "Detach" })).toBeEnabled();
+        expect(screen.getByRole("menuitem", { name: "Rename" })).not.toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("menuitem", { name: "Detach" })).not.toHaveAttribute("aria-disabled", "true");
     });
 
     it("copies the conversation into a new branch", async () => {
@@ -146,7 +156,7 @@ describe("the session menu", () => {
         renderMenu();
         openMenu();
 
-        fireEvent.click(await screen.findByRole("menuitem", { name: "Fork…" }));
+        fireEvent.click(await screen.findByRole("menuitem", { name: "Fork" }));
         fireEvent.click(await screen.findByRole("button", { name: "first words" }));
 
         await waitFor(() => expect(bridge.forkSession).toHaveBeenCalledWith(SESSION, "e1"));
@@ -157,7 +167,7 @@ describe("the session menu", () => {
         renderMenu();
         openMenu();
 
-        fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+        fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
         const field = await screen.findByLabelText("Name");
         expect(field).toHaveValue("Fix the parser");
 
@@ -173,8 +183,8 @@ describe("the session menu", () => {
         const { onClose, onGone } = renderMenu();
         openMenu();
 
-        const row = await screen.findByRole("menuitem", { name: "Delete…" });
-        await waitFor(() => expect(row).toBeEnabled());
+        const row = await screen.findByRole("menuitem", { name: "Delete" });
+        await waitFor(() => expect(row).not.toHaveAttribute("aria-disabled", "true"));
         fireEvent.click(row);
         fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
 
@@ -198,7 +208,7 @@ describe("the session menu", () => {
         renderMenu(false, true);
         openMenu();
 
-        fireEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+        fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
 
         expect(await screen.findByLabelText("Name")).toBeInTheDocument();
         expect(document.querySelector('[data-slot="drawer-popup"]')).not.toBeNull();

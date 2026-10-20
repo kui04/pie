@@ -298,11 +298,11 @@ describe("SessionSidebar", () => {
         expect(actionButton).toBeInTheDocument();
 
         fireEvent.click(actionButton);
-        expect(await screen.findByText("Rename…")).toBeInTheDocument();
-        expect(screen.getByText("Fork…")).toBeInTheDocument();
+        expect(await screen.findByText("Rename")).toBeInTheDocument();
+        expect(screen.getByText("Fork")).toBeInTheDocument();
         expect(screen.getByText("Clone")).toBeInTheDocument();
         expect(screen.getByText("Detach")).toBeInTheDocument();
-        expect(screen.getByText("Delete…")).toBeInTheDocument();
+        expect(screen.getByText("Delete")).toBeInTheDocument();
     });
 
     it("folds a group away, and keeps the rows of the others", async () => {
