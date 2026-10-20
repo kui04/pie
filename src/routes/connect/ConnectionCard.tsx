@@ -1,10 +1,10 @@
 import { cn } from "cn";
 import { AnimatePresence, motion } from "motion/react";
 import { useMotion } from "@/hooks";
-import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
+import { Check, HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
+import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
-import { OptionRow, Icon, TruncatedText } from "@/components";
-import { ScrollPane } from "@/components";
+import { Icon, ScrollPane, TruncatedText } from "@/components";
 
 export type Transport = "local" | "ssh";
 export type AuthMethod = "password" | "key";
@@ -33,6 +33,46 @@ export interface ConnectionCardProps {
     onConnect: () => void;
     /** Opens the picker and drops whatever it brought back into the form. */
     onPickKey: () => void;
+}
+
+function RadioChoice({
+    className,
+    children,
+    showCheck = true,
+    ...props
+}: RadioPrimitive.Root.Props & { showCheck?: boolean }) {
+    const { swap } = useMotion();
+
+    return (
+        // A real button, not the primitive's span: the card locks the form
+        // with a disabled fieldset, which only reaches a form control. A span
+        // would stay focused and clickable behind the lock.
+        <RadioPrimitive.Root
+            data-slot="radio-group-item"
+            className={cn(
+                "flex w-full items-center gap-2 border border-transparent px-3 py-2 text-start outline-none",
+                "transition-colors hover:bg-accent/50 focus-visible:border-primary disabled:opacity-50",
+                className,
+            )}
+            render={<button type="button" />}
+            nativeButton
+            {...props}
+        >
+            {children}
+            {showCheck && (
+                <RadioPrimitive.Indicator
+                    data-slot="radio-group-indicator"
+                    className="flex size-4 items-center justify-center text-primary-text"
+                >
+                    <motion.span className="flex" {...swap}>
+                        <Icon>
+                            <Check />
+                        </Icon>
+                    </motion.span>
+                </RadioPrimitive.Indicator>
+            )}
+        </RadioPrimitive.Root>
+    );
 }
 
 export function ConnectionCard({
@@ -81,7 +121,11 @@ export function ConnectionCard({
                             onValueChange={(value) => onChange({ transport: value as Transport })}
                             className="flex flex-col gap-2"
                         >
-                            <OptionRow id="connection-card-transport-local" value="local">
+                            <RadioChoice
+                                id="connection-card-transport-local"
+                                value="local"
+                                className="rounded-lg data-checked:bg-surface-container-highest"
+                            >
                                 <Icon className="text-muted-foreground">
                                     <HardDrive id="connection-card-transport-local-icon" />
                                 </Icon>
@@ -103,9 +147,13 @@ export function ConnectionCard({
                                         Spawn pi here
                                     </TruncatedText>
                                 </span>
-                            </OptionRow>
+                            </RadioChoice>
 
-                            <OptionRow id="connection-card-transport-ssh" value="ssh">
+                            <RadioChoice
+                                id="connection-card-transport-ssh"
+                                value="ssh"
+                                className="rounded-lg data-checked:bg-surface-container-highest"
+                            >
                                 <Icon className="text-muted-foreground">
                                     <Server id="connection-card-transport-ssh-icon" />
                                 </Icon>
@@ -127,7 +175,7 @@ export function ConnectionCard({
                                         Connect to a remote host
                                     </TruncatedText>
                                 </span>
-                            </OptionRow>
+                            </RadioChoice>
                         </RadioGroup>
 
                         <AnimatePresence initial={false}>
@@ -177,10 +225,15 @@ export function ConnectionCard({
                                                 onValueChange={(value) => onChange({ auth: value as AuthMethod })}
                                                 className="flex gap-2"
                                             >
-                                                <OptionRow
+                                                <RadioChoice
                                                     id="connection-card-auth-password"
                                                     value="password"
-                                                    variant="pill"
+                                                    className="
+                                                        rounded-md bg-surface-container-high text-muted-foreground
+                                                        data-checked:bg-surface-container-highest
+                                                        data-checked:text-foreground
+                                                    "
+                                                    showCheck={false}
                                                 >
                                                     <span
                                                         id="connection-card-auth-password-label"
@@ -188,15 +241,24 @@ export function ConnectionCard({
                                                     >
                                                         Password
                                                     </span>
-                                                </OptionRow>
-                                                <OptionRow id="connection-card-auth-key" value="key" variant="pill">
+                                                </RadioChoice>
+                                                <RadioChoice
+                                                    id="connection-card-auth-key"
+                                                    value="key"
+                                                    className="
+                                                        rounded-md bg-surface-container-high text-muted-foreground
+                                                        data-checked:bg-surface-container-highest
+                                                        data-checked:text-foreground
+                                                    "
+                                                    showCheck={false}
+                                                >
                                                     <span
                                                         id="connection-card-auth-key-label"
                                                         className="text-label-lg font-medium"
                                                     >
                                                         Private key
                                                     </span>
-                                                </OptionRow>
+                                                </RadioChoice>
                                             </RadioGroup>
                                         </div>
 
