@@ -7,7 +7,7 @@ import { useFollowTail } from "@/hooks/useFollowTail";
 import { useMotion } from "@/hooks/useMotion";
 import type { NumberedLine } from "@/lib/text";
 import type { ToolBody, ToolNote } from "@/routes/chat/transcript/presentation";
-import { Icon } from "@/components";
+import { Icon, ScrollPane } from "@/components";
 
 /** The height an open body may take before it scrolls inside itself. */
 export const BODY_MAX = "max-h-[46vh]";
@@ -41,20 +41,32 @@ export function Body({ id, body, live }: { id: string; body: ToolBody; live: boo
     return <NumberedBody id={id} lines={body.lines} />;
 }
 
+const CODE_FRAME =
+    "min-w-0 has-[[data-slot=code-block-content]:focus-visible]:border-ring has-[[data-slot=code-block-content]:focus-visible]:ring-3 has-[[data-slot=code-block-content]:focus-visible]:ring-ring/50";
+/** The pane owns the scroll, so the content's fade has nothing to follow. */
+const CONTENT_STYLE = { maskImage: "none", WebkitMaskImage: "none" };
+
 function LogBody({ id, lines, live }: { id: string; lines: string[]; live: boolean }) {
     const { still } = useMotion();
-    const tail = useFollowTail<HTMLPreElement>(live, still);
+    const tail = useFollowTail(live, still);
     // A log scrolls: its lines can be longer than any phone, and wrap is one tap away.
     const [wrap, setWrap] = useState(false);
 
     return (
-        <CodeBlock id={`${id}-log`} size="sm" className="min-w-0">
+        <CodeBlock id={`${id}-log`} size="sm" className={CODE_FRAME}>
             <CodeBlockActions>
                 <WrapToggle id={`${id}-wrap`} wrap={wrap} onToggle={() => setWrap((was) => !was)} />
             </CodeBlockActions>
-            <CodeBlockContent ref={tail} wrap={wrap} className={cn("live-window", live ? LIVE_WINDOW : BODY_MAX)}>
-                {lines.join("\n")}
-            </CodeBlockContent>
+            <ScrollPane
+                bars="both"
+                className="min-w-0"
+                viewportRef={tail}
+                viewportClassName={cn("live-window pr-2", live ? LIVE_WINDOW : BODY_MAX)}
+            >
+                <CodeBlockContent wrap={wrap} className="overflow-visible" style={CONTENT_STYLE}>
+                    {lines.join("\n")}
+                </CodeBlockContent>
+            </ScrollPane>
         </CodeBlock>
     );
 }
@@ -84,25 +96,31 @@ function NumberedBody({ id, lines }: { id: string; lines: NumberedLine[] }) {
     const [wrap, setWrap] = useState(true);
 
     return (
-        <CodeBlock id={`${id}-lines`} size="sm" className="min-w-0">
+        <CodeBlock id={`${id}-lines`} size="sm" className={CODE_FRAME}>
             <CodeBlockActions>
                 <WrapToggle id={`${id}-wrap`} wrap={wrap} onToggle={() => setWrap((was) => !was)} />
             </CodeBlockActions>
-            <CodeBlockContent wrap={wrap} className={cn("font-mono text-code", BODY_MAX)}>
-                {lines.map((line, index) => (
-                    <div key={index} className={cn("flex", markRowTone(line.mark))}>
-                        <span className="flex shrink-0 gap-1 pr-2 select-none">
-                            <span className="text-right text-muted-foreground/60" style={{ width: `${digits}ch` }}>
-                                {line.number ?? ""}
+            <ScrollPane
+                bars={wrap ? "vertical" : "both"}
+                className="min-w-0"
+                viewportClassName={cn("pr-3 font-mono text-code", BODY_MAX)}
+            >
+                <CodeBlockContent wrap={wrap} className="overflow-visible" style={CONTENT_STYLE}>
+                    {lines.map((line, index) => (
+                        <div key={index} className={cn("flex", markRowTone(line.mark))}>
+                            <span className="flex shrink-0 gap-1 pr-2 select-none">
+                                <span className="text-right text-muted-foreground/60" style={{ width: `${digits}ch` }}>
+                                    {line.number ?? ""}
+                                </span>
+                                <span className={cn("w-3 text-center", markTone(line.mark))}>
+                                    {line.mark.trim() === "" ? " " : line.mark}
+                                </span>
                             </span>
-                            <span className={cn("w-3 text-center", markTone(line.mark))}>
-                                {line.mark.trim() === "" ? " " : line.mark}
-                            </span>
-                        </span>
-                        <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{line.text}</span>
-                    </div>
-                ))}
-            </CodeBlockContent>
+                            <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{line.text}</span>
+                        </div>
+                    ))}
+                </CodeBlockContent>
+            </ScrollPane>
         </CodeBlock>
     );
 }

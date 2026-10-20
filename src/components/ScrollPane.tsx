@@ -19,7 +19,8 @@ function ScrollPane({
     viewport?: React.ReactElement;
     viewportRef?: React.Ref<HTMLDivElement>;
     viewportClassName?: string;
-    bars?: "vertical" | "horizontal" | "both";
+    /** Which bars the pane draws; `none` for a pane whose own controls page it. */
+    bars?: "vertical" | "horizontal" | "both" | "none";
 }) {
     return (
         <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn("relative", className)} {...props}>
@@ -42,8 +43,8 @@ function ScrollPane({
                     </ScrollAreaPrimitive.Content>
                 </ScrollAreaPrimitive.Viewport>
             )}
-            {bars !== "horizontal" && <ScrollBar />}
-            {bars !== "vertical" && <ScrollBar orientation="horizontal" />}
+            {bars !== "horizontal" && bars !== "none" && <ScrollBar />}
+            {bars !== "vertical" && bars !== "none" && <ScrollBar orientation="horizontal" />}
             <ScrollAreaPrimitive.Corner />
         </ScrollAreaPrimitive.Root>
     );
@@ -62,7 +63,7 @@ function ScrollBar({ className, orientation = "vertical", ...props }: ScrollArea
                 `
                     flex touch-none select-none
                     data-horizontal:h-2 data-horizontal:px-px data-horizontal:py-0.5
-                    data-vertical:w-2 data-vertical:px-0.5 data-vertical:py-px
+                    data-vertical:w-2 data-vertical:flex-col data-vertical:px-0.5 data-vertical:py-px
                 `,
                 className,
             )}
@@ -70,7 +71,7 @@ function ScrollBar({ className, orientation = "vertical", ...props }: ScrollArea
         >
             <ScrollAreaPrimitive.Thumb
                 data-slot="scroll-area-thumb"
-                className="relative flex-1 rounded-full bg-outline hover:bg-foreground"
+                className="relative rounded-full bg-outline hover:bg-foreground"
             />
         </ScrollAreaPrimitive.Scrollbar>
     );

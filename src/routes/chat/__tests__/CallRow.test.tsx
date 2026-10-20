@@ -60,6 +60,7 @@ describe("CallRow", () => {
         fireEvent.click(screen.getByRole("button", { name: /\/a\.ts/ }));
         expect(screen.getByText("new")).toBeInTheDocument();
         expect(screen.getByText("old")).toBeInTheDocument();
+        expect(document.querySelector(String.raw`[data-slot="scroll-area"]`)).not.toBeNull();
     });
 
     it("marks a call that failed, and says what its result carried", () => {

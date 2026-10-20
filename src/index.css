@@ -345,12 +345,13 @@
 
   /*
    * The pill pie draws itself (`src/components/ScrollPane.tsx`) shows itself the way the
-   * engine's bar does: while its own pane is moving. `scroll-area` says that on each bar
-   * itself, and it says nothing about the pointer on purpose - a bar that appears because
-   * the mouse crossed a pane is a bar that appears in every pane on the way to somewhere
-   * else. A reader who wants to drag one scrolls the region first, as macOS has always done.
-   * The bar is mounted for good so this can be a fade rather than a blink, and it takes no
-   * pointer while it is away, so the pane's edge stays text to select and to drag across.
+   * engine's bar does while its own pane is moving. `scroll-area` says that on each bar
+   * itself, and it says nothing about the pointer on purpose - a vertical bar that appears
+   * because the mouse crossed a pane is a bar that appears in every pane on the way to
+   * somewhere else. A reader who wants to drag a vertical bar scrolls the region first, as
+   * macOS has always done. The bar is mounted for good so this can be a fade rather than a
+   * blink, and it takes no pointer while it is away, so the pane's edge stays text to select
+   * and to drag across.
    */
   [data-slot="scroll-area-scrollbar"] {
     opacity: 0;
@@ -370,11 +371,21 @@
    * crosses them.
    */
   [data-slot="scroll-area"]:not([data-has-overflow-y])
-    [data-slot="scroll-area-scrollbar"][data-vertical],
+    [data-slot="scroll-area-scrollbar"][data-orientation="vertical"],
   [data-slot="scroll-area"]:not([data-has-overflow-x])
-    [data-slot="scroll-area-scrollbar"][data-horizontal] {
+    [data-slot="scroll-area-scrollbar"][data-orientation="horizontal"] {
     opacity: 0;
     pointer-events: none;
+  }
+
+  /*
+   * A sideways pane keeps its horizontal pill on: a bar that only appears after a scroll
+   * cannot be the thing that starts one.
+   */
+  [data-slot="scroll-area"][data-has-overflow-x]
+    [data-slot="scroll-area-scrollbar"][data-orientation="horizontal"] {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   @media (prefers-reduced-motion: reduce) {

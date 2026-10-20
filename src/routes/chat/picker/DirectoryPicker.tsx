@@ -42,7 +42,7 @@ import {
     Skeleton,
     Spinner,
 } from "@/components/ui";
-import { Icon, TruncatedText } from "@/components";
+import { Icon, ScrollPane, TruncatedText } from "@/components";
 
 /** How long typing must stand still before the host is asked for a level. */
 const READ_DELAY = 300;
@@ -382,9 +382,9 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
                     {header}
                     <div className="flex min-h-0 flex-1 flex-col gap-3">
                         {fieldRow}
-                        <div id="directory-picker-scroll" className="max-h-96 min-h-0 overflow-y-auto">
+                        <ScrollPane id="directory-picker-scroll" className="min-h-0" viewportClassName="max-h-96">
                             {list}
-                        </div>
+                        </ScrollPane>
                     </div>
                     {confirm}
                 </DrawerContent>
@@ -407,9 +407,9 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
                 {header}
                 <div className="flex min-h-0 flex-1 flex-col gap-3">
                     {fieldRow}
-                    <div id="directory-picker-scroll" className="max-h-64 min-h-0 overflow-y-auto">
+                    <ScrollPane id="directory-picker-scroll" className="min-h-0" viewportClassName="max-h-64">
                         {list}
-                    </div>
+                    </ScrollPane>
                 </div>
                 {confirm}
             </DialogContent>

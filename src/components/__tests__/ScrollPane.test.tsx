@@ -49,6 +49,22 @@ describe("ScrollPane", () => {
         expect(bar(container)).not.toBeNull();
     });
 
+    it("keeps the measured thumb from stretching across its track", () => {
+        const { container } = render(<ScrollPane>a row</ScrollPane>);
+        const thumb = container.querySelector("[data-slot=scroll-area-thumb]");
+
+        // Base UI measures the thumb and writes its width or height inline. A
+        // flex child that grows would fill the track and leave no room to drag.
+        expect(thumb).not.toBeNull();
+        expect(thumb?.className).not.toContain("flex-1");
+    });
+
+    it("draws no bars when the pane's own controls page it", () => {
+        const { container } = render(<ScrollPane bars="none">a row</ScrollPane>);
+
+        expect(bar(container)).toBeNull();
+    });
+
     it("draws only the bars an area can need", () => {
         const sideways = render(<ScrollPane bars="horizontal">a row</ScrollPane>);
         const bars = [...sideways.container.querySelectorAll("[data-slot=scroll-area-scrollbar]")];

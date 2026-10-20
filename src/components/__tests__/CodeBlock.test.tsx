@@ -61,6 +61,16 @@ describe("CodeBlock", () => {
         expect(view.container.querySelectorAll(String.raw`[data-slot="code-block-line"]`)).toHaveLength(1);
     });
 
+    it("keeps its side scroll in the app's pane", () => {
+        const view = render(<CodeBlock code={CODE} language="ts" />);
+        const pane = view.container.querySelector(String.raw`[data-slot="scroll-area"]`);
+        const content = view.container.querySelector(String.raw`[data-slot="code-block-content"]`);
+
+        expect(pane).not.toBeNull();
+        expect(pane?.querySelector(String.raw`[data-slot="scroll-area-viewport"]`)).not.toBeNull();
+        expect(content?.className).toContain("overflow-visible");
+    });
+
     it("scrolls long lines until the reader asks for wrap", () => {
         const view = render(<CodeBlock code={CODE} language="ts" id="block" />);
         const content = view.container.querySelector(String.raw`[data-slot="code-block-content"]`);

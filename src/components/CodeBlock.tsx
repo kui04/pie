@@ -1,5 +1,7 @@
 import { Copy, Check, WrapText } from "lucide-react";
 import { useEffect, useState } from "react";
+import { cn } from "cn";
+import { ScrollPane } from "./ScrollPane";
 import {
     Button,
     CodeBlock as CodeBlockFrame,
@@ -35,6 +37,8 @@ export interface CodeBlockProps {
 
 /** How long the words of a block have to stand still before its colours are made. */
 const QUIET_MS = 180;
+/** The pane owns the scroll, so the content's fade has nothing to follow. */
+const CONTENT_STYLE = { maskImage: "none", WebkitMaskImage: "none" };
 export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
     // Long lines scroll: a phone is narrow, and wrap is one tap away.
@@ -70,7 +74,17 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     };
 
     return (
-        <CodeBlockFrame className={className} data-language={language ?? "text"}>
+        <CodeBlockFrame
+            className={cn(
+                className,
+                `
+                    has-[[data-slot=code-block-content]:focus-visible]:border-ring
+                    has-[[data-slot=code-block-content]:focus-visible]:ring-3
+                    has-[[data-slot=code-block-content]:focus-visible]:ring-ring/50
+                `,
+            )}
+            data-language={language ?? "text"}
+        >
             <CodeBlockHeader>
                 <CodeBlockTitle>
                     <TruncatedText content={language ?? "text"} offset={{ top: 6, right: 12, bottom: 6, left: 12 }}>
@@ -115,19 +129,26 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
             {/* The tokens carry both palettes as custom properties and `index.css`
                 chooses between them, so the same code is drawn in either scheme
                 without a render. */}
-            <CodeBlockContent data-code={language ?? "text"} wrap={wrap}>
-                {tokens === null
-                    ? drawn
-                    : tokens.map((line, at) => (
-                          <CodeBlockLine key={at}>
-                              {line.map((token, of) => (
-                                  <span key={of} style={token.vars}>
-                                      {token.text}
-                                  </span>
-                              ))}
-                          </CodeBlockLine>
-                      ))}
-            </CodeBlockContent>
+            <ScrollPane bars="horizontal" className="min-w-0">
+                <CodeBlockContent
+                    data-code={language ?? "text"}
+                    wrap={wrap}
+                    className="overflow-visible"
+                    style={CONTENT_STYLE}
+                >
+                    {tokens === null
+                        ? drawn
+                        : tokens.map((line, at) => (
+                              <CodeBlockLine key={at}>
+                                  {line.map((token, of) => (
+                                      <span key={of} style={token.vars}>
+                                          {token.text}
+                                      </span>
+                                  ))}
+                              </CodeBlockLine>
+                          ))}
+                </CodeBlockContent>
+            </ScrollPane>
         </CodeBlockFrame>
     );
 }

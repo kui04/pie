@@ -39,7 +39,8 @@ describe("the pictures staged for a message", () => {
 describe("the strip of pictures", () => {
     it("offers the key that follows the strip when it overruns", async () => {
         render(<Attachments items={items} onRemove={() => undefined} />);
-        const strip = screen.getByRole("list", { name: "Attached images" });
+        const strip = document.querySelector("[data-slot=scroll-area-viewport]");
+        if (!(strip instanceof HTMLElement)) throw new Error("no strip viewport");
         Object.defineProperties(strip, {
             clientWidth: { configurable: true, value: 300 },
             scrollWidth: { configurable: true, value: 600 },

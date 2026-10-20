@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui";
-import { Icon, TruncatedText } from "@/components";
+import { Icon, ScrollPane, TruncatedText } from "@/components";
 import { useMotion } from "@/hooks/useMotion";
 import { EASE, MOTION } from "@/lib/motion";
 import type { ImageContent } from "@/lib/rpc-protocol";
@@ -32,7 +32,7 @@ export interface AttachmentsProps {
 
 export function Attachments({ items, onRemove, className }: AttachmentsProps) {
     const { still, slot } = useMotion();
-    const strip = useRef<HTMLUListElement>(null);
+    const strip = useRef<HTMLDivElement>(null);
     const [edges, setEdges] = useState({ left: false, right: false });
 
     /** Reads how much of the strip lies beyond each edge, and lights the keys there. */
@@ -49,10 +49,17 @@ export function Attachments({ items, onRemove, className }: AttachmentsProps) {
     useEffect(() => {
         measure();
         const element = strip.current;
-        if (element === null || typeof ResizeObserver === "undefined") return;
+        if (element === null) return;
+        element.addEventListener("scroll", measure, { passive: true });
+        if (typeof ResizeObserver === "undefined") {
+            return () => element.removeEventListener("scroll", measure);
+        }
         const watch = new ResizeObserver(measure);
         watch.observe(element);
-        return () => watch.disconnect();
+        return () => {
+            element.removeEventListener("scroll", measure);
+            watch.disconnect();
+        };
     }, [items, measure]);
 
     function nudge(direction: -1 | 1) {
@@ -61,75 +68,71 @@ export function Attachments({ items, onRemove, className }: AttachmentsProps) {
 
     return (
         <div className={cn("relative", className)}>
-            <ul
-                ref={strip}
-                id="composer-attachments"
-                aria-label="Attached images"
-                onScroll={measure}
-                className="no-scrollbar flex gap-2.5 overflow-x-auto px-3"
-            >
-                <AnimatePresence initial={false} onExitComplete={measure}>
-                    {items.map(({ id, name, image }) => (
-                        <motion.li
-                            key={id}
-                            layout={still ? false : "position"}
-                            transition={{
-                                layout: still
-                                    ? { duration: 0 }
-                                    : { type: "tween", duration: MOTION.slot.out, ease: EASE.settle },
-                            }}
-                            {...slot}
-                            className="
-                                group relative flex h-16 w-60 shrink-0 items-center gap-2.5 overflow-hidden rounded-2xl
-                                border border-foreground/12 bg-card py-0 pr-9 pl-3
-                            "
-                        >
-                            <img
-                                alt=""
-                                src={`data:${image.mimeType};base64,${image.data}`}
-                                className="size-12 shrink-0 rounded-xl object-cover"
-                            />
-                            <div className="flex min-w-0 flex-col">
-                                <TruncatedText
-                                    content={name}
-                                    className="text-body-md leading-5.5 font-medium text-foreground"
-                                    offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
-                                >
-                                    {name}
-                                </TruncatedText>
-                                <TruncatedText
-                                    content={`${kindOf(name, image.mimeType)} · ${sizeOf(image.data)}`}
-                                    className="text-body-sm leading-3.75 text-muted-foreground"
-                                    offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
-                                >
-                                    {kindOf(name, image.mimeType)} · {sizeOf(image.data)}
-                                </TruncatedText>
-                            </div>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-xs"
-                                aria-label={`Remove ${name}`}
-                                onClick={() => onRemove(id)}
+            <ScrollPane bars="none" className="min-w-0" viewportRef={strip}>
+                <ul id="composer-attachments" aria-label="Attached images" className="flex gap-2.5 px-3">
+                    <AnimatePresence initial={false} onExitComplete={measure}>
+                        {items.map(({ id, name, image }) => (
+                            <motion.li
+                                key={id}
+                                layout={still ? false : "position"}
+                                transition={{
+                                    layout: still
+                                        ? { duration: 0 }
+                                        : { type: "tween", duration: MOTION.slot.out, ease: EASE.settle },
+                                }}
+                                {...slot}
                                 className="
-                                    absolute top-1.75 right-1.75 size-4.5 rounded-full bg-foreground p-0 text-background
-                                    opacity-0 transition-opacity
-                                    group-focus-within:opacity-100
-                                    group-hover:opacity-100
-                                    hover:bg-foreground hover:text-background
-                                    focus-visible:opacity-100
-                                    dark:hover:bg-foreground dark:hover:text-background
-                                    pointer-coarse:opacity-100
+                                    group relative flex h-16 w-60 shrink-0 items-center gap-2.5 overflow-hidden
+                                    rounded-2xl border border-foreground/12 bg-card py-0 pr-9 pl-3
                                 "
                             >
-                                <Icon className="size-4.5 [&_svg]:size-3">
-                                    <X />
-                                </Icon>
-                            </Button>
-                        </motion.li>
-                    ))}
-                </AnimatePresence>
-            </ul>
+                                <img
+                                    alt=""
+                                    src={`data:${image.mimeType};base64,${image.data}`}
+                                    className="size-12 shrink-0 rounded-xl object-cover"
+                                />
+                                <div className="flex min-w-0 flex-col">
+                                    <TruncatedText
+                                        content={name}
+                                        className="text-body-md leading-5.5 font-medium text-foreground"
+                                        offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                                    >
+                                        {name}
+                                    </TruncatedText>
+                                    <TruncatedText
+                                        content={`${kindOf(name, image.mimeType)} · ${sizeOf(image.data)}`}
+                                        className="text-body-sm leading-3.75 text-muted-foreground"
+                                        offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
+                                    >
+                                        {kindOf(name, image.mimeType)} · {sizeOf(image.data)}
+                                    </TruncatedText>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label={`Remove ${name}`}
+                                    onClick={() => onRemove(id)}
+                                    className="
+                                        absolute top-1.75 right-1.75 size-4.5 rounded-full bg-foreground p-0
+                                        text-background opacity-0 transition-opacity
+                                        group-focus-within:opacity-100
+                                        group-hover:opacity-100
+                                        hover:bg-foreground hover:text-background
+                                        focus-visible:opacity-100
+                                        dark:hover:bg-foreground dark:hover:text-background
+                                        pointer-coarse:opacity-100
+                                    "
+                                >
+                                    <Icon className="size-4.5 [&_svg]:size-3">
+                                        <X />
+                                    </Icon>
+                                </Button>
+                            </motion.li>
+                        ))}
+                    </AnimatePresence>
+                </ul>
+            </ScrollPane>
             {edges.left && <Edge side="left" onPress={() => nudge(-1)} />}
             {edges.right && <Edge side="right" onPress={() => nudge(1)} />}
         </div>

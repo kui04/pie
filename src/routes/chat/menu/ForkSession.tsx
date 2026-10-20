@@ -97,8 +97,15 @@ export function ForkSession({ session, open, onOpenChange, onForked, isMobile }:
                             "
                         >
                             <TruncatedText
-                                content={point.text}
-                                contentClassName="max-h-[min(60dvh,var(--available-height))] overflow-y-auto whitespace-pre-wrap"
+                                content={
+                                    <ScrollPane
+                                        bars="vertical"
+                                        className="min-w-0"
+                                        viewportClassName="max-h-[min(60dvh,var(--available-height))] whitespace-pre-wrap"
+                                    >
+                                        {point.text}
+                                    </ScrollPane>
+                                }
                                 lines={2}
                                 offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
                                 className="text-body-md wrap-break-word"

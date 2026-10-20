@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
-import { Icon, Markdown } from "@/components";
+import { Icon, Markdown, ScrollPane } from "@/components";
 import { useFollowTail } from "@/hooks/useFollowTail";
 import { useMotion } from "@/hooks/useMotion";
 import { Row } from "@/routes/chat/transcript/entries/Row";
@@ -63,11 +63,15 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
             open={open}
             onToggle={() => setManual((was) => !(was ?? stillThinking))}
         >
-            <div ref={tail} className={cn("live-window overflow-y-auto pr-2", stillThinking ? WINDOW : OPENED)}>
+            <ScrollPane
+                className="min-w-0"
+                viewportRef={tail}
+                viewportClassName={cn("live-window pr-2", stillThinking ? WINDOW : OPENED)}
+            >
                 <Markdown id={`${id}-reasoning`} className="text-muted-foreground">
                     {thinking}
                 </Markdown>
-            </div>
+            </ScrollPane>
         </Row>
     );
 }
