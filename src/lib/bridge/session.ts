@@ -13,8 +13,9 @@
  * on the file it names, and pi's own `forkSession` and `cloneSession` replace the
  * conversation a running process holds.
  *
- * A dialog of an extension and a failure of an extension have channels of their
- * own, and nothing consumes them yet (that belongs to the extension milestone). A
+ * An extension has a channel of its own: the snapshot read replays a dialog that
+ * arrived before this listener, and the event only shortens the wait for the
+ * next read. A failure of an extension is still a record of the session. A
  * record that Rust cannot describe is not forwarded at all.
  *
  * A listener must exist before the records it wants: the event bus has no replay,
@@ -46,6 +47,7 @@ import type {
     CompactionResult,
     EntriesData,
     Event,
+    ExtensionUIRequest,
     ForkData,
     ForkMessage,
     ImageContent,
@@ -218,6 +220,58 @@ export type SessionLifecycle =
            */
           type: "lagged";
       };
+
+/** The latest status line of one extension. */
+export interface ExtensionStatusValue {
+    key: string;
+    text: string;
+}
+
+/** The latest editor text, with a sequence so a reader applies it once. */
+export interface ExtensionEditorText {
+    seq: number;
+    text: string;
+}
+
+/** The extension UI state of one session, as Rust replays it. */
+export interface ExtensionSnapshot {
+    /** Dialogs that wait for an answer. A listener that arrives late reads them here. */
+    requests: ExtensionUIRequest[];
+    /** The latest status line of each extension key, by key. */
+    statuses: ExtensionStatusValue[];
+    /** The title an extension asked for, or null. */
+    title: string | null;
+    /** The latest editor text, with a sequence so a reader applies it once. */
+    editorText: ExtensionEditorText | null;
+}
+
+/** An answer to one extension dialog. */
+export type ExtensionAnswer =
+    { type: "value"; value: string } | { type: "confirmed"; confirmed: boolean } | { type: "cancelled" };
+
+/** What the extension UI channel says about one session. */
+export type ExtensionEvent = { type: "changed" } | { type: "notice"; id: string; message: string; notifyType: string };
+
+/**
+ * The dialogs and fire-and-forget values of one session.
+ *
+ * A dialog can arrive before the frontend knows the session id. The event only
+ * says that the snapshot changed; this read is what makes the request arrive even
+ * when the event was missed.
+ */
+export function getExtensionState(session: string): Promise<ExtensionSnapshot> {
+    return call<ExtensionSnapshot>("get_extension_state", { session });
+}
+
+/** Answers one dialog. False means the request timed out, or another answer won. */
+export function answerExtension(session: string, id: string, answer: ExtensionAnswer): Promise<boolean> {
+    return call<boolean>("answer_extension", { session, id, answer });
+}
+
+/** The extension UI changes of one session: a snapshot change, or a notice. */
+export function onExtensionEvent(session: string, onEvent: (event: ExtensionEvent) => void): Promise<Unsubscribe> {
+    return listen<ExtensionEvent>(`pi://session/${session}/extension`, (event) => onEvent(event.payload));
+}
 
 /** One event of a session, on `pi://session/{id}/event`. */
 export function onSessionEvent(session: string, onEvent: (event: Event) => void): Promise<Unsubscribe> {

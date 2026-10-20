@@ -6,11 +6,13 @@
 //! session, and the task tells the frontend what pi said until the pi of that
 //! session ends.
 //!
-//! The channels are `pi://session/{id}/event` and `.../state`. An event travels
-//! as the record pi wrote, re-encoded by the protocol layer's faithful path - a
-//! record of a kind this build does not mirror replays verbatim - so a protocol
-//! addition reaches the frontend as pi wrote it instead of being dropped. The
-//! end travels as [`SessionLifecycle`].
+//! The channels are `pi://session/{id}/event`, `.../state` and `.../extension`.
+//! An event travels as the record pi wrote, re-encoded by the protocol layer's
+//! faithful path - a record of a kind this build does not mirror replays
+//! verbatim - so a protocol addition reaches the frontend as pi wrote it instead
+//! of being dropped. The end travels as [`SessionLifecycle`]. An extension
+//! change only says that the snapshot read changed; a dialog that arrived before
+//! the listener is replayed by that read, not by this channel.
 //!
 //! An answer to a command never arrives here: the protocol layer hands it to
 //! whoever sent it, and only an answer nobody waits for reaches a subscriber.
@@ -35,12 +37,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::channel::Termination;
-use crate::session::Session;
+use crate::session::{ExtensionEvent, Session};
 
 use pi_rpc::client::EventStream;
 use pi_rpc::error::ErrorKind;
 use pi_rpc::event::{Event, encode_event_value};
-use pi_rpc::extui::{ConfirmDialog, EditorDialog, InputDialog, Notice, SelectDialog, UiHandler, UiOutcome};
 
 /// What the frontend hears about the life of a session.
 ///
@@ -106,6 +107,11 @@ fn event_channel(session: &str) -> String {
 /// The channel that carries the end of a session.
 fn state_channel(session: &str) -> String {
     format!("pi://session/{session}/state")
+}
+
+/// The channel that carries the extension UI changes of a session.
+fn extension_channel(session: &str) -> String {
+    format!("pi://session/{session}/extension")
 }
 
 /// Sends one event of pi on the channel of its kind.
@@ -194,71 +200,25 @@ pub fn forward(app: AppHandle, session: &Session, records: EventStream) {
     });
 }
 
-/// Answers the dialogs pi opens on one session.
+/// Forwards the extension UI changes of one session.
 ///
-/// Pi blocks on four of them - `select`, `confirm`, `input` and `editor` - until
-/// an answer arrives or the dialog times out, and an `editor` dialog has no
-/// timeout at all. Until pie has a screen that asks a person, the one answer
-/// that keeps pi moving is a dismissal, which is what this handler gives.
-///
-/// Each dialog arrives with the wire id it was sent under; a future
-/// forwarding path can use that id to route an answer back to the dialog
-/// it came from. The notices and status lines that need no answer are not
-/// forwarded either: no screen reads them yet.
-pub async fn answer_dialogs(session: &Session) {
-    session
-        .client()
-        .set_ui_handler(Dialogs {
-            session: session.id().to_string(),
-        })
-        .await;
-}
-
-/// The handler that keeps a session moving while pie has no dialogs.
-struct Dialogs {
-    session: String,
-}
-
-#[pi_rpc::async_trait]
-impl UiHandler for Dialogs {
-    async fn select(&mut self, id: String, dialog: SelectDialog) -> UiOutcome {
-        self.dismissed("select", &id, &dialog.title);
-        UiOutcome::Dismissed
-    }
-
-    async fn confirm(&mut self, id: String, dialog: ConfirmDialog) -> bool {
-        self.dismissed("confirm", &id, &dialog.title);
-        false
-    }
-
-    async fn input(&mut self, id: String, dialog: InputDialog) -> UiOutcome {
-        self.dismissed("input", &id, &dialog.title);
-        UiOutcome::Dismissed
-    }
-
-    async fn editor(&mut self, id: String, dialog: EditorDialog) -> UiOutcome {
-        self.dismissed("editor", &id, &dialog.title);
-        UiOutcome::Dismissed
-    }
-
-    async fn notify(&mut self, notice: Notice) {
-        tracing::debug!(session = %self.session, message = %notice.message, "pi showed a notice");
-    }
-
-    async fn set_title(&mut self, title: pi_rpc::extui::WindowTitle) {
-        tracing::debug!(session = %self.session, title = %title.title, "pi set the window title");
-    }
-}
-
-impl Dialogs {
-    /// Says which dialog was dropped, and why.
-    fn dismissed(&self, method: &str, id: &str, title: &str) {
-        tracing::warn!(
-            session = %self.session,
-            dialog = method,
-            id,
-            title,
-            "a dialog of pi was dismissed: pie has no screen that answers one yet",
-        );
-    }
+/// A dialog that arrives before the frontend listens is not lost: the
+/// `get_extension_state` read holds it. This channel only lowers the latency
+/// of the next read, and carries a notice that the read cannot replay.
+pub fn forward_extensions(app: AppHandle, session: &Session) {
+    let id = session.id().to_string();
+    let mut events = session.extension().subscribe();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(event) => app.send(&extension_channel(&id), event),
+                // A listener that fell behind asks for the snapshot again, just as
+                // one that missed an event before it listened does.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    app.send(&extension_channel(&id), ExtensionEvent::Changed);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }

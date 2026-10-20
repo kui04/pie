@@ -1,5 +1,6 @@
 export { useCallClock } from "./useCallClock";
 export { useConnectionWatch, type ConnectionWatch } from "./useConnectionWatch";
+export { useExtension } from "./useExtension";
 export { useFollowTail } from "./useFollowTail";
 export { useHighlighter } from "./useHighlighter";
 export { useKeyboardInset } from "./useKeyboardInset";

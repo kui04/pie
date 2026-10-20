@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Paperclip, Square } from "lucide-react";
-import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
 import { useMotion } from "@/hooks";
 import * as bridge from "@/lib/bridge";
+import type { ExtensionEditorText } from "@/lib/bridge";
 import type { StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 import { Attachments, type StagedImage } from "@/routes/chat/composer/Attachments";
@@ -54,9 +55,11 @@ export interface ComposerProps {
     working: boolean;
     /** The chart of the session: the shell card runs in it, above this box. */
     machine: SessionRef;
+    /** The latest text an extension put in the editor. */
+    editorText?: ExtensionEditorText | null;
 }
 
-export function Composer({ session, working, machine }: ComposerProps) {
+export function Composer({ session, working, machine, editorText = null }: ComposerProps) {
     const client = useQueryClient();
     const [value, setValue] = useState("");
     const [staged, setStaged] = useState<StagedImage[]>([]);
@@ -66,7 +69,19 @@ export function Composer({ session, working, machine }: ComposerProps) {
     const [panel, setPanel] = useState<"model" | "thinking" | null>(null);
     const input = useRef<HTMLTextAreaElement>(null);
     const attachment = useRef(0);
+    const appliedEditorText = useRef<number | null>(null);
     const { reveal, swap } = useMotion();
+
+    useEffect(() => {
+        appliedEditorText.current = null;
+    }, [session]);
+
+    useEffect(() => {
+        if (editorText === null || appliedEditorText.current === editorText.seq) return;
+        appliedEditorText.current = editorText.seq;
+        setValue(editorText.text);
+        input.current?.focus();
+    }, [editorText]);
 
     const state = useQuery(sessionQueries.state(session));
     const commands = useQuery(sessionQueries.commands(session));

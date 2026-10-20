@@ -29,6 +29,7 @@ import {
 type Call = (...args: never[]) => Promise<unknown>;
 type ListenEvent = (session: string, handler: (payload: Event) => void) => Promise<() => void>;
 type ListenState = (session: string, handler: (payload: SessionLifecycle) => void) => Promise<() => void>;
+type ListenExtension = (session: string, handler: (payload: Bridge.ExtensionEvent) => void) => Promise<() => void>;
 
 const bridge = vi.hoisted(() => ({
     getConnection: vi.fn<Call>(),
@@ -43,6 +44,9 @@ const bridge = vi.hoisted(() => ({
     clearQueue: vi.fn<Call>(),
     onSessionEvent: vi.fn<ListenEvent>(),
     onSessionState: vi.fn<ListenState>(),
+    getExtensionState: vi.fn<Call>(),
+    onExtensionEvent: vi.fn<ListenExtension>(),
+    answerExtension: vi.fn<Call>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -170,6 +174,14 @@ beforeEach(() => {
     held = [...CONNECTED.sessions];
     bridge.onSessionEvent.mockResolvedValue(() => undefined);
     bridge.onSessionState.mockResolvedValue(() => undefined);
+    bridge.onExtensionEvent.mockResolvedValue(() => undefined);
+    bridge.getExtensionState.mockResolvedValue({
+        requests: [],
+        statuses: [],
+
+        title: null,
+        editorText: null,
+    });
     bridge.getState.mockResolvedValue(sessionState());
     bridge.getConnection.mockImplementation(async () => connected());
     bridge.attachSession.mockImplementation(async () => {

@@ -65,6 +65,7 @@ export const sessionKeys = {
     entries: (session: string) => [...sessionKeys.whole(session), "entries"] as const,
     stats: (session: string) => [...sessionKeys.whole(session), "stats"] as const,
     commands: (session: string) => [...sessionKeys.whole(session), "commands"] as const,
+    extension: (session: string) => [...sessionKeys.whole(session), "extension"] as const,
     forkMessages: (session: string) => [...sessionKeys.whole(session), "forkMessages"] as const,
     models: (session: string) => [...sessionKeys.whole(session), "models"] as const,
     thinkingLevels: (session: string) => [...sessionKeys.whole(session), "thinkingLevels"] as const,
@@ -114,6 +115,14 @@ export const sessionQueries = {
         queryOptions({
             queryKey: sessionKeys.commands(session),
             queryFn: () => bridge.getCommands(session),
+            retry: false,
+        }),
+
+    /** The pending dialogs and extension values of this session. */
+    extension: (session: string) =>
+        queryOptions({
+            queryKey: sessionKeys.extension(session),
+            queryFn: () => bridge.getExtensionState(session),
             retry: false,
         }),
 

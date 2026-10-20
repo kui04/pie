@@ -13,6 +13,7 @@ export function SessionTopbar({
     name,
     firstMessage,
     cwd,
+    extensionTitle,
     ready = true,
 }: {
     name: string | null;
@@ -20,11 +21,13 @@ export function SessionTopbar({
     firstMessage?: string | null;
     /** The directory the session runs in, for a session with neither words nor a name. */
     cwd: string | null;
+    /** A title an extension set through pi, which outranks the session name. */
+    extensionTitle?: string | null;
     /** Whether the conversation has arrived; its slot waits for it until it has. */
     ready?: boolean;
 }) {
     const { slot } = useMotion();
-    const shown = title(name, firstMessage ?? null, cwd);
+    const shown = extensionTitle?.trim() || title(name, firstMessage ?? null, cwd);
 
     return (
         <AnimatePresence initial={false}>

@@ -16,7 +16,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui";
-import { useKeyboardInset, useMotion, useSession } from "@/hooks";
+import { useExtension, useKeyboardInset, useMotion, useSession } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
 import { sessionOf, subscribeSessions, type SessionRef } from "@/lib/sessions";
@@ -24,6 +24,7 @@ import { queuedRows, transcriptRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/stream";
 import { mergedTranscript } from "@/lib/transcript-merge";
 import { Composer } from "@/routes/chat/composer/Composer";
+import { ExtensionPrompt } from "@/routes/chat/transcript/ExtensionPrompt";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
 import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
 
@@ -56,6 +57,7 @@ export function SessionMain({ session, client }: SessionMainProps) {
 
 function SessionBody({ machine, session, client }: SessionMainProps & { machine: SessionRef }) {
     const { phase, working, state, entries, stats, ready, error, reopen } = useSession(session, machine);
+    const extension = useExtension(session);
     const { stage: page, slot } = useMotion();
     const keyboardInset = useKeyboardInset();
     const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
@@ -146,6 +148,12 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
 
     return (
         <>
+            <ExtensionPrompt
+                request={extension.request}
+                onAnswer={(answer) => {
+                    if (extension.request !== null) extension.answer(extension.request.id, answer);
+                }}
+            />
             <AnimatePresence mode="wait" initial={false}>
                 {content}
             </AnimatePresence>
@@ -170,7 +178,12 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                                     Nothing has been said yet.
                                 </p>
                             )}
-                            <Composer session={session} working={working} machine={machine} />
+                            <Composer
+                                session={session}
+                                working={working}
+                                machine={machine}
+                                editorText={extension.state?.editorText ?? null}
+                            />
                         </div>
                     </motion.div>
                 )}

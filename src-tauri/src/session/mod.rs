@@ -24,12 +24,17 @@
 //! pi with [`SessionManager::detach`].
 
 mod error;
+mod extension;
 mod id;
 mod process;
 mod store;
 mod wire;
 
 pub use error::Error;
+#[doc(inline)]
+pub use extension::{
+    EditorTextUpdate, ExtensionAnswer, ExtensionEvent, ExtensionRequest, ExtensionState, ExtensionStatus,
+};
 pub use id::Id;
 pub use process::Session;
 pub use store::SessionSummary;
@@ -176,6 +181,7 @@ impl SessionManager {
         // one that was.
         let label = cwd.or_else(|| self.inner.host.home().map(HostPath::of_local));
         let session = Session::new(self.inner.id.for_session(number), label, client, handle);
+        session.extension().install(session.client()).await;
 
         tracing::info!(connection = %self.inner.id, session = %session.id(), "attached");
         self.inner

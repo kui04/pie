@@ -32,6 +32,7 @@ export function SessionSlots({ session, machine, endpoint, cwd }: SessionSlotsPr
     const ready = useSelector(machine, isReady);
 
     const state = useQuery({ ...sessionQueries.state(session), enabled: open });
+    const extension = useQuery({ ...sessionQueries.extension(session), enabled: open });
     const entries = useQuery({ ...sessionQueries.entries(session), enabled: open });
     // The list row is the same conversation: its words are the fallback the bar
     // needs when pi has no name for this session.
@@ -43,6 +44,7 @@ export function SessionSlots({ session, machine, endpoint, cwd }: SessionSlotsPr
             name={state.data?.sessionName ?? summary?.name ?? null}
             firstMessage={summary?.firstMessage ?? null}
             cwd={cwd}
+            extensionTitle={extension.data?.title ?? null}
             ready={ready && entries.data !== undefined}
         />
     );

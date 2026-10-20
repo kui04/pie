@@ -16,6 +16,7 @@ import { SessionLanding } from "@/routes/chat/SessionLanding";
 import { SessionSidebar, type AttachedConversation } from "@/routes/chat/sidebar/SessionSidebar";
 import { SessionLoading } from "@/routes/chat/SessionLoading";
 import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
+import { SessionExtensions } from "@/routes/chat/topbar/SessionExtensions";
 import { SessionSlots, SessionUsage } from "@/routes/chat/topbar/SessionSlots";
 import { SessionMain } from "@/routes/chat/SessionMain";
 import { SessionMenu } from "@/routes/chat/menu/SessionMenu";
@@ -182,6 +183,7 @@ export function ChatScreen() {
                     stage === "viewing" && chart !== null && session !== null ? (
                         <>
                             <SessionUsage session={session} machine={chart} />
+                            <SessionExtensions session={session} />
                             <SessionMenu
                                 session={session}
                                 machine={chart}

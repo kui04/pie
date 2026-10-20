@@ -21,7 +21,10 @@ use tauri::{AppHandle, State};
 
 use crate::error::PieError;
 use crate::host::HostPath;
-use crate::session::{self, CommandsData, LastAssistantTextData, PromptData, Session, SessionInfo, SessionSummary};
+use crate::session::{
+    self, CommandsData, ExtensionAnswer, ExtensionState, LastAssistantTextData, PromptData, Session, SessionInfo,
+    SessionSummary,
+};
 
 use pi_rpc::response::{
     BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
@@ -119,8 +122,8 @@ async fn begin(
     // the answer of this command, because that answer is where it reads the id of
     // the session. What pi wrote before then is lost, and lost in silence - the
     // module of [`pipe`] carries the whole of that.
+    pipe::forward_extensions(app.clone(), &session);
     pipe::forward(app, &session, session.events());
-    pipe::answer_dialogs(&session).await;
     Ok(session.info())
 }
 
@@ -577,6 +580,39 @@ pub async fn clone_session(state: State<'_, AppState>, session: String) -> Resul
         .await?
         .clone_session()
         .await
+}
+
+/// The extension UI state of one session: pending dialogs and the current
+/// fire-and-forget values.
+///
+/// A listener reads this after it subscribes. The event channel only shortens
+/// the wait for the next read; a request that arrived before the listener is
+/// still here.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
+pub async fn get_extension_state(state: State<'_, AppState>, session: String) -> Result<ExtensionState, PieError> {
+    Ok(named_session(&state, &session, "reading the extension UI of a session")
+        .await?
+        .extension()
+        .snapshot())
+}
+
+/// Answers one pending dialog of one session.
+///
+/// The answer is false when no request waits under that id: a dialog that
+/// timed out, or an answer that raced one. A late answer is not an error.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, id = %id))]
+pub async fn answer_extension(
+    state: State<'_, AppState>,
+    session: String,
+    id: String,
+    answer: ExtensionAnswer,
+) -> Result<bool, PieError> {
+    Ok(named_session(&state, &session, "answering an extension dialog")
+        .await?
+        .extension()
+        .answer(&id, answer.into()))
 }
 
 #[cfg(test)]

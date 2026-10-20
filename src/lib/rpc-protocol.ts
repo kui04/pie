@@ -19,6 +19,8 @@ import type {
     CompactionResult as PiCompactionResult,
     JsonAgentSessionEvent,
     RpcCommand,
+    RpcExtensionUIRequest as PiExtensionUIRequest,
+    RpcExtensionUIResponse as PiExtensionUIResponse,
     RpcResponse,
     RpcSessionState,
     SessionEntry as PiSessionEntry,
@@ -53,6 +55,12 @@ export type { JsonValue };
  * the record verbatim, so it reaches this side.
  */
 export type Event = JsonAgentSessionEvent | ExtensionFault;
+
+/** A request from an extension: a dialog that blocks pi, or a notice. */
+export type ExtensionUIRequest = PiExtensionUIRequest;
+
+/** An answer to one extension dialog. */
+export type ExtensionUIResponse = PiExtensionUIResponse;
 
 /** An RPC-only record: an extension handler threw while it answered an event. */
 export interface ExtensionFault {

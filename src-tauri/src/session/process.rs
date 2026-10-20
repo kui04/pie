@@ -24,6 +24,7 @@ use crate::error::PieError;
 use crate::host::HostPath;
 
 use super::SessionInfo;
+use super::extension::Extension;
 use super::id::Id;
 use super::wire::{AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData};
 
@@ -56,6 +57,9 @@ pub struct Session {
     /// login shell decided, or the machine has no home directory.
     cwd: Option<HostPath>,
     client: Client,
+    /// The extension UI state of this session: what pi asks before a screen can
+    /// answer, and what a listener that arrives late reads again.
+    extension: Extension,
     /// The process or channel behind the client: whether it still runs, how to
     /// end it, and how to wait for its end.
     handle: Handle,
@@ -87,6 +91,7 @@ impl Session {
             id,
             cwd,
             client,
+            extension: Extension::default(),
             handle,
         }
     }
@@ -104,6 +109,11 @@ impl Session {
     /// The client that speaks to the pi of this session.
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// The extension UI state of this session.
+    pub(crate) fn extension(&self) -> Extension {
+        self.extension.clone()
     }
 
     /// The stream of what this session's pi says, as it says it.
