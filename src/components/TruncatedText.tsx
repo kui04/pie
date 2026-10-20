@@ -143,7 +143,7 @@ export function TruncatedText({
                     sideOffset={gap}
                     alignOffset={alignOffset}
                     className="
-                        w-max max-w-[var(--available-width,calc(100vw-2rem))] bg-card p-3 duration-150 ease-out
+                        w-max max-w-(--available-width,calc(100vw-2rem)) bg-card p-3 duration-150 ease-out
                         motion-safe:transition-[opacity,scale]
                         motion-safe:data-ending-style:scale-95 motion-safe:data-ending-style:opacity-0
                         motion-safe:data-starting-style:scale-95 motion-safe:data-starting-style:opacity-0
