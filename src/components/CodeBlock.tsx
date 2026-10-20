@@ -1,6 +1,5 @@
 import { Copy, Check, WrapText } from "lucide-react";
 import { useEffect, useState } from "react";
-import { cn } from "cn";
 import { ScrollPane } from "./ScrollPane";
 import {
     Button,
@@ -74,17 +73,7 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     };
 
     return (
-        <CodeBlockFrame
-            className={cn(
-                className,
-                `
-                    has-[[data-slot=code-block-content]:focus-visible]:border-ring
-                    has-[[data-slot=code-block-content]:focus-visible]:ring-3
-                    has-[[data-slot=code-block-content]:focus-visible]:ring-ring/50
-                `,
-            )}
-            data-language={language ?? "text"}
-        >
+        <CodeBlockFrame className={className} data-language={language ?? "text"}>
             <CodeBlockHeader>
                 <CodeBlockTitle>
                     <TruncatedText content={language ?? "text"} offset={{ top: 6, right: 12, bottom: 6, left: 12 }}>

@@ -62,7 +62,7 @@ export function ConnectionLostOverlay({ state, endpoint, message, onRetry, onLea
                     aria-describedby="connection-lost-message"
                     className="
                         fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-1/2 gap-4 rounded-xl
-                        bg-card p-6 text-foreground shadow-md ring-1 ring-foreground/10 duration-150 outline-none
+                        border border-foreground/10 bg-card p-6 text-foreground shadow-md duration-150 outline-none
                         sm:max-w-104
                     "
                 >

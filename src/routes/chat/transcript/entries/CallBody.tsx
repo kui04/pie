@@ -41,8 +41,7 @@ export function Body({ id, body, live }: { id: string; body: ToolBody; live: boo
     return <NumberedBody id={id} lines={body.lines} />;
 }
 
-const CODE_FRAME =
-    "min-w-0 has-[[data-slot=code-block-content]:focus-visible]:border-ring has-[[data-slot=code-block-content]:focus-visible]:ring-3 has-[[data-slot=code-block-content]:focus-visible]:ring-ring/50";
+const CODE_FRAME = "min-w-0";
 /** The pane owns the scroll, so the content's fade has nothing to follow. */
 const CONTENT_STYLE = { maskImage: "none", WebkitMaskImage: "none" };
 

@@ -68,9 +68,6 @@ export function ConnectionCard({
                             Pie opens the sessions of a pi that is already installed on the machine you point at.
                         </p>
                     </header>
-                    {/* Focus shows as the stroke of the control itself, not as a ring:
-                        this pane and the block below clip, and a ring outside the box is
-                        cut wherever a control sits flush with an edge. */}
                     <motion.fieldset
                         id="connection-card-lock"
                         disabled={connecting}
@@ -84,11 +81,7 @@ export function ConnectionCard({
                             onValueChange={(value) => onChange({ transport: value as Transport })}
                             className="flex flex-col gap-2"
                         >
-                            <OptionRow
-                                id="connection-card-transport-local"
-                                value="local"
-                                className="focus-visible:ring-0"
-                            >
+                            <OptionRow id="connection-card-transport-local" value="local">
                                 <Icon className="text-muted-foreground">
                                     <HardDrive id="connection-card-transport-local-icon" />
                                 </Icon>
@@ -112,7 +105,7 @@ export function ConnectionCard({
                                 </span>
                             </OptionRow>
 
-                            <OptionRow id="connection-card-transport-ssh" value="ssh" className="focus-visible:ring-0">
+                            <OptionRow id="connection-card-transport-ssh" value="ssh">
                                 <Icon className="text-muted-foreground">
                                     <Server id="connection-card-transport-ssh-icon" />
                                 </Icon>
@@ -165,7 +158,6 @@ export function ConnectionCard({
                                                 h-12 w-full border-border-strong bg-surface-container-highest px-3
                                                 font-sans text-code
                                                 placeholder:text-outline
-                                                focus-visible:ring-0
                                             "
                                         />
                                     </div>
@@ -188,7 +180,6 @@ export function ConnectionCard({
                                                     id="connection-card-auth-password"
                                                     value="password"
                                                     variant="pill"
-                                                    className="focus-visible:ring-0"
                                                 >
                                                     <span
                                                         id="connection-card-auth-password-label"
@@ -197,12 +188,7 @@ export function ConnectionCard({
                                                         Password
                                                     </span>
                                                 </OptionRow>
-                                                <OptionRow
-                                                    id="connection-card-auth-key"
-                                                    value="key"
-                                                    variant="pill"
-                                                    className="focus-visible:ring-0"
-                                                >
+                                                <OptionRow id="connection-card-auth-key" value="key" variant="pill">
                                                     <span
                                                         id="connection-card-auth-key-label"
                                                         className="text-label-lg font-medium"
@@ -243,7 +229,6 @@ export function ConnectionCard({
                                                         h-12 w-full border-border-strong bg-surface-container-highest
                                                         px-3 font-sans text-code
                                                         placeholder:text-outline
-                                                        focus-visible:ring-0
                                                     "
                                                 />
                                             </div>
@@ -278,7 +263,6 @@ export function ConnectionCard({
                                                             border-border-strong bg-surface-container-highest px-3 py-2
                                                             font-mono text-code
                                                             placeholder:text-outline
-                                                            focus-visible:ring-0
                                                         "
                                                     />
                                                 </div>
@@ -311,7 +295,6 @@ export function ConnectionCard({
                                                             h-12 w-full border-border-strong
                                                             bg-surface-container-highest px-3 font-sans text-code
                                                             placeholder:text-outline
-                                                            focus-visible:ring-0
                                                         "
                                                     />
                                                 </div>
@@ -322,7 +305,7 @@ export function ConnectionCard({
                                                     variant="outline"
                                                     disabled={connecting}
                                                     onClick={onPickKey}
-                                                    className="w-full focus-visible:ring-0"
+                                                    className="w-full"
                                                 >
                                                     <Icon>
                                                         <FolderOpen aria-hidden />

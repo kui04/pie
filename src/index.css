@@ -69,7 +69,6 @@
   --color-divider: var(--divider);
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
-  --color-ring: var(--ring);
 
   --color-surface: var(--surface);
   --color-surface-dim: var(--surface-dim);
@@ -163,7 +162,6 @@
   --divider: #3c3c3c; /* input.border: the softer hairline; menu.separatorBackground (#454545) is too loud on a tile */
   --border-strong: #3c3c3c; /* input.border */
   --input: #3c3c3c;
-  --ring: #0078d4; /* focusBorder */
 
   /* The window's two planes. The chat is cut from the window itself, the deepest
      grey the window goes; the list's column stands one step above it. VS Code's own
@@ -211,7 +209,6 @@
     --divider: #d4d4d4; /* menu.border */
     --border-strong: #cecece;
     --input: #cecece;
-    --ring: #005fb8;
 
     /* The light theme keeps VS Code's own order: the chat is the page and the
        column recedes under it, instead of the dark theme's column above the plane. */

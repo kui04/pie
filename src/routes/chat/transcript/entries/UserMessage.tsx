@@ -50,7 +50,6 @@ export function UserMessage({ id, message, queued, onRetract }: UserMessageProps
                 `
                     max-w-[80%] min-w-0 space-y-2 rounded-2xl bg-primary wrap-break-word text-primary-foreground
                     outline-none
-                    focus-visible:ring-2 focus-visible:ring-ring
                 `,
                 oneLine ? "px-4 py-2" : "p-3",
                 queued !== undefined && "opacity-60",

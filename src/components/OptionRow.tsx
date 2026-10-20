@@ -11,7 +11,7 @@ const optionRowVariants = cva(
         "flex w-full items-center justify-between gap-2",
         "border border-transparent text-start outline-none",
         "transition-colors duration-50 ease-in-out hover:bg-accent/50",
-        "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+        "focus-visible:border-primary",
         "disabled:pointer-events-none disabled:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
     ],

@@ -25,7 +25,7 @@ import { Icon } from "@/components";
  * command list takes the composer's `3xl`, while the two pickers take the menu's `xl`.
  */
 export const COMPOSER_PANEL = `
-    border border-foreground/10 bg-card shadow-none ring-0 origin-(--transform-origin)
+    border border-foreground/10 bg-card shadow-none origin-(--transform-origin)
     motion-safe:transition-[opacity,scale] motion-safe:duration-150 motion-safe:ease-out
     data-ending-style:scale-95 data-ending-style:opacity-0
     data-starting-style:scale-95 data-starting-style:opacity-0
@@ -292,7 +292,6 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     `
                         block h-15 max-h-15 min-h-15 resize-none rounded-none border-0 bg-transparent pt-3 pr-3 pb-0
                         pl-4 text-(length:--text-body-lg) leading-6
-                        focus-visible:ring-0
                         md:text-(length:--text-body-lg) md:leading-6
                         dark:bg-transparent
                     `,
