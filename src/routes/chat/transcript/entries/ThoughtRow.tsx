@@ -2,8 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { cn } from "cn";
 import { Icon, Markdown, ScrollPane } from "@/components";
-import { useFollowTail } from "@/hooks/useFollowTail";
-import { useMotion } from "@/hooks/useMotion";
+import { useFollowTail, useMotion } from "@/hooks";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { thoughtGlyph } from "@/routes/chat/transcript/entries/ToolGlyph";
 

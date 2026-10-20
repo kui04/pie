@@ -29,7 +29,7 @@ import {
     Input,
     Label,
 } from "@/components/ui";
-import { useIsMobile } from "@/hooks/usePlatform";
+import { useIsMobile } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 
 const TITLE = "Rename the conversation";

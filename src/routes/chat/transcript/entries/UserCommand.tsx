@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useState } from "react";
 import { Body, Clock, Notes, Running } from "@/routes/chat/transcript/entries/CallBody";
-import { useCallClock } from "@/hooks/useCallClock";
+import { useCallClock } from "@/hooks";
 import { Row } from "@/routes/chat/transcript/entries/Row";
 import { glyphFor } from "@/routes/chat/transcript/entries/ToolGlyph";
 import type { ToolPresentation, ToolStatus } from "@/routes/chat/transcript/presentation";

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { cn } from "cn";
 import { Icon, Markdown, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 import { BranchSummary } from "@/routes/chat/transcript/entries/BranchSummary";
 import { CallRow } from "@/routes/chat/transcript/entries/CallRow";
 import { Compaction } from "@/routes/chat/transcript/entries/Compaction";

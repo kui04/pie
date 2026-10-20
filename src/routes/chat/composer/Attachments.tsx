@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui";
 import { Icon, ScrollPane, TruncatedText } from "@/components";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 import { EASE, MOTION } from "@/lib/motion";
 import type { ImageContent } from "@/lib/rpc-protocol";
 

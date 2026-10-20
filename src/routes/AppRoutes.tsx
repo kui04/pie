@@ -1,7 +1,6 @@
 import type { ReactElement } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { useConnectionWatch } from "@/hooks/useConnectionWatch";
-import { useMotion } from "@/hooks/useMotion";
+import { useConnectionWatch, useMotion } from "@/hooks";
 import { ConnectionLostOverlay } from "@/routes/connect/ConnectionLostOverlay";
 import { RouterProvider, createBrowserRouter, useLocation } from "react-router";
 import { ChatScreen } from "@/routes/chat/ChatScreen";

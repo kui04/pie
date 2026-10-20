@@ -2,7 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import { Check } from "lucide-react";
 import { motion } from "motion/react";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { Icon } from "./Icon";
 

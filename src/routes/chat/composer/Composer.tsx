@@ -5,7 +5,7 @@ import { useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } fr
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import type { StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";

@@ -8,7 +8,7 @@ import { Toaster } from "@/components/ui";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
 import type { Event } from "@/lib/rpc-protocol";
-import { useSessionSync } from "@/hooks/useSessionSync";
+import { useSessionSync } from "@/hooks";
 import { forgetSession, phases } from "@/lib/sessions";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
 import { sessionOf } from "@/lib/sessions";

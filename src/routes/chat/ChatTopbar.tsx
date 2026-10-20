@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 
 import { WindowControls } from "@/components";
 import { Separator } from "@/components/ui";
-import { useIsMobile } from "@/hooks/usePlatform";
+import { useIsMobile } from "@/hooks";
 
 export function ChatTopbar({ start, end }: { start?: ReactNode; end?: ReactNode }) {
     const isMobile = useIsMobile();

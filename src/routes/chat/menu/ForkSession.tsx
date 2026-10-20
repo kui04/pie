@@ -31,7 +31,7 @@ import {
     Skeleton,
 } from "@/components/ui";
 import { ScrollPane, TruncatedText } from "@/components";
-import { useIsMobile } from "@/hooks/usePlatform";
+import { useIsMobile } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { sessionQueries } from "@/lib/query";
 

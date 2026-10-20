@@ -10,7 +10,7 @@ import {
     CodeBlockLine,
     CodeBlockTitle,
 } from "@/components/ui";
-import { useHighlighter } from "@/hooks/useHighlighter";
+import { useHighlighter } from "@/hooks";
 import { tokensOf } from "@/lib/code-highlight";
 import { copyText } from "@/lib/clipboard";
 import { Icon } from "./Icon";

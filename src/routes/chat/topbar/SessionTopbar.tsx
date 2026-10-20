@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 
 /**
  * The conversation's own slot of the bar: what it is called.

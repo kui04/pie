@@ -5,8 +5,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
 import { connectionQueries, sessionQueries } from "@/lib/query";
-import { useMotion } from "@/hooks/useMotion";
-import { useWideWindow } from "@/hooks/useWideWindow";
+import { useMotion, useWideWindow } from "@/hooks";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";

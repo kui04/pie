@@ -2,9 +2,7 @@ import { Suspense } from "react";
 import { motion } from "motion/react";
 import { AppRoutes } from "@/routes/AppRoutes";
 import { Toaster } from "@/components/ui";
-import { useMotion } from "@/hooks/useMotion";
-import { usePlatformResource } from "@/hooks/usePlatform";
-import { useSessionSync } from "@/hooks/useSessionSync";
+import { useMotion, usePlatformResource, useSessionSync } from "@/hooks";
 
 function App() {
     return (

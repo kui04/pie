@@ -18,7 +18,7 @@ import type { SessionRef } from "@/lib/sessions";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
-import { statsPoll } from "@/hooks/useSession";
+import { statsPoll } from "@/hooks";
 
 export interface SessionSlotsProps {
     session: string;

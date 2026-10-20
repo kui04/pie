@@ -10,7 +10,7 @@ import { cn } from "cn";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { join } from "pathe";
 
-import { useIsMobile } from "@/hooks/usePlatform";
+import { useIsMobile } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import {
     climbFrom,

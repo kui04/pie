@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { cn } from "cn";
 import { Icon, TruncatedText } from "@/components";
 import { Marker } from "@/components/ui";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 
 export interface RowProps {
     /** The entry this row draws, as the base of its ids. */

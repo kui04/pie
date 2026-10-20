@@ -1,6 +1,6 @@
 import { cn } from "cn";
 import { AnimatePresence, motion } from "motion/react";
-import { useMotion } from "@/hooks/useMotion";
+import { useMotion } from "@/hooks";
 import { HardDrive, FolderOpen, Loader2, Plug, Server } from "lucide-react";
 import { Button, Card, Input, Label, RadioGroup, Textarea } from "@/components/ui";
 import { OptionRow, Icon, TruncatedText } from "@/components";
