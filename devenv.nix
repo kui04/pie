@@ -9,6 +9,12 @@
   # browser — xdg-open prefers $BROWSER, and storybook opens through xdg-open.
   env.BROWSER = "chromium";
 
+  # The file chooser of tauri-plugin-dialog is GTK3, and its
+  # org.gtk.Settings.FileChooser schema is nested under the GTK3 gsettings
+  # directory rather than exposed by XDG_DATA_DIRS. Without this, choosing an
+  # attachment aborts pie with "Settings schema ... is not installed".
+  env.GSETTINGS_SCHEMA_DIR = "${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}/glib-2.0/schemas";
+
   # Tauri 2 Linux desktop system dependencies
   # https://tauri.app/start/prerequisites/#linux
   packages = [
