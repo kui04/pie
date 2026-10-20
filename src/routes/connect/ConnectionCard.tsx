@@ -158,6 +158,7 @@ export function ConnectionCard({
                                                 h-12 w-full border-border-strong bg-surface-container-highest px-3
                                                 font-sans text-code
                                                 placeholder:text-outline
+                                                focus-visible:ring-0
                                             "
                                         />
                                     </div>
@@ -229,6 +230,7 @@ export function ConnectionCard({
                                                         h-12 w-full border-border-strong bg-surface-container-highest
                                                         px-3 font-sans text-code
                                                         placeholder:text-outline
+                                                        focus-visible:ring-0
                                                     "
                                                 />
                                             </div>
@@ -263,6 +265,7 @@ export function ConnectionCard({
                                                             border-border-strong bg-surface-container-highest px-3 py-2
                                                             font-mono text-code
                                                             placeholder:text-outline
+                                                            focus-visible:ring-0
                                                         "
                                                     />
                                                 </div>
@@ -295,6 +298,7 @@ export function ConnectionCard({
                                                             h-12 w-full border-border-strong
                                                             bg-surface-container-highest px-3 font-sans text-code
                                                             placeholder:text-outline
+                                                            focus-visible:ring-0
                                                         "
                                                     />
                                                 </div>

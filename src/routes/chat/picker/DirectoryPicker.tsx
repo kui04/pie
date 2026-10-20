@@ -462,7 +462,10 @@ function DirectoryField({
 }: DirectoryFieldProps) {
     return (
         <div className="flex items-center gap-2">
-            <InputGroup id="directory-picker-path" className={cn(touch && "h-12")}>
+            <InputGroup
+                id="directory-picker-path"
+                className={cn("has-[[data-slot=input-group-control]:focus-visible]:ring-0", touch && "h-12")}
+            >
                 <InputGroupAddon align="inline-start">
                     <Icon>
                         <Search aria-hidden />

@@ -91,6 +91,7 @@ export function RenameSession({ session, open, onOpenChange, initial, onRenamed,
                 autoComplete="off"
                 placeholder="Name this conversation"
                 onChange={(event) => setName(event.target.value)}
+                className="focus-visible:ring-0"
             />
         </form>
     );

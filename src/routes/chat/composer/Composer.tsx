@@ -292,6 +292,7 @@ export function Composer({ session, working, machine }: ComposerProps) {
                     `
                         block h-15 max-h-15 min-h-15 resize-none rounded-none border-0 bg-transparent pt-3 pr-3 pb-0
                         pl-4 text-(length:--text-body-lg) leading-6
+                        focus-visible:ring-0
                         md:text-(length:--text-body-lg) md:leading-6
                         dark:bg-transparent
                     `,
