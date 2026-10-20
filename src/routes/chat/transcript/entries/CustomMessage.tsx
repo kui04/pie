@@ -31,7 +31,7 @@ export function CustomMessage({ id, label, summary, body, quote = false }: Custo
 
     if (body === null) {
         return (
-            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
+            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-8.5">
                 <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                     {customGlyph()}
                 </Icon>

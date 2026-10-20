@@ -30,7 +30,7 @@ export function Compaction({ id, tokensBefore, body, quote = false }: Compaction
 
     if (body === "") {
         return (
-            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-[34px]">
+            <Marker id={id} className="min-h-10 w-full pr-1 sm:min-h-8.5">
                 <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                     {compactionGlyph()}
                 </Icon>

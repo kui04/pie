@@ -26,7 +26,7 @@ export interface RunLineProps {
  */
 export function RunLine({ state }: RunLineProps) {
     return (
-        <Marker id="run-line" className="min-h-10 sm:min-h-[34px]">
+        <Marker id="run-line" className="min-h-10 sm:min-h-8.5">
             <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
                 <Mark state={state} />
             </Icon>
