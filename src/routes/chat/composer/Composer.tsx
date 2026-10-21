@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Paperclip, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
@@ -57,9 +57,23 @@ export interface ComposerProps {
     machine: SessionRef;
     /** The latest text an extension put in the editor. */
     editorText?: ExtensionEditorText | null;
+    /** Called when an editable composer field gains focus. */
+    onFocus?: () => void;
+    /** Called when an editable composer field loses focus. */
+    onBlur?: () => void;
+    /** Called with the new focus state when an editable composer field gains or loses focus. */
+    onFocusChange?: (focused: boolean) => void;
 }
 
-export function Composer({ session, working, machine, editorText = null }: ComposerProps) {
+export function Composer({
+    session,
+    working,
+    machine,
+    editorText = null,
+    onFocus,
+    onBlur,
+    onFocusChange,
+}: ComposerProps) {
     const client = useQueryClient();
     const [value, setValue] = useState("");
     const [staged, setStaged] = useState<StagedImage[]>([]);
@@ -70,6 +84,48 @@ export function Composer({ session, working, machine, editorText = null }: Compo
     const input = useRef<HTMLTextAreaElement>(null);
     const attachment = useRef(0);
     const appliedEditorText = useRef<number | null>(null);
+
+    const blurTimer = useRef<number | null>(null);
+    const focused = useRef(false);
+
+    const handleFocus = useCallback(() => {
+        if (blurTimer.current !== null) {
+            cancelAnimationFrame(blurTimer.current);
+            blurTimer.current = null;
+        }
+        if (!focused.current) {
+            focused.current = true;
+            onFocusChange?.(true);
+            onFocus?.();
+        }
+    }, [onFocus, onFocusChange]);
+
+    const handleBlur = useCallback(() => {
+        if (blurTimer.current !== null) {
+            cancelAnimationFrame(blurTimer.current);
+        }
+        blurTimer.current = requestAnimationFrame(() => {
+            blurTimer.current = null;
+            if (focused.current) {
+                focused.current = false;
+                onFocusChange?.(false);
+                onBlur?.();
+            }
+        });
+    }, [onBlur, onFocusChange]);
+
+    useEffect(() => {
+        return () => {
+            if (blurTimer.current !== null) {
+                cancelAnimationFrame(blurTimer.current);
+            }
+            if (focused.current) {
+                onFocusChange?.(false);
+                onBlur?.();
+            }
+        };
+    }, [onBlur, onFocusChange]);
+
     const { reveal, swap } = useMotion();
 
     useEffect(() => {
@@ -257,127 +313,6 @@ export function Composer({ session, working, machine, editorText = null }: Compo
     const sendable = value.trim() !== "" || staged.length > 0;
     const shellMode = bashCommandOf(value) !== null;
 
-    // The card the trigger wraps: everything the reader touches, in one place so
-    // the trigger above stays a positioning anchor and nothing else.
-    const card = (
-        <>
-            {runningBash !== null && (
-                // The reader's own run, above the card where the command panel comes
-                // from. Pi records it as an entry when it can (its own
-                // `_pendingBashMessages` may defer that), and the chart takes the card
-                // down when the entry of that command arrives (`bashAfter`).
-                <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
-                    <UserCommand
-                        id="composer-run-card"
-                        tool="bash"
-                        presentation={presentRunningExecution(runningBash)}
-                    />
-                </div>
-            )}
-            <AnimatePresence initial={false}>
-                {staged.length > 0 && (
-                    <motion.div key="attachments" {...reveal} className="overflow-hidden">
-                        <Attachments
-                            className="mt-3"
-                            items={staged}
-                            onRemove={(id) => setStaged((current) => current.filter((item) => item.id !== id))}
-                        />
-                    </motion.div>
-                )}
-            </AnimatePresence>
-            <Textarea
-                id="composer-input"
-                data-composer-field=""
-                ref={input}
-                value={value}
-                rows={2}
-                onChange={(event) => {
-                    setValue(event.target.value);
-                    setDismissed(false);
-                    // Words of the panel's own: the row under the keyboard starts
-                    // over, so the light is on the best match of the new search.
-                    setHighlighted(null);
-                    setPointed(null);
-                }}
-                onKeyDown={onKeyDown}
-                placeholder="Message Pi, or type / for commands"
-                aria-label="Your message"
-                enterKeyHint="send"
-                onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
-                className={cn(
-                    `
-                        block h-15 max-h-15 min-h-15 resize-none rounded-none border-0 bg-transparent pt-3 pr-3 pb-0
-                        pl-4 text-(length:--text-body-lg) leading-6
-                        focus-visible:ring-0
-                        md:text-(length:--text-body-lg) md:leading-6
-                        dark:bg-transparent
-                    `,
-                    staged.length > 0 ? "mt-1" : "mt-3",
-                )}
-            />
-            <div id="composer-controls" className="flex items-center justify-between p-3">
-                <div id="composer-pickers" className="flex min-w-0 flex-1 items-center gap-2.5">
-                    <ModelPicker
-                        session={session}
-                        current={state.data?.model ?? null}
-                        open={panel === "model"}
-                        onOpenChange={(open) => setPanel(open ? "model" : null)}
-                    />
-                    <ThinkingLevelPicker
-                        session={session}
-                        current={state.data?.thinkingLevel ?? null}
-                        open={panel === "thinking"}
-                        onOpenChange={(open) => setPanel(open ? "thinking" : null)}
-                    />
-                </div>
-                <div id="composer-actions" className="flex shrink-0 items-center gap-2.5">
-                    <Button
-                        id="composer-attach"
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Attach images"
-                        onClick={attach}
-                        className="
-                            size-8.5 shrink-0 rounded-full p-0 text-muted-foreground
-                            hover:bg-accent/50 hover:text-foreground
-                            dark:hover:bg-accent/50
-                        "
-                    >
-                        <Icon>
-                            <Paperclip />
-                        </Icon>
-                    </Button>
-                    <Button
-                        id="composer-submit"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={stopShown ? "Stop" : "Send"}
-                        className={cn(
-                            "size-8.5 shrink-0 rounded-full p-0 disabled:opacity-100",
-                            stopShown
-                                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                : shellMode
-                                  ? "bg-surface-container-highest text-violet hover:bg-surface-bright"
-                                  : `
-                                      bg-primary text-primary-foreground
-                                      hover:bg-primary/90
-                                      disabled:bg-foreground/12 disabled:text-foreground/40
-                                  `,
-                        )}
-                        disabled={!stopShown && !sendable}
-                        onClick={() => (stopShown ? stop() : submit(false))}
-                    >
-                        <AnimatePresence initial={false} mode="wait">
-                            <motion.span key={stopShown ? "stop" : "send"} className="flex" {...swap}>
-                                <Icon>{stopShown ? <Square /> : <ArrowUp />}</Icon>
-                            </motion.span>
-                        </AnimatePresence>
-                    </Button>
-                </div>
-            </div>
-        </>
-    );
-
     return (
         <Popover
             open={commandListOpen && highlightedRow !== null}
@@ -405,7 +340,130 @@ export function Composer({ session, working, machine, editorText = null }: Compo
                         aria-controls={undefined}
                         className="relative flex flex-col rounded-3xl border border-foreground/10 bg-card"
                     >
-                        {card}
+                        {runningBash !== null && (
+                            // The reader's own run, above the card where the command panel comes
+                            // from. Pi records it as an entry when it can (its own
+                            // `_pendingBashMessages` may defer that), and the chart takes the card
+                            // down when the entry of that command arrives (`bashAfter`).
+                            <div id="composer-run" className="absolute inset-x-0 bottom-full z-10 mb-2">
+                                <UserCommand
+                                    id="composer-run-card"
+                                    tool="bash"
+                                    presentation={presentRunningExecution(runningBash)}
+                                />
+                            </div>
+                        )}
+                        <AnimatePresence initial={false}>
+                            {staged.length > 0 && (
+                                <motion.div key="attachments" {...reveal} className="overflow-hidden">
+                                    <Attachments
+                                        className="mt-3"
+                                        items={staged}
+                                        onRemove={(id) =>
+                                            setStaged((current) => current.filter((item) => item.id !== id))
+                                        }
+                                    />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                        <Textarea
+                            id="composer-input"
+                            ref={input}
+                            value={value}
+                            rows={2}
+                            onChange={(event) => {
+                                setValue(event.target.value);
+                                setDismissed(false);
+                                // Words of the panel's own: the row under the keyboard starts
+                                // over, so the light is on the best match of the new search.
+                                setHighlighted(null);
+                                setPointed(null);
+                            }}
+                            onKeyDown={onKeyDown}
+                            placeholder="Message Pi, or type / for commands"
+                            aria-label="Your message"
+                            enterKeyHint="send"
+                            onFocus={(event) => {
+                                handleFocus();
+                                event.currentTarget.scrollIntoView({ block: "nearest" });
+                            }}
+                            onBlur={handleBlur}
+                            onPointerDown={handleFocus}
+                            className={cn(
+                                `
+                                    block h-15 max-h-15 min-h-15 resize-none rounded-none border-0 bg-transparent pt-3
+                                    pr-3 pb-0 pl-4 text-(length:--text-body-lg) leading-6
+                                    focus-visible:ring-0
+                                    md:text-(length:--text-body-lg) md:leading-6
+                                    dark:bg-transparent
+                                `,
+                                staged.length > 0 ? "mt-1" : "mt-3",
+                            )}
+                        />
+                        <div id="composer-controls" className="flex items-center justify-between p-3">
+                            <div id="composer-pickers" className="flex min-w-0 flex-1 items-center gap-2.5">
+                                <ModelPicker
+                                    session={session}
+                                    current={state.data?.model ?? null}
+                                    open={panel === "model"}
+                                    onOpenChange={(open) => setPanel(open ? "model" : null)}
+                                    onFocus={handleFocus}
+                                    onBlur={handleBlur}
+                                />
+                                <ThinkingLevelPicker
+                                    session={session}
+                                    current={state.data?.thinkingLevel ?? null}
+                                    open={panel === "thinking"}
+                                    onOpenChange={(open) => setPanel(open ? "thinking" : null)}
+                                    onFocus={handleFocus}
+                                    onBlur={handleBlur}
+                                />
+                            </div>
+                            <div id="composer-actions" className="flex shrink-0 items-center gap-2.5">
+                                <Button
+                                    id="composer-attach"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label="Attach images"
+                                    onClick={attach}
+                                    className="
+                                        size-8.5 shrink-0 rounded-full p-0 text-muted-foreground
+                                        hover:bg-accent/50 hover:text-foreground
+                                        dark:hover:bg-accent/50
+                                    "
+                                >
+                                    <Icon>
+                                        <Paperclip />
+                                    </Icon>
+                                </Button>
+                                <Button
+                                    id="composer-submit"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={stopShown ? "Stop" : "Send"}
+                                    className={cn(
+                                        "size-8.5 shrink-0 rounded-full p-0 disabled:opacity-100",
+                                        stopShown
+                                            ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                            : shellMode
+                                              ? "bg-surface-container-highest text-violet hover:bg-surface-bright"
+                                              : `
+                                                  bg-primary text-primary-foreground
+                                                  hover:bg-primary/90
+                                                  disabled:bg-foreground/12 disabled:text-foreground/40
+                                              `,
+                                    )}
+                                    disabled={!stopShown && !sendable}
+                                    onClick={() => (stopShown ? stop() : submit(false))}
+                                >
+                                    <AnimatePresence initial={false} mode="wait">
+                                        <motion.span key={stopShown ? "stop" : "send"} className="flex" {...swap}>
+                                            <Icon>{stopShown ? <Square /> : <ArrowUp />}</Icon>
+                                        </motion.span>
+                                    </AnimatePresence>
+                                </Button>
+                            </div>
+                        </div>
                     </div>
                 )}
                 nativeButton={false}

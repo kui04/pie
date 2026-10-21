@@ -26,6 +26,10 @@ export interface ThinkingLevelPickerProps {
     /** Whether the popup is open. The caller holds this, so one popup is open at a time. */
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    /** Called when the thinking picker gains focus. */
+    onFocus?: () => void;
+    /** Called when the thinking picker loses focus. */
+    onBlur?: () => void;
 }
 
 export function ThinkingLevelPicker({ session, current, open, onOpenChange }: ThinkingLevelPickerProps) {

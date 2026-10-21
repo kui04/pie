@@ -79,6 +79,70 @@ log.info("the reader's motion", {
     reduce: typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 });
 
+/**
+ * Visual viewport metrics written directly to root CSS variables (--vv-height,
+ * --vv-offset-top, --kb-inset).
+ *
+ * Keeps layout and keyboard insets in sync with the compositor across frames
+ * without routing high-frequency viewport animations through React.
+ */
+(() => {
+    const root = document.documentElement;
+    const KEYBOARD_THRESHOLD = 80;
+
+    const computeKeyboardInset = (offsetTop: number, height: number, scale: number): number => {
+        if (scale !== 1) return 0;
+        const innerHeight = window.innerHeight;
+        const inset = innerHeight - (offsetTop + height);
+        if (!Number.isFinite(inset) || inset < KEYBOARD_THRESHOLD) return 0;
+        return Math.round(inset);
+    };
+
+    let frame = 0;
+    const write = () => {
+        frame = 0;
+        const innerHeight = window.innerHeight;
+        const viewport = window.visualViewport;
+
+        if (viewport === null || viewport === undefined) {
+            root.style.setProperty("--vv-height", `${innerHeight}px`);
+            root.style.setProperty("--vv-offset-top", "0px");
+            root.style.setProperty("--kb-inset", "0px");
+            root.removeAttribute("data-keyboard-open");
+            return;
+        }
+
+        const top = Math.round(viewport.offsetTop ?? 0);
+        const height = Math.round(viewport.height);
+        const scale = viewport.scale ?? 1;
+        const inset = computeKeyboardInset(top, height, scale);
+
+        root.style.setProperty("--vv-height", `${height}px`);
+        root.style.setProperty("--vv-offset-top", `${top}px`);
+        root.style.setProperty("--kb-inset", `${inset}px`);
+        if (inset > 0) {
+            root.setAttribute("data-keyboard-open", "true");
+        } else {
+            root.removeAttribute("data-keyboard-open");
+        }
+    };
+
+    const schedule = () => {
+        if (frame !== 0) return;
+        frame = window.requestAnimationFrame(write);
+    };
+
+    write();
+
+    const viewport = window.visualViewport;
+    if (viewport !== null && viewport !== undefined) {
+        viewport.addEventListener("resize", schedule);
+        viewport.addEventListener("scroll", schedule);
+    }
+    window.addEventListener("resize", schedule);
+    document.addEventListener("visibilitychange", schedule);
+})();
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
         <QueryClientProvider client={queryClient}>

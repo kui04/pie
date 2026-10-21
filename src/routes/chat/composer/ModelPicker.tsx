@@ -22,7 +22,6 @@ import { cn } from "cn";
 import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
 import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 import { ScrollPane, Icon, TruncatedText } from "@/components";
-import { useKeyboardInset } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
@@ -36,9 +35,13 @@ export interface ModelPickerProps {
     /** Whether the popup is open. The caller holds this, so one popup is open at a time. */
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    /** Called when the search input gains focus. */
+    onFocus?: () => void;
+    /** Called when the search input loses focus. */
+    onBlur?: () => void;
 }
 
-export function ModelPicker({ session, current, open, onOpenChange }: ModelPickerProps) {
+export function ModelPicker({ session, current, open, onOpenChange, onFocus, onBlur }: ModelPickerProps) {
     const client = useQueryClient();
     const models = useQuery({ ...sessionQueries.models(session), enabled: open });
     const mark = useProviderLogo(current?.provider ?? null);
@@ -95,17 +98,12 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                 side="top"
                 align="center"
                 sideOffset={12}
-                // The draft's model popup is a fixed 240px (its own max-height), so the
-                // popup is the same shape whether a host offers three models or six
-                // hundred. The cap follows the visible viewport, so an open
-                // keyboard cannot push it off screen.
                 className={cn(
                     `
                         mx-2 flex h-60 max-h-[min(15rem,calc(100dvh-12rem))] w-68 flex-col gap-1 overflow-hidden
                         rounded-xl p-2 text-foreground
                     `,
                     COMPOSER_PANEL,
-                    "has-data-[popup-waiting=true]:opacity-0",
                 )}
             >
                 <ModelMenu
@@ -113,6 +111,8 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                     state={models.isPending ? "loading" : models.isError ? "failed" : "ready"}
                     value={value}
                     onChoose={pick}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
                 />
             </PopoverContent>
         </Popover>
@@ -127,6 +127,8 @@ interface ModelMenuProps {
     /** The model in use, by `choiceOf`, which leads the rows while nothing is typed. */
     value: string | null;
     onChoose: (choice: string) => void;
+    onFocus?: () => void;
+    onBlur?: () => void;
 }
 
 /**
@@ -140,13 +142,11 @@ interface ModelMenuProps {
  * A closed popup keeps nothing of it: Radix draws the content only while it is open, so
  * the list mounts with it and forgets what was typed in it.
  */
-function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
+function ModelMenu({ catalogue, state, value, onChoose, onFocus, onBlur }: ModelMenuProps) {
     const [query, setQuery] = useState("");
     const [cursor, setCursor] = useState<number | null>(null);
     const [hovered, setHovered] = useState<number | null>(null);
     const marks = useProviderMarks(catalogue);
-    const keyboardInset = useKeyboardInset();
-    const [waited, setWaited] = useState(false);
     const list = useRef<VirtualizerHandle>(null);
     const viewport = useRef<HTMLDivElement>(null);
     const search = useRef<HTMLInputElement>(null);
@@ -154,15 +154,11 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
 
     useEffect(() => {
         search.current?.focus({ preventScroll: true });
-    }, []);
-
-    // An on-screen keyboard reports a positive inset when it opens.
-    // Hold the popup out of sight until then, or until a short fallback, so it only
-    // appears once, in its final place.
-    useEffect(() => {
-        const timer = window.setTimeout(() => setWaited(true), 300);
-        return () => window.clearTimeout(timer);
-    }, []);
+        onFocus?.();
+        return () => {
+            onBlur?.();
+        };
+    }, [onFocus, onBlur]);
 
     // What the popup draws: the whole catalog, ordered by provider while nothing is
     // typed and ranked by pi's own matching once something is.
@@ -198,20 +194,12 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
 
     // A catalog that could not be read is not a search that found nothing: the popup says
     // what happened instead of offering a list of nothing, and there is nothing to search.
-    const popupVisible = waited || keyboardInset > 0;
     if (state === "failed") {
-        return (
-            <p
-                data-popup-waiting={popupVisible ? undefined : "true"}
-                className="px-2 py-4 text-center text-body-md text-muted-foreground"
-            >
-                Could not read the models.
-            </p>
-        );
+        return <p className="px-2 py-4 text-center text-body-md text-muted-foreground">Could not read the models.</p>;
     }
 
     return (
-        <div data-popup-waiting={popupVisible ? undefined : "true"} className="flex min-h-0 flex-1 flex-col gap-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-1">
             <div
                 className="
                     flex items-center gap-2 rounded-lg border border-border-strong bg-surface-container-highest p-2
@@ -223,13 +211,15 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                 <input
                     ref={search}
                     role="combobox"
-                    data-composer-field=""
                     aria-expanded
                     aria-controls={listId}
                     aria-activedescendant={lit < 0 ? undefined : `${listId}-${lit}`}
                     aria-autocomplete="list"
                     aria-label="Search models"
                     value={query}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                    onPointerDown={onFocus}
                     onChange={(event) => {
                         setQuery(event.target.value);
                         // The best match of the new search, as pi's selector lights it.

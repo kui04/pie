@@ -109,6 +109,32 @@ export function SessionTranscript({
         };
     }, []);
 
+    // Keep the end in view when the on-screen keyboard resizes the visual viewport.
+    useEffect(() => {
+        const vv = window.visualViewport;
+        let frame: number | null = null;
+        const reanchor = () => {
+            const element = viewport.current;
+            if (element === null || !follow.current) return;
+            element.scrollTop = element.scrollHeight;
+            if (frame !== null) cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                frame = null;
+                if (viewport.current === element && follow.current) {
+                    element.scrollTop = element.scrollHeight;
+                }
+            });
+        };
+        vv?.addEventListener("resize", reanchor);
+        window.addEventListener("resize", reanchor);
+        return () => {
+            if (frame !== null) cancelAnimationFrame(frame);
+            vv?.removeEventListener("resize", reanchor);
+            window.removeEventListener("resize", reanchor);
+        };
+    }, []);
+
+    // Re-anchor scroll before paint when rows change, and confirm after virtua measures.
     useLayoutEffect(() => {
         const element = viewport.current;
         if (element === null) return;

@@ -22,7 +22,7 @@ import {
     DrawerFooter,
     DrawerTitle,
 } from "@/components/ui";
-import { useIsMobile, useVisualViewport } from "@/hooks";
+import { useIsMobile } from "@/hooks";
 import { Icon } from "../Icon";
 import { DialogFrameContext } from "./context";
 
@@ -89,26 +89,22 @@ export function DialogFrame({
 }: DialogFrameProps) {
     const mobileIs = useIsMobile();
     const mobile = isMobile ?? mobileIs;
-    const { offsetTop, keyboardInset } = useVisualViewport();
     const generated = useId();
     const baseId = id ?? generated;
     const descriptionId = `${baseId}-description`;
     const hasDescription = description !== undefined && description !== null;
     const hasChildren = children !== undefined && children !== null && children !== false;
     const ariaDescribedBy = hasDescription ? descriptionId : describedBy;
-    const titleClass = "text-(length:--text-title-md) leading-6 font-normal";
-    const drawerStyle =
-        keyboardInset > 0
-            ? fitKeyboard
-                ? {
-                      ...style,
-                      bottom: keyboardInset,
-                      maxHeight: `calc(100dvh - ${keyboardInset}px - env(safe-area-inset-top, 0px))`,
-                  }
-                : offsetTop > 0
-                  ? { ...style, bottom: -offsetTop }
-                  : style
-            : style;
+    const drawerStyle = fitKeyboard
+        ? {
+              ...style,
+              bottom: "var(--kb-inset, 0px)",
+              maxHeight: "calc(100dvh - var(--kb-inset, 0px) - env(safe-area-inset-top, 0px))",
+          }
+        : {
+              ...style,
+              bottom: "calc(-1 * var(--vv-offset-top, 0px))",
+          };
 
     const closeKey = (host: "drawer" | "dialog") => (
         <Button
@@ -134,7 +130,7 @@ export function DialogFrame({
                         className={cn(
                             `
                                 border-border bg-card px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none
-                                data-nested-drawer-open:opacity-0
+                                data-[nested-drawer-open]:opacity-0
                             `,
                             className,
                             drawerClassName,
@@ -144,11 +140,19 @@ export function DialogFrame({
                     >
                         {showClose ? (
                             <div className={cn("flex items-center justify-between gap-2", showSwipeHandle && "mt-4")}>
-                                <DrawerTitle className={titleClass}>{title}</DrawerTitle>
+                                <DrawerTitle className="text-(length:--text-title-md) leading-6 font-normal">
+                                    {title}
+                                </DrawerTitle>
                                 {closeKey("drawer")}
                             </div>
                         ) : (
-                            <DrawerTitle className={cn(titleClass, showSwipeHandle && "mt-4")}>{title}</DrawerTitle>
+                            <DrawerTitle
+                                className={cn(
+                                    showSwipeHandle && "mt-4 text-(length:--text-title-md) leading-6 font-normal",
+                                )}
+                            >
+                                {title}
+                            </DrawerTitle>
                         )}
                         {hasDescription && (
                             <DrawerDescription
@@ -187,11 +191,15 @@ export function DialogFrame({
                 >
                     {showClose ? (
                         <div className="flex items-center justify-between gap-2">
-                            <DialogTitle className={titleClass}>{title}</DialogTitle>
+                            <DialogTitle className="text-(length:--text-title-md) leading-6 font-normal">
+                                {title}
+                            </DialogTitle>
                             {closeKey("dialog")}
                         </div>
                     ) : (
-                        <DialogTitle className={titleClass}>{title}</DialogTitle>
+                        <DialogTitle className="text-(length:--text-title-md) leading-6 font-normal">
+                            {title}
+                        </DialogTitle>
                     )}
                     {hasDescription && (
                         <DialogDescription

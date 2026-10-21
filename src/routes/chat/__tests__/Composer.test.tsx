@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
 import { sessionMachine } from "@/machines/session.machine";
-import { Composer } from "@/routes/chat/composer/Composer";
+import { Composer, type ComposerProps } from "@/routes/chat/composer/Composer";
 import { bashExecution, chain, messageEntry, slashCommand } from "@/preview/fixtures";
 
 type Call = (...args: unknown[]) => Promise<unknown>;
@@ -58,13 +58,13 @@ function chart() {
  * The composer with a client above it and the run phase the workspace hands it.
  * Nothing here starts pi: the bridge is what a test tells it to be.
  */
-function renderComposer(phase: "idle" | "working" = "idle") {
+function renderComposer(phase: "idle" | "working" = "idle", props: Partial<ComposerProps> = {}) {
     const client = new QueryClient(queryDefaults);
     const machine = chart();
     const view = render(
         <QueryClientProvider client={client}>
             <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
-                <Composer session="main:1" working={phase !== "idle"} machine={machine} />
+                <Composer session="main:1" working={phase !== "idle"} machine={machine} {...props} />
             </div>
         </QueryClientProvider>,
     );
@@ -435,5 +435,54 @@ describe("the pictures of a message", () => {
 
         await waitFor(() => expect(box()).toHaveValue("look"));
         expect(screen.getByText("workspace.png")).toBeInTheDocument();
+    });
+});
+
+describe("the focus of the composer", () => {
+    it("reports focus when an editable field is focused", () => {
+        const onFocus = vi.fn();
+        const onFocusChange = vi.fn();
+        renderComposer("idle", { onFocus, onFocusChange });
+
+        fireEvent.focus(box());
+
+        expect(onFocus).toHaveBeenCalledTimes(1);
+        expect(onFocusChange).toHaveBeenCalledWith(true);
+    });
+
+    it("reports focus immediately on pointerdown", () => {
+        const onFocus = vi.fn();
+        const onFocusChange = vi.fn();
+        renderComposer("idle", { onFocus, onFocusChange });
+
+        fireEvent.pointerDown(box());
+
+        expect(onFocus).toHaveBeenCalledTimes(1);
+        expect(onFocusChange).toHaveBeenCalledWith(true);
+    });
+
+    it("reports blur when focus leaves composer fields", async () => {
+        const onBlur = vi.fn();
+        const onFocusChange = vi.fn();
+        renderComposer("idle", { onBlur, onFocusChange });
+
+        fireEvent.focus(box());
+        fireEvent.blur(box());
+
+        await waitFor(() => {
+            expect(onBlur).toHaveBeenCalledTimes(1);
+            expect(onFocusChange).toHaveBeenLastCalledWith(false);
+        });
+    });
+
+    it("ignores focus on non-composer buttons", () => {
+        const onFocus = vi.fn();
+        const onFocusChange = vi.fn();
+        renderComposer("idle", { onFocus, onFocusChange });
+
+        fireEvent.focus(screen.getByRole("button", { name: "Attach images" }));
+
+        expect(onFocus).not.toHaveBeenCalled();
+        expect(onFocusChange).not.toHaveBeenCalled();
     });
 });
