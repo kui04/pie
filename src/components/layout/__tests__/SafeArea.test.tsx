@@ -11,38 +11,54 @@ import { SafeArea } from "@/components/layout/SafeArea";
 
 afterEach(cleanup);
 
+function inset(element: Element | null, side: "top" | "right" | "bottom" | "left"): string {
+    return element instanceof HTMLElement ? element.style.getPropertyValue(`--safe-area-${side}`) : "";
+}
+
 describe("SafeArea", () => {
     it("keeps both ends of a column by default", () => {
         const { container } = render(<SafeArea id="panel" />);
+        const panel = container.querySelector("#panel");
 
-        expect(container.querySelector("#panel")?.className).toContain("pt-safe");
-        expect(container.querySelector("#panel")?.className).toContain("pb-safe");
+        expect(inset(panel, "top")).toBe("env(safe-area-inset-top, 0px)");
+        expect(inset(panel, "bottom")).toBe("env(safe-area-inset-bottom, 0px)");
+        expect(inset(panel, "left")).toBe("");
+        expect(inset(panel, "right")).toBe("");
+        expect(panel instanceof HTMLElement ? panel.style.paddingTop : "").toBe("var(--safe-area-top)");
+        expect(panel instanceof HTMLElement ? panel.style.paddingBottom : "").toBe("var(--safe-area-bottom)");
     });
 
     it("keeps the side it is asked for, and no other", () => {
         const top = render(<SafeArea id="bar" side="top" />);
-        expect(top.container.querySelector("#bar")?.className).toContain("pt-safe");
-        expect(top.container.querySelector("#bar")?.className).not.toContain("pb-safe");
+        expect(inset(top.container.querySelector("#bar"), "top")).toBe("env(safe-area-inset-top, 0px)");
+        expect(inset(top.container.querySelector("#bar"), "bottom")).toBe("");
         top.unmount();
 
         const bottom = render(<SafeArea id="band" side="bottom" />);
-        expect(bottom.container.querySelector("#band")?.className).toContain("pb-safe");
-        expect(bottom.container.querySelector("#band")?.className).not.toContain("pt-safe");
+        expect(inset(bottom.container.querySelector("#band"), "bottom")).toBe("env(safe-area-inset-bottom, 0px)");
+        expect(inset(bottom.container.querySelector("#band"), "top")).toBe("");
         bottom.unmount();
 
         const all = render(<SafeArea id="screen" side="all" />);
-        expect(all.container.querySelector("#screen")?.className).toContain("pl-safe");
-        expect(all.container.querySelector("#screen")?.className).toContain("pr-safe");
+        expect(inset(all.container.querySelector("#screen"), "left")).toBe("env(safe-area-inset-left, 0px)");
+        expect(inset(all.container.querySelector("#screen"), "right")).toBe("env(safe-area-inset-right, 0px)");
     });
 
     it("is the caller's element in everything but the insets", () => {
         const { container } = render(
-            <SafeArea id="list" side="vertical" className="flex flex-col bg-surface-dim" data-testid="probe" />,
+            <SafeArea
+                id="list"
+                side="vertical"
+                className="flex flex-col bg-surface-dim"
+                style={{ color: "red" }}
+                data-testid="probe"
+            />,
         );
 
         const element = container.querySelector("#list");
         expect(element?.className).toContain("bg-surface-dim");
         expect(element?.className).toContain("flex");
         expect(element?.getAttribute("data-testid")).toBe("probe");
+        expect(element instanceof HTMLElement ? element.style.color : "").toBe("red");
     });
 });

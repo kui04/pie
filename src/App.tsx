@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { motion } from "motion/react";
 import { AppRoutes } from "@/routes/AppRoutes";
 import { Toaster } from "@/components/ui";
-import { useMotion, usePlatformResource, useSessionSync } from "@/hooks";
+import { useMotion, usePlatformResource, useSessionSync, useVisualViewport } from "@/hooks";
 
 function App() {
     return (
@@ -15,6 +15,7 @@ function App() {
 function AppShell() {
     const platform = usePlatformResource();
     const { shell } = useMotion();
+    const { offsetLeft, offsetTop, width, height } = useVisualViewport();
     // The charts of the sessions follow the connection, not a screen: they live here, beside
     // the routes, so a run continues while another conversation is in view.
     useSessionSync();
@@ -23,7 +24,12 @@ function AppShell() {
     if (platform === null) return null;
 
     return (
-        <motion.div id="app-root" {...shell} className="flex h-svh w-svw flex-col overflow-hidden font-sans">
+        <motion.div
+            id="app-root"
+            {...shell}
+            className="fixed flex flex-col overflow-hidden font-sans"
+            style={{ left: offsetLeft, top: offsetTop, width, height }}
+        >
             <AppRoutes />
             <Toaster position="top-center" mobileOffset={{ top: "calc(1rem + env(safe-area-inset-top))" }} />
         </motion.div>

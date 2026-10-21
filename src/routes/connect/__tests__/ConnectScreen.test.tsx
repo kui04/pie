@@ -413,7 +413,7 @@ describe("ConnectScreen", () => {
 
         await user.clear(screen.getByLabelText("Address"));
         await paste(user, "Address", "pi@192.168.1.10");
-        expect(await screen.findByText("Enter the password.")).toBeInTheDocument();
+        expect(screen.queryByText("Enter the password.")).not.toBeInTheDocument();
 
         await user.click(screen.getByRole("radio", { name: "Private key" }));
         expect(await screen.findByText("Paste the key, or choose a key file.")).toBeInTheDocument();
@@ -442,10 +442,11 @@ describe("ConnectScreen", () => {
         renderGate(stubBridge({ connect: vi.fn(never) }).deps);
 
         // The host comes back; pie keeps no secret, so the password is typed
-        // again and the card asks for it.
+        // again. The empty field is reason enough to keep Connect off, without a
+        // hint line that would move the card.
         expect(screen.getByLabelText("Address")).toHaveValue("pi@box.example:2222");
         expect(screen.getByLabelText("Password")).toHaveValue("");
-        expect(await screen.findByText("Enter the password.")).toBeInTheDocument();
+        expect(CONNECT()).toBeDisabled();
     });
 
     it("puts the host key up while the handshake waits, and can trust it", async () => {
@@ -535,9 +536,11 @@ describe("ConnectScreen", () => {
         expect(container.querySelector("#topbar")).not.toBeNull();
         expect(container.querySelector("#window_controllers")).toBeNull();
         // The page is the safe area: the room is taken once, by the column.
-        expect(container.querySelector("#safe-main")?.className.split(" ")).toEqual(
-            expect.arrayContaining(["pt-safe", "pb-safe", "pl-safe", "pr-safe"]),
-        );
+        const safe = container.querySelector<HTMLElement>("#safe-main");
+        expect(safe?.style.getPropertyValue("--safe-area-top")).toBe("env(safe-area-inset-top, 0px)");
+        expect(safe?.style.getPropertyValue("--safe-area-bottom")).toBe("env(safe-area-inset-bottom, 0px)");
+        expect(safe?.style.getPropertyValue("--safe-area-left")).toBe("env(safe-area-inset-left, 0px)");
+        expect(safe?.style.getPropertyValue("--safe-area-right")).toBe("env(safe-area-inset-right, 0px)");
     });
 
     it("asks for no host key at all until one is actually presented", () => {

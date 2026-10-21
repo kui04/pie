@@ -1,7 +1,7 @@
 import { useMachine } from "@xstate/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { useIsMobile, useVisualViewport } from "@/hooks";
+import { useIsMobile } from "@/hooks";
 
 import { ConnectionCard, type ConnectionForm } from "@/routes/connect/ConnectionCard";
 import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
@@ -113,13 +113,15 @@ function parseSshAddress(address: string): { user: string; host: string; port?: 
  *
  * Connect stays off while this answers, and a button that is off without a
  * reason is where a first run ends. Therefore the card says what it waits for,
- * naming the field, in the order the fields are read.
+ * naming the field, in the order the fields are read. The password is the
+ * exception: the field already says it is empty, and a line that comes and goes
+ * would make the card jump.
  */
 function missingFor(form: ConnectionForm): string | null {
     if (form.transport === "local") return null;
     if (form.address.trim() === "") return "Enter the address of the host.";
     if (parseSshAddress(form.address) === undefined) return "Write the address as user@host.";
-    if (form.auth === "password") return form.password === "" ? "Enter the password." : null;
+    if (form.auth === "password") return null;
     return form.privateKeyMaterial.trim() === "" ? "Paste the key, or choose a key file." : null;
 }
 
@@ -194,8 +196,6 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const { pickPrivateKey } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
-    const keyboardInset = useVisualViewport().inset;
-
     // The host of the last connection, as the card opens on it. Read once, for
     // the first contents of the form; a dial that answers replaces it below.
     const remembered = useHostStore((state) => state.lastHost);
@@ -249,19 +249,13 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                 <div
                     id="topbar"
                     data-tauri-drag-region="deep"
-                    className="
-                        absolute inset-x-0 top-0 z-10 flex min-h-11 items-center gap-1 px-3 pt-safe pr-safe pl-safe
-                    "
+                    className="absolute inset-x-0 top-0 z-10 flex min-h-11 items-center gap-1 px-3"
                 >
                     {!isMobile && <WindowControls />}
                 </div>
                 <div
                     id="connection-panel"
                     className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden p-4"
-                    // The card is centred, so a keyboard that overlays the layout
-                    // would cover its lower fields. The pad only applies where
-                    // the layout did not already shrink for the keyboard.
-                    style={{ paddingBottom: `calc(1rem + ${keyboardInset}px)` }}
                 >
                     <ConnectionCard
                         form={form}

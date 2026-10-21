@@ -5,7 +5,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
 import { connectionQueries, sessionQueries } from "@/lib/query";
-import { useMotion, useWideWindow } from "@/hooks";
+import { useMotion, useWindowSize } from "@/hooks";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
@@ -28,7 +28,8 @@ const COLUMN = "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 export function ChatScreen() {
     const connection = useQuery(connectionQueries.current());
     const client = useQueryClient();
-    const wide = useWideWindow();
+    const { windowWidth } = useWindowSize();
+    const wide = windowWidth >= 1024;
     const { stage: pageOf } = useMotion();
 
     const deps = useMemo<ChatDeps>(
@@ -94,6 +95,10 @@ export function ChatScreen() {
     // The popup of the conversation's own actions, at the end of the bar.
     const [menu, setMenu] = useState(false);
     const toggleSessions = () => (wide ? setColumn((open) => !open) : setSheet(true));
+    // The picker is its own modal layer. The list steps aside while it is open
+    // and comes back if the picker is dismissed, so a resumed app keeps one
+    // modal at a time.
+    const openPicker = () => setPicking(true);
 
     // A connection that was replaced never held the session in view: the reach was brought
     // back, and every pi of the old one went with it. The list of the connection says so, and
@@ -161,7 +166,7 @@ export function ChatScreen() {
                     endpoint={endpoint}
                     attached={attached}
                     onPick={open}
-                    onNew={() => setPicking(true)}
+                    onNew={openPicker}
                     wide={wide}
                     column={column}
                     sheet={sheet}
@@ -209,6 +214,7 @@ export function ChatScreen() {
                 open={picking}
                 onOpenChange={setPicking}
                 onPick={(cwd) => {
+                    setSheet(false);
                     setPicking(false);
                     machine.send({ type: "ATTACH", cwd });
                 }}
@@ -252,6 +258,6 @@ export function ChatScreen() {
             return <SessionMain session={session} client={client} />;
         }
 
-        return <SessionLanding onSessions={toggleSessions} onNew={() => setPicking(true)} />;
+        return <SessionLanding onSessions={toggleSessions} onNew={openPicker} />;
     }
 }

@@ -103,19 +103,21 @@ function noSessionYet(): void {
 /**
  * A window of a stated width, and the way back to the real one.
  *
- * The workspace asks the width itself (the list is a panel of its own from `lg`),
- * and this environment answers one width for every query: without this, a test of
- * either shape would be a test of whichever the environment happens to report.
+ * The workspace reads the layout width itself (the list is a panel of its own
+ * from `lg`): without this, a test of either shape would be a test of whichever
+ * width the environment happens to report.
  */
 function windowOf(width: "narrow" | "wide"): () => void {
-    const list = {
-        matches: width === "wide",
-        media: "(min-width: 64rem)",
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-    } as unknown as MediaQueryList;
-    vi.spyOn(window, "matchMedia").mockReturnValue(list);
-    return () => vi.restoreAllMocks();
+    const original = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+        value: width === "wide" ? 1280 : 800,
+        configurable: true,
+    });
+    window.dispatchEvent(new Event("resize"));
+    return () => {
+        Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
+        window.dispatchEvent(new Event("resize"));
+    };
 }
 
 /**
@@ -229,7 +231,7 @@ async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
     const view = renderScreen();
     // A narrow window keeps the list in a sheet, and the bar's key opens it; a wide
     // one shows the list in a column of its own, where the row is already drawn.
-    if (!window.matchMedia("(min-width: 64rem)").matches) {
+    if (window.innerWidth < 1024) {
         fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
     }
     // The name of a row carries its mark as well (`Fix the parser attached`), so the lookup
@@ -413,6 +415,21 @@ describe("ChatScreen", () => {
         fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
         // The sheet carries the same list the column would.
         expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+        restore();
+    });
+
+    it("keeps the session sheet open while the folder picker is up", async () => {
+        const restore = windowOf("narrow");
+        bridge.listSessions.mockResolvedValue([]);
+
+        renderScreen();
+        fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
+        const sheet = await screen.findByRole("dialog");
+
+        fireEvent.click(within(sheet).getByRole("button", { name: "New Conversation" }));
+
+        expect(await screen.findByText("Choose a folder")).toBeInTheDocument();
+        expect(document.getElementById("session-sheet")).not.toBeNull();
         restore();
     });
 
@@ -1001,10 +1018,12 @@ describe("the window the chat draws", () => {
         await screen.findByText(/There are many agent harnesses/);
 
         // The page is the safe area, so the room is taken once, by the column.
-        expect(container.querySelector("#safe-main")?.className.split(" ")).toEqual(
-            expect.arrayContaining(["pt-safe", "pb-safe", "pl-safe", "pr-safe"]),
-        );
-        expect(container.querySelector("#topbar")?.className.split(" ")).not.toContain("pt-safe");
+        const safe = container.querySelector<HTMLElement>("#safe-main");
+        expect(safe?.style.getPropertyValue("--safe-area-top")).toBe("env(safe-area-inset-top, 0px)");
+        expect(safe?.style.getPropertyValue("--safe-area-bottom")).toBe("env(safe-area-inset-bottom, 0px)");
+        expect(safe?.style.getPropertyValue("--safe-area-left")).toBe("env(safe-area-inset-left, 0px)");
+        expect(safe?.style.getPropertyValue("--safe-area-right")).toBe("env(safe-area-inset-right, 0px)");
+        expect(container.querySelector<HTMLElement>("#topbar")?.style.paddingTop).toBe("");
     });
 
     it("keeps the window's keys to a desktop, and the page's slots everywhere", async () => {

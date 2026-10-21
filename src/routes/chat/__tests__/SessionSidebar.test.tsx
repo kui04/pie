@@ -75,22 +75,18 @@ async function previewCard() {
 }
 
 /** A window that answers one query, and can be told to change its answer. */
-function windowThatMatches() {
-    const listeners: Array<() => void> = [];
-    let matches = false;
-    const list = {
-        get matches() {
-            return matches;
-        },
-        media: "(min-width: 64rem)",
-        addEventListener: (_: string, listener: () => void) => listeners.push(listener),
-        removeEventListener: () => undefined,
-    } as unknown as MediaQueryList;
-    vi.spyOn(window, "matchMedia").mockReturnValue(list);
+function windowThatGrows() {
+    const original = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 800, configurable: true });
+    window.dispatchEvent(new Event("resize"));
     return {
         becomeWide: () => {
-            matches = true;
-            for (const listener of listeners) listener();
+            Object.defineProperty(window, "innerWidth", { value: 1280, configurable: true });
+            window.dispatchEvent(new Event("resize"));
+        },
+        restore: () => {
+            Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
+            window.dispatchEvent(new Event("resize"));
         },
     };
 }
@@ -109,9 +105,9 @@ describe("SessionSidebar", () => {
         // room is the page's in the column (the column's page is a `SafeArea`) and the
         // sheet's own in the sheet: the panel itself takes no side, or a phone would
         // keep the status bar's room twice.
-        const root = document.querySelector("#session-drawer");
-        expect(root?.className).not.toContain("pt-safe");
-        expect(root?.className).not.toContain("pb-safe");
+        const root = document.querySelector<HTMLElement>("#session-drawer");
+        expect(root?.style.paddingTop).toBe("");
+        expect(root?.style.paddingBottom).toBe("");
     });
 
     it("paints the sheet's safe area with its own surface", () => {
@@ -464,7 +460,7 @@ describe("SessionSidebar", () => {
     });
 
     it("lets go of the sheet when the window reaches the width of the column", async () => {
-        const window_ = windowThatMatches();
+        const window_ = windowThatGrows();
         const closed = vi.fn();
 
         renderSidebar({ wide: false, column: false, sheet: true, onOpenSheet: closed });
@@ -478,7 +474,7 @@ describe("SessionSidebar", () => {
         // be touched. This is what closes it instead. The width is read through a
         // store, so the re-render it causes is what the wait is for.
         await waitFor(() => expect(closed).toHaveBeenCalledWith(false));
-        vi.restoreAllMocks();
+        window_.restore();
     });
 
     it("keeps the sheet's own side of the system bars, where the page's room cannot reach", async () => {
@@ -489,6 +485,9 @@ describe("SessionSidebar", () => {
         // under the system bars.
         const panel = (await screen.findByText("No sessions yet")).closest("#session-sheet-drawer") as HTMLElement;
         expect(panel).not.toBeNull();
-        expect(panel.parentElement?.className.split(" ")).toEqual(expect.arrayContaining(["pt-safe", "pb-safe"]));
+        expect(panel.parentElement?.style.getPropertyValue("--safe-area-top")).toBe("env(safe-area-inset-top, 0px)");
+        expect(panel.parentElement?.style.getPropertyValue("--safe-area-bottom")).toBe(
+            "env(safe-area-inset-bottom, 0px)",
+        );
     });
 });

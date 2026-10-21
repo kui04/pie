@@ -83,9 +83,10 @@ export const SshWithoutAddress: Story = {
     args: { form: { ...LOCAL, transport: "ssh" }, canConnect: false, missing: "Enter the address of the host." },
 };
 
-/** A host named, the secret still to type: the same slot asks for the password. */
+/** A host named, the secret still to type: the hint slot stays empty instead of
+ *  moving the card when the password changes. */
 export const SshWithoutPassword: Story = {
-    args: { form: { ...SSH_PASSWORD, password: "" }, canConnect: false, missing: "Enter the password." },
+    args: { form: { ...SSH_PASSWORD, password: "" }, canConnect: false, missing: null },
 };
 
 /** A key pasted in rather than named: the source toggle has moved, and the

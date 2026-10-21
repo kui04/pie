@@ -26,7 +26,7 @@ import {
     Skeleton,
 } from "@/components/ui";
 import { SafeArea, ScrollPane, Icon, TruncatedText } from "@/components";
-import { useLongPress, useMotion, useWideWindow } from "@/hooks";
+import { useLongPress, useMotion, useWindowSize } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { directoryQueries, sessionsQueries } from "@/lib/query";
 import { SessionMenu } from "@/routes/chat/SessionMenu";
@@ -403,7 +403,7 @@ function shapeFor(height: number): Array<{ heading: string; sessions: string[] }
  * From `lg` the list is the column instead, and the button that opens this sheet
  * lives below that breakpoint. A window that grows past it lets the sheet go: a
  * hidden sheet is not a closed one, and the body has no pointer events of its own
- * while a modal is up (see `useViewport.ts`).
+ * while a modal is up.
  */
 function SessionSheet({
     id,
@@ -420,7 +420,8 @@ function SessionSheet({
     /** Merged last, so a caller can overrule the frame (a preview pins it open). */
     className?: string;
 }) {
-    const wide = useWideWindow();
+    const { windowWidth } = useWindowSize();
+    const wide = windowWidth >= 1024;
 
     useEffect(() => {
         if (wide) onOpenChange(false);

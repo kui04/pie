@@ -232,7 +232,7 @@
   /*
    * The document is the window, and the window does not scroll.
    *
-   * The shell is `h-svh` and clips its own overflow, so a page that could
+   * The shell fills the window and clips its own overflow, so a page that could
    * scroll would only drag the window off its own frame - and the bar over the
    * chat is the only handle a window without decorations has. `clip` rather than
    * `hidden`: a hidden box is still a scroll container, so a focus or a
@@ -241,17 +241,47 @@
    */
   html,
   body {
+    width: 100%;
     height: 100%;
     overflow: hidden;
     overflow: clip;
+    overscroll-behavior: none;
   }
 
   body {
+    position: fixed;
+    inset: 0;
     background-color: var(--background);
     color: var(--foreground);
-    /* The drawer overlay is absolutely positioned; without this it cannot
-       cover the viewport on iOS Safari once the page has scrolled. */
-    position: relative;
+  }
+
+  #root,
+  #app-root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* The shell owns the window; a scroll is a local pane, never the document. */
+  html,
+  body,
+  #root,
+  #app-root {
+    touch-action: none;
+  }
+
+  [data-slot="scroll-area-viewport"],
+  [data-slot="message-scroller-viewport"],
+  [data-slot="drawer-popup"] {
+    touch-action: pan-x pan-y;
+    overscroll-behavior: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    touch-action: auto;
   }
 
   /*
@@ -435,32 +465,6 @@
  */
 @utility trim {
   text-box: trim-both cap alphabetic;
-}
-
-/*
- * The room a phone's system bars take, as the engine reports it.
- *
- * Android enforces edge to edge from target 35, so the panes paint under the
- * status and the navigation bar and only what lies in them has to keep out.
- * The webview hands those bars to the page as `safe-area-inset-*` once the
- * window is edge to edge and the viewport says `viewport-fit=cover` (M144;
- * M136 only where the whole window is fullscreen). Everywhere else - a desktop
- * window - all four are zero, which is what the fallback is for.
- */
-@utility pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
-}
-
-@utility pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-@utility pl-safe {
-  padding-left: env(safe-area-inset-left, 0px);
-}
-
-@utility pr-safe {
-  padding-right: env(safe-area-inset-right, 0px);
 }
 
 /**

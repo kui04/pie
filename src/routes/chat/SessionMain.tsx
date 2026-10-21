@@ -16,7 +16,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui";
-import { useExtensionUi, useMotion, useSession, useVisualViewport } from "@/hooks";
+import { useExtensionUi, useMotion, useSession, useVirtualKeyboardInset } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
 import { sessionOf, subscribeSessions, type SessionRef } from "@/lib/session";
@@ -59,7 +59,7 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
     const { phase, working, state, entries, stats, ready, error, reopen } = useSession(session, machine);
     const extension = useExtensionUi(session);
     const { stage: page, slot } = useMotion();
-    const keyboardInset = useVisualViewport().inset;
+    const keyboardInset = useVirtualKeyboardInset().insetHeight;
     const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
     const live = useSelector(machine, (snapshot) => snapshot.context.live);
     const queued = useSelector(machine, (snapshot) => snapshot.context.queued);
