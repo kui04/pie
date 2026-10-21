@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "cn";
 import { Virtualizer } from "virtua";
@@ -59,6 +59,7 @@ export function SessionTranscript({
     const viewport = useRef<HTMLDivElement>(null);
     const follow = useRef(true);
     const lastScroll = useRef(0);
+    const resizeFrame = useRef<number | null>(null);
     // One turn's work is one block: the rows are folded before virtua sees them, so a
     // long session draws headings and answers rather than a card per call. The run is
     // at work on its own last turn, which is the one the line under the list names.
@@ -68,6 +69,22 @@ export function SessionTranscript({
     // Virtua drop the rest of its window, and the reader loses the history above it.
     const keepMounted = useMemo(() => (working ? slots.map((_, index) => index) : undefined), [working, slots]);
 
+    const seekEnd = useCallback(() => {
+        const element = viewport.current;
+        if (element === null || !follow.current) return;
+        element.scrollTop = element.scrollHeight;
+    }, []);
+
+    const onResize = useCallback(() => {
+        if (!follow.current) return;
+        seekEnd();
+        if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
+        resizeFrame.current = requestAnimationFrame(() => {
+            resizeFrame.current = null;
+            seekEnd();
+        });
+    }, [seekEnd]);
+
     // Virtua remeasures while a live turn grows. Keep the reader's place if they
     // have left the end, and keep the end in view while they are following it.
     useEffect(() => {
@@ -76,7 +93,11 @@ export function SessionTranscript({
         const atEnd = () => element.scrollHeight - element.scrollTop - element.clientHeight <= 24;
         let touched = 0;
         const onScroll = () => {
-            lastScroll.current = element.scrollTop;
+            const current = element.scrollTop;
+            if (current < lastScroll.current - 24 && !atEnd()) {
+                follow.current = false;
+            }
+            lastScroll.current = current;
             // Content growth while following the end must not take the lock away.
             if (atEnd()) follow.current = true;
         };
@@ -101,6 +122,7 @@ export function SessionTranscript({
         element.addEventListener("keydown", onKeyDown);
         onScroll();
         return () => {
+            if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
             element.removeEventListener("scroll", onScroll);
             element.removeEventListener("wheel", onWheel);
             element.removeEventListener("touchstart", onTouchStart);
@@ -148,7 +170,7 @@ export function SessionTranscript({
     }, [rows, viewportHeight]);
 
     return (
-        <MessageScrollerProvider autoScroll={false}>
+        <MessageScrollerProvider autoScroll={false} scrollEdgeThreshold={24}>
             <MessageScroller id="transcript-list" className={cn("min-h-0 flex-1", className)}>
                 <ScrollPane
                     className="min-h-0 w-full flex-1 rounded-b-lg"
@@ -164,7 +186,13 @@ export function SessionTranscript({
                         {/* Headroom for the bar above and the fade below it; four
                             lines of legroom above the composer's fade. */}
                         <div className="mx-auto w-full max-w-5xl px-4 pt-5 pb-20">
-                            <Virtualizer data={slots} bufferSize={AHEAD} keepMounted={keepMounted} scrollRef={viewport}>
+                            <Virtualizer
+                                data={slots}
+                                bufferSize={AHEAD}
+                                keepMounted={keepMounted}
+                                scrollRef={viewport}
+                                onResize={onResize}
+                            >
                                 {(slot, index) => (
                                     // Keyed by the row or the turn: virtua draws by position, and
                                     // React would otherwise keep a fold's state (an open body, a
@@ -193,6 +221,9 @@ export function SessionTranscript({
                     variant="ghost"
                     size="sm"
                     aria-label="To bottom"
+                    onClick={() => {
+                        follow.current = true;
+                    }}
                     // One control at every width, a pill that says what it does. It is flat
                     // like the composer: a card with the same hairline, and no shadow. Both
                     // hovers keep the card fill, because the variant's own dark hover is `muted`

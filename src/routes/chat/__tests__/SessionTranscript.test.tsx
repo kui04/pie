@@ -14,6 +14,7 @@ interface Handed {
     bufferSize?: number;
     itemSize?: number;
     count?: number;
+    onResize?: () => void;
 }
 
 const handed: Handed = {};
@@ -25,17 +26,20 @@ vi.mock("virtua", () => ({
         scrollRef,
         bufferSize,
         itemSize,
+        onResize,
     }: {
         children: (row: TranscriptRow) => ReactNode;
         data: TranscriptRow[];
         scrollRef?: RefObject<HTMLElement | null>;
         bufferSize?: number;
         itemSize?: number;
+        onResize?: () => void;
     }) => {
         handed.scrollRef = scrollRef;
         handed.bufferSize = bufferSize;
         handed.itemSize = itemSize;
         handed.count = data.length;
+        handed.onResize = onResize;
         // The library's own container: the rows stand in a box of their own inside the
         // region, never among the region's children.
         return <div data-slot="virtua">{data.map((row) => children(row))}</div>;
@@ -60,6 +64,7 @@ beforeEach(() => {
     handed.bufferSize = undefined;
     handed.itemSize = undefined;
     handed.count = undefined;
+    handed.onResize = undefined;
 });
 
 describe("SessionTranscript", () => {
@@ -132,6 +137,18 @@ describe("SessionTranscript", () => {
         view.rerender(<SessionTranscript rows={rows(30)} viewportHeight={400} />);
 
         expect(viewport.scrollTop).toBe(1000);
+    });
+
+    it("re-anchors to the end when virtua measures item heights", () => {
+        const view = show();
+        const viewport = slot(view.container, "message-scroller-viewport") as HTMLElement;
+        Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 5000 });
+        Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 400 });
+
+        expect(handed.onResize).toBeTypeOf("function");
+        handed.onResize?.();
+
+        expect(viewport.scrollTop).toBe(5000);
     });
 
     it("shows the list as soon as the end it opens at is applied", () => {
