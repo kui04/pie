@@ -114,6 +114,14 @@ describe("SessionSidebar", () => {
         expect(root?.className).not.toContain("pb-safe");
     });
 
+    it("paints the sheet's safe area with its own surface", () => {
+        renderSidebar({ wide: false, column: false, sheet: true });
+
+        const sheet = document.getElementById("session-sheet");
+        expect(sheet).toHaveClass("bg-surface-dim");
+        expect(sheet).toHaveClass("data-[nested-drawer-open]:opacity-0");
+    });
+
     it("groups the rows by the directory their sessions started in", async () => {
         bridge.listSessions.mockResolvedValue([
             sessionSummary({ cwd: "/work/pie", name: "Pie work" }),

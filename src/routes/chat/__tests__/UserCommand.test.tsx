@@ -48,4 +48,11 @@ describe("UserCommand", () => {
         expect(line).not.toBeNull();
         expect(line?.closest("div.pl-8")).not.toBeNull();
     });
+
+    it("does not become a button when it has no body", () => {
+        render(<UserCommand id="e3" tool="bash" presentation={presentExecution(bashExecution("true", ""))} />);
+
+        expect(screen.queryByRole("button", { name: /true/ })).toBeNull();
+        expect(document.querySelector('[id$="-body"]')).toBeNull();
+    });
 });

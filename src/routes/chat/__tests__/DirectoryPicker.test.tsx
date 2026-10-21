@@ -419,6 +419,22 @@ describe("the directory picker", () => {
         expect(onPick).not.toHaveBeenCalled();
     });
 
+    it("draws the phone sheet without its close key and with compact keys", async () => {
+        renderPicker({ isMobile: true });
+
+        await option("/home/kui/projects");
+
+        expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+        expect(document.querySelector('[data-slot="drawer-popup"]')).toHaveClass("h-[80dvh]", "max-h-[80dvh]");
+        const viewport = document.querySelector('[data-slot="scroll-area-viewport"]');
+        expect(viewport).not.toHaveClass("max-h-96");
+        expect(screen.getByText("Recent folders")).toHaveClass("sticky", "top-0");
+        expect(screen.getByText("Folders")).toHaveClass("sticky", "top-0");
+        expect(field().closest('[data-slot="input-group"]')).toHaveClass("h-10");
+        expect(screen.getByRole("button", { name: "Open" })).toHaveClass("h-10");
+        expect(document.querySelector("#directory-picker-scroll")).toHaveClass("flex-1");
+    });
+
     it("says that a folder holds no folder", async () => {
         renderPicker();
 

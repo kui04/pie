@@ -29,9 +29,10 @@ export function UserCommand({ id, tool, presentation, quote = false }: UserComma
     // reader's own toggle wins from then on.
     const [manual, setManual] = useState<boolean | null>(null);
     const { title, detail, status, body, notes } = presentation;
-    const open = manual ?? status === "running";
     const clock = useCallClock(id, status, presentation.durationMs);
     const lines = body.kind === "none" ? [] : body.lines;
+    const hasBody = lines.length > 0 || notes.length > 0;
+    const open = hasBody && (manual ?? status === "running");
     const end =
         status === "running" || status === "failed" || clock !== null ? (
             <End status={status} clock={clock} />
@@ -49,8 +50,12 @@ export function UserCommand({ id, tool, presentation, quote = false }: UserComma
             open={open}
             onToggle={() => setManual((was) => !(was ?? status === "running"))}
         >
-            {lines.length > 0 && <Body id={id} body={body} live={status === "running"} />}
-            <Notes notes={notes} />
+            {hasBody && (
+                <>
+                    {lines.length > 0 && <Body id={id} body={body} live={status === "running"} />}
+                    <Notes notes={notes} />
+                </>
+            )}
         </Row>
     );
 }

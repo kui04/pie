@@ -5,4 +5,4 @@ export { useMotion, type Motion } from "./useMotion";
 export { useIsMobile, usePlatformResource } from "./usePlatform";
 export { useSession } from "./useSession";
 export { useSessionSync } from "./useSessionSync";
-export { useKeyboardInset, useWideWindow } from "./useViewport";
+export { useVisualViewport, type VisualViewportState, useWideWindow } from "./useViewport";

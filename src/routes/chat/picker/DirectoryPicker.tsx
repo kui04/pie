@@ -34,7 +34,7 @@ import {
     Skeleton,
     Spinner,
 } from "@/components/ui";
-import { DialogFrame, Icon, ScrollPane, TruncatedText } from "@/components";
+import { ConfirmDialog, DialogFrame, Icon, ScrollPane, TruncatedText } from "@/components";
 
 /** How long typing must stand still before the host is asked for a level. */
 const READ_DELAY = 300;
@@ -365,19 +365,21 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
             isMobile={touch}
             id="directory-picker"
             title={TITLE}
-            showClose
+            showClose={!touch}
             initialFocus={inputRef}
-            // A cap, not a height: the sheet wraps its content, and a long
-            // level scrolls inside it instead of pushing its keys away.
-            className="flex max-h-[70dvh] flex-col"
-            dialogClassName="top-[15vh] translate-y-0 sm:w-full sm:max-w-2xl"
+            // The phone sheet keeps a fixed height so its top stays still while
+            // the level's list or the keyboard changes; the desktop dialog keeps a cap.
+            className="flex flex-col"
+            drawerClassName="h-[80dvh] max-h-[80dvh]"
+            fitKeyboard={false}
+            dialogClassName="top-[15vh] max-h-[70dvh] translate-y-0 sm:w-full sm:max-w-2xl"
         >
             <div className="flex min-h-0 flex-1 flex-col gap-3">
                 {fieldRow}
                 <ScrollPane
                     id="directory-picker-scroll"
-                    className="min-h-0"
-                    viewportClassName={touch ? "max-h-96" : "max-h-64"}
+                    className="min-h-0 flex-1"
+                    viewportClassName={touch ? undefined : "max-h-64"}
                 >
                     {list}
                 </ScrollPane>
@@ -418,10 +420,10 @@ function DirectoryField({
         <div className="flex items-center gap-2">
             <InputGroup
                 id="directory-picker-path"
-                className={cn("has-[[data-slot=input-group-control]:focus-visible]:ring-0", touch && "h-12")}
+                className={cn("has-[[data-slot=input-group-control]:focus-visible]:ring-0", touch && "h-10")}
             >
                 <InputGroupAddon align="inline-start">
-                    <Icon>
+                    <Icon className="justify-start">
                         <Search aria-hidden />
                     </Icon>
                 </InputGroupAddon>
@@ -455,7 +457,7 @@ function DirectoryField({
                     </InputGroupAddon>
                 )}
             </InputGroup>
-            <Button className={cn("shrink-0", touch && "h-12")} disabled={disabled} onClick={onOpen}>
+            <Button className={cn("shrink-0", touch && "h-10")} disabled={disabled} onClick={onOpen}>
                 {reading && <Spinner data-icon="inline-start" />}
                 Open
             </Button>
@@ -543,14 +545,20 @@ function DirectoryList({
         >
             {recents.length > 0 && (
                 <div role="group" aria-label="Recent folders" className="flex flex-col gap-1">
-                    <p role="presentation" className="px-2 pt-1 text-body-sm text-muted-foreground">
+                    <p
+                        role="presentation"
+                        className="sticky top-0 z-10 bg-card px-2 pt-1 text-body-sm text-muted-foreground"
+                    >
                         Recent folders
                     </p>
                     {recents.map(row)}
                 </div>
             )}
             <div role="group" aria-label="Folders" className="flex flex-col gap-1">
-                <p role="presentation" className="px-2 pt-1 text-body-sm text-muted-foreground">
+                <p
+                    role="presentation"
+                    className="sticky top-0 z-10 bg-card px-2 pt-1 text-body-sm text-muted-foreground"
+                >
                     Folders
                 </p>
                 {up !== undefined && row(up)}
@@ -605,11 +613,11 @@ function DirectoryRow({ offer, lit, stub, touch, onPress, hold }: DirectoryRowPr
             )}
         >
             {up ? (
-                <Icon className="shrink-0 text-muted-foreground">
+                <Icon className="shrink-0 justify-start text-muted-foreground">
                     <CornerUpLeft aria-hidden />
                 </Icon>
             ) : (
-                <Icon className="shrink-0 text-muted-foreground">
+                <Icon className="shrink-0 justify-start text-muted-foreground">
                     <Folder aria-hidden />
                 </Icon>
             )}
@@ -650,7 +658,7 @@ interface DirectoryCreateConfirmProps {
     onCloseMake: () => void;
 }
 
-/** The nested layer: the missing path asks to be made. Same body, container follows touch. */
+/** The nested layer: the missing path asks to be made. */
 function DirectoryCreateConfirm({
     touch,
     making,
@@ -659,40 +667,10 @@ function DirectoryCreateConfirm({
     onCreate,
     onCloseMake,
 }: DirectoryCreateConfirmProps) {
-    const body = (
-        <>
-            <p className="flex items-center gap-2 text-body-md text-foreground">
-                <Icon className="shrink-0 text-muted-foreground">
-                    <Folder aria-hidden />
-                </Icon>
-                <TruncatedText
-                    content={displayPath(making)}
-                    offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
-                    className="min-w-0 flex-1"
-                >
-                    {displayPath(making)}
-                </TruncatedText>
-            </p>
-            <p id="directory-picker-make-description" className="text-body-md text-muted-foreground">
-                This folder does not exist.
-            </p>
-            {createFailed !== null && (
-                <p role="alert" className="text-body-md text-muted-foreground">
-                    {createFailed}
-                </p>
-            )}
-            <div className="flex gap-2">
-                <Button size="sm" disabled={creating} onClick={onCreate}>
-                    {creating ? "Making…" : "Create folder"}
-                </Button>
-                <Button variant="outline" size="sm" disabled={creating} onClick={onCloseMake}>
-                    Cancel
-                </Button>
-            </div>
-        </>
-    );
+    const path = displayPath(making);
+
     return (
-        <DialogFrame
+        <ConfirmDialog
             open
             onOpenChange={(next) => {
                 if (!next) onCloseMake();
@@ -700,12 +678,32 @@ function DirectoryCreateConfirm({
             isMobile={touch}
             id="directory-picker-make"
             title="Create folder"
-            showSwipeHandle={false}
-            dialogClassName="top-[15vh] translate-y-0"
-            describedBy="directory-picker-make-description"
-        >
-            <div className="flex flex-col gap-2 text-muted-foreground">{body}</div>
-        </DialogFrame>
+            description={
+                <span className="flex flex-col gap-2">
+                    <span className="flex items-center gap-2 text-foreground">
+                        <Icon className="shrink-0 justify-start text-muted-foreground">
+                            <Folder aria-hidden />
+                        </Icon>
+                        <TruncatedText
+                            content={path}
+                            offset={{ top: 6, right: 12, bottom: 6, left: 12 }}
+                            className="min-w-0 flex-1"
+                        >
+                            {path}
+                        </TruncatedText>
+                    </span>
+                    <span className="block">This folder does not exist.</span>
+                    {createFailed !== null && (
+                        <span role="alert" className="block">
+                            {createFailed}
+                        </span>
+                    )}
+                </span>
+            }
+            confirmLabel={creating ? "Making…" : "Create folder"}
+            confirmDisabled={creating}
+            onConfirm={onCreate}
+        />
     );
 }
 

@@ -105,7 +105,7 @@ describe("CallRow", () => {
             />,
         );
 
-        expect(screen.getByRole("button", { name: /sleep 5/ })).toHaveAttribute("aria-expanded", "false");
+        expect(screen.queryByRole("button", { name: /sleep 5/ })).toBeNull();
         expect(document.querySelector('[id$="-body"]')).toBeNull();
     });
 });

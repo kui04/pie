@@ -26,7 +26,7 @@ import {
     Skeleton,
 } from "@/components/ui";
 import { SafeArea, ScrollPane, Icon, TruncatedText } from "@/components";
-import { useKeyboardInset, useLongPress, useMotion, useWideWindow } from "@/hooks";
+import { useLongPress, useMotion, useWideWindow } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { directoryQueries, sessionsQueries } from "@/lib/query";
 import { SessionMenu } from "@/routes/chat/SessionMenu";
@@ -421,7 +421,6 @@ function SessionSheet({
     className?: string;
 }) {
     const wide = useWideWindow();
-    const keyboardInset = useKeyboardInset();
 
     useEffect(() => {
         if (wide) onOpenChange(false);
@@ -429,17 +428,18 @@ function SessionSheet({
 
     return (
         <Drawer open={open} onOpenChange={onOpenChange} swipeDirection="left">
-            <DrawerContent id={id} className={cn("w-72 max-w-[85%] border-border lg:hidden", className)}>
+            <DrawerContent
+                id={id}
+                className={cn(
+                    "w-72 max-w-[85%] border-border bg-surface-dim data-[nested-drawer-open]:opacity-0 lg:hidden",
+                    className,
+                )}
+            >
                 <DrawerTitle className="sr-only">Sessions</DrawerTitle>
                 {/* The sheet leaves the page for a portal, where the shell's safe area
                     does not reach: it keeps its own sides, or the panel's first and last
-                    rows would sit under the system bars. The keyboard pad only applies
-                    where the layout did not already shrink for it. */}
-                <SafeArea
-                    side="vertical"
-                    className="h-full"
-                    style={{ paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)` }}
-                >
+                    rows would sit under the system bars. */}
+                <SafeArea side="vertical" className="h-full">
                     {children}
                 </SafeArea>
             </DrawerContent>

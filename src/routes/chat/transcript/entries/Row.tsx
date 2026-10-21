@@ -52,44 +52,57 @@ export function Row({
     children,
 }: RowProps) {
     const { reveal } = useMotion();
+    // A body is what makes the row a fold. A row with nothing under it stays a
+    // plain row: no button, no toggle, and no empty body.
+    const foldable = children !== undefined && children !== null && children !== false && children !== "";
+
+    const content = (
+        <>
+            <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
+                {glyph}
+            </Icon>
+            <span
+                className={cn(
+                    // The name keeps its own width on one line, however long: what the
+                    // row aimed at truncates behind it, never the other way round.
+                    "shrink-0 text-body-md whitespace-nowrap trim",
+                    tone !== "quiet" && "font-medium",
+                    tone === "model" && "text-primary-text",
+                    tone === "user-run" && "text-violet",
+                )}
+            >
+                {name}
+            </span>
+            {target !== null && target !== undefined && target !== "" && (
+                <TruncatedText content={target} offset={{ top: 6, right: 12, bottom: 6, left: 12 }}>
+                    {target}
+                </TruncatedText>
+            )}
+            {end !== undefined && <span className="ml-auto flex shrink-0 items-center gap-1.5">{end}</span>}
+        </>
+    );
 
     return (
         <div id={id} className="flex min-w-0 flex-col">
-            <Marker
-                render={
-                    <button
-                        id={`${id}-row`}
-                        aria-expanded={open}
-                        aria-controls={open ? `${id}-body` : undefined}
-                        onClick={onToggle}
-                        className="min-h-10 w-full cursor-pointer pr-1 text-left hover:text-foreground sm:min-h-8.5"
-                    />
-                }
-            >
-                <Icon className="relative z-10 justify-start bg-surface" aria-hidden>
-                    {glyph}
-                </Icon>
-                <span
-                    className={cn(
-                        // The name keeps its own width on one line, however long: what the
-                        // row aimed at truncates behind it, never the other way round.
-                        "shrink-0 text-body-md whitespace-nowrap trim",
-                        tone !== "quiet" && "font-medium",
-                        tone === "model" && "text-primary-text",
-                        tone === "user-run" && "text-violet",
-                    )}
+            {foldable ? (
+                <Marker
+                    render={
+                        <button
+                            id={`${id}-row`}
+                            aria-expanded={open}
+                            aria-controls={open ? `${id}-body` : undefined}
+                            onClick={onToggle}
+                            className="min-h-10 w-full cursor-pointer text-left hover:text-foreground sm:min-h-8.5"
+                        />
+                    }
                 >
-                    {name}
-                </span>
-                {target !== null && target !== undefined && target !== "" && (
-                    <TruncatedText content={target} offset={{ top: 6, right: 12, bottom: 6, left: 12 }}>
-                        {target}
-                    </TruncatedText>
-                )}
-                {end !== undefined && <span className="ml-auto flex shrink-0 items-center gap-1.5">{end}</span>}
-            </Marker>
+                    {content}
+                </Marker>
+            ) : (
+                <Marker className="min-h-10 w-full text-left sm:min-h-8.5">{content}</Marker>
+            )}
             <AnimatePresence initial={false}>
-                {open && children !== undefined && (
+                {foldable && open && (
                     <motion.div key="body" id={`${id}-body`} className="overflow-hidden" {...reveal}>
                         <div className="relative mt-1 mb-2 flex min-w-0 flex-col gap-1 pl-8">
                             {/* The line of a body that stands alone: it starts under the glyph rather than

@@ -43,28 +43,61 @@ export function useWideWindow(): boolean {
 }
 
 /**
- * How far the soft keyboard reaches into the window, in CSS pixels.
+ * The visual viewport, as the app reads it for the keyboard and for a fixed
+ * drawer's place on screen.
  *
- * Reads `window.visualViewport`: when the IME opens without resizing the
- * layout viewport, the visual viewport shrinks and the gap is the keyboard.
- * When the engine resizes the layout instead (`interactive-widget`), both
- * shrink together, the gap is zero, and no extra pad is needed. Zero until
- * measured, and zero where the API is absent.
+ * `inset` is the room the keyboard takes from the layout viewport: the gap
+ * between `window.innerHeight` and the visual viewport. `offsetTop` is where
+ * the visual viewport starts inside the layout viewport. They are separate
+ * facts: a WebView can shrink the visual viewport without moving it (inset
+ * without offset), or pan it while the visual height stays the same.
+ *
+ * A gap below the threshold is chrome noise, not a keyboard. Pinch zoom also
+ * shrinks the visual viewport, so it leaves the keyboard inset at zero.
  */
 
 /** A gap below this is chrome noise (URL bar), not a keyboard. */
 const OPEN_THRESHOLD = 100;
 
-function keyboardInset(): number {
-    const viewport = window.visualViewport;
-    if (viewport === null || viewport === undefined) return 0;
-    // Pinch zoom shrinks the visual viewport with no keyboard in sight.
-    if (viewport.scale !== undefined && Math.abs(viewport.scale - 1) > 0.01) return 0;
-    const gap = window.innerHeight - viewport.height;
-    return gap >= OPEN_THRESHOLD ? gap : 0;
+export interface VisualViewportState {
+    /** How much room the keyboard takes, in CSS pixels. */
+    inset: number;
+    /** Where the visual viewport starts inside the layout viewport. */
+    offsetTop: number;
 }
 
-function subscribeToKeyboard(notify: () => void): () => void {
+type MeasuredViewport = VisualViewportState & { scale: number | undefined; height: number; innerHeight: number };
+
+let measured: MeasuredViewport | null = null;
+const CLOSED: VisualViewportState = { inset: 0, offsetTop: 0 };
+
+function visualViewport(): VisualViewportState {
+    const viewport = window.visualViewport;
+    if (viewport === null || viewport === undefined) return CLOSED;
+
+    const height = viewport.height;
+    const innerHeight = window.innerHeight;
+    const scale = viewport.scale;
+    const offsetTop = viewport.offsetTop ?? 0;
+    const gap = innerHeight - height;
+    const keyboard = scale === undefined || Math.abs(scale - 1) <= 0.01 ? gap : 0;
+    const inset = keyboard >= OPEN_THRESHOLD ? keyboard : 0;
+
+    if (
+        measured !== null &&
+        measured.height === height &&
+        measured.innerHeight === innerHeight &&
+        measured.scale === scale &&
+        measured.offsetTop === offsetTop &&
+        measured.inset === inset
+    ) {
+        return measured;
+    }
+    measured = { inset, offsetTop, scale, height, innerHeight };
+    return measured;
+}
+
+function subscribeToVisualViewport(notify: () => void): () => void {
     const viewport = window.visualViewport;
     // A keyboard animates in over many frames; one notice per frame is enough.
     let frame = 0;
@@ -85,14 +118,16 @@ function subscribeToKeyboard(notify: () => void): () => void {
     viewport.addEventListener("resize", changed);
     viewport.addEventListener("scroll", changed);
     window.addEventListener("resize", changed);
+    document.addEventListener("visibilitychange", changed);
     return () => {
         window.cancelAnimationFrame(frame);
         viewport.removeEventListener("resize", changed);
         viewport.removeEventListener("scroll", changed);
         window.removeEventListener("resize", changed);
+        document.removeEventListener("visibilitychange", changed);
     };
 }
 
-export function useKeyboardInset(): number {
-    return useSyncExternalStore(subscribeToKeyboard, keyboardInset, () => 0);
+export function useVisualViewport(): VisualViewportState {
+    return useSyncExternalStore(subscribeToVisualViewport, visualViewport, () => CLOSED);
 }

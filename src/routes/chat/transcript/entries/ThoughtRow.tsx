@@ -46,7 +46,7 @@ export function ThoughtRow({ id, thinking, stillThinking = false, quote = false 
             glyph={thoughtGlyph()}
             name={
                 stillThinking ? (
-                    <span className="shimmer font-medium trim" role="status">
+                    <span className="shimmer py-0.5 font-medium trim" role="status">
                         Thinking…
                     </span>
                 ) : (

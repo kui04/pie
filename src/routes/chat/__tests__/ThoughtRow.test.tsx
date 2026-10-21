@@ -11,4 +11,10 @@ describe("ThoughtRow", () => {
         expect(pane?.querySelector(String.raw`[data-slot="scroll-area-viewport"]`)).not.toBeNull();
         expect(pane?.querySelector(".live-window")).not.toBeNull();
     });
+
+    it("gives the shimmering word room for its descenders", () => {
+        const view = render(<ThoughtRow id="t1" thinking="look first" stillThinking />);
+
+        expect(view.container.querySelector(".shimmer")?.classList.contains("py-0.5")).toBe(true);
+    });
 });

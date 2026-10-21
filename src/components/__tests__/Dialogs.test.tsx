@@ -70,6 +70,19 @@ describe("DialogFrame", () => {
         expect(screen.getByText("Detail")).toBeInTheDocument();
     });
 
+    it("keeps a phone drawer clear of its handle and hides behind a nested one", () => {
+        render(
+            <DialogFrame open onOpenChange={() => undefined} isMobile title="Question">
+                body
+            </DialogFrame>,
+        );
+
+        const popup = document.querySelector('[data-slot="drawer-popup"]');
+        expect(popup).toHaveClass("data-[nested-drawer-open]:opacity-0");
+        expect(screen.getByText("Question")).toHaveClass("mt-4");
+        expect(screen.getByText("body")).toHaveClass("mt-4", "flex", "flex-1");
+    });
+
     it("puts the same footer action in each host's shape", () => {
         const { unmount } = render(
             <DialogFrame

@@ -22,7 +22,7 @@ import {
     DrawerFooter,
     DrawerTitle,
 } from "@/components/ui";
-import { useIsMobile, useKeyboardInset } from "@/hooks";
+import { useIsMobile, useVisualViewport } from "@/hooks";
 import { Icon } from "../Icon";
 import { DialogFrameContext } from "./context";
 
@@ -41,6 +41,13 @@ export interface DialogFrameProps {
     initialFocus?: RefObject<HTMLElement | null>;
     /** The base of the generated description and close ids. */
     id?: string;
+
+    /**
+     * Whether a phone drawer may shrink for the on-screen keyboard. A sheet with
+     * its own fixed height turns this off: it keeps its place while the visual
+     * viewport pans for the keyboard.
+     */
+    fitKeyboard?: boolean;
 
     /** Styles both hosts share. */
     className?: string;
@@ -69,6 +76,7 @@ export function DialogFrame({
     actions,
     initialFocus,
     id,
+    fitKeyboard = true,
     className,
     drawerClassName,
     dialogClassName,
@@ -81,18 +89,24 @@ export function DialogFrame({
 }: DialogFrameProps) {
     const mobileIs = useIsMobile();
     const mobile = isMobile ?? mobileIs;
-    const keyboardInset = useKeyboardInset();
+    const { inset: keyboardInset, offsetTop: viewportOffset } = useVisualViewport();
     const generated = useId();
     const baseId = id ?? generated;
     const descriptionId = `${baseId}-description`;
     const hasDescription = description !== undefined && description !== null;
+    const hasChildren = children !== undefined && children !== null && children !== false;
     const ariaDescribedBy = hasDescription ? descriptionId : describedBy;
+    const titleClass = "text-(length:--text-title-md) leading-6 font-normal";
     const drawerStyle =
         keyboardInset > 0
-            ? {
-                  ...style,
-                  paddingBottom: `calc(1.5rem + env(safe-area-inset-bottom) + ${keyboardInset}px)`,
-              }
+            ? fitKeyboard
+                ? {
+                      ...style,
+                      maxHeight: `calc(100dvh - ${keyboardInset}px - env(safe-area-inset-top, 0px))`,
+                  }
+                : viewportOffset > 0
+                  ? { ...style, bottom: -viewportOffset }
+                  : style
             : style;
 
     const closeKey = (host: "drawer" | "dialog") => (
@@ -117,7 +131,10 @@ export function DialogFrame({
                     <DrawerContent
                         initialFocus={initialFocus}
                         className={cn(
-                            "border-border bg-card px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none",
+                            `
+                                border-border bg-card px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none
+                                data-[nested-drawer-open]:opacity-0
+                            `,
                             className,
                             drawerClassName,
                         )}
@@ -125,16 +142,12 @@ export function DialogFrame({
                         style={drawerStyle}
                     >
                         {showClose ? (
-                            <div className="flex items-center justify-between gap-2">
-                                <DrawerTitle className="text-(length:--text-title-md) leading-6 font-normal">
-                                    {title}
-                                </DrawerTitle>
+                            <div className={cn("flex items-center justify-between gap-2", showSwipeHandle && "mt-4")}>
+                                <DrawerTitle className={titleClass}>{title}</DrawerTitle>
                                 {closeKey("drawer")}
                             </div>
                         ) : (
-                            <DrawerTitle className="text-(length:--text-title-md) leading-6 font-normal">
-                                {title}
-                            </DrawerTitle>
+                            <DrawerTitle className={cn(titleClass, showSwipeHandle && "mt-4")}>{title}</DrawerTitle>
                         )}
                         {hasDescription && (
                             <DrawerDescription
@@ -147,7 +160,7 @@ export function DialogFrame({
                                 {description}
                             </DrawerDescription>
                         )}
-                        {children}
+                        {hasChildren && <div className="mt-4 flex min-h-0 flex-1 flex-col">{children}</div>}
                         {actions !== undefined && actions !== null && (
                             <DrawerFooter className="mt-8 flex flex-row gap-4 p-0">{actions}</DrawerFooter>
                         )}
@@ -173,15 +186,11 @@ export function DialogFrame({
                 >
                     {showClose ? (
                         <div className="flex items-center justify-between gap-2">
-                            <DialogTitle className="text-(length:--text-title-md) leading-6 font-normal">
-                                {title}
-                            </DialogTitle>
+                            <DialogTitle className={titleClass}>{title}</DialogTitle>
                             {closeKey("dialog")}
                         </div>
                     ) : (
-                        <DialogTitle className="text-(length:--text-title-md) leading-6 font-normal">
-                            {title}
-                        </DialogTitle>
+                        <DialogTitle className={titleClass}>{title}</DialogTitle>
                     )}
                     {hasDescription && (
                         <DialogDescription
