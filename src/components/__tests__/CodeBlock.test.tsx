@@ -1,7 +1,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodeBlock } from "@/components/CodeBlock";
-import { loadHighlighter } from "@/lib/code-highlight";
+import { loadHighlighter } from "@/lib/highlight";
 
 const CODE = "const a: number = 1;";
 

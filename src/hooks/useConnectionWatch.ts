@@ -22,7 +22,7 @@ import {
     type ConnectionWatchDeps,
     type ConnectionWatchState,
 } from "@/machines/connection-watch.machine";
-import { subscribeToReachFailures } from "@/lib/connection-health";
+import { subscribeToReachFailures } from "@/lib/query";
 import { connectionQueries } from "@/lib/query";
 import * as bridge from "@/lib/bridge";
 

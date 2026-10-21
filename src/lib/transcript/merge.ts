@@ -3,7 +3,7 @@
  * (`machines/session.machine.ts`), and the view the fold reads: a base read of the
  * conversation plus the entries that arrived after it.
  *
- * Two rules of the wire shape this (`lib/stream.ts`, `lib/transcript.ts`):
+ * Two rules of the wire shape this (`lib/transcript/stream.ts`, `lib/transcript/rows.ts`):
  *
  * - A read of `get_entries` is the authority for every entry it carries; the entries
  *   that arrive as `entry_appended` records afterwards are the overlay. Pi's files are
@@ -35,8 +35,8 @@ import {
     updateCall,
     type LiveRun,
     type QueuedMessages,
-} from "@/lib/stream";
-import type { TranscriptEntries } from "@/lib/transcript";
+} from "./stream";
+import type { TranscriptEntries } from "./rows";
 
 /** The shell command of the reader that runs right now. */
 export interface BashRun {
@@ -137,13 +137,15 @@ export function mergedTranscript(base: EntriesData | null, overlay: Overlay): Me
     // An overlay leaf whose parent chain does not reach a root is a branch the
     // transcript cannot walk (an extension record can point outside the current
     // branch). Take the last entry whose chain is whole then, rather than losing
-    // the history above it.
+    // the history above it. The cache makes that fallback one walk per branch, not
+    // one walk per candidate.
+    const rooted = new Map<string, boolean>();
     const preferred = overlay.leaf !== null && !carriesLeaf ? overlay.leaf : (base?.leafId ?? null);
-    let leaf = preferred !== null && reachesRoot(entries, preferred) ? preferred : null;
+    let leaf = preferred !== null && reachesRoot(entries, preferred, rooted) ? preferred : null;
     if (leaf === null) {
         for (let index = order.length - 1; index >= 0; index -= 1) {
             const id = order[index];
-            if (reachesRoot(entries, id)) {
+            if (reachesRoot(entries, id, rooted)) {
                 leaf = id;
                 break;
             }
@@ -153,16 +155,30 @@ export function mergedTranscript(base: EntriesData | null, overlay: Overlay): Me
 }
 
 /** Whether the parent chain of one entry reaches a root without a missing link. */
-function reachesRoot(entries: Map<string, SessionEntry>, leaf: string): boolean {
+function reachesRoot(entries: Map<string, SessionEntry>, leaf: string, cache: Map<string, boolean>): boolean {
+    const trail: string[] = [];
     const seen = new Set<string>();
     let current: string | null = leaf;
     while (current !== null) {
-        if (seen.has(current)) return false;
+        const known = cache.get(current);
+        if (known !== undefined) {
+            for (const id of trail) cache.set(id, known);
+            return known;
+        }
+        if (seen.has(current)) {
+            for (const id of trail) cache.set(id, false);
+            return false;
+        }
         seen.add(current);
+        trail.push(current);
         const entry = entries.get(current);
-        if (entry === undefined) return false;
+        if (entry === undefined) {
+            for (const id of trail) cache.set(id, false);
+            return false;
+        }
         current = entry.parentId;
     }
+    for (const id of trail) cache.set(id, true);
     return true;
 }
 

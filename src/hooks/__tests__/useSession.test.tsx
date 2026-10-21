@@ -5,11 +5,11 @@ import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/rpc-protocol";
-import { liveRows } from "@/lib/stream";
+import { liveRows } from "@/lib/transcript";
 import { useSession } from "@/hooks/useSession";
 import { queryDefaults, sessionKeys } from "@/lib/query";
-import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/sessions";
-import { mergedTranscript } from "@/lib/transcript-merge";
+import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/session";
+import { mergedTranscript } from "@/lib/transcript";
 import { assistant, usage } from "@/preview/fixtures";
 
 /**

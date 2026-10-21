@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Markdown, Icon } from "@/components";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
-import { messageText } from "@/lib/text";
+import { messageText } from "@/lib/transcript";
 import type { UserMessage as UserMessageData } from "@/lib/rpc-protocol";
 
 export interface UserMessageProps {

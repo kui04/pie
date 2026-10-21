@@ -9,7 +9,7 @@ import { useMotion, useWideWindow } from "@/hooks";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
-import { phases, sessionOf as chartOf, subscribeSessions } from "@/lib/sessions";
+import { phases, sessionOf as chartOf, subscribeSessions } from "@/lib/session";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SessionLanding } from "@/routes/chat/SessionLanding";

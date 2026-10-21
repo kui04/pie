@@ -24,7 +24,7 @@ import {
 import { ConfirmDialog, DialogAction, DialogFrame, Icon, ScrollPane, TextDialog, TruncatedText } from "@/components";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys, sessionQueries } from "@/lib/query";
-import type { SessionRef } from "@/lib/sessions";
+import type { SessionRef } from "@/lib/session";
 import { phaseOf } from "@/machines/session.machine";
 import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 

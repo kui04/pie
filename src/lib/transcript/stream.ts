@@ -18,7 +18,7 @@
  *   call streamed before gives way to what it streamed last.
  *
  * Nothing here draws: the rows it answers with are the rows the fold of the snapshot
- * builds (`lib/transcript.ts`), so the screen renders one shape either way.
+ * builds (`lib/transcript/rows.ts`), so the screen renders one shape either way.
  */
 
 import type {
@@ -29,8 +29,8 @@ import type {
     ToolCall,
     ToolResultMessage,
 } from "@/lib/rpc-protocol";
-import { parseStreamingJson } from "@/lib/partial-json";
-import type { TranscriptRow } from "@/lib/transcript";
+import { parseStreamingJson } from "./partial-json";
+import type { TranscriptRow } from "./rows";
 
 /** An assistant message as the wire carries it: the message, and the role that tags it. */
 type WireAssistant = Extract<AgentMessage, { role: "assistant" }>;
@@ -51,11 +51,21 @@ export interface LiveMessage {
     message: AgentMessage;
     /** The JSON of every call the model is still writing, by call id. */
     args: Map<string, string>;
+    /** How much of each call's JSON was last read into its arguments, by call id. */
+    parsed: Map<string, number>;
+    /** When each call's arguments were last read, by call id. */
+    parsedAt: Map<string, number>;
     /** Every call of this message, by call id. */
     calls: Map<string, LiveCall>;
     /** Pi runs this turn again: the failure of this message is not the last word. */
     retrying: boolean;
 }
+
+/** A call whose arguments stay this short is read on every delta. */
+const ARG_PARSE_ALWAYS = 2_048;
+
+/** A longer call is read at this interval: a file being written is not redrawn per character. */
+const ARG_PARSE_MS = 120;
 
 /**
  * The messages of the run, in the order they began. Only the bytes: the phase of the run
@@ -83,7 +93,15 @@ export const noRun: LiveRun = { messages: [] };
 /** A message that a run began writing. A role the transcript does not draw is no row. */
 export function beginMessage(run: LiveRun, id: string, message: AgentMessage): LiveRun {
     if (message.role !== "user" && message.role !== "assistant") return run;
-    const live: LiveMessage = { id, message, args: new Map(), calls: new Map(), retrying: false };
+    const live: LiveMessage = {
+        id,
+        message,
+        args: new Map(),
+        parsed: new Map(),
+        parsedAt: new Map(),
+        calls: new Map(),
+        retrying: false,
+    };
     return { messages: [...run.messages, live] };
 }
 
@@ -103,7 +121,13 @@ export function endMessage(run: LiveRun, message: AgentMessage): LiveRun {
 export function applyDelta(run: LiveRun, event: AssistantMessageEvent): LiveRun {
     return mapLast(run, "assistant", (live) => {
         const next = delta(live, event);
-        return { ...live, message: next.message ?? live.message, args: next.args ?? live.args };
+        return {
+            ...live,
+            message: next.message ?? live.message,
+            args: next.args ?? live.args,
+            parsed: next.parsed ?? live.parsed,
+            parsedAt: next.parsedAt ?? live.parsedAt,
+        };
     });
 }
 
@@ -111,7 +135,12 @@ export function applyDelta(run: LiveRun, event: AssistantMessageEvent): LiveRun 
 function delta(
     live: LiveMessage,
     event: AssistantMessageEvent,
-): { message?: WireAssistant; args?: Map<string, string> } {
+): {
+    message?: WireAssistant;
+    args?: Map<string, string>;
+    parsed?: Map<string, number>;
+    parsedAt?: Map<string, number>;
+} {
     const message = live.message;
     if (message.role !== "assistant") return {};
 
@@ -137,27 +166,47 @@ function delta(
         case "toolcall_start": {
             const call: ToolCall = { type: "toolCall", id: event.id, name: event.toolName, arguments: {} };
             const args = new Map(live.args).set(event.id, "");
-            return { message: withPart(message, event.contentIndex, call), args };
+            const parsed = new Map(live.parsed);
+            parsed.delete(event.id);
+            const parsedAt = new Map(live.parsedAt);
+            parsedAt.delete(event.id);
+            return { message: withPart(message, event.contentIndex, call), args, parsed, parsedAt };
         }
         case "toolcall_delta": {
             const call = callAt(message, event.contentIndex);
             if (call === null) return {};
             // The arguments are read as the text arrives, so a call that writes a file
-            // shows the file growing, the way pi's own card does.
+            // shows the file growing, the way pi's own card does. A long one is read at
+            // intervals: parsing the whole argument block on every delta is quadratic.
             const json = (live.args.get(call.id) ?? "") + event.delta;
             const args = new Map(live.args).set(call.id, json);
+            const read = live.parsed.get(call.id) ?? 0;
+            const now = Date.now();
+            const shouldParse =
+                read === 0 ||
+                json.length <= ARG_PARSE_ALWAYS ||
+                now - (live.parsedAt.get(call.id) ?? 0) >= ARG_PARSE_MS;
+            if (!shouldParse) return { args };
+            const parsed = new Map(live.parsed).set(call.id, json.length);
+            const parsedAt = new Map(live.parsedAt).set(call.id, now);
             return {
                 message: withPart(message, event.contentIndex, {
                     ...call,
                     arguments: parseStreamingJson(json),
                 }),
                 args,
+                parsed,
+                parsedAt,
             };
         }
         case "toolcall_end": {
             const args = new Map(live.args);
             args.delete(event.toolCall.id);
-            return { message: withPart(message, event.contentIndex, event.toolCall), args };
+            const parsed = new Map(live.parsed);
+            parsed.delete(event.toolCall.id);
+            const parsedAt = new Map(live.parsedAt);
+            parsedAt.delete(event.toolCall.id);
+            return { message: withPart(message, event.contentIndex, event.toolCall), args, parsed, parsedAt };
         }
         default:
             // `start`, `done` and `error` carry no part of their own: the whole message

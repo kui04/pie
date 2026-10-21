@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Event as SessionRecord } from "@/lib/rpc-protocol";
-import { noticeOf, reading } from "@/lib/session-records";
+import { noticeOf, reading } from "../records";
 
 /** A record of the wire, in the shape the machine hands the table. */
 function record(type: SessionRecord["type"], more: Record<string, unknown> = {}): SessionRecord {

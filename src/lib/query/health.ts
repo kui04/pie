@@ -1,7 +1,7 @@
 /**
  * The one signal that a read failed against the reach to the machine.
  *
- * Every read that fails passes through the query cache's own `onError` (`lib/query.ts`), which
+ * Every read that fails passes through the query cache's own `onError` (`lib/query/index.ts`), which
  * is the only place that sees all of them. This module is what turns that into something the
  * boundary can hear, without the cache having to know a React tree exists.
  *

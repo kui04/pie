@@ -4,7 +4,7 @@
  * authority that keeps a late answer from outranking a record.
  *
  * The listeners are stubbed here, so the graph is walked with no Tauri runtime and no event
- * bus: the registry hands these deps in (`lib/sessions.ts`).
+ * bus: the registry hands these deps in (`lib/session/registry.ts`).
  */
 
 import { getShortestPaths } from "@xstate/graph";
@@ -12,8 +12,8 @@ import { createActor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
 import type { PieError, SessionLifecycle } from "@/lib/bridge";
 import type { AgentMessage, Event as SessionRecord, SessionEntry } from "@/lib/rpc-protocol";
-import type { Notice } from "@/lib/session-records";
-import { liveRows } from "@/lib/stream";
+import type { Notice } from "@/lib/session";
+import { liveRows } from "@/lib/transcript";
 import {
     isListening,
     isReady,

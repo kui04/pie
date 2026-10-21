@@ -4,7 +4,7 @@
  *
  * - `feed`: `opening` (the listeners stand in the way), `live`, `failed`.
  * - `transcript`: `empty` until a base read answered, then `ready`. The base stays in
- *   Query; the overlay of `lib/transcript-merge.ts` is the context of this chart.
+ *   Query; the overlay of `lib/transcript/merge.ts` is the context of this chart.
  * - `run`: `idle`, `waiting` (from the send until the model's first output), `working`.
  *
  * A session is one pi process with one conversation: it never changes its conversation, so
@@ -31,8 +31,8 @@
 import { assign, fromCallback, raise, setup, type SnapshotFrom } from "xstate";
 import * as bridge from "@/lib/bridge";
 import type { EntriesData, Event as SessionRecord } from "@/lib/rpc-protocol";
-import { noticeOf, reading, type Notice, type ReadTarget } from "@/lib/session-records";
-import type { RunPhase } from "@/lib/stream";
+import { noticeOf, reading, type Notice, type ReadTarget } from "@/lib/session";
+import type { RunPhase } from "@/lib/transcript";
 import {
     acceptEntry,
     acceptSnapshot,
@@ -46,7 +46,7 @@ import {
     liveToolUpdate,
     noQueue,
     type StreamState,
-} from "@/lib/transcript-merge";
+} from "@/lib/transcript";
 
 export interface SessionDeps {
     /** Opens the two subscriptions of the session - both, or none. */

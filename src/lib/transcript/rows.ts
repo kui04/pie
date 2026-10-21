@@ -16,8 +16,8 @@ import type {
     ToolResultMessage,
     UserMessage,
 } from "@/lib/rpc-protocol";
-import type { LiveCall } from "@/lib/stream";
-import { humanize, linesOf, resultText } from "@/lib/text";
+import type { LiveCall } from "./stream";
+import { humanize, linesOf, resultText } from "./text";
 
 /** The entries of a session, in the shape the fold reads. */
 export interface TranscriptEntries {
@@ -156,7 +156,7 @@ export function transcriptRows(
     leafId: string | null,
     /**
      * The name a row renders under, for an entry that took over a message a run had
-     * already drawn (`lib/transcript-merge.ts`).
+     * already drawn (`lib/transcript/merge.ts`).
      */
     rowIds?: Map<string, string>,
 ): TranscriptRow[] {

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { ConnectionInfo } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
-import { forgetSession, phases, sessionOf } from "@/lib/sessions";
+import { forgetSession, phases, sessionOf } from "@/lib/session";
 import { useSessionSync } from "@/hooks/useSessionSync";
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({

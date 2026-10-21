@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStreamingJson } from "@/lib/partial-json";
+import { parseStreamingJson } from "../partial-json";
 
 /** The texts a fragment stream of one tool call passes through, and what each one reads as. */
 describe("the arguments of a call that is still being written", () => {

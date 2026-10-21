@@ -4,7 +4,7 @@ import { Hourglass, Icon } from "@/components";
 import { Marker } from "@/components/ui";
 import { useMotion } from "@/hooks";
 
-/** What a run is doing while the app waits on it (`lib/stream.ts`). */
+/** What a run is doing while the app waits on it (`lib/transcript/stream.ts`). */
 export type ActivityState = "waiting" | "working";
 
 export interface RunLineProps {

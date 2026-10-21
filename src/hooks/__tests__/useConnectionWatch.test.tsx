@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type * as Bridge from "@/lib/bridge";
 import { ConnectionLostOverlay } from "@/routes/connect/ConnectionLostOverlay";
-import { reportReachFailure } from "@/lib/connection-health";
+import { reportReachFailure } from "@/lib/query";
 import { useConnectionWatch } from "@/hooks/useConnectionWatch";
 import { queryDefaults } from "@/lib/query";
 

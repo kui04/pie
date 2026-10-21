@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssistantMessage } from "@/lib/rpc-protocol";
 import {
     activityRows,
@@ -12,7 +12,7 @@ import {
     startCall,
     updateCall,
     type LiveRun,
-} from "@/lib/stream";
+} from "../stream";
 
 /**
  * The sequences below are the ones a recorded run writes
@@ -57,6 +57,10 @@ function live(run: LiveRun): AssistantMessage {
     if (row.kind !== "assistant") throw new Error("the run drew no assistant row");
     return row.message;
 }
+
+afterEach(() => {
+    vi.useRealTimers();
+});
 
 function part(run: LiveRun, index: number) {
     return live(run).content[index];
@@ -112,6 +116,30 @@ describe("a message a run is writing", () => {
             toolCall: { type: "toolCall", id: "call-1", name: "write", arguments: { path: "/tmp/a.ts" } },
         });
         expect(part(run, 0)).toMatchObject({ arguments: { path: "/tmp/a.ts" } });
+    });
+
+    it("reads a long call at intervals, and takes its end as the authority", () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(0);
+
+        let run = started();
+        run = applyDelta(run, { type: "toolcall_start", contentIndex: 0, id: "call-1", toolName: "write" });
+        run = applyDelta(run, { type: "toolcall_delta", contentIndex: 0, delta: '{"content":"' + "x".repeat(2_048) });
+        const first = part(run, 0);
+        if (first.type !== "toolCall") throw new Error("the call is not there");
+        expect(String(first.arguments.content)).toHaveLength(2_048);
+
+        vi.advanceTimersByTime(10);
+        run = applyDelta(run, { type: "toolcall_delta", contentIndex: 0, delta: "y".repeat(10) });
+        const held = part(run, 0);
+        if (held.type !== "toolCall") throw new Error("the call is not there");
+        expect(String(held.arguments.content)).toHaveLength(2_048);
+
+        vi.advanceTimersByTime(120);
+        run = applyDelta(run, { type: "toolcall_delta", contentIndex: 0, delta: "z".repeat(10) });
+        const read = part(run, 0);
+        if (read.type !== "toolCall") throw new Error("the call is not there");
+        expect(String(read.arguments.content)).toHaveLength(2_068);
     });
 
     it("keeps the parts in order when a later index arrives first", () => {

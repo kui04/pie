@@ -5,7 +5,7 @@
  * The actors follow the sessions of the connection, not the screen: `syncSessions` runs for the
  * list that Rust answers with, so a session that is not on screen keeps its listeners, its
  * overlay, its rows and its phase - the screen that selects it later shows the run as it is. The
- * map is app-wide infrastructure, like the query client of `lib/query.ts`: it hands out actor
+ * map is app-wide infrastructure, like the query client of `lib/query/index.ts`: it hands out actor
  * refs and the phase of each, and it holds no state of its own.
  *
  * The deps are a module factory: every part of them - the query client, the bridge, the toast -
@@ -18,8 +18,8 @@ import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
 import type { Event as SessionRecord } from "@/lib/rpc-protocol";
-import type { RunPhase } from "@/lib/stream";
-import { toastNotice, type Notice, type ReadTarget } from "@/lib/session-records";
+import type { RunPhase } from "@/lib/transcript";
+import { toastNotice, type Notice, type ReadTarget } from "./records";
 import { phaseOf, sessionMachine, type SessionDeps } from "@/machines/session.machine";
 
 /** One running chart of one session. */

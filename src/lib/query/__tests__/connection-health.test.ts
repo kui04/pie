@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { isReachFailure, reportReachFailure, subscribeToReachFailures } from "@/lib/connection-health";
+import { isReachFailure, reportReachFailure, subscribeToReachFailures } from "../health";
 
 describe("a failed read against the reach", () => {
     it("counts the failures that can carry a lost reach, and not the ones behind it", () => {

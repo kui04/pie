@@ -14,7 +14,7 @@ import type * as Bridge from "@/lib/bridge";
 import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { queryDefaults } from "@/lib/query";
 import { sessionMachine, type SessionDeps } from "@/machines/session.machine";
-import type { SessionRef } from "@/lib/sessions";
+import type { SessionRef } from "@/lib/session";
 import { SessionMenu } from "@/routes/chat/SessionMenu";
 import { sessionState } from "@/preview/fixtures";
 

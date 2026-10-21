@@ -10,7 +10,7 @@ import { StrictMode, useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionEntry } from "@/lib/rpc-protocol";
-import { forgetSession, phases, sessionOf, subscribeSessions, syncSessions, type SessionRef } from "@/lib/sessions";
+import { forgetSession, phases, sessionOf, subscribeSessions, syncSessions, type SessionRef } from "../registry";
 import { user } from "@/preview/fixtures";
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({

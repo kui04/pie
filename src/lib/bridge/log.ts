@@ -47,6 +47,10 @@ let kept: LogLevels | null = null;
 /** The one question in flight, so that a hundred lines ask it once. */
 let asking: Promise<void> | null = null;
 
+/** How long a failed level question waits before another line asks again. */
+const RETRY_MS = 30_000;
+let retryAt = 0;
+
 /** The one notice that logging is not reaching Rust, so it is said once. */
 let warned = false;
 
@@ -72,7 +76,7 @@ export const log = {
 
 /** Writes one line, if Rust keeps lines of its level. */
 function write(level: LogLevel, message: string, fields: LogFields = {}): void {
-    if (kept === null && asking === null) asking = ask();
+    if (kept === null && asking === null && Date.now() >= retryAt) asking = ask();
 
     if (kept !== null && !kept[level]) return;
 
@@ -86,5 +90,13 @@ function write(level: LogLevel, message: string, fields: LogFields = {}): void {
 
 /** Asks Rust which levels it keeps, and remembers the answer. */
 async function ask(): Promise<void> {
-    kept = await invoke<LogLevels>("log_levels").catch(() => null);
+    const answer = await invoke<LogLevels>("log_levels").catch(() => null);
+    if (answer === null) {
+        // A bridge that cannot answer now may answer later; do not make every line
+        // ask again while it cannot.
+        asking = null;
+        retryAt = Date.now() + RETRY_MS;
+        return;
+    }
+    kept = answer;
 }

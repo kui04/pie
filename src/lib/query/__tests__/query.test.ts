@@ -10,8 +10,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Query } from "@tanstack/react-query";
 import type * as Bridge from "@/lib/bridge";
-import { subscribeToReachFailures } from "@/lib/connection-health";
-import { connectionQueries, queryClient, statsPoll } from "@/lib/query";
+import { subscribeToReachFailures } from "../health";
+import { connectionQueries, queryClient, statsPoll } from "../index";
 
 const fake = vi.hoisted(() => ({
     getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo | null>>(),

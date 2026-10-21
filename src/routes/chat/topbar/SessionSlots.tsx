@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { isListening, isReady, phaseOf } from "@/machines/session.machine";
 import { sessionQueries, sessionsQueries, statsPoll } from "@/lib/query";
-import type { SessionRef } from "@/lib/sessions";
+import type { SessionRef } from "@/lib/session";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";

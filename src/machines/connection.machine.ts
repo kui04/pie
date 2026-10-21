@@ -75,7 +75,7 @@ export const connectionMachine = setup({
                     }
                     // What the connect answered is not carried: Rust holds the
                     // connection, and the workspace reads it back with
-                    // `get_connection` (`lib/query.ts`).
+                    // `get_connection` (`lib/query/index.ts`).
                     await input.deps.connect(input.deps.connection, input.spec);
                     sendBack({ type: "CONNECTED" });
                 } catch (thrown) {

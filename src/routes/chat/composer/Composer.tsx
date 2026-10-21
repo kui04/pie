@@ -18,7 +18,7 @@ import { ThinkingLevelPicker } from "@/routes/chat/composer/ThinkingLevelPicker"
 import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { useSelector } from "@xstate/react";
-import type { SessionRef } from "@/lib/sessions";
+import type { SessionRef } from "@/lib/session";
 import { Icon } from "@/components";
 
 /**

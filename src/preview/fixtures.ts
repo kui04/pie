@@ -377,7 +377,7 @@ export function longTurnTranscript(): SessionEntry[] {
                 [
                     toolCall("rd1", "read", { path: "src/lib/parse.ts" }),
                     toolCall("rd2", "read", { path: "src/lib/parse.test.ts" }),
-                    toolCall("rd3", "read", { path: "src/lib/text.ts" }),
+                    toolCall("rd3", "read", { path: "src/lib/transcript/text.ts" }),
                     toolCall("rd4", "read", { path: "src/lib/parse.ts", offset: 30, limit: 40 }),
                 ],
                 { timestamp: at(14), durationMs: 9000 },

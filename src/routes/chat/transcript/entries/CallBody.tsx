@@ -5,7 +5,7 @@ import { cn } from "cn";
 import { Button, CodeBlock, CodeBlockActions, CodeBlockContent } from "@/components/ui";
 import { useMotion } from "@/hooks";
 import { useFollowTail } from "@/routes/chat/transcript/useFollowTail";
-import type { NumberedLine } from "@/lib/text";
+import type { NumberedLine } from "@/lib/transcript";
 import type { ToolBody, ToolNote } from "@/routes/chat/transcript/presentation";
 import { Icon, ScrollPane } from "@/components";
 

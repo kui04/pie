@@ -13,8 +13,8 @@
 
 import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
-import { isReachFailure, reportReachFailure } from "@/lib/connection-health";
-import type { RunPhase } from "@/lib/stream";
+import { isReachFailure, reportReachFailure } from "./health";
+import type { RunPhase } from "@/lib/transcript";
 
 /**
  * The defaults every read of this app runs under, and the client they build.
@@ -43,7 +43,7 @@ export const queryDefaults = {
  * A failure of the reach is also the earliest news of a connection that ended: the reads
  * fail the moment the link goes, and the watch that ticks behind them is a tick late. The
  * boundary is told, and asks Rust what the reach is doing - the failure alone is not a
- * verdict (`lib/connection-health.ts`).
+ * verdict (`lib/query/health.ts`).
  */
 const queryCache = new QueryCache({
     onError: (error, query) => {
@@ -91,6 +91,11 @@ export function statsPoll(phase: RunPhase): typeof statsRefetchInterval | false 
     return phase === "idle" ? false : statsRefetchInterval;
 }
 
+/** One read that never retries: a failed command has already said why. */
+function noRetry<T>(queryKey: readonly unknown[], queryFn: () => Promise<T>) {
+    return queryOptions({ queryKey, queryFn, retry: false });
+}
+
 /**
  * The reads of one session, by the name of the session.
  *
@@ -101,20 +106,10 @@ export function statsPoll(phase: RunPhase): typeof statsRefetchInterval | false 
  */
 export const sessionQueries = {
     /** The state of a session: its model, its run, its name, its counts. */
-    state: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.state(session),
-            queryFn: () => bridge.getState(session),
-            retry: false,
-        }),
+    state: (session: string) => noRetry(sessionKeys.state(session), () => bridge.getState(session)),
 
     /** Every entry of a session and the leaf it points at. */
-    entries: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.entries(session),
-            queryFn: () => bridge.getEntries(session),
-            retry: false,
-        }),
+    entries: (session: string) => noRetry(sessionKeys.entries(session), () => bridge.getEntries(session)),
 
     /**
      * The usage of a session.
@@ -123,52 +118,24 @@ export const sessionQueries = {
      * header reads this one again after a while, because a run that streams for
      * minutes reports its cost in events that this query does not see.
      */
-    stats: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.stats(session),
-            queryFn: () => bridge.getSessionStats(session),
-            retry: false,
-        }),
+    stats: (session: string) => noRetry(sessionKeys.stats(session), () => bridge.getSessionStats(session)),
 
     /** The commands that a prompt of this session can invoke, for the command menu. */
-    commands: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.commands(session),
-            queryFn: () => bridge.getCommands(session),
-            retry: false,
-        }),
+    commands: (session: string) => noRetry(sessionKeys.commands(session), () => bridge.getCommands(session)),
 
     /** The pending dialogs and extension values of this session. */
-    extension: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.extension(session),
-            queryFn: () => bridge.getExtensionState(session),
-            retry: false,
-        }),
+    extension: (session: string) => noRetry(sessionKeys.extension(session), () => bridge.getExtensionState(session)),
 
     /** The user messages that a fork of this session can start from, for the fork sheet. */
     forkMessages: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.forkMessages(session),
-            queryFn: () => bridge.getForkMessages(session),
-            retry: false,
-        }),
+        noRetry(sessionKeys.forkMessages(session), () => bridge.getForkMessages(session)),
 
     /** The models this session can use. */
-    models: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.models(session),
-            queryFn: () => bridge.getAvailableModels(session),
-            retry: false,
-        }),
+    models: (session: string) => noRetry(sessionKeys.models(session), () => bridge.getAvailableModels(session)),
 
     /** The thinking levels this session accepts. */
     thinkingLevels: (session: string) =>
-        queryOptions({
-            queryKey: sessionKeys.thinkingLevels(session),
-            queryFn: () => bridge.getAvailableThinkingLevels(session),
-            retry: false,
-        }),
+        noRetry(sessionKeys.thinkingLevels(session), () => bridge.getAvailableThinkingLevels(session)),
 };
 
 /**
@@ -182,12 +149,7 @@ export const sessionQueries = {
  */
 export const sessionsQueries = {
     /** Every session of the host, most recently written first. */
-    list: (endpoint: string) =>
-        queryOptions({
-            queryKey: ["sessions", endpoint] as const,
-            queryFn: () => bridge.listSessions(),
-            retry: false,
-        }),
+    list: (endpoint: string) => noRetry(["sessions", endpoint] as const, () => bridge.listSessions()),
 };
 
 /**
@@ -200,11 +162,7 @@ export const sessionsQueries = {
 export const directoryQueries = {
     /** One level of the directories of the connected machine. */
     list: (endpoint: string, path?: string) =>
-        queryOptions({
-            queryKey: ["dirs", endpoint, path ?? ""] as const,
-            queryFn: () => bridge.listDirs(path),
-            retry: false,
-        }),
+        noRetry(["dirs", endpoint, path ?? ""] as const, () => bridge.listDirs(path)),
 };
 
 /**
@@ -231,3 +189,5 @@ export const connectionQueries = {
             staleTime: 0,
         }),
 };
+
+export * from "./health";

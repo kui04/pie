@@ -17,7 +17,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { humanize } from "@/lib/text";
+import { humanize } from "@/lib/transcript";
 
 /**
  * The glyph of a call's kind, in one place: what a row did, at a glance.

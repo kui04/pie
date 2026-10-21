@@ -188,7 +188,7 @@ export function getState(session: string): Promise<SessionState> {
  *
  * The answer is the raw set: the other branches of a fork are in it, and the
  * entries that a compaction summarized stay in it. The view of the transcript is
- * built from it on this side (see `lib/transcript-merge.ts`).
+ * built from it on this side (see `lib/transcript/merge.ts`).
  */
 export function getEntries(session: string): Promise<EntriesData> {
     return call<EntriesData>("get_entries", { session });

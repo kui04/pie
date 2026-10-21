@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayText, expandTabs, linesOf, messageText, numberedLines, resultText, stripAnsi } from "@/lib/text";
+import { displayText, expandTabs, linesOf, messageText, numberedLines, resultText, stripAnsi } from "../text";
 
 describe("the text of a tool, as the display shows it", () => {
     it("drops the escapes a terminal understands, colours and links alike", () => {

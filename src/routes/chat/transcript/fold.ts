@@ -10,7 +10,7 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@/lib/rpc-protocol";
-import type { LiveCall } from "@/lib/stream";
+import type { LiveCall } from "@/lib/transcript";
 import type { TranscriptRow } from "@/lib/transcript";
 import { failedCall, presentCall, stopNote, type ToolPresentation } from "@/routes/chat/transcript/presentation";
 

@@ -10,7 +10,14 @@ import {
     CodeBlockLine,
     CodeBlockTitle,
 } from "@/components/ui";
-import { loadedHighlighter, loadHighlighter, subscribeToHighlighter, tokensOf } from "@/lib/code-highlight";
+import { asPieError, log } from "@/lib/bridge";
+import {
+    ensureLanguage,
+    highlighterVersion,
+    loadedHighlighter,
+    subscribeToHighlighter,
+    tokensOf,
+} from "@/lib/highlight";
 import { copyText } from "@/lib/clipboard";
 import { Icon } from "./Icon";
 import { TruncatedText } from "./TruncatedText";
@@ -41,13 +48,16 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
     // Long lines scroll: a phone is narrow, and wrap is one tap away.
     const [wrap, setWrap] = useState(false);
-    const highlighter = useSyncExternalStore(subscribeToHighlighter, loadedHighlighter, loadedHighlighter);
+    const version = useSyncExternalStore(subscribeToHighlighter, highlighterVersion, highlighterVersion);
+    const highlighter = loadedHighlighter();
 
     // The chunk is asked for after the first paint, so nothing waits on colours that only a
-    // code block needs.
+    // code block needs. A grammar outside the common chunk is asked for by name.
     useEffect(() => {
-        void loadHighlighter();
-    }, []);
+        void ensureLanguage(language ?? "text").catch((thrown: unknown) => {
+            log.warn("the syntax highlighter did not load", { reason: asPieError(thrown).message });
+        });
+    }, [highlighter, language, version]);
 
     // The code the colours were made for. A block that is still arriving is redrawn on every
     // frame of a run, and colouring a long one costs a frame of its own (measured: 15ms for a

@@ -6,7 +6,7 @@
  */
 
 import type { AssistantMessage, BashExecutionMessage, JsonValue, ToolResultMessage } from "@/lib/rpc-protocol";
-import { displayText, linesOf, numberedFile, numberedLines, resultText, type NumberedLine } from "@/lib/text";
+import { displayText, linesOf, numberedFile, numberedLines, resultText, type NumberedLine } from "@/lib/transcript";
 
 export type ToolBody =
     /** Nothing to show: no result yet, or a result with nothing in it. */

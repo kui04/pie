@@ -6,7 +6,7 @@ import { createActor } from "xstate";
 import { queryDefaults } from "@/lib/query";
 import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { sessionMachine } from "@/machines/session.machine";
-import type { SessionRef } from "@/lib/sessions";
+import type { SessionRef } from "@/lib/session";
 import { SessionMenu } from "@/routes/chat/SessionMenu";
 import { sessionState } from "@/preview/fixtures";
 

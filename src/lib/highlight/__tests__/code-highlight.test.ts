@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { loadHighlighter, loadedHighlighter, tokensOf } from "@/lib/code-highlight";
+import { ensureLanguage, highlighterVersion, loadHighlighter, loadedHighlighter, tokensOf } from "../code";
 
 // The highlighter is one module and one chunk, so a test that wants colours has to let the
 // chunk land. Nothing here re-imports it: the whole file drives the real shiki.
@@ -39,6 +39,18 @@ describe("the code highlighter", () => {
         // the words it is, which is a block and not a failure.
         expect(tokensOf(loadedHighlighter(), "anything", "text")).toBeNull();
         expect(tokensOf(loadedHighlighter(), "anything", "cobol")).toBeNull();
+    });
+
+    it("loads a grammar outside the common chunk on demand", async () => {
+        // Rust is held back so the first chunk stays small; a fence that asks for it
+        // loads the grammar and asks its readers to draw again.
+        expect(tokensOf(loadedHighlighter(), "fn main() {}", "rust")).toBeNull();
+        const before = highlighterVersion();
+
+        await ensureLanguage("rust");
+
+        expect(highlighterVersion()).toBeGreaterThan(before);
+        expect(tokensOf(loadedHighlighter(), "fn main() {}", "rs")).not.toBeNull();
     });
 
     it("has no colours before the chunk has landed", () => {

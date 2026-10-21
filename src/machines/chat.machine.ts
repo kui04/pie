@@ -6,7 +6,7 @@
  * is one pi process with one conversation (`commands/session.rs`): a pick views the session
  * that already holds that file, or attaches another one on it. The sessions that are not in
  * view keep running - their charts follow the connection, not this screen
- * (`lib/sessions.ts`) - and only a close ends one.
+ * (`lib/session/registry.ts`) - and only a close ends one.
  *
  * `attaching` carries what the attempt is for: `path` names the conversation to load (pi
  * reads the file itself), or `cwd` names the directory of a new conversation (`null` for the

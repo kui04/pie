@@ -11,7 +11,7 @@
 import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { connectionQueries } from "@/lib/query";
-import { syncSessions } from "@/lib/sessions";
+import { syncSessions } from "@/lib/session";
 
 export function useSessionSync(): void {
     const connection = useQuery(connectionQueries.current());

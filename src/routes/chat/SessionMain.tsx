@@ -1,9 +1,9 @@
 /**
  * The region of a session: the transcript, the line under it, and the composer.
  *
- * The chart of the session lives in the registry (`lib/sessions.ts`), which follows the
+ * The chart of the session lives in the registry (`lib/session/registry.ts`), which follows the
  * sessions of the connection: this region selects it and never creates it. The transcript is
- * the fold of the base read and the records that arrived after it (`lib/transcript-merge.ts`).
+ * the fold of the base read and the records that arrived after it (`lib/transcript/merge.ts`).
  *
  * The bar, the list and the window's frame belong to the workspace (`ChatScreen`); this is the
  * page under the bar, and the only thing a pick or a switch replaces.
@@ -19,10 +19,10 @@ import { Button } from "@/components/ui";
 import { useExtensionUi, useKeyboardInset, useMotion, useSession } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
-import { sessionOf, subscribeSessions, type SessionRef } from "@/lib/sessions";
+import { sessionOf, subscribeSessions, type SessionRef } from "@/lib/session";
 import { queuedRows, transcriptRows } from "@/lib/transcript";
-import { activityRows, liveRows } from "@/lib/stream";
-import { mergedTranscript } from "@/lib/transcript-merge";
+import { activityRows, liveRows } from "@/lib/transcript";
+import { mergedTranscript } from "@/lib/transcript";
 import { Composer } from "@/routes/chat/composer/Composer";
 import { ExtensionPrompt } from "@/routes/chat/transcript/ExtensionPrompt";
 import { SessionLoading } from "@/routes/chat/SessionLoading";

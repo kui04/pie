@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { transcriptRows, type TranscriptRow } from "@/lib/transcript";
+import { transcriptRows, type TranscriptRow } from "../rows";
 import {
     assistant,
     bashExecution,

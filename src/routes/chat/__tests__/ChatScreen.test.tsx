@@ -9,9 +9,9 @@ import type * as Bridge from "@/lib/bridge";
 import type { SessionLifecycle } from "@/lib/bridge";
 import type { Event } from "@/lib/rpc-protocol";
 import { useSessionSync } from "@/hooks";
-import { forgetSession, phases } from "@/lib/sessions";
+import { forgetSession, phases } from "@/lib/session";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
-import { sessionOf } from "@/lib/sessions";
+import { sessionOf } from "@/lib/session";
 import {
     assistant,
     chain,
@@ -209,7 +209,7 @@ beforeEach(() => {
 
 afterEach(() => {
     // A test is a window of its own: the charts of its connection go with it, as the app's go
-    // with the connection (`lib/sessions.ts`).
+    // with the connection (`lib/session/registry.ts`).
     for (const session of [...phases().keys()]) forgetSession(session);
 });
 

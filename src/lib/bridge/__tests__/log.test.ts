@@ -82,6 +82,21 @@ describe("the log of the frontend", () => {
         expect(levels()).toEqual(["error", "warn", "info", "debug", "trace"]);
     });
 
+    it("asks for the levels once while the bridge cannot answer, not once per line", async () => {
+        commands.invoke.mockRejectedValue("the window is not in the app");
+        const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+        const log = await freshLog();
+
+        log.error("one");
+        await vi.waitFor(() =>
+            expect(commands.invoke.mock.calls.filter(([command]) => command === "log_levels")).toHaveLength(1),
+        );
+        log.error("two");
+
+        expect(commands.invoke.mock.calls.filter(([command]) => command === "log_levels")).toHaveLength(1);
+        debug.mockRestore();
+    });
+
     it("drops a line that Rust cannot take, and says so once", async () => {
         commands.invoke.mockRejectedValue("the window is not in the app");
         const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);

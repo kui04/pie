@@ -66,7 +66,7 @@ export const windowControls = {
  */
 export async function watchWindow(check: (maximized: boolean) => void): Promise<Unsubscribe> {
     const appWindow = getCurrentWindow();
-    const report = async () => check(await appWindow.isMaximized());
+    const report = async () => check(await windowControls.isMaximized());
 
     // One at a time, and released again if the next one fails: a listener that arrived
     // before the failure would otherwise stay on the window with nobody holding its

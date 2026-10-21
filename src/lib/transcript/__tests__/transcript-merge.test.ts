@@ -1,6 +1,6 @@
 /**
  * The merge of one session: a base read, the overlay of the records that arrived after it,
- * and the live rows a run writes - the rules of `lib/transcript-merge.ts`.
+ * and the live rows a run writes - the rules of `lib/transcript/merge.ts`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -22,7 +22,7 @@ import {
     mergedTranscript,
     type Overlay,
     type StreamState,
-} from "@/lib/transcript-merge";
+} from "../merge";
 
 const AT = "2026-10-05T00:00:00.000Z";
 

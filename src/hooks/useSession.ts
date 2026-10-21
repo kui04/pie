@@ -3,7 +3,7 @@
  *
  * The listeners open first and the reads follow: the event bus has no replay, and Rust sends
  * an event only to a window that already listens, so the other order would lose the records
- * in between. The actor itself belongs to the registry (`lib/sessions.ts`); this hook reads
+ * in between. The actor itself belongs to the registry (`lib/session/registry.ts`); this hook reads
  * it and owns nothing of its state.
  */
 
@@ -11,7 +11,7 @@ import { useSelector } from "@xstate/react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect } from "react";
 import { sessionQueries, statsPoll } from "@/lib/query";
-import type { SessionRef } from "@/lib/sessions";
+import type { SessionRef } from "@/lib/session";
 import { errorOf, isListening, isReady, phaseOf } from "@/machines/session.machine";
 
 export function useSession(session: string, machine: SessionRef) {
