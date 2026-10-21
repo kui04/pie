@@ -22,7 +22,7 @@ import { cn } from "cn";
 import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
 import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 import { ScrollPane, Icon, TruncatedText } from "@/components";
-import { useVisualViewport } from "@/hooks";
+import { useKeyboardInset } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
@@ -145,8 +145,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     const [cursor, setCursor] = useState<number | null>(null);
     const [hovered, setHovered] = useState<number | null>(null);
     const marks = useProviderMarks(catalogue);
-    const viewportState = useVisualViewport();
-    const [initialHeight] = useState(viewportState.height);
+    const keyboardInset = useKeyboardInset();
     const [waited, setWaited] = useState(false);
     const list = useRef<VirtualizerHandle>(null);
     const viewport = useRef<HTMLDivElement>(null);
@@ -157,7 +156,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
         search.current?.focus({ preventScroll: true });
     }, []);
 
-    // A viewport that has changed height says a keyboard (or other chrome) has arrived.
+    // An on-screen keyboard reports a positive inset when it opens.
     // Hold the popup out of sight until then, or until a short fallback, so it only
     // appears once, in its final place.
     useEffect(() => {
@@ -199,7 +198,7 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
 
     // A catalog that could not be read is not a search that found nothing: the popup says
     // what happened instead of offering a list of nothing, and there is nothing to search.
-    const popupVisible = waited || viewportState.height < initialHeight || initialHeight < window.innerHeight;
+    const popupVisible = waited || keyboardInset > 0;
     if (state === "failed") {
         return (
             <p

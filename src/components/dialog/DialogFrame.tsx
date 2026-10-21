@@ -89,9 +89,7 @@ export function DialogFrame({
 }: DialogFrameProps) {
     const mobileIs = useIsMobile();
     const mobile = isMobile ?? mobileIs;
-    const viewport = useVisualViewport();
-    const keyboardInset = Math.max(0, window.innerHeight - viewport.height);
-    const viewportOffset = viewport.offsetTop;
+    const { offsetTop, keyboardInset } = useVisualViewport();
     const generated = useId();
     const baseId = id ?? generated;
     const descriptionId = `${baseId}-description`;
@@ -99,17 +97,16 @@ export function DialogFrame({
     const hasChildren = children !== undefined && children !== null && children !== false;
     const ariaDescribedBy = hasDescription ? descriptionId : describedBy;
     const titleClass = "text-(length:--text-title-md) leading-6 font-normal";
-    const keyboardBottom = keyboardInset > 0 ? Math.max(0, keyboardInset - viewportOffset) : 0;
     const drawerStyle =
         keyboardInset > 0
             ? fitKeyboard
                 ? {
                       ...style,
-                      bottom: keyboardBottom,
-                      maxHeight: `calc(100dvh - ${keyboardBottom}px - env(safe-area-inset-top, 0px))`,
+                      bottom: keyboardInset,
+                      maxHeight: `calc(100dvh - ${keyboardInset}px - env(safe-area-inset-top, 0px))`,
                   }
-                : viewportOffset > 0
-                  ? { ...style, bottom: -viewportOffset }
+                : offsetTop > 0
+                  ? { ...style, bottom: -offsetTop }
                   : style
             : style;
 
@@ -137,7 +134,7 @@ export function DialogFrame({
                         className={cn(
                             `
                                 border-border bg-card px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] outline-none
-                                data-[nested-drawer-open]:opacity-0
+                                data-nested-drawer-open:opacity-0
                             `,
                             className,
                             drawerClassName,

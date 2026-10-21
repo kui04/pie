@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useVisualViewport } from "@/hooks/useVisualViewport";
+import { useKeyboardInset, useVisualViewport } from "@/hooks/useVisualViewport";
 
 beforeEach(() => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((run) => {
@@ -44,10 +44,12 @@ describe("the visual viewport", () => {
             height: 700,
             width: 400,
             scale: 1,
+            keyboardInset: 0,
         });
     });
 
     it("tracks the whole rectangle and keeps a stable snapshot", () => {
+        Object.defineProperty(window, "innerHeight", { value: 700, configurable: true });
         const { viewport, listeners } = mockViewport(400, 390, 20, 120, 2);
 
         const { result } = renderHook(() => useVisualViewport());
@@ -57,6 +59,7 @@ describe("the visual viewport", () => {
             height: 400,
             width: 390,
             scale: 2,
+            keyboardInset: 0,
         });
         const still = result.current;
 
@@ -79,6 +82,35 @@ describe("the visual viewport", () => {
             height: 600,
             width: 400,
             scale: 1,
+            keyboardInset: 100,
         });
+    });
+});
+
+describe("the keyboard inset", () => {
+    it("reports zero when visualViewport is absent", () => {
+        Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true });
+        expect(renderHook(() => useKeyboardInset()).result.current).toBe(0);
+    });
+
+    it("computes the inset when the on-screen keyboard shrinks the viewport", () => {
+        Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+        const { viewport, listeners } = mockViewport(500, 400, 0, 0, 1);
+
+        const { result } = renderHook(() => useKeyboardInset());
+        expect(result.current).toBe(300);
+
+        act(() => {
+            viewport.height = 750;
+            listeners.get("resize")?.();
+        });
+        expect(result.current).toBe(0);
+
+        act(() => {
+            viewport.height = 500;
+            viewport.scale = 1.5;
+            listeners.get("resize")?.();
+        });
+        expect(result.current).toBe(0);
     });
 });
