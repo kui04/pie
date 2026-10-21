@@ -1,4 +1,46 @@
+/**
+ * The measurements of the window that the app reads in JavaScript.
+ *
+ * The width decides whether the workspace keeps its session column; the visual
+ * viewport decides how far the on-screen keyboard reaches into a sheet. They are
+ * separate reads: a component that only asks about the width does not subscribe to
+ * the keyboard, and one that only asks about the keyboard does not subscribe to
+ * the media query.
+ */
+
 import { useSyncExternalStore } from "react";
+
+/**
+ * Whether the window is wide enough for the workspace's permanent session column.
+ *
+ * The width is written twice: as the Tailwind class that shows that column, and as
+ * this query. Two things about the surfaces are JavaScript's rather than CSS's — a
+ * column hidden by `display: none` still reads the sessions of the host, and a sheet
+ * that is open holds the page itself (Radix puts `pointer-events: none` on the body)
+ * — so a hand-written media query is warranted here.
+ */
+
+/** Tailwind's `lg`, as `matchMedia` spells it. */
+const WIDE_WINDOW = "(min-width: 64rem)";
+
+function subscribeToWidth(read: () => void): () => void {
+    const query = window.matchMedia(WIDE_WINDOW);
+    query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+}
+
+function width(): boolean {
+    return window.matchMedia(WIDE_WINDOW).matches;
+}
+
+export function useWideWindow(): boolean {
+    return useSyncExternalStore(
+        subscribeToWidth,
+        width,
+        // A window is not a thing this app renders outside a browser.
+        () => false,
+    );
+}
 
 /**
  * How far the soft keyboard reaches into the window, in CSS pixels.
@@ -13,7 +55,7 @@ import { useSyncExternalStore } from "react";
 /** A gap below this is chrome noise (URL bar), not a keyboard. */
 const OPEN_THRESHOLD = 100;
 
-function snapshot(): number {
+function keyboardInset(): number {
     const viewport = window.visualViewport;
     if (viewport === null || viewport === undefined) return 0;
     // Pinch zoom shrinks the visual viewport with no keyboard in sight.
@@ -22,7 +64,7 @@ function snapshot(): number {
     return gap >= OPEN_THRESHOLD ? gap : 0;
 }
 
-function subscribe(notify: () => void): () => void {
+function subscribeToKeyboard(notify: () => void): () => void {
     const viewport = window.visualViewport;
     // A keyboard animates in over many frames; one notice per frame is enough.
     let frame = 0;
@@ -52,5 +94,5 @@ function subscribe(notify: () => void): () => void {
 }
 
 export function useKeyboardInset(): number {
-    return useSyncExternalStore(subscribe, snapshot, () => 0);
+    return useSyncExternalStore(subscribeToKeyboard, keyboardInset, () => 0);
 }

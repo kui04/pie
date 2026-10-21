@@ -10,7 +10,7 @@
  * through the router.
  */
 
-import { use, useSyncExternalStore } from "react";
+import { use, useEffect, useSyncExternalStore } from "react";
 import type { Platform } from "@/lib/bridge";
 import * as bridge from "@/lib/bridge";
 
@@ -18,26 +18,31 @@ let answered: Platform | null = null;
 const readers = new Set<() => void>();
 
 /**
- * The round trip, asked for as this module loads.
+ * The round trip, asked for the first time a hook needs it and kept for the run.
  *
- * The app imports this before its first render, so the shell below has an answer in hand
- * rather than a blank frame the reader watches arrive.
+ * The shell asks through {@link usePlatformResource} before its first render, so it has an
+ * answer in hand rather than a blank frame the reader watches arrive.
  *
  * It never rejects: a failure resolves to `null` and says why on the way past, so the shell
  * can wait on it without an error boundary around it, and a blank window is still
  * explainable.
  */
-const asked: Promise<Platform | null> = bridge
-    .platform()
-    .then((platform) => {
-        answered = platform;
-        for (const read of readers) read();
-        return platform;
-    })
-    .catch((thrown: unknown) => {
-        console.error("pie could not read its own platform; is this running outside Tauri?", thrown);
-        return null;
-    });
+let asked: Promise<Platform | null> | null = null;
+
+function askPlatform(): Promise<Platform | null> {
+    asked ??= bridge
+        .platform()
+        .then((platform) => {
+            answered = platform;
+            for (const read of readers) read();
+            return platform;
+        })
+        .catch((thrown: unknown) => {
+            console.error("pie could not read its own platform; is this running outside Tauri?", thrown);
+            return null;
+        });
+    return asked;
+}
 
 function subscribe(read: () => void): () => void {
     readers.add(read);
@@ -55,7 +60,7 @@ function subscribe(read: () => void): () => void {
  * though — {@link asked} settles on failure too, just as `null`.
  */
 export function usePlatformResource(): Platform | null {
-    return use(asked);
+    return use(askPlatform());
 }
 
 /**
@@ -66,6 +71,9 @@ export function usePlatformResource(): Platform | null {
  * first.
  */
 export function useIsMobile(): boolean {
+    useEffect(() => {
+        void askPlatform();
+    }, []);
     return useSyncExternalStore(
         subscribe,
         () => answered === "mobile",

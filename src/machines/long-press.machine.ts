@@ -48,7 +48,8 @@ export const longPressMachine = setup({
             },
         },
         pressing: {
-            after: { [LONG_PRESS_MS]: "fired" },
+            // The press becomes long at the threshold, while the finger is still down.
+            after: { [LONG_PRESS_MS]: { target: "fired", actions: "fire" } },
             on: {
                 MOVE: { guard: "moved", target: "idle" },
                 RELEASE: "idle",
@@ -56,8 +57,9 @@ export const longPressMachine = setup({
             },
         },
         fired: {
+            // Moving after the threshold does not undo the press: the menu is already open.
             on: {
-                RELEASE: { target: "idle", actions: "fire" },
+                RELEASE: "idle",
                 CANCEL: "idle",
             },
         },

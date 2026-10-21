@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys, sessionQueries } from "@/lib/query";
 
-export function useExtension(session: string) {
+export function useExtensionUi(session: string) {
     const client = useQueryClient();
     const read = useQuery(sessionQueries.extension(session));
 

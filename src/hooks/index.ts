@@ -1,13 +1,8 @@
-export { useCallClock } from "./useCallClock";
 export { useConnectionWatch, type ConnectionWatch } from "./useConnectionWatch";
-export { useExtension } from "./useExtension";
-export { useFollowTail } from "./useFollowTail";
-export { useHighlighter } from "./useHighlighter";
-export { useKeyboardInset } from "./useKeyboardInset";
+export { useExtensionUi } from "./useExtensionUi";
 export { useLongPress, type LongPressHandlers } from "./useLongPress";
-export { useMaximized } from "./useMaximized";
 export { useMotion, type Motion } from "./useMotion";
 export { useIsMobile, usePlatformResource } from "./usePlatform";
-export { statsPoll, statsRefetchInterval, useSession } from "./useSession";
+export { useSession } from "./useSession";
 export { useSessionSync } from "./useSessionSync";
-export { useWideWindow } from "./useWideWindow";
+export { useKeyboardInset, useWideWindow } from "./useViewport";

@@ -10,27 +10,9 @@
 import { useSelector } from "@xstate/react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect } from "react";
-import { sessionQueries } from "@/lib/query";
+import { sessionQueries, statsPoll } from "@/lib/query";
 import type { SessionRef } from "@/lib/sessions";
 import { errorOf, isListening, isReady, phaseOf } from "@/machines/session.machine";
-
-/**
- * How often the usage is read with no event to say it changed: a run that streams for
- * minutes reports its cost in records this query does not see. The caller asks it only
- * while the run is not idle.
- */
-const STATS_FALLBACK_MS = 30_000;
-
-/** How often to ask again for the usage - never for a read that already failed, whose
- * answer would be the same one, every 30 seconds, for as long as the screen stays open. */
-export function statsRefetchInterval(query: { state: { status: string } }): number | false {
-    return query.state.status === "error" ? false : STATS_FALLBACK_MS;
-}
-
-/** Whether a session that has nothing running needs the fallback poll at all. */
-export function statsPoll(phase: ReturnType<typeof phaseOf>): typeof statsRefetchInterval | false {
-    return phase === "idle" ? false : statsRefetchInterval;
-}
 
 export function useSession(session: string, machine: SessionRef) {
     // The chart's state, as the screen reads it.

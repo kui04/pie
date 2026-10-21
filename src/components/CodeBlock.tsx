@@ -1,5 +1,5 @@
 import { Copy, Check, WrapText } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { ScrollPane } from "./ScrollPane";
 import {
     Button,
@@ -10,8 +10,7 @@ import {
     CodeBlockLine,
     CodeBlockTitle,
 } from "@/components/ui";
-import { useHighlighter } from "@/hooks";
-import { tokensOf } from "@/lib/code-highlight";
+import { loadedHighlighter, loadHighlighter, subscribeToHighlighter, tokensOf } from "@/lib/code-highlight";
 import { copyText } from "@/lib/clipboard";
 import { Icon } from "./Icon";
 import { TruncatedText } from "./TruncatedText";
@@ -42,7 +41,13 @@ export function CodeBlock({ code, language, id, className }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
     // Long lines scroll: a phone is narrow, and wrap is one tap away.
     const [wrap, setWrap] = useState(false);
-    const highlighter = useHighlighter();
+    const highlighter = useSyncExternalStore(subscribeToHighlighter, loadedHighlighter, loadedHighlighter);
+
+    // The chunk is asked for after the first paint, so nothing waits on colours that only a
+    // code block needs.
+    useEffect(() => {
+        void loadHighlighter();
+    }, []);
 
     // The code the colours were made for. A block that is still arriving is redrawn on every
     // frame of a run, and colouring a long one costs a frame of its own (measured: 15ms for a

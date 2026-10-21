@@ -403,7 +403,7 @@ function shapeFor(height: number): Array<{ heading: string; sessions: string[] }
  * From `lg` the list is the column instead, and the button that opens this sheet
  * lives below that breakpoint. A window that grows past it lets the sheet go: a
  * hidden sheet is not a closed one, and the body has no pointer events of its own
- * while a modal is up (see `useWideWindow.ts`).
+ * while a modal is up (see `useViewport.ts`).
  */
 function SessionSheet({
     id,

@@ -7,10 +7,11 @@
  * name.
  */
 
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Copy, Minus, PictureInPicture2, X } from "lucide-react";
-import { useMaximized, useMotion } from "@/hooks";
-import { windowControls } from "@/lib/bridge";
+import { useMotion } from "@/hooks";
+import { watchWindow, windowControls } from "@/lib/bridge";
 import { Icon } from "../Icon";
 
 /**
@@ -18,8 +19,25 @@ import { Icon } from "../Icon";
  * they ask for that end themselves: on the gate they are all that is in it.
  */
 export function WindowControls() {
-    const maximized = useMaximized();
     const { swap } = useMotion();
+    const [maximized, setMaximized] = useState(false);
+
+    // The window maximizes itself too — a double-click, a drag to the top edge — so it is
+    // asked rather than assumed, and asked again whenever it moves or resizes.
+    useEffect(() => {
+        let stop: (() => void) | undefined;
+        let cancelled = false;
+        watchWindow(setMaximized)
+            .then((unsubscribe) => {
+                if (cancelled) unsubscribe();
+                else stop = unsubscribe;
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+            stop?.();
+        };
+    }, []);
 
     return (
         <span id="window_controllers" className="ms-auto flex shrink-0 items-center gap-1">

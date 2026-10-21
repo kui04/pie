@@ -13,12 +13,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { isListening, isReady, phaseOf } from "@/machines/session.machine";
-import { sessionQueries, sessionsQueries } from "@/lib/query";
+import { sessionQueries, sessionsQueries, statsPoll } from "@/lib/query";
 import type { SessionRef } from "@/lib/sessions";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
-import { statsPoll } from "@/hooks";
 
 export interface SessionSlotsProps {
     session: string;

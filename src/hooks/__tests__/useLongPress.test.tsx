@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe("a long touch", () => {
-    it("opens once the finger stays put, and swallows the click it ends with", () => {
+    it("opens while the finger is still down, and swallows the click it ends with", () => {
         vi.useFakeTimers();
         const onLongPress = vi.fn();
         const onClick = vi.fn();
@@ -37,13 +37,27 @@ describe("a long touch", () => {
 
         touchDown(row);
         act(() => vi.advanceTimersByTime(500));
-        expect(onLongPress).not.toHaveBeenCalled();
+        expect(onLongPress).toHaveBeenCalledTimes(1);
 
         fireEvent.pointerUp(row, { pointerType: "touch", pointerId: 1 });
+        const end = new Event("touchend", { bubbles: true, cancelable: true });
+        row.dispatchEvent(end);
+        expect(end.defaultPrevented).toBe(true);
         fireEvent.click(row);
-        act(() => vi.advanceTimersByTime(0));
-        expect(onLongPress).toHaveBeenCalledTimes(1);
         expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it("fires once for one hold", () => {
+        vi.useFakeTimers();
+        const onLongPress = vi.fn();
+        render(<Harness onLongPress={onLongPress} onClick={() => undefined} />);
+        const row = screen.getByTestId("row");
+
+        touchDown(row);
+        act(() => vi.advanceTimersByTime(1_500));
+        fireEvent.pointerUp(row, { pointerType: "touch", pointerId: 1 });
+
+        expect(onLongPress).toHaveBeenCalledTimes(1);
     });
 
     it("leaves a tap to the row", () => {

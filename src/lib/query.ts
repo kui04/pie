@@ -14,6 +14,7 @@
 import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
 import { isReachFailure, reportReachFailure } from "@/lib/connection-health";
+import type { RunPhase } from "@/lib/stream";
 
 /**
  * The defaults every read of this app runs under, and the client they build.
@@ -70,6 +71,25 @@ export const sessionKeys = {
     models: (session: string) => [...sessionKeys.whole(session), "models"] as const,
     thinkingLevels: (session: string) => [...sessionKeys.whole(session), "thinkingLevels"] as const,
 };
+
+/** How often the usage is read with no event to say it changed. */
+const STATS_FALLBACK_MS = 30_000;
+
+/** How often to ask again for the usage, unless the read has failed for good. */
+function statsRefetchInterval(query: { state: { status: string } }): number | false {
+    return query.state.status === "error" ? false : STATS_FALLBACK_MS;
+}
+
+/**
+ * The fallback poll of the usage, or nothing for a session with no run.
+ *
+ * A run that streams for minutes reports its cost in records this query does not see, so the
+ * ring asks again while the run is not idle. A failed read is not asked again: its answer
+ * would be the same one every thirty seconds for as long as the screen stays open.
+ */
+export function statsPoll(phase: RunPhase): typeof statsRefetchInterval | false {
+    return phase === "idle" ? false : statsRefetchInterval;
+}
 
 /**
  * The reads of one session, by the name of the session.

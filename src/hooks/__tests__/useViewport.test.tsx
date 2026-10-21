@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { useKeyboardInset, useWideWindow } from "@/hooks/useViewport";
 
 beforeEach(() => {
     // Frame throttle runs at once, so updates land inside `act`.
@@ -63,5 +63,28 @@ describe("the keyboard inset", () => {
         mockViewport(350, 2);
 
         expect(renderHook(() => useKeyboardInset()).result.current).toBe(0);
+    });
+});
+describe("the width of the window", () => {
+    it("follows the media query for the permanent session column", () => {
+        const listeners = new Set<() => void>();
+        let matches = false;
+        const query = {
+            get matches() {
+                return matches;
+            },
+            addEventListener: (_name: string, read: () => void) => listeners.add(read),
+            removeEventListener: (_name: string, read: () => void) => listeners.delete(read),
+        } as unknown as MediaQueryList;
+        vi.spyOn(window, "matchMedia").mockReturnValue(query);
+
+        const { result } = renderHook(() => useWideWindow());
+        expect(result.current).toBe(false);
+
+        matches = true;
+        act(() => {
+            for (const read of listeners) read();
+        });
+        expect(result.current).toBe(true);
     });
 });

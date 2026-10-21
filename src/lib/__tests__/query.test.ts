@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Query } from "@tanstack/react-query";
 import type * as Bridge from "@/lib/bridge";
 import { subscribeToReachFailures } from "@/lib/connection-health";
-import { connectionQueries, queryClient } from "@/lib/query";
+import { connectionQueries, queryClient, statsPoll } from "@/lib/query";
 
 const fake = vi.hoisted(() => ({
     getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo | null>>(),
@@ -95,5 +95,25 @@ describe("the read of the connection", () => {
 
     it("does not ask a second time when it fails", () => {
         expect(connectionQueries.current().retry).toBe(false);
+    });
+});
+
+describe("the fallback read of the usage", () => {
+    it("asks nothing of a session that has nothing running", () => {
+        // An idle session changes no counts between events: only a record can, and the chart
+        // asks for the reads those make stale. A run that streams for minutes is the one that
+        // needs the fallback.
+        expect(statsPoll("idle")).toBe(false);
+        expect(statsPoll("waiting")).not.toBe(false);
+        expect(statsPoll("working")).not.toBe(false);
+    });
+
+    it("stops asking a read that failed, and keeps asking otherwise", () => {
+        const poll = statsPoll("working");
+        if (poll === false) throw new Error("a working session must poll");
+
+        expect(poll({ state: { status: "error" } })).toBe(false);
+        expect(poll({ state: { status: "success" } })).toBe(30_000);
+        expect(poll({ state: { status: "pending" } })).toBe(30_000);
     });
 });

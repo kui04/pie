@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } from "@/lib/rpc-protocol";
 import { liveRows } from "@/lib/stream";
-import { statsPoll, statsRefetchInterval, useSession } from "@/hooks/useSession";
+import { useSession } from "@/hooks/useSession";
 import { queryDefaults, sessionKeys } from "@/lib/query";
 import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/sessions";
 import { mergedTranscript } from "@/lib/transcript-merge";
@@ -748,22 +748,5 @@ describe("the run a session streams", () => {
 
         await waitFor(() => expect(mounted.result.current.listening).toBe(true));
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalled());
-    });
-});
-
-describe("statsRefetchInterval", () => {
-    it("stops asking a session whose read failed, and keeps asking otherwise", () => {
-        expect(statsRefetchInterval({ state: { status: "error" } })).toBe(false);
-        expect(statsRefetchInterval({ state: { status: "success" } })).toBe(30_000);
-        expect(statsRefetchInterval({ state: { status: "pending" } })).toBe(30_000);
-    });
-
-    it("asks nothing of a session that has nothing running", () => {
-        // An idle session changes no counts between events: only a record can, and the chart
-        // asks for the reads those make stale. A run that streams for minutes is the one that
-        // needs the fallback.
-        expect(statsPoll("idle")).toBe(false);
-        expect(statsPoll("waiting")).toBe(statsRefetchInterval);
-        expect(statsPoll("working")).toBe(statsRefetchInterval);
     });
 });

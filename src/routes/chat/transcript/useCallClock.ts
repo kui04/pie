@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ToolStatus } from "@/routes/chat/transcript/presentation";
+import type { ToolStatus } from "./presentation";
 
 /**
  * The clock of one call: pi's own number when the result carries it, so the time is the tool's

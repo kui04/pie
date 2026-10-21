@@ -118,14 +118,19 @@ export function useConnectionWatch(): ConnectionWatch {
         if (pathname === "/") return;
         if (connection.isPending) return;
         if (connection.data !== null && connection.data !== undefined) return;
+        let cancelled = false;
         void (async () => {
             const answer = await refetch();
+            if (cancelled) return;
             if (answer.data !== null && answer.data !== undefined) return;
             bridge.log.info("there is no connection, so the window returns to the gate", {
                 reason: answer.error ? bridge.asPieError(answer.error).message : "no connection is held",
             });
             navigate("/", { replace: true });
         })();
+        return () => {
+            cancelled = true;
+        };
     }, [connection.data, connection.isPending, navigate, pathname, refetch]);
 
     const retry = useCallback(() => send({ type: "RETRY" }), [send]);

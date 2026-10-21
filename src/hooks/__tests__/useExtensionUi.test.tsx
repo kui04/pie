@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { ExtensionUIRequest } from "@/lib/rpc-protocol";
 import { queryDefaults } from "@/lib/query";
-import { useExtension } from "@/hooks/useExtension";
+import { useExtensionUi } from "@/hooks/useExtensionUi";
 
 const fake = vi.hoisted(() => ({
     getExtensionState: vi.fn<(session: string) => Promise<Bridge.ExtensionSnapshot>>(),
@@ -44,7 +44,7 @@ function mount() {
     const wrapper = ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
-    return renderHook(() => useExtension(SESSION), { wrapper });
+    return renderHook(() => useExtensionUi(SESSION), { wrapper });
 }
 
 beforeEach(() => {
@@ -59,7 +59,7 @@ afterEach(() => {
     client.clear();
 });
 
-describe("useExtension", () => {
+describe("useExtensionUi", () => {
     it("reads the snapshot after it subscribes, for a request that arrived first", async () => {
         fake.getExtensionState.mockResolvedValue(withRequest());
         const rendered = mount();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { useMachine } from "@xstate/react";
+import { useActorRef } from "@xstate/react";
 import { longPressMachine } from "@/machines/long-press.machine";
 
 export interface LongPressHandlers {
@@ -18,12 +18,15 @@ export interface LongPressHandlers {
  * Opens a menu from a long touch without letting the release pick the row.
  *
  * A tap still belongs to the row. A touch that stays within a finger's slop for
- * half a second belongs to the menu, and the click it ends with is swallowed.
+ * half a second becomes a long press while the finger is still down. The browser's
+ * compatibility press after a touch would otherwise be read by the menu trigger as
+ * a second press and close the menu, so that one press is swallowed.
  */
 export function useLongPress(onLongPress: () => void): LongPressHandlers {
     const callback = useRef(onLongPress);
     const fired = useRef(false);
-    const opening = useRef<number | null>(null);
+    const pressed = useRef<HTMLElement | null>(null);
+    const stopSuppression = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         callback.current = onLongPress;
@@ -31,46 +34,73 @@ export function useLongPress(onLongPress: () => void): LongPressHandlers {
 
     useEffect(() => {
         return () => {
-            if (opening.current !== null) window.clearTimeout(opening.current);
+            stopSuppression.current?.();
+            stopSuppression.current = null;
         };
     }, []);
 
-    const [, send] = useMachine(longPressMachine, {
+    /**
+     * The compatibility press that follows a touch would toggle the freshly opened menu
+     * closed. Cancelling the touch's end keeps the browser from making that press at all;
+     * the row's click guard is the fallback if one still arrives.
+     */
+    function swallowRelease(target: HTMLElement) {
+        stopSuppression.current?.();
+        stopSuppression.current = null;
+
+        const onTouchEnd = (event: TouchEvent) => {
+            event.preventDefault();
+            cleanup();
+        };
+        const cleanup = () => {
+            target.removeEventListener("touchend", onTouchEnd, true);
+            stopSuppression.current = null;
+        };
+        stopSuppression.current = cleanup;
+        target.addEventListener("touchend", onTouchEnd, { capture: true, once: true, passive: false });
+    }
+
+    const actor = useActorRef(longPressMachine, {
         input: {
             onLongPress: () => {
                 fired.current = true;
-                // The release click must meet a closed menu; it opens after the click.
-                opening.current = window.setTimeout(() => {
-                    opening.current = null;
-                    callback.current();
-                }, 0);
+                const target = pressed.current;
+                if (target !== null) swallowRelease(target);
+                callback.current();
             },
         },
     });
 
     const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
         fired.current = false;
+        stopSuppression.current?.();
+        stopSuppression.current = null;
         if (event.pointerType !== "touch") return;
+        pressed.current = event.currentTarget;
         event.currentTarget.setPointerCapture?.(event.pointerId);
-        send({ type: "PRESS", x: event.clientX, y: event.clientY, touch: true });
+        actor.send({ type: "PRESS", x: event.clientX, y: event.clientY, touch: true });
     };
     const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
         if (event.pointerType !== "touch") return;
-        send({ type: "MOVE", x: event.clientX, y: event.clientY });
+        actor.send({ type: "MOVE", x: event.clientX, y: event.clientY });
     };
     const onPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
         if (event.pointerType !== "touch") return;
         if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
             event.currentTarget.releasePointerCapture?.(event.pointerId);
         }
-        send({ type: "RELEASE" });
+        actor.send({ type: "RELEASE" });
+        pressed.current = null;
     };
     const onPointerCancel = (event: ReactPointerEvent<HTMLElement>) => {
         if (event.pointerType !== "touch") return;
         if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
             event.currentTarget.releasePointerCapture?.(event.pointerId);
         }
-        send({ type: "CANCEL" });
+        actor.send({ type: "CANCEL" });
+        stopSuppression.current?.();
+        stopSuppression.current = null;
+        pressed.current = null;
     };
     const onContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
         if (fired.current) event.preventDefault();
@@ -78,6 +108,8 @@ export function useLongPress(onLongPress: () => void): LongPressHandlers {
     const consumeClick = () => {
         const consumed = fired.current;
         fired.current = false;
+        stopSuppression.current?.();
+        stopSuppression.current = null;
         return consumed;
     };
 

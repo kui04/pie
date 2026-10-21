@@ -14,6 +14,14 @@ const EDGE = 16;
  * left clipped by an approach that never quite arrives. */
 const SNAP = 4;
 
+/** Paint the shading of the edges that have more behind them. */
+function paintFade(element: HTMLElement) {
+    const over = element.scrollHeight - element.clientHeight;
+    const faded =
+        over > EDGE / 2 ? `${element.scrollTop > 1 ? "t" : ""}${element.scrollTop < over - 1 ? "b" : ""}` : "";
+    if (element.dataset.fade !== faded) element.dataset.fade = faded;
+}
+
 /**
  * The window of a live body: a box that keeps its newest line in view while it grows, and says
  * which of its edges have more behind them.
@@ -65,6 +73,7 @@ export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
         const onScroll = () => {
             if (atEnd()) following.current = true;
             else touchedAt = element.scrollTop;
+            paintFade(element);
         };
 
         element.addEventListener("wheel", onWheel, { passive: true });
@@ -72,7 +81,20 @@ export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
         element.addEventListener("touchmove", onTouchMove, { passive: true });
         element.addEventListener("keydown", onKeyDown);
         element.addEventListener("scroll", onScroll, { passive: true });
+        paintFade(element);
+
+        // A settled body no longer runs a frame loop; its content can still grow while a
+        // highlighter lands, and the edges still have to say what is behind them.
+        const observer =
+            typeof ResizeObserver === "undefined"
+                ? null
+                : new ResizeObserver(() => {
+                      paintFade(element);
+                  });
+        observer?.observe(element);
+        if (element.firstElementChild !== null) observer?.observe(element.firstElementChild);
         return () => {
+            observer?.disconnect();
             element.removeEventListener("wheel", onWheel);
             element.removeEventListener("touchstart", onTouchStart);
             element.removeEventListener("touchmove", onTouchMove);
@@ -83,14 +105,14 @@ export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
 
     useEffect(() => {
         const element = box.current;
-        if (element === null) return;
+        if (element === null || !active) return;
 
         let frame = 0;
         let last = 0;
         const step = (now: number) => {
             const target = element.scrollHeight - element.clientHeight;
 
-            if (active && following.current && target > 0) {
+            if (following.current && target > 0) {
                 if (still) {
                     element.scrollTop = target;
                 } else {
@@ -100,15 +122,11 @@ export function useFollowTail<T extends HTMLElement = HTMLDivElement>(
                 }
             }
 
-            const over = element.scrollHeight - element.clientHeight;
-            const faded =
-                over > EDGE / 2 ? `${element.scrollTop > 1 ? "t" : ""}${element.scrollTop < over - 1 ? "b" : ""}` : "";
-            if (element.dataset.fade !== faded) element.dataset.fade = faded;
+            paintFade(element);
 
             // A chase that has arrived stays arrived: writing the end each frame is what keeps a
             // late layout from leaving the newest line half a frame below the fold.
-            if (active && following.current && target - element.scrollTop < SNAP && target >= 0)
-                element.scrollTop = target;
+            if (following.current && target - element.scrollTop < SNAP && target >= 0) element.scrollTop = target;
 
             last = now;
             frame = requestAnimationFrame(step);
