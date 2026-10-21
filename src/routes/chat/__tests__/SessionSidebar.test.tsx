@@ -115,7 +115,7 @@ describe("SessionSidebar", () => {
 
         const sheet = document.getElementById("session-sheet");
         expect(sheet).toHaveClass("bg-surface-dim");
-        expect(sheet).toHaveClass("data-[nested-drawer-open]:opacity-0");
+        expect(sheet).toHaveClass("data-nested-drawer-open:opacity-0");
     });
 
     it("groups the rows by the directory their sessions started in", async () => {

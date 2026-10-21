@@ -1,22 +1,15 @@
 /**
- * The page that stands while no conversation is open: the words of pi, and what the
- * window can do from here.
+ * The page that stands while no conversation is open: the words of pi, and the keys
+ * the window offers from here.
  *
- * Both rows are the actions themselves, not only their keys: the keys belong to the
- * window's own handling (`chat.machine`), and a press is what a touch screen has.
+ * The rows name those keys; they are labels, not controls. The window itself owns
+ * the shortcuts.
  */
 
 import type { ReactNode } from "react";
 import { Kbd, KbdGroup } from "@/components/ui";
 
-export interface SessionLandingProps {
-    /** Show or hide the session list: the window's own action, under `Ctrl+B`. */
-    onSessions?: () => void;
-    /** Choose a directory for a new conversation, under `Ctrl+N`. */
-    onNew?: () => void;
-}
-
-export function SessionLanding({ onSessions, onNew }: SessionLandingProps) {
+export function SessionLanding() {
     return (
         <div id="chat-landing" className="m-auto flex flex-col items-center gap-10 p-6">
             <p className="text-center text-body-lg text-muted-foreground">
@@ -25,10 +18,10 @@ export function SessionLanding({ onSessions, onNew }: SessionLandingProps) {
                 but this one is yours.
             </p>
             <div className="grid w-full max-w-xs gap-1">
-                <Shortcut id="landing-sessions" label="Sessions" onPress={onSessions}>
+                <Shortcut id="landing-sessions" label="Sessions">
                     <Kbd>Ctrl</Kbd>+<Kbd>B</Kbd>
                 </Shortcut>
-                <Shortcut id="landing-new" label="New session" onPress={onNew}>
+                <Shortcut id="landing-new" label="New session">
                     <Kbd>Ctrl</Kbd>+<Kbd>N</Kbd>
                 </Shortcut>
             </div>
@@ -36,27 +29,12 @@ export function SessionLanding({ onSessions, onNew }: SessionLandingProps) {
     );
 }
 
-/** One row of the window's actions: what it does on the left, its keys on the right. */
-function Shortcut({
-    id,
-    label,
-    onPress,
-    children,
-}: {
-    id: string;
-    label: string;
-    onPress?: () => void;
-    children: ReactNode;
-}) {
+/** One row of the window's keys: what it does on the left, its keys on the right. */
+function Shortcut({ id, label, children }: { id: string; label: string; children: ReactNode }) {
     return (
-        <button
-            type="button"
-            id={id}
-            onClick={onPress}
-            className="flex items-center justify-between gap-8 rounded-md px-3 py-2 hover:bg-accent/50"
-        >
+        <div id={id} className="flex items-center justify-between gap-8 rounded-md px-3 py-2">
             <span className="text-body-md text-muted-foreground">{label}</span>
             <KbdGroup className="text-muted-foreground">{children}</KbdGroup>
-        </button>
+        </div>
     );
 }

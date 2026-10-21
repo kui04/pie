@@ -276,14 +276,15 @@ describe("ChatScreen", () => {
     it("starts a new conversation in the folder that was chosen", async () => {
         // A new conversation has no file until it is spoken in: the picker walks the
         // host's folders, and the directory it answers with is where pi starts.
+        const restore = windowOf("wide");
         noSessionYet();
         bridge.listSessions.mockResolvedValue([]);
 
         renderScreen();
 
         await screen.findByText(/There are many agent harnesses/);
-        // The landing's own row, by its id: the list's key carries the same name.
-        fireEvent.click(document.getElementById("landing-new") as HTMLElement);
+        // The landing's keys are labels only: the list's own key starts the flow.
+        fireEvent.click(await screen.findByRole("button", { name: "New Conversation" }));
 
         // The home of the host, and the folder the press selects into the field.
         fireEvent.click(await screen.findByRole("option", { name: "/home/kui/Projects" }));
@@ -294,6 +295,7 @@ describe("ChatScreen", () => {
         await waitFor(() => expect(bridge.startSession).toHaveBeenCalledWith("/home/kui/Projects"));
         // The session that answered stands in view, with nothing said in it yet.
         expect(await screen.findByText("Nothing has been said yet.")).toBeInTheDocument();
+        restore();
     });
 
     it("starts pi on the conversation that was picked when none holds it", async () => {

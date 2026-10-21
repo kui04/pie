@@ -22,7 +22,7 @@ import {
     DrawerFooter,
     DrawerTitle,
 } from "@/components/ui";
-import { useIsMobile, useVirtualKeyboardInset, useVisualViewport } from "@/hooks";
+import { useIsMobile, useVisualViewport } from "@/hooks";
 import { Icon } from "../Icon";
 import { DialogFrameContext } from "./context";
 
@@ -89,8 +89,9 @@ export function DialogFrame({
 }: DialogFrameProps) {
     const mobileIs = useIsMobile();
     const mobile = isMobile ?? mobileIs;
-    const { insetHeight: keyboardInset } = useVirtualKeyboardInset();
-    const { offsetTop: viewportOffset } = useVisualViewport();
+    const viewport = useVisualViewport();
+    const keyboardInset = Math.max(0, window.innerHeight - viewport.height);
+    const viewportOffset = viewport.offsetTop;
     const generated = useId();
     const baseId = id ?? generated;
     const descriptionId = `${baseId}-description`;

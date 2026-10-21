@@ -1,7 +1,7 @@
 import { useMachine } from "@xstate/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { useIsMobile, useVirtualKeyboardInset } from "@/hooks";
+import { useIsMobile, useVisualViewport } from "@/hooks";
 
 import { ConnectionCard, type ConnectionForm } from "@/routes/connect/ConnectionCard";
 import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
@@ -196,7 +196,8 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const { pickPrivateKey } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
-    const keyboardInset = useVirtualKeyboardInset().insetHeight;
+    const viewport = useVisualViewport();
+    const keyboardInset = Math.max(0, window.innerHeight - viewport.height);
     // The host of the last connection, as the card opens on it. Read once, for
     // the first contents of the form; a dial that answers replaces it below.
     const remembered = useHostStore((state) => state.lastHost);

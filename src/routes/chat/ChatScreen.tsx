@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui";
-import { connectionQueries, sessionQueries } from "@/lib/query";
-import { useMotion, useWindowSize } from "@/hooks";
+import { connectionQueries, sessionKeys, sessionQueries } from "@/lib/query";
+import { useMotion, useSession, useWindowSize } from "@/hooks";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
@@ -23,7 +23,7 @@ import { SessionMenu } from "@/routes/chat/SessionMenu";
 import { DirectoryPicker } from "@/routes/chat/picker/DirectoryPicker";
 
 /** The page fills the column the frame gives it, and nothing of it scrolls as a whole. */
-const COLUMN = "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
+const COLUMN = "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 
 export function ChatScreen() {
     const connection = useQuery(connectionQueries.current());
@@ -84,6 +84,19 @@ export function ChatScreen() {
         () => null,
     );
     const cwd = sessions.find((running) => running.id === session)?.cwd ?? null;
+    // One read of the session in view, so the content can choose the loading page before
+    // any part of the conversation mounts. The chart may arrive a frame after the attach.
+    const view = useSession(session ?? "", chart);
+    const sessionFailure =
+        stage === "viewing" ? (view.error ?? view.entries.error ?? view.state.error ?? view.stats.error) : null;
+    const sessionLoaded =
+        stage === "viewing" &&
+        session !== null &&
+        chart !== null &&
+        view.ready &&
+        view.entries.data !== null &&
+        view.entries.data !== undefined &&
+        sessionFailure === null;
 
     // The sheet is a narrow window's way to the list; the column is a wide one's.
     // Pure UI, so the two live here, above both stages that draw a list.
@@ -153,11 +166,24 @@ export function ChatScreen() {
         );
 
     const expanded = wide ? column : undefined;
-    // The bar belongs to the window, and so does the list: the way to the list and the
-    // window's own keys stand still for every stage and every conversation. What changes is
-    // the region under the bar and the session's own slots in it - its name and its context -
-    // and the region that is leaving goes first (`mode="wait"`).
-    const page = session !== null && stage === "viewing" ? `${stage}:${session}` : stage;
+    // The content has three variants: the landing, the loading page, and the main session.
+    // The loading page also carries the failure of a read that could not answer.
+    const page = stage === "viewing" ? `${stage}:${session ?? "none"}:${sessionLoaded ? "main" : "loading"}` : stage;
+    let content: ReactNode;
+    if (stage === "attaching") {
+        content = <SessionLoading label={loading === null ? "Starting pi…" : "Opening the conversation…"} />;
+    } else if (stage === "unattached" && detached !== null) {
+        content = failurePage(detached.message, () => machine.send({ type: "RETRY" }));
+    } else if (stage === "viewing" && sessionFailure !== null) {
+        content = failurePage(bridge.asPieError(sessionFailure).message, retrySession);
+    } else if (stage === "viewing" && sessionLoaded && session !== null && chart !== null) {
+        content = <SessionMain session={session} machine={chart} view={view} />;
+    } else if (stage === "viewing") {
+        content = <SessionLoading />;
+    } else {
+        content = <SessionLanding />;
+    }
+
     return (
         <ChatFrame
             sidebar={
@@ -179,13 +205,13 @@ export function ChatScreen() {
                 start={
                     <>
                         <SidebarToggle expanded={expanded} onToggleSessions={toggleSessions} />
-                        {stage === "viewing" && chart !== null && session !== null && (
+                        {sessionLoaded && chart !== null && session !== null && (
                             <SessionSlots session={session} machine={chart} endpoint={endpoint} cwd={cwd} />
                         )}
                     </>
                 }
                 end={
-                    stage === "viewing" && chart !== null && session !== null ? (
+                    sessionLoaded && chart !== null && session !== null ? (
                         <>
                             <SessionUsage session={session} machine={chart} />
                             <SessionExtensions session={session} />
@@ -206,7 +232,7 @@ export function ChatScreen() {
             />
             <AnimatePresence mode="wait" initial={false}>
                 <motion.div id="session-page" key={page} {...pageOf} className={COLUMN}>
-                    {body()}
+                    {content}
                 </motion.div>
             </AnimatePresence>
             <DirectoryPicker
@@ -222,42 +248,33 @@ export function ChatScreen() {
         </ChatFrame>
     );
 
-    function body() {
-        if (stage === "attaching") {
-            return (
-                <div className="relative flex min-h-0 flex-1 items-center justify-center">
-                    <SessionLoading label={loading === null ? "Starting pi…" : "Opening the conversation…"} />
+    function retrySession() {
+        if (session === null) return;
+        view.reopen();
+        void client.invalidateQueries({ queryKey: ["connection"] });
+        void client.invalidateQueries({ queryKey: sessionKeys.whole(session) });
+    }
+
+    function failurePage(message: string, retry: () => void) {
+        return (
+            <div
+                id="chat-failure"
+                role="alert"
+                className="
+                    m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md
+                    text-muted-foreground
+                "
+            >
+                <p>{message}</p>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={retry}>
+                        Try again
+                    </Button>
+                    <Button variant="ghost" size="sm" render={<Link to="/" />} nativeButton={false}>
+                        Connect
+                    </Button>
                 </div>
-            );
-        }
-
-        if (stage === "unattached" && detached !== null) {
-            return (
-                <div
-                    id="chat-unattached"
-                    role="alert"
-                    className="
-                        m-auto flex max-w-prose flex-col items-center gap-3 px-6 text-center text-body-md
-                        text-muted-foreground
-                    "
-                >
-                    <p>{detached.message}</p>
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => machine.send({ type: "RETRY" })}>
-                            Try again
-                        </Button>
-                        <Button variant="ghost" size="sm" render={<Link to="/" />} nativeButton={false}>
-                            Connect
-                        </Button>
-                    </div>
-                </div>
-            );
-        }
-
-        if (stage === "viewing" && session !== null) {
-            return <SessionMain session={session} client={client} />;
-        }
-
-        return <SessionLanding onSessions={toggleSessions} onNew={openPicker} />;
+            </div>
+        );
     }
 }

@@ -14,12 +14,14 @@ import { sessionQueries, statsPoll } from "@/lib/query";
 import type { SessionRef } from "@/lib/session";
 import { errorOf, isListening, isReady, phaseOf } from "@/machines/session.machine";
 
-export function useSession(session: string, machine: SessionRef) {
-    // The chart's state, as the screen reads it.
-    const open = useSelector(machine, isListening);
-    const ready = useSelector(machine, isReady);
-    const phase = useSelector(machine, phaseOf);
-    const failure = useSelector(machine, errorOf);
+export function useSession(session: string, machine: SessionRef | null) {
+    // The chart's state, as the screen reads it. A screen can ask before the registry has
+    // made the chart; the reads then stay off until it arrives.
+    const actor = machine ?? undefined;
+    const open = useSelector(actor, (snapshot) => (snapshot === undefined ? false : isListening(snapshot)));
+    const ready = useSelector(actor, (snapshot) => (snapshot === undefined ? false : isReady(snapshot)));
+    const phase = useSelector(actor, (snapshot) => (snapshot === undefined ? "idle" : phaseOf(snapshot)));
+    const failure = useSelector(actor, (snapshot) => (snapshot === undefined ? null : errorOf(snapshot)));
 
     // The listeners are open, so this session may be read: `enabled` keeps the reads off
     // until then, and the records in between cannot pass unheard.
@@ -32,7 +34,7 @@ export function useSession(session: string, machine: SessionRef) {
     // records that followed its request. `dataUpdatedAt` orders two answers, so a refetch
     // is sent even when the data compares equal.
     useEffect(() => {
-        if (open && state.data) {
+        if (machine !== null && open && state.data) {
             machine.send({ type: "STATE_READ", streaming: state.data.isStreaming, at: state.dataUpdatedAt });
         }
     }, [open, state.data, state.dataUpdatedAt, machine]);
@@ -40,7 +42,7 @@ export function useSession(session: string, machine: SessionRef) {
     // The base read is the authority for the entries, and it is handed over before the next
     // paint, so the overlay is reconciled in the same frame.
     useLayoutEffect(() => {
-        if (open && entries.data) {
+        if (machine !== null && open && entries.data) {
             machine.send({ type: "SNAPSHOT", data: entries.data, at: entries.dataUpdatedAt });
         }
     }, [open, entries.data, entries.dataUpdatedAt, machine]);
@@ -50,11 +52,11 @@ export function useSession(session: string, machine: SessionRef) {
     // same tokens twice. An answer from before the settle leaves the increment on screen, and
     // the chart keeps that moment for the read that does cover the response.
     useEffect(() => {
-        if (open && stats.data) machine.send({ type: "STATS_READ", at: stats.dataUpdatedAt });
+        if (machine !== null && open && stats.data) machine.send({ type: "STATS_READ", at: stats.dataUpdatedAt });
     }, [open, stats.data, stats.dataUpdatedAt, machine]);
 
     /** Asks for the listeners again, for a screen whose failure was the subscription. */
-    const reopen = useCallback(() => machine.send({ type: "REOPEN" }), [machine]);
+    const reopen = useCallback(() => machine?.send({ type: "REOPEN" }), [machine]);
 
     return {
         phase,
@@ -70,3 +72,6 @@ export function useSession(session: string, machine: SessionRef) {
         reopen,
     };
 }
+
+/** The reads and the run of one session, as a screen hands them to its body. */
+export type SessionView = ReturnType<typeof useSession>;

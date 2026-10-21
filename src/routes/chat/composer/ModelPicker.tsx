@@ -22,6 +22,7 @@ import { cn } from "cn";
 import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/ui";
 import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 import { ScrollPane, Icon, TruncatedText } from "@/components";
+import { useVisualViewport } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
@@ -104,6 +105,7 @@ export function ModelPicker({ session, current, open, onOpenChange }: ModelPicke
                         rounded-xl p-2 text-foreground
                     `,
                     COMPOSER_PANEL,
+                    "has-data-[popup-waiting=true]:opacity-0",
                 )}
             >
                 <ModelMenu
@@ -143,6 +145,9 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     const [cursor, setCursor] = useState<number | null>(null);
     const [hovered, setHovered] = useState<number | null>(null);
     const marks = useProviderMarks(catalogue);
+    const viewportState = useVisualViewport();
+    const [initialHeight] = useState(viewportState.height);
+    const [waited, setWaited] = useState(false);
     const list = useRef<VirtualizerHandle>(null);
     const viewport = useRef<HTMLDivElement>(null);
     const search = useRef<HTMLInputElement>(null);
@@ -150,6 +155,14 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
 
     useEffect(() => {
         search.current?.focus({ preventScroll: true });
+    }, []);
+
+    // A viewport that has changed height says a keyboard (or other chrome) has arrived.
+    // Hold the popup out of sight until then, or until a short fallback, so it only
+    // appears once, in its final place.
+    useEffect(() => {
+        const timer = window.setTimeout(() => setWaited(true), 300);
+        return () => window.clearTimeout(timer);
     }, []);
 
     // What the popup draws: the whole catalog, ordered by provider while nothing is
@@ -186,12 +199,20 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
 
     // A catalog that could not be read is not a search that found nothing: the popup says
     // what happened instead of offering a list of nothing, and there is nothing to search.
+    const popupVisible = waited || viewportState.height < initialHeight || initialHeight < window.innerHeight;
     if (state === "failed") {
-        return <p className="px-2 py-4 text-center text-body-md text-muted-foreground">Could not read the models.</p>;
+        return (
+            <p
+                data-popup-waiting={popupVisible ? undefined : "true"}
+                className="px-2 py-4 text-center text-body-md text-muted-foreground"
+            >
+                Could not read the models.
+            </p>
+        );
     }
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col gap-1">
+        <div data-popup-waiting={popupVisible ? undefined : "true"} className="flex min-h-0 flex-1 flex-col gap-1">
             <div
                 className="
                     flex items-center gap-2 rounded-lg border border-border-strong bg-surface-container-highest p-2

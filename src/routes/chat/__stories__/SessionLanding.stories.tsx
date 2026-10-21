@@ -35,8 +35,8 @@ function Seeded({ sessions, children }: { sessions: SessionSummary[]; children: 
  * The landing of the chat: the words of pi, the keys of the window, and the list
  * beside them.
  *
- * The rows are the actions themselves; the keys are the window's own plan, and their
- * bindings are not made yet (G22), so a key press does nothing here.
+ * The rows name the window's keys; they are labels, not controls. The bindings
+ * are not made yet (G22), so a key press does nothing here.
  */
 const meta = {
     title: "Chat/SessionLanding",
