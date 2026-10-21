@@ -75,6 +75,11 @@ export interface SessionSidebarProps extends SessionList {
     sheetClassName?: string;
 }
 
+interface SessionPreviewPayload {
+    title: string;
+    ago: string;
+}
+
 /** The session row preview: the full name and the relative time the row yields to its menu. */
 const ROW_PREVIEW = `
     w-max min-w-56 max-w-[var(--available-width,calc(100vw-2rem))] bg-card p-3 duration-150 ease-out
@@ -260,40 +265,72 @@ function SessionListPanel({
                             </motion.div>
                         ) : (
                             <motion.div key="rows" className="space-y-2" {...stage}>
-                                {groups.map((group) => (
-                                    <section key={group.cwd} className="space-y-0.5">
-                                        <SessionDirectory
-                                            cwd={group.cwd}
-                                            homePath={homePath}
-                                            folded={folded.has(group.cwd)}
-                                            onToggle={() => toggle(group.cwd)}
-                                        />
-                                        {!folded.has(group.cwd) &&
-                                            (group.sessions.length === 0 ? (
-                                                <p
-                                                    className="
-                                                        flex h-8 items-center px-2 pl-8 text-body-md
-                                                        text-muted-foreground/60 select-none
-                                                    "
-                                                >
-                                                    No conversations yet
-                                                </p>
-                                            ) : (
-                                                group.sessions.map((session) => (
-                                                    <SessionRow
-                                                        key={session.path}
-                                                        id={id}
-                                                        session={session}
-                                                        now={now}
-                                                        held={attached.get(session.path) ?? null}
-                                                        breathing={breathing}
-                                                        endpoint={endpoint}
-                                                        onPick={onPick}
-                                                    />
-                                                ))
-                                            ))}
-                                    </section>
-                                ))}
+                                <HoverCard>
+                                    {({ payload }: { payload?: unknown }) => {
+                                        const preview = payload as SessionPreviewPayload | undefined;
+                                        return (
+                                            <>
+                                                {groups.map((group) => (
+                                                    <section key={group.cwd} className="space-y-0.5">
+                                                        <SessionDirectory
+                                                            cwd={group.cwd}
+                                                            homePath={homePath}
+                                                            folded={folded.has(group.cwd)}
+                                                            onToggle={() => toggle(group.cwd)}
+                                                        />
+                                                        {!folded.has(group.cwd) &&
+                                                            (group.sessions.length === 0 ? (
+                                                                <p
+                                                                    className="
+                                                                        flex h-8 items-center px-2 pl-8 text-body-md
+                                                                        text-muted-foreground/60 select-none
+                                                                    "
+                                                                >
+                                                                    No conversations yet
+                                                                </p>
+                                                            ) : (
+                                                                group.sessions.map((session) => (
+                                                                    <SessionRow
+                                                                        key={session.path}
+                                                                        id={id}
+                                                                        session={session}
+                                                                        now={now}
+                                                                        held={attached.get(session.path) ?? null}
+                                                                        breathing={breathing}
+                                                                        endpoint={endpoint}
+                                                                        onPick={onPick}
+                                                                    />
+                                                                ))
+                                                            ))}
+                                                    </section>
+                                                ))}
+                                                {preview !== undefined && (
+                                                    <HoverCardContent
+                                                        side="right"
+                                                        align="center"
+                                                        alignOffset={0}
+                                                        sideOffset={16}
+                                                        className={ROW_PREVIEW}
+                                                    >
+                                                        <div className="flex flex-col gap-1">
+                                                            <p
+                                                                className="
+                                                                    text-body-md font-medium wrap-break-word
+                                                                    text-foreground
+                                                                "
+                                                            >
+                                                                {preview.title}
+                                                            </p>
+                                                            <p className="text-body-sm text-muted-foreground">
+                                                                {preview.ago}
+                                                            </p>
+                                                        </div>
+                                                    </HoverCardContent>
+                                                )}
+                                            </>
+                                        );
+                                    }}
+                                </HoverCard>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -536,110 +573,99 @@ function SessionRow({
     const when = relativeTime(session.modified, now);
     const ago = relativeTimeAgo(session.modified, now);
     const mark = held === null ? null : held.working ? "working" : "attached";
+    const payload = useMemo(() => (title !== null ? { title, ago } : undefined), [title, ago]);
 
     return (
-        <HoverCard>
-            <HoverCardTrigger
-                render={<div data-path={session.path} />}
-                id={`${id}-row-${pathKey(session.path)}`}
-                aria-current={held !== null ? "true" : undefined}
-                onClick={() => {
-                    if (!longPress.consumeClick()) onPick(session.path);
-                }}
-                onClickCapture={(event) => {
-                    if (longPress.consumeClick()) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                    }
-                }}
-                onPointerDown={longPress.onPointerDown}
-                onPointerMove={longPress.onPointerMove}
-                onPointerUp={longPress.onPointerUp}
-                onPointerCancel={longPress.onPointerCancel}
-                onContextMenu={longPress.onContextMenu}
-                delay={200}
-                closeDelay={100}
-                className={cn(
-                    `
-                        group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
-                        select-none
-                        hover:bg-accent/50
-                    `,
-                    menuOpen && "bg-accent",
-                )}
+        <HoverCardTrigger
+            render={<div data-path={session.path} />}
+            id={`${id}-row-${pathKey(session.path)}`}
+            payload={payload}
+            aria-current={held !== null ? "true" : undefined}
+            onClick={() => {
+                if (!longPress.consumeClick()) onPick(session.path);
+            }}
+            onClickCapture={(event) => {
+                if (longPress.consumeClick()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }}
+            onPointerDown={longPress.onPointerDown}
+            onPointerMove={longPress.onPointerMove}
+            onPointerUp={longPress.onPointerUp}
+            onPointerCancel={longPress.onPointerCancel}
+            onContextMenu={longPress.onContextMenu}
+            className={cn(
+                `
+                    group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left
+                    select-none
+                    hover:bg-accent/50
+                `,
+                menuOpen && "bg-accent",
+            )}
+        >
+            <button
+                type="button"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left outline-none"
             >
-                <button
-                    type="button"
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left outline-none"
-                >
-                    {/* A 24px slot puts the title on the directory's left edge; the light is
+                {/* A 24px slot puts the title on the directory's left edge; the light is
                         centred on the folder's 16px glyph. */}
-                    <span className="flex size-6 shrink-0 items-center justify-start ps-1.25" aria-hidden>
-                        {mark !== null && <BreathLight breathing={breathing} mark={mark} />}
-                    </span>
-                    {mark !== null && <span className="sr-only">{mark === "working" ? "working" : "attached"}</span>}
+                <span className="flex size-6 shrink-0 items-center justify-start ps-1.25" aria-hidden>
+                    {mark !== null && <BreathLight breathing={breathing} mark={mark} />}
+                </span>
+                {mark !== null && <span className="sr-only">{mark === "working" ? "working" : "attached"}</span>}
 
-                    {/* Session title */}
-                    <span className="min-w-0 flex-1 truncate text-body-md font-normal text-foreground">
-                        {title ?? when}
-                    </span>
-                </button>
+                {/* Session title */}
+                <span className="min-w-0 flex-1 truncate text-body-md font-normal text-foreground">
+                    {title ?? when}
+                </span>
+            </button>
 
-                {/* Trailing slot: relative timestamp when idle, session actions menu on hover/open */}
-                <div className="group/slot relative ml-auto flex size-6 shrink-0 items-center justify-center">
-                    {title !== null && (
-                        <div
-                            className={cn(
-                                `
-                                    absolute inset-0 flex items-center justify-center transition-opacity duration-150
-                                    ease-out
-                                    group-has-focus-visible/slot:pointer-events-none
-                                    group-has-focus-visible/slot:opacity-0
-                                `,
-                                menuOpen ? "pointer-events-none opacity-0" : "opacity-100 group-hover:opacity-0",
-                            )}
-                        >
-                            <span className="text-label-md text-muted-foreground tabular-nums select-none" aria-hidden>
-                                {when}
-                            </span>
-                        </div>
-                    )}
+            {/* Trailing slot: relative timestamp when idle, session actions menu on hover/open */}
+            <div className="group/slot relative ml-auto flex size-6 shrink-0 items-center justify-center">
+                {title !== null && (
                     <div
                         className={cn(
-                            "absolute inset-0 flex items-center justify-center transition-opacity duration-150 ease-out",
-                            menuOpen
-                                ? "pointer-events-auto opacity-100"
-                                : `
-                                    pointer-events-none opacity-0
-                                    group-hover:pointer-events-auto group-hover:opacity-100
-                                    has-focus-visible:pointer-events-auto has-focus-visible:opacity-100
-                                `,
+                            `
+                                absolute inset-0 flex items-center justify-center transition-opacity duration-150
+                                ease-out
+                                group-has-focus-visible/slot:pointer-events-none group-has-focus-visible/slot:opacity-0
+                            `,
+                            menuOpen ? "pointer-events-none opacity-0" : "opacity-100 group-hover:opacity-0",
                         )}
-                        onClick={(event) => event.stopPropagation()}
                     >
-                        <SessionMenu
-                            id={`${id}-menu-${pathKey(session.path)}`}
-                            session={held?.session ?? null}
-                            file={session.path}
-                            initialName={session.name ?? null}
-                            working={held?.working ?? false}
-                            endpoint={endpoint}
-                            open={menuOpen}
-                            onOpenChange={setMenuOpen}
-                            triggerClassName="hover:bg-accent/50 dark:hover:bg-accent/50 text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
-                        />
+                        <span className="text-label-md text-muted-foreground tabular-nums select-none" aria-hidden>
+                            {when}
+                        </span>
                     </div>
+                )}
+                <div
+                    className={cn(
+                        "absolute inset-0 flex items-center justify-center transition-opacity duration-150 ease-out",
+                        menuOpen
+                            ? "pointer-events-auto opacity-100"
+                            : `
+                                pointer-events-none opacity-0
+                                group-hover:pointer-events-auto group-hover:opacity-100
+                                has-focus-visible:pointer-events-auto has-focus-visible:opacity-100
+                            `,
+                    )}
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    <SessionMenu
+                        id={`${id}-menu-${pathKey(session.path)}`}
+                        session={held?.session ?? null}
+                        file={session.path}
+                        initialName={session.name ?? null}
+                        working={held?.working ?? false}
+                        endpoint={endpoint}
+                        open={menuOpen}
+                        onOpenChange={setMenuOpen}
+                        triggerClassName="hover:bg-accent/50 dark:hover:bg-accent/50 text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
+                    />
                 </div>
-            </HoverCardTrigger>
-            {title !== null && (
-                <HoverCardContent side="right" align="center" alignOffset={0} sideOffset={16} className={ROW_PREVIEW}>
-                    <div className="flex flex-col gap-1">
-                        <p className="text-body-md font-medium wrap-break-word text-foreground">{title}</p>
-                        <p className="text-body-sm text-muted-foreground">{ago}</p>
-                    </div>
-                </HoverCardContent>
-            )}
-        </HoverCard>
+            </div>
+        </HoverCardTrigger>
     );
 }
 

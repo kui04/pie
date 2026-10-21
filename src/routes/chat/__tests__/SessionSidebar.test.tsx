@@ -173,6 +173,29 @@ describe("SessionSidebar", () => {
         expect(within(card).getByText("4d ago")).toBeInTheDocument();
     });
 
+    it("renders at most one preview card when moving between session rows", async () => {
+        bridge.listSessions.mockResolvedValue([
+            sessionSummary({ name: "Session A" }),
+            sessionSummary({ name: "Session B" }),
+        ]);
+
+        renderSidebar();
+
+        const first = await screen.findByText("Session A");
+        const second = await screen.findByText("Session B");
+
+        hover(first);
+        const cardA = await previewCard();
+        expect(within(cardA).getByText("Session A")).toBeInTheDocument();
+
+        hover(second);
+        await waitFor(() => {
+            const cards = document.querySelectorAll(String.raw`[data-slot="hover-card-content"]`);
+            expect(cards).toHaveLength(1);
+            expect(within(cards[0] as HTMLElement).getByText("Session B")).toBeInTheDocument();
+        });
+    });
+
     it("reads a row that pi holds nothing about as a time to choose by", async () => {
         const named = sessionSummary({ name: null, firstMessage: "  make it faster  " });
         const bare = sessionSummary({ name: null, firstMessage: null });
