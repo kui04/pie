@@ -287,6 +287,7 @@ export function Composer({ session, working, machine, editorText = null }: Compo
             </AnimatePresence>
             <Textarea
                 id="composer-input"
+                data-composer-field=""
                 ref={input}
                 value={value}
                 rows={2}

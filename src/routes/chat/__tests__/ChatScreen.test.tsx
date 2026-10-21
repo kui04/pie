@@ -372,10 +372,11 @@ describe("ChatScreen", () => {
         // a row of the column and not a layer over the list, so the scrollbar
         // maps to the rows alone. A fade over the last rows leads into it.
         const band = container.querySelector("#composer-band");
-        // The band is a row of the page under the bar, under the words: it leaves and
-        // arrives with them, and no row hides under it.
-        expect(band?.parentElement?.id).toBe("session-page");
-        expect(band?.parentElement?.parentElement?.id).toBe("session-column");
+        // The band is a row of the session body under the bar, under the words: it leaves
+        // and arrives with them, and no row hides under it.
+        expect(band?.parentElement?.id).toBe("session-body");
+        expect(band?.parentElement?.parentElement?.id).toBe("session-page");
+        expect(band?.parentElement?.parentElement?.parentElement?.id).toBe("session-column");
         expect(band?.className).toContain("shrink-0");
         expect(band?.className).not.toContain("absolute");
         expect(container.querySelector("#session-loading")).toBeNull();
@@ -992,7 +993,7 @@ describe("the window the chat draws", () => {
         // in it keep their own clicks (see tauri's `window/scripts/drag.js`).
         expect(bar?.getAttribute("data-tauri-drag-region")).toBe("deep");
         const ids = [...(bar?.children ?? [])].map((child) => child.id);
-        expect(ids).toEqual(["topbar-start", "topbar-end"]);
+        expect(ids).toEqual(["topbar-start", "topbar-end", "topbar-fade"]);
         expect(bar?.querySelector("#topbar-start #sidebar_toggle")).not.toBeNull();
         expect(bar?.querySelector("#topbar-end #window_controllers")).not.toBeNull();
         // A row of the content column, not a fixed height: its own content decides.

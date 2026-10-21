@@ -15,7 +15,9 @@ function App() {
 function AppShell() {
     const platform = usePlatformResource();
     const { shell } = useMotion();
-    const { offsetLeft, offsetTop, width, height } = useVisualViewport();
+    // A focused field can pan the visual viewport on Android. The layout keeps its size; the
+    // shell only follows the panned origin so the page under the finger keeps its place.
+    const { offsetTop } = useVisualViewport();
     // The charts of the sessions follow the connection, not a screen: they live here, beside
     // the routes, so a run continues while another conversation is in view.
     useSessionSync();
@@ -27,8 +29,8 @@ function AppShell() {
         <motion.div
             id="app-root"
             {...shell}
-            className="fixed flex flex-col overflow-hidden font-sans"
-            style={{ left: offsetLeft, top: offsetTop, width, height }}
+            className="fixed inset-0 flex flex-col overflow-hidden font-sans"
+            style={{ top: offsetTop }}
         >
             <AppRoutes />
             <Toaster position="top-center" mobileOffset={{ top: "calc(1rem + env(safe-area-inset-top))" }} />

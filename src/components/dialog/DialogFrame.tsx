@@ -98,12 +98,14 @@ export function DialogFrame({
     const hasChildren = children !== undefined && children !== null && children !== false;
     const ariaDescribedBy = hasDescription ? descriptionId : describedBy;
     const titleClass = "text-(length:--text-title-md) leading-6 font-normal";
+    const keyboardBottom = keyboardInset > 0 ? Math.max(0, keyboardInset - viewportOffset) : 0;
     const drawerStyle =
         keyboardInset > 0
             ? fitKeyboard
                 ? {
                       ...style,
-                      maxHeight: `calc(100dvh - ${keyboardInset}px - env(safe-area-inset-top, 0px))`,
+                      bottom: keyboardBottom,
+                      maxHeight: `calc(100dvh - ${keyboardBottom}px - env(safe-area-inset-top, 0px))`,
                   }
                 : viewportOffset > 0
                   ? { ...style, bottom: -viewportOffset }

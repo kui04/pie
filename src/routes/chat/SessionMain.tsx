@@ -9,14 +9,14 @@
  * page under the bar, and the only thing a pick or a switch replaces.
  */
 
-import { useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import type { QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui";
-import { useExtensionUi, useMotion, useSession, useVirtualKeyboardInset } from "@/hooks";
+import { useExtensionUi, useMotion, useSession, useVirtualKeyboardInset, useVisualViewport } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys } from "@/lib/query";
 import { sessionOf, subscribeSessions, type SessionRef } from "@/lib/session";
@@ -31,6 +31,11 @@ import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
 export interface SessionMainProps {
     session: string;
     client: QueryClient;
+}
+
+/** The fields of the composer: a keyboard they raise moves the transcript with them. */
+function isComposerField(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement && target.closest("[data-composer-field]") !== null;
 }
 
 /**
@@ -59,7 +64,43 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
     const { phase, working, state, entries, stats, ready, error, reopen } = useSession(session, machine);
     const extension = useExtensionUi(session);
     const { stage: page, slot } = useMotion();
+    const { height: viewportHeight } = useVisualViewport();
     const keyboardInset = useVirtualKeyboardInset().insetHeight;
+    const [composerFocused, setComposerFocused] = useState(false);
+    const body = useRef<HTMLDivElement>(null);
+    const keyboardReach = useRef(0);
+
+    // The keyboard reports a few intermediate heights while it opens. Keep the largest
+    // one while it stays open: a later, smaller reading must not move the layout back.
+    // The shell keeps the layout viewport; only a composer field's keyboard moves the
+    // transcript and the composer, and it moves them together.
+    useLayoutEffect(() => {
+        keyboardReach.current = keyboardInset === 0 ? 0 : Math.max(keyboardReach.current, keyboardInset);
+        const overlap = composerFocused ? keyboardReach.current : 0;
+        if (body.current !== null) {
+            body.current.style.top = overlap > 0 ? `calc(var(--safe-area-bottom, 0px) - ${overlap}px)` : "";
+        }
+    }, [composerFocused, keyboardInset]);
+
+    useEffect(() => {
+        const onFocus = (event: FocusEvent) => {
+            if (isComposerField(event.target)) setComposerFocused(true);
+        };
+        const onBlur = (event: FocusEvent) => {
+            if (isComposerField(event.target) && !isComposerField(event.relatedTarget)) setComposerFocused(false);
+        };
+        const onPointerDown = (event: PointerEvent) => {
+            if (isComposerField(event.target)) setComposerFocused(true);
+        };
+        document.addEventListener("focusin", onFocus);
+        document.addEventListener("focusout", onBlur);
+        document.addEventListener("pointerdown", onPointerDown, true);
+        return () => {
+            document.removeEventListener("focusin", onFocus);
+            document.removeEventListener("focusout", onBlur);
+            document.removeEventListener("pointerdown", onPointerDown, true);
+        };
+    }, []);
     const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
     const live = useSelector(machine, (snapshot) => snapshot.context.live);
     const queued = useSelector(machine, (snapshot) => snapshot.context.queued);
@@ -105,7 +146,14 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
     }
 
-    const transcript = <SessionTranscript rows={rows} working={working} onRetractQueued={retractQueue} />;
+    const transcript = (
+        <SessionTranscript
+            rows={rows}
+            working={working}
+            onRetractQueued={retractQueue}
+            viewportHeight={composerFocused ? viewportHeight : undefined}
+        />
+    );
     let content: ReactNode;
     if (failure !== null) {
         content = (
@@ -154,40 +202,43 @@ function SessionBody({ machine, session, client }: SessionMainProps & { machine:
                     if (extension.request !== null) extension.answer(extension.request.id, answer);
                 }}
             />
-            <AnimatePresence mode="wait" initial={false}>
-                {content}
-            </AnimatePresence>
-            <AnimatePresence initial={false}>
-                {composerOn && (
-                    <motion.div
-                        id="composer-band"
-                        {...slot}
-                        // A 1rem floor under the safe inset: a round corner cuts
-                        // deeper than a system bar, and the inset alone leaves
-                        // the card on the curve. The keyboard pad only applies
-                        // where the layout did not already shrink for it.
-                        className="mt-auto mb-4 flex shrink-0 items-center justify-center"
-                        style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
-                    >
-                        {/* The composer's box and the transcript's content share one
-                            line. The fade above it lives in the transcript, over
-                            its last rows. */}
-                        <div className="mx-auto w-full max-w-5xl px-4">
-                            {empty && (
-                                <p className="pb-3 text-center text-body-md text-muted-foreground">
-                                    Nothing has been said yet.
-                                </p>
-                            )}
-                            <Composer
-                                session={session}
-                                working={working}
-                                machine={machine}
-                                editorText={extension.state?.editorText ?? null}
-                            />
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            <div ref={body} id="session-body" className="relative flex min-h-0 flex-1 flex-col">
+                <AnimatePresence mode="wait" initial={false}>
+                    {content}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                    {composerOn && (
+                        <motion.div
+                            id="composer-band"
+                            {...slot}
+                            className="relative z-20 mt-auto mb-4 flex shrink-0 items-center justify-center"
+                        >
+                            <div
+                                id="composer-fade"
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-x-0 bottom-full h-8"
+                            >
+                                <div className="mx-auto size-full max-w-5xl">
+                                    <div className="h-full bg-linear-to-t from-surface to-surface/0" />
+                                </div>
+                            </div>
+                            <div className="mx-auto w-full max-w-5xl px-4">
+                                {empty && (
+                                    <p className="pb-3 text-center text-body-md text-muted-foreground">
+                                        Nothing has been said yet.
+                                    </p>
+                                )}
+                                <Composer
+                                    session={session}
+                                    working={working}
+                                    machine={machine}
+                                    editorText={extension.state?.editorText ?? null}
+                                />
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
         </>
     );
 }

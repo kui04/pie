@@ -14,7 +14,7 @@
  */
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { Bot, Check, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -145,7 +145,12 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
     const marks = useProviderMarks(catalogue);
     const list = useRef<VirtualizerHandle>(null);
     const viewport = useRef<HTMLDivElement>(null);
+    const search = useRef<HTMLInputElement>(null);
     const listId = `${useId()}-models`;
+
+    useEffect(() => {
+        search.current?.focus({ preventScroll: true });
+    }, []);
 
     // What the popup draws: the whole catalog, ordered by provider while nothing is
     // typed and ranked by pi's own matching once something is.
@@ -196,14 +201,14 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     <Search aria-hidden />
                 </Icon>
                 <input
+                    ref={search}
                     role="combobox"
+                    data-composer-field=""
                     aria-expanded
                     aria-controls={listId}
                     aria-activedescendant={lit < 0 ? undefined : `${listId}-${lit}`}
                     aria-autocomplete="list"
                     aria-label="Search models"
-                    // The search is what a model is found by, so the popup opens on it.
-                    autoFocus
                     value={query}
                     onChange={(event) => {
                         setQuery(event.target.value);
@@ -238,7 +243,6 @@ function ModelMenu({ catalogue, state, value, onChoose }: ModelMenuProps) {
                     autoCorrect="off"
                     spellCheck={false}
                     enterKeyHint="search"
-                    onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest" })}
                     className="min-w-0 flex-1 bg-transparent text-body-md outline-hidden placeholder:text-outline"
                 />
             </div>

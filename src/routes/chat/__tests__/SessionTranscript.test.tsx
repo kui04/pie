@@ -123,6 +123,17 @@ describe("SessionTranscript", () => {
         expect(still).not.toHaveAttribute("aria-busy");
     });
 
+    it("keeps the end in view when the keyboard shrinks the region", () => {
+        const view = show();
+        const viewport = slot(view.container, "message-scroller-viewport") as HTMLElement;
+        Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1000 });
+        Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 400 });
+
+        view.rerender(<SessionTranscript rows={rows(30)} viewportHeight={400} />);
+
+        expect(viewport.scrollTop).toBe(1000);
+    });
+
     it("shows the list as soon as the end it opens at is applied", () => {
         // The region stays out of sight until that position is written: a list left
         // pending is a blank screen.

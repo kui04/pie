@@ -432,7 +432,7 @@ function SessionSheet({
             <DrawerContent
                 id={id}
                 className={cn(
-                    "w-72 max-w-[85%] border-border bg-surface-dim data-[nested-drawer-open]:opacity-0 lg:hidden",
+                    "w-72 max-w-[85%] border-border bg-surface-dim data-nested-drawer-open:opacity-0 lg:hidden",
                     className,
                 )}
             >

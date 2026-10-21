@@ -412,21 +412,21 @@ divider inside a tile is a 1px hairline in `divider`; a tile's footer is
 separated from its body by that hairline, never by a gap alone. This is what
 keeps a long transcript readable: no edges accumulate down the column.
 
-**Floating — over the transcript.** The bar floats transparent over the
-transcript's head: no plane, no shadow, no hairline. The composer carries no
-shadow either: it is a flat `card` with the `3xl` corner, a row of the column
-under the words. What says depth at both ends is the fade over the rows: the
-page's own plane (`surface`), gradient to transparent one content column wide,
-so the rows scroll under the fade on their way to the bar and to the composer.
-The bar sits on a solid backing with one line of fade below it; the composer
-gets two lines of fade above it. The transcript keeps headroom above for the bar
-and four lines of legroom below, above the fade's dense end, so no row hides
-under either. The composer's own layers — its command list and its two pickers —
-stand above it on the same plane (`card`): the command list takes the composer's
-`3xl` corner, the two pickers the menu's `xl`; each is flat, with the composer's
-`foreground` at 10% hairline and no shadow. The same flat key floats over the
-transcript to take the reader back to the end; it sits above both fades, so no
-gradient covers it.
+**The two ends — over the transcript.** The bar and the composer are the two
+ends of the chat: each is its own row, drawn above the scrolling page in layer,
+and each carries a fade into it. The bar is a solid `surface` plane with one
+line of fade below it. The composer carries no shadow either: it is a flat
+`card` with the `3xl` corner, a row of the column under the words, with two
+lines of fade above it. The page's own plane (`surface`), gradient to
+transparent one content column wide, is what the rows scroll under on their way
+between the two ends. The transcript keeps one line of headroom under the bar's
+fade and four lines of legroom below, above the composer's fade's dense end, so
+no row hides under either. The composer's own layers — its command list and its
+two pickers — stand above it on the same plane (`card`): the command list takes
+the composer's `3xl` corner, the two pickers the menu's `xl`; each is flat, with
+the composer's `foreground` at 10% hairline and no shadow. The same flat key
+floats over the transcript to take the reader back to the end; it sits above
+both fades, so no gradient covers it.
 
 **Floating — what the scrim does not.** The composer's layers, the session menu,
 and the key that floats over the transcript are flat: `card`, a hairline, and no
@@ -530,11 +530,10 @@ its three keys (`WindowControls`) sit at its end, after the slots the page gives
 it — the way to the list, the name, the state of the context. A page with no
 slots to give — the gate, whose bar is only the handle and the keys — lets the
 bar float over its plane, so that its card stands in the middle of the window
-rather than in what is left below a row. The chat's bar (`#topbar`) floats
-transparent over the transcript's top fade: no plane, no shadow, no hairline.
-The bar is the page's first row on every platform; its keys are a desktop's,
-because a phone's OS owns the frame there. On a desktop every inset is zero, so
-the frame is one tree.
+rather than in what is left below a row. The chat's bar (`#topbar`) is the
+page's first row: a solid `surface` plane with one line of fade below it. Its
+keys are a desktop's, because a phone's OS owns the frame there. On a desktop
+every inset is zero, so the frame is one tree.
 
 The body under the bar is the chat, and it is a column: the transcript, then the
 composer at its foot. Both are capped to one content column, 64rem wide at most
@@ -543,16 +542,16 @@ of the transcript stand on one line. The composer is a flat card (`card`, the
 `3xl` corner, no shadow, and a hairline that holds where a light page keeps the
 card and the surface close) at the foot of the column: the transcript ends where
 the band begins, so no row hides under it and the scrollbar maps to the rows
-alone. A fade at each end of the transcript — the page's own plane, gradient to
-transparent, one content column wide — is what the rows scroll under, with
-headroom above for the bar and legroom below above the fade's dense end. The
-band takes the region's whole width, because the transcript's bar floats over
-the scroller's edge (see **Scrollbar**) rather than taking room of its own. And
-it shows itself only while the list moves, so a reader who is not scrolling sees
-no bar at all. A column that opens — the session list above `lg` — is revealed
-by a clip: its wrapper owns the width the transcript gives up (256px), and the
-column inside it keeps its own width, so what moves is the edge and the hairline
-on it, not the rows.
+alone. The bar's fade below and the composer's fade above — the page's own
+plane, gradient to transparent, one content column wide — are what the rows
+scroll under, with one line of headroom under the bar's fade and legroom below
+above the composer's fade's dense end. The band takes the region's whole width,
+because the transcript's bar floats over the scroller's edge (see **Scrollbar**)
+rather than taking room of its own. And it shows itself only while the list
+moves, so a reader who is not scrolling sees no bar at all. A column that opens
+— the session list above `lg` — is revealed by a clip: its wrapper owns the
+width the transcript gives up (256px), and the column inside it keeps its own
+width, so what moves is the edge and the hairline on it, not the rows.
 
 **Composer** (`src/routes/chat/composer/Composer.tsx`) — the card at the foot,
 with the pictures of the next message above the words. A picture is a card of
