@@ -134,6 +134,7 @@ impl Transport for Channel {
                 source: self.source,
                 decoder: Decoder::with_max_line(MAX_LINE),
                 ready: VecDeque::new(),
+                buffer: vec![0u8; READ_BUFFER],
             },
         )
     }
@@ -219,6 +220,9 @@ pub struct Receiver {
     decoder: Decoder,
     /// Lines that arrived in the same chunk as the one returned before them.
     ready: VecDeque<String>,
+    /// The place of the next read, kept between calls so a read allocates
+    /// nothing.
+    buffer: Vec<u8>,
 }
 
 impl std::fmt::Debug for Receiver {
@@ -236,12 +240,11 @@ impl TransportRecv for Receiver {
             if let Some(line) = self.ready.pop_front() {
                 return Ok(Some(line));
             }
-            let mut chunk = [0u8; READ_BUFFER];
-            match self.source.read(&mut chunk).await {
+            match self.source.read(&mut self.buffer).await {
                 // A clean end: every byte wrote arrived before it.
                 Ok(0) => return Ok(None),
                 Ok(count) => {
-                    self.ready.extend(self.decoder.push(&chunk[..count])?);
+                    self.ready.extend(self.decoder.push(&self.buffer[..count])?);
                 }
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),

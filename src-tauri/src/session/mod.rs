@@ -247,7 +247,8 @@ impl SessionManager {
     /// session file. A name that matches nothing is not an error here: the caller
     /// names the mistake, because the caller knows what it asked for.
     pub fn session(&self, id: &str) -> Option<Session> {
-        self.sessions().into_iter().find(|session| session.id().as_str() == id)
+        let live = self.inner.live.lock().unwrap_or_else(PoisonError::into_inner);
+        live.iter().find(|session| session.id().as_str() == id).cloned()
     }
 
     /// Whether pi still operates behind at least one session.
@@ -256,7 +257,8 @@ impl SessionManager {
     /// event yet. Therefore this tells a live connection from a connection with a
     /// dead host.
     pub fn is_alive(&self) -> bool {
-        self.sessions().iter().any(|session| session.handle().is_alive())
+        let live = self.inner.live.lock().unwrap_or_else(PoisonError::into_inner);
+        live.iter().any(|session| session.handle().is_alive())
     }
 
     /// Whether the reach to the machine is still open.

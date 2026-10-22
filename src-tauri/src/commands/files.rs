@@ -158,6 +158,18 @@ pub fn is_supported_image_mime(mime: &str) -> bool {
     matches!(mime, "image/png" | "image/jpeg" | "image/gif" | "image/webp")
 }
 
+/// One picture, in the shape that a prompt takes it.
+fn image_of(name: String, mime_type: String, bytes: &[u8]) -> PickedImage {
+    PickedImage {
+        name,
+        image: ImageContent {
+            kind: ImageKind::Image,
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            mime_type,
+        },
+    }
+}
+
 /// Converts a [`FilePath`] into a displayable or storage string.
 fn file_path_to_string(fp: &FilePath) -> String {
     match fp {
@@ -226,15 +238,7 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
                 // The head is the start of this file: the rest is read on, not read again.
                 let mut bytes = head;
                 file.read_to_end(&mut bytes).await.map_err(PieError::file)?;
-                let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                images.push(PickedImage {
-                    name,
-                    image: ImageContent {
-                        kind: ImageKind::Image,
-                        data,
-                        mime_type: mime,
-                    },
-                });
+                images.push(image_of(name, mime, &bytes));
             } else {
                 files.push(AttachmentFile {
                     name,
@@ -260,15 +264,7 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
             let (mime, ext) = detect_mime(&bytes, ext_hint);
 
             if is_supported_image_mime(&mime) {
-                let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                images.push(PickedImage {
-                    name,
-                    image: ImageContent {
-                        kind: ImageKind::Image,
-                        data,
-                        mime_type: mime,
-                    },
-                });
+                images.push(image_of(name, mime, &bytes));
             } else {
                 let size = bytes.len() as u64;
                 let path = crate::host::files::stage_local(&name, &ext, &bytes).await?;

@@ -262,25 +262,10 @@ fn read_local(file: impl Read) -> std::io::Result<SessionSummaryLines> {
     Ok(lines)
 }
 
-/// Whether a line holds a literal. The first byte is what the scan looks for, so
-/// a literal that starts with a rare byte costs one pass over the line. It is a
-/// filter and not a decision: the parse that follows is what reads the line.
+/// Whether a line holds a literal. It is a filter and not a decision: the
+/// parse that follows is what reads the line.
 fn holds(line: &[u8], literal: &[u8]) -> bool {
-    let Some((first, rest)) = literal.split_first() else {
-        return true;
-    };
-    let mut at = 0;
-    while let Some(found) = line[at..].iter().position(|byte| byte == first) {
-        let start = at + found;
-        let Some(window) = line.get(start + 1..start + literal.len()) else {
-            return false;
-        };
-        if window == rest {
-            return true;
-        }
-        at = start + 1;
-    }
-    false
+    memchr::memmem::find(line, literal).is_some()
 }
 
 /// Reads the next directory entry. The function names the directory of the listing

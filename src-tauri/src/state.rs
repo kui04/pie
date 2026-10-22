@@ -1,5 +1,5 @@
-//! The state of one app run: the one connection, the one question, and the count
-//! that names a pi process.
+//! The state of one app run: the one connection, the one question, the count
+//! that names a pi process, and the marks of the providers.
 //!
 //! Tauri hands this value to every command that asks for it, and these are the
 //! things those commands share. The product keeps one machine at a time. Therefore the connection is one slot.
@@ -10,9 +10,10 @@
 //! would deadlock. A separate lock lets an answer arrive while the connection is
 //! in progress.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
@@ -34,6 +35,8 @@ pub struct AppState {
     /// while `connect`/`disconnect` move the slot itself.
     pub(crate) sessions: AsyncMutex<Option<SessionManager>>,
     pub(crate) question: Arc<HostKeyQuestion>,
+    /// The marks of the providers that this run fetched, by provider.
+    pub(crate) marks: Mutex<Marks>,
     /// How many pi processes this run of pie has started.
     ///
     /// The id of a session carries this number. The ids must stay apart for the
@@ -52,6 +55,44 @@ impl AppState {
     /// before the attempt. A gap says nothing, and the ids stay unique.
     pub(crate) fn next_session_number(&self) -> u64 {
         self.session_number.fetch_add(1, Ordering::Relaxed) + 1
+    }
+}
+
+/// How long the mark of one provider stays good: a day. It is as long as the
+/// frontend keeps its own copy (`LOGO_TTL` of `ModelPicker.tsx`), so a popup
+/// opened twice asks models.dev once.
+const MARK_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// How long a failed fetch is remembered: a machine that is offline now may be
+/// online in a minute, and a popup opened again must not ask again at once.
+const MARK_RETRY: Duration = Duration::from_secs(5 * 60);
+
+/// One provider's fetch: what it left, and when.
+#[derive(Debug)]
+struct Fetched {
+    at: Instant,
+    /// The mark as a data URL, or `None` when there is none.
+    mark: Option<String>,
+}
+
+/// The marks of this run, by provider. Without it, every opening of the picker
+/// of a model would ask models.dev for the marks it already has.
+#[derive(Debug, Default)]
+pub(crate) struct Marks(HashMap<String, Fetched>);
+
+impl Marks {
+    /// What the entry of a provider holds, when it is still good at `now`. `None`
+    /// is an entry that is gone or too old; `Some(None)` is a provider with no
+    /// mark.
+    pub(crate) fn get(&self, provider: &str, now: Instant) -> Option<Option<String>> {
+        let entry = self.0.get(provider)?;
+        let ttl = if entry.mark.is_some() { MARK_TTL } else { MARK_RETRY };
+        (now.saturating_duration_since(entry.at) < ttl).then(|| entry.mark.clone())
+    }
+
+    /// Keeps what a fetch left, for the length its kind is good.
+    pub(crate) fn put(&mut self, provider: &str, mark: Option<String>, now: Instant) {
+        self.0.insert(provider.to_string(), Fetched { at: now, mark });
     }
 }
 
@@ -124,6 +165,31 @@ mod tests {
         assert_eq!(state.next_session_number(), 1, "the first pi of a run is `:1`");
         assert_eq!(state.next_session_number(), 2, "a reconnect is `:2`, not `:1` again");
         assert_eq!(state.next_session_number(), 3);
+    }
+
+    #[test]
+    fn a_mark_is_kept_for_a_day_and_a_failure_for_minutes() {
+        let mut marks = Marks::default();
+        let now = Instant::now();
+        let mark = "data:image/svg+xml;base64,AA==".to_string();
+        marks.put("anthropic", Some(mark.clone()), now);
+
+        assert_eq!(marks.get("anthropic", now), Some(Some(mark.clone())));
+        assert_eq!(
+            marks.get("anthropic", now + MARK_TTL - Duration::from_secs(1)),
+            Some(Some(mark)),
+            "still good at the edge of the day"
+        );
+        assert_eq!(marks.get("anthropic", now + MARK_TTL), None, "the day is over");
+        assert_eq!(marks.get("openai", now), None, "an unknown provider has no entry");
+
+        marks.put("openai", None, now);
+        assert_eq!(
+            marks.get("openai", now + MARK_RETRY - Duration::from_secs(1)),
+            Some(None),
+            "a failure is fresh for its shorter while"
+        );
+        assert_eq!(marks.get("openai", now + MARK_RETRY), None, "the wait is over");
     }
 
     #[tokio::test]

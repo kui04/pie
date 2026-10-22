@@ -32,7 +32,6 @@ use pi_rpc::response::{
 };
 use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
-use super::Error;
 use super::pipe;
 use crate::state::AppState;
 
@@ -42,14 +41,11 @@ use crate::state::AppState;
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] when there is no connection, and
+/// [`Error::NotConnected`](super::Error::NotConnected) when there is no connection, and
 /// [`session::Error::UnknownSession`] when the id belongs to no session of this
 /// connection.
 async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<Session, PieError> {
-    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
-        doing: doing.to_string(),
-    })?;
-    sessions.session(session).ok_or_else(|| {
+    super::connected(state, doing).await?.session(session).ok_or_else(|| {
         session::Error::UnknownSession {
             id: session.to_string(),
         }
@@ -65,14 +61,12 @@ async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<S
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] if there is no machine to list, and the failure of the
+/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine to list, and the failure of the
 /// machine if pie cannot read the sessions directory.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, PieError> {
-    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
-        doing: "listing its sessions".to_string(),
-    })?;
+    let sessions = super::connected(&state, "listing its sessions").await?;
     sessions.summaries().await
 }
 
@@ -86,15 +80,13 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] if there is no machine, the path failure of
+/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine, the path failure of
 /// [`crate::host::Error::NotAbsolute`] for a relative path, and [`PieError::Host`]
 /// when the file cannot be removed.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn delete_session(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
-    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
-        doing: "deleting a conversation".to_string(),
-    })?;
+    let sessions = super::connected(&state, "deleting a conversation").await?;
     sessions.delete_conversation(&HostPath::new(path)).await
 }
 
@@ -109,9 +101,7 @@ async fn begin(
     conversation: Option<HostPath>,
     cwd: Option<HostPath>,
 ) -> Result<SessionInfo, PieError> {
-    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
-        doing: "starting pi".to_string(),
-    })?;
+    let sessions = super::connected(state, "starting pi").await?;
     let session = sessions
         .attach(state.next_session_number(), conversation.as_ref(), cwd.as_ref())
         .await?;
@@ -144,7 +134,7 @@ async fn begin(
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] if there is no machine to start pi on, and
+/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine to start pi on, and
 /// [`PieError::Channel`] when pi cannot be started.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
@@ -169,7 +159,7 @@ pub async fn attach_session(
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] if there is no machine to start pi on, and
+/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine to start pi on, and
 /// [`PieError::Channel`] when pi cannot be started in that directory.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(cwd = ?cwd))]
@@ -189,15 +179,13 @@ pub async fn start_session(
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] if there is no machine, and
+/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine, and
 /// [`session::Error::UnknownSession`] when the id belongs to no session of this
 /// connection.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn detach_session(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
-    let sessions = state.sessions.lock().await.clone().ok_or_else(|| Error::NotConnected {
-        doing: "ending the session".to_string(),
-    })?;
+    let sessions = super::connected(&state, "ending the session").await?;
     sessions.detach(&session).await
 }
 
@@ -205,7 +193,7 @@ pub async fn detach_session(state: State<'_, AppState>, session: String) -> Resu
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`] and [`session::Error::UnknownSession`], and the
+/// [`Error::NotConnected`](super::Error::NotConnected) and [`session::Error::UnknownSession`], and the
 /// failure of the protocol.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
@@ -264,7 +252,7 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`], [`session::Error::UnknownSession`], and the failure of
+/// [`Error::NotConnected`](super::Error::NotConnected), [`session::Error::UnknownSession`], and the failure of
 /// the protocol - including a refusal of pi itself: no model, no credentials, or a
 /// compaction in progress.
 #[tauri::command]

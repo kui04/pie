@@ -388,10 +388,7 @@ pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: b
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = ?path))]
 pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Result<Listing, PieError> {
-    let sessions = state.sessions.lock().await.clone();
-    let sessions = sessions.ok_or_else(|| Error::NotConnected {
-        doing: "browsing its directories".to_string(),
-    })?;
+    let sessions = super::connected(&state, "browsing its directories").await?;
     let path = path.map(HostPath::new);
     Ok(sessions.host().dirs(path.as_ref()).await?)
 }
@@ -410,10 +407,7 @@ pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Resu
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn dir_exists(state: State<'_, AppState>, path: String) -> Result<bool, PieError> {
-    let sessions = state.sessions.lock().await.clone();
-    let sessions = sessions.ok_or_else(|| Error::NotConnected {
-        doing: "reading its directories".to_string(),
-    })?;
+    let sessions = super::connected(&state, "reading its directories").await?;
     Ok(sessions.host().dir_exists(&HostPath::new(path)).await?)
 }
 
@@ -431,10 +425,7 @@ pub async fn dir_exists(state: State<'_, AppState>, path: String) -> Result<bool
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn create_dir(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
-    let sessions = state.sessions.lock().await.clone();
-    let sessions = sessions.ok_or_else(|| Error::NotConnected {
-        doing: "making a directory".to_string(),
-    })?;
+    let sessions = super::connected(&state, "making a directory").await?;
     Ok(sessions.host().create(&HostPath::new(path)).await?)
 }
 

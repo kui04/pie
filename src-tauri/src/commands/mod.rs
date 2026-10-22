@@ -1,7 +1,7 @@
 //! What the frontend can ask pie to do, and what it hears back.
 //!
 //! Every command is `snake_case`. Every command returns
-//! `Result<T, `[`PieError`](crate::error::PieError)>`. Therefore a failure arrives
+//! `Result<T, `[`PieError`]>`. Therefore a failure arrives
 //! as a named variant of the layer that owns it, not as a string.
 //!
 //! The files here are the areas of the product, and each one is the area
@@ -38,3 +38,21 @@ pub mod pipe;
 pub mod session;
 
 pub use error::Error;
+
+use crate::error::PieError;
+use crate::session::SessionManager;
+use crate::state::AppState;
+
+/// The one connection, or the failure of the IPC layer when there is none.
+///
+/// The lock is held to clone the manager and not a moment longer: a command
+/// that reads through the connection must not hold the slot.
+pub(crate) async fn connected(state: &AppState, doing: &str) -> Result<SessionManager, PieError> {
+    let sessions = state.sessions.lock().await.clone();
+    sessions.ok_or_else(|| {
+        Error::NotConnected {
+            doing: doing.to_string(),
+        }
+        .into()
+    })
+}

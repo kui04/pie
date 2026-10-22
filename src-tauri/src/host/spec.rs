@@ -90,11 +90,6 @@ impl Endpoint {
     pub(crate) fn local() -> Self {
         Self::new("local")
     }
-
-    /// The label, for a log field or a message.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
 impl Display for Endpoint {

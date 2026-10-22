@@ -21,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
 use crate::channel::Termination;
 use crate::error::PieError;
-use crate::host::files::{is_no_such_file, sftp, sftp_is_dir, unreadable_there, unremovable_there};
+use crate::host::files::{is_no_such_file, sftp_is_dir, unreadable_there, unremovable_there};
 use crate::host::quote;
 use crate::host::{Error, SshHost};
 
@@ -49,15 +49,7 @@ impl Ssh {
     /// the failure of the reach itself. A path at fault names itself in the
     /// message.
     pub(super) async fn summaries(&self) -> Result<Vec<SessionSummary>, PieError> {
-        let sftp = sftp(&self.host).await?;
-        match self.list(&sftp).await {
-            Ok(summaries) => Ok(summaries),
-            Err(error) => {
-                // A failed listing must not keep a dead channel in the cache.
-                self.host.forget_sftp(&sftp);
-                Err(error.into())
-            }
-        }
+        Ok(self.host.with_sftp(async |sftp| self.list(sftp).await).await?)
     }
 
     /// Removes one conversation file of this host.
@@ -71,14 +63,13 @@ impl Ssh {
     /// [`Error::UnremovableRemote`] when the file cannot be removed, with the path
     /// at fault in the message, and the failure of the reach or of the sftp channel.
     pub(super) async fn remove(&self, path: &str) -> Result<(), PieError> {
-        let sftp = sftp(&self.host).await?;
-        match sftp.remove_file(path).await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                self.host.forget_sftp(&sftp);
-                Err(unremovable_there(path, error).into())
-            }
-        }
+        Ok(self
+            .host
+            .with_sftp(async |sftp| match sftp.remove_file(path).await {
+                Ok(()) => Ok(()),
+                Err(error) => Err(unremovable_there(path, error)),
+            })
+            .await?)
     }
 
     /// The sessions root of this host, as pi itself resolves it there, or `None`
@@ -484,7 +475,7 @@ fn first_turn_is_whole(head: &[u8], scan: &mut HeadScan) -> bool {
     let mut found = false;
     while !found {
         let fresh = &head[scan.searched..];
-        let Some(at) = fresh.iter().position(|byte| *byte == b'\n') else {
+        let Some(at) = memchr::memchr(b'\n', fresh) else {
             // The scan is still in one line. Record the distance read, and wait
             // for the end of the line. Do not read the same bytes again.
             scan.searched = head.len();
@@ -545,7 +536,7 @@ where
         // continues into the next round.
         let mut end = suffix.len();
         loop {
-            let Some(line_end) = suffix[..end].iter().rposition(|byte| *byte == b'\n') else {
+            let Some(line_end) = memchr::memrchr(b'\n', &suffix[..end]) else {
                 carry = suffix[..end].to_vec();
                 break;
             };

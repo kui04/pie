@@ -66,6 +66,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use russh_sftp::client::SftpSession;
 
+use super::files;
 use super::spec::Auth;
 
 use super::Endpoint;
@@ -195,6 +196,25 @@ impl SshHost {
         let mut slot = self.sftp.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.as_ref().is_some_and(|cached| Arc::ptr_eq(cached, used)) {
             *slot = None;
+        }
+    }
+
+    /// Runs one read on the file channel of this host, and opens it first when it
+    /// is not open.
+    ///
+    /// A read that fails drops the channel: a channel that answered with a
+    /// failure of its own is not one to keep for the next read.
+    pub(crate) async fn with_sftp<T, F>(&self, read: F) -> super::Result<T>
+    where
+        F: std::ops::AsyncFnOnce(&SftpSession) -> super::Result<T>,
+    {
+        let opened = files::sftp(self).await?;
+        match read(&*opened).await {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.forget_sftp(&opened);
+                Err(error)
+            }
         }
     }
 

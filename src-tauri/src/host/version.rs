@@ -53,13 +53,13 @@ pub async fn probe_version(program: impl AsRef<OsStr>) -> Result<String> {
 async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> Result<String> {
     let program = program.as_ref();
     let name = program.to_string_lossy().into_owned();
-    let mut child = None;
-    let mut spawn_error = None;
     // `ETXTBSY` means the program is being written or executed right now; the
     // kernel clears it a moment after the writer goes, so a brief retry settles
     // it. Reporting it instead would make "the file was just written" a failure
     // of the probe.
-    for attempt in 0..SPAWN_ATTEMPTS {
+    let mut attempt = 0;
+    let mut child = loop {
+        attempt += 1;
         match Command::new(program)
             .arg("--version")
             .stdin(Stdio::null())
@@ -67,27 +67,16 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
             .stderr(Stdio::piped())
             .spawn()
         {
-            Ok(spawned) => {
-                child = Some(spawned);
-                break;
-            }
-            Err(source) if source.kind() == std::io::ErrorKind::ExecutableFileBusy && attempt + 1 < SPAWN_ATTEMPTS => {
+            Ok(spawned) => break spawned,
+            Err(source) if source.kind() == std::io::ErrorKind::ExecutableFileBusy && attempt < SPAWN_ATTEMPTS => {
                 tokio::time::sleep(SPAWN_RETRY_DELAY).await;
             }
             Err(source) => {
-                spawn_error = Some(source);
-                break;
+                return Err(Error::VersionProbe {
+                    program: name,
+                    message: format!("could not be started: {source}"),
+                });
             }
-        }
-    }
-    let mut child = match child {
-        Some(child) => child,
-        None => {
-            let source = spawn_error.expect("a failed spawn has an error");
-            return Err(Error::VersionProbe {
-                program: name,
-                message: format!("could not be started: {source}"),
-            });
         }
     };
 
@@ -127,13 +116,7 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
     let stdout = stdout.trim();
     // What the program said about itself, when it said anything: a wrapper
     // explaining why it cannot answer is the reason worth passing on.
-    let stderr = String::from_utf8_lossy(&stderr);
-    let said = stderr
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or_default()
-        .trim();
-    let said = said.chars().take(200).collect::<String>();
+    let said = first_said(&stderr);
 
     if !status.success() {
         let printed = if stdout.is_empty() {
@@ -162,6 +145,21 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
         });
     }
     Ok(stdout.to_string())
+}
+
+/// The first line a program wrote to standard error, cut for a sentence.
+///
+/// A wrapper that explains why it cannot answer is the reason worth passing
+/// on. One line, and no more: the sentence that carries it is a sentence for a
+/// person.
+fn first_said(stderr: &[u8]) -> String {
+    let said = String::from_utf8_lossy(stderr);
+    let said = said
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default()
+        .trim();
+    said.chars().take(200).collect()
 }
 
 /// Compares a reported version with [`PI_VERSION`].
@@ -215,13 +213,7 @@ pub(crate) fn check_remote_version(endpoint: &Endpoint, output: ExecOutput) -> R
         return Ok(());
     }
 
-    let said = String::from_utf8_lossy(&output.stderr);
-    let said = said
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or_default()
-        .trim();
-    let said = said.chars().take(200).collect::<String>();
+    let said = first_said(&output.stderr);
     let said = if said.is_empty() {
         String::new()
     } else {

@@ -175,9 +175,11 @@ struct ExtensionInnerState {
 impl Extension {
     /// Installs this handler on the client of one session.
     ///
-    /// It is installed before the session is returned to the frontend, so a
-    /// dialog that an extension opens while the session starts is retained
-    /// instead of dismissed.
+    /// It is installed before the session reaches the frontend, so the snapshot
+    /// holds every request from that moment on. The client's read loop starts with
+    /// the client, and a request that arrives before this call has no handler to
+    /// ask: the client answers it as cancelled. Closing that window needs a handler
+    /// at the client's construction, which the protocol crate does not offer.
     pub(crate) async fn install(&self, client: &Client) {
         client.set_ui_handler(self.clone()).await;
     }

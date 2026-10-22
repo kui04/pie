@@ -6,15 +6,15 @@
 //! compiled into this build; all three are the app's own business, which is why
 //! they share a file.
 
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use tauri::{AppHandle, Url};
+use tauri::{AppHandle, State, Url};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::PieError;
+use crate::state::AppState;
 
 use super::Error;
 
@@ -102,15 +102,6 @@ pub async fn open_url(app: AppHandle, url: String) -> Result<(), PieError> {
     Ok(())
 }
 
-/// How long the mark of one provider stays good: a day. It is as long as the
-/// frontend keeps its own copy (`LOGO_TTL` of `ModelPicker.tsx`), so a popup
-/// opened twice asks models.dev once.
-const LOGO_TTL: Duration = Duration::from_secs(24 * 60 * 60);
-
-/// How long a failed fetch is remembered: a machine that is offline now may be
-/// online in a minute, and a popup opened again must not ask again at once.
-const LOGO_RETRY: Duration = Duration::from_secs(5 * 60);
-
 /// How long the request may take before it is a failure.
 const LOGO_PATIENCE: Duration = Duration::from_secs(10);
 
@@ -120,36 +111,6 @@ const LOGO_NAME: usize = 64;
 
 /// Where the marks of models.dev live: one SVG for each provider it knows.
 const LOGO_BASE: &str = "https://models.dev/logos/";
-
-/// One provider's fetch: what it left, and when.
-struct Fetched {
-    at: Instant,
-    /// The mark as a data URL, or `None` when there is none.
-    mark: Option<String>,
-}
-
-/// The marks of this run, by provider. Without it, every opening of the picker
-/// of a model would ask models.dev for the marks it already has.
-#[derive(Default)]
-struct Marks(HashMap<String, Fetched>);
-
-impl Marks {
-    /// What the entry of a provider holds, when it is still good at `now`. `None`
-    /// is an entry that is gone or too old; `Some(None)` is a provider with no
-    /// mark.
-    fn get(&self, provider: &str, now: Instant) -> Option<Option<String>> {
-        let entry = self.0.get(provider)?;
-        let ttl = if entry.mark.is_some() { LOGO_TTL } else { LOGO_RETRY };
-        (now.saturating_duration_since(entry.at) < ttl).then(|| entry.mark.clone())
-    }
-
-    /// Keeps what a fetch left, for the length its kind is good.
-    fn put(&mut self, provider: &str, mark: Option<String>, now: Instant) {
-        self.0.insert(provider.to_string(), Fetched { at: now, mark });
-    }
-}
-
-static LOGOS: LazyLock<Mutex<Marks>> = LazyLock::new(|| Mutex::new(Marks::default()));
 
 /// The provider name as models.dev writes it in a URL, or `None` when it cannot
 /// go in one. A name with a `/`, a `.` or a space would ask for another file
@@ -200,22 +161,20 @@ fn logo_failure(provider: &str, source: ureq::Error) -> Error {
 /// none.
 ///
 /// The frontend draws it beside the model in use and at the left of every row of
-/// the picker. models.dev is the source; a request that fails answers `None` for
-/// as long as that failure is remembered (`LOGO_RETRY` of this file), and the
-/// frontend draws its own icon until then.
+/// the picker. models.dev is the source. A fetch that fails is the error below,
+/// and the failure is remembered for a while: a popup opened again answers
+/// `None` instead of asking again, until that while is over.
 ///
 /// # Errors
 ///
-/// [`Error::LogoFetch`] when models.dev cannot be reached or answers badly. The
-/// failure stands for the same while, so a popup opened again does not ask again
-/// at once.
+/// [`Error::LogoFetch`] when models.dev cannot be reached or answers badly.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(provider = %provider))]
-pub async fn provider_logo(provider: String) -> Result<Option<String>, PieError> {
+pub async fn provider_logo(state: State<'_, AppState>, provider: String) -> Result<Option<String>, PieError> {
     let Some(slug) = logo_slug(&provider).map(str::to_string) else {
         return Ok(None);
     };
-    if let Some(mark) = cached(&slug) {
+    if let Some(mark) = cached(&state, &slug) {
         return Ok(mark);
     }
 
@@ -225,7 +184,7 @@ pub async fn provider_logo(provider: String) -> Result<Option<String>, PieError>
     let svg = match fetched {
         Ok(Ok(svg)) => svg,
         Ok(Err(error)) => {
-            remember(&slug, None);
+            remember(&state, &slug, None);
             return Err(error.into());
         }
         Err(error) => {
@@ -237,29 +196,26 @@ pub async fn provider_logo(provider: String) -> Result<Option<String>, PieError>
     };
 
     let mark = logo_url(&svg);
-    remember(&slug, Some(mark.clone()));
+    remember(&state, &slug, Some(mark.clone()));
     Ok(Some(mark))
 }
 
-/// The mark of a provider from the cache, when its entry is still good.
-fn cached(provider: &str) -> Option<Option<String>> {
-    let marks = LOGOS.lock().unwrap_or_else(PoisonError::into_inner);
+/// The mark of a provider from the cache of this run, when its entry is still
+/// good.
+fn cached(state: &AppState, provider: &str) -> Option<Option<String>> {
+    let marks = state.marks.lock().unwrap_or_else(PoisonError::into_inner);
     marks.get(provider, Instant::now())
 }
 
 /// Keeps what a fetch left, for the length its kind is good.
-fn remember(provider: &str, mark: Option<String>) {
-    let mut marks = LOGOS.lock().unwrap_or_else(PoisonError::into_inner);
+fn remember(state: &AppState, provider: &str, mark: Option<String>) {
+    let mut marks = state.marks.lock().unwrap_or_else(PoisonError::into_inner);
     marks.put(provider, mark, Instant::now());
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
-
-    use super::{
-        LOGO_NAME, LOGO_RETRY, LOGO_TTL, LONGEST, Marks, SHOWN, logo_slug, logo_url, openable, platform, shown,
-    };
+    use super::{LOGO_NAME, LONGEST, SHOWN, logo_slug, logo_url, openable, platform, shown};
     use crate::commands::error::Error;
 
     #[test]
@@ -334,31 +290,6 @@ mod tests {
         );
         // A name with room around it is the name.
         assert_eq!(logo_slug(" anthropic "), Some("anthropic"));
-    }
-
-    #[test]
-    fn a_mark_is_kept_for_a_day_and_a_failure_for_minutes() {
-        let mut marks = Marks::default();
-        let now = Instant::now();
-        let mark = logo_url("<svg/>");
-        marks.put("anthropic", Some(mark.clone()), now);
-
-        assert_eq!(marks.get("anthropic", now), Some(Some(mark.clone())));
-        assert_eq!(
-            marks.get("anthropic", now + LOGO_TTL - Duration::from_secs(1)),
-            Some(Some(mark)),
-            "still good at the edge of the day"
-        );
-        assert_eq!(marks.get("anthropic", now + LOGO_TTL), None, "the day is over");
-        assert_eq!(marks.get("openai", now), None, "an unknown provider has no entry");
-
-        marks.put("openai", None, now);
-        assert_eq!(
-            marks.get("openai", now + LOGO_RETRY - Duration::from_secs(1)),
-            Some(None),
-            "a failure is fresh for its shorter while"
-        );
-        assert_eq!(marks.get("openai", now + LOGO_RETRY), None, "the wait is over");
     }
 
     #[test]

@@ -45,14 +45,24 @@ impl HostPath {
     /// bare drive are not. Both spellings are accepted because pie cannot know
     /// which host the path is for.
     pub fn is_absolute(&self) -> bool {
-        let path = self.0.as_str();
-        path.starts_with('/')
-            || path.starts_with("\\\\")
-            || matches!(
-                path.as_bytes(),
-                [drive, b':', sep, ..] if drive.is_ascii_alphabetic() && matches!(sep, b'\\' | b'/')
-            )
+        is_absolute_path(self.as_str())
     }
+}
+
+/// The one rule about absolute paths, in either spelling a host may use.
+///
+/// A path of this machine follows the platform, which is why the local reads
+/// use [`std::path::Path::is_absolute`] and do not come here. A path of the
+/// machine pie reached arrives as text, and both spellings are possible. The
+/// rule belongs beside the type that carries such a path, not with the reader
+/// that happened to see it first.
+pub(crate) fn is_absolute_path(path: &str) -> bool {
+    path.starts_with('/')
+        || path.starts_with("\\\\")
+        || matches!(
+            path.as_bytes(),
+            [drive, b':', sep, ..] if drive.is_ascii_alphabetic() && matches!(sep, b'\\' | b'/')
+        )
 }
 
 impl Display for HostPath {

@@ -3286,6 +3286,7 @@ dependencies = [
  "base64 0.23.1",
  "dirs",
  "infer",
+ "memchr",
  "mime_guess",
  "paranoid-android",
  "pi_rpc",

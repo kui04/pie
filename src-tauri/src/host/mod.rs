@@ -151,14 +151,6 @@ impl Host {
         }
     }
 
-    /// The host over SSH, when that is what pie reached.
-    pub fn ssh(&self) -> Option<&SshHost> {
-        match self {
-            Self::Ssh(ssh) => Some(ssh),
-            Self::Local(_) => None,
-        }
-    }
-
     /// The same host, as a handle that the session layer holds for as long as the
     /// connection lives.
     pub(crate) fn ssh_handle(&self) -> Option<Arc<SshHost>> {
@@ -234,20 +226,11 @@ impl Host {
             Self::Ssh(ssh) => {
                 // A relative path is a mistake of the frontend. The report of
                 // that mistake does not need an sftp handshake.
-                if let Some(path) = path
-                    && !path.is_absolute()
-                {
-                    return Err(files::not_absolute(path.as_str()));
+                if let Some(path) = path {
+                    checked_host_path(path)?;
                 }
-                let sftp = files::sftp(ssh).await?;
-                // A failed listing must not keep a dead channel in the cache.
-                match files::dirs_remote(&sftp, path.map(HostPath::as_str)).await {
-                    Ok(listing) => Ok(listing),
-                    Err(error) => {
-                        ssh.forget_sftp(&sftp);
-                        Err(error)
-                    }
-                }
+                ssh.with_sftp(async |sftp| files::dirs_remote(sftp, path.map(HostPath::as_str)).await)
+                    .await
             }
         }
     }
@@ -267,17 +250,9 @@ impl Host {
         match self {
             Self::Local(_) => files::dir_exists_local(path.as_str()).await,
             Self::Ssh(ssh) => {
-                if !path.is_absolute() {
-                    return Err(files::not_absolute(path.as_str()));
-                }
-                let sftp = files::sftp(ssh).await?;
-                match files::dir_exists_remote(&sftp, path.as_str()).await {
-                    Ok(exists) => Ok(exists),
-                    Err(error) => {
-                        ssh.forget_sftp(&sftp);
-                        Err(error)
-                    }
-                }
+                checked_host_path(path)?;
+                ssh.with_sftp(async |sftp| files::dir_exists_remote(sftp, path.as_str()).await)
+                    .await
             }
         }
     }
@@ -296,17 +271,9 @@ impl Host {
         match self {
             Self::Local(_) => files::create_dir_local(path.as_str()).await,
             Self::Ssh(ssh) => {
-                if !path.is_absolute() {
-                    return Err(files::not_absolute(path.as_str()));
-                }
-                let sftp = files::sftp(ssh).await?;
-                match files::create_dir_remote(&sftp, path.as_str()).await {
-                    Ok(()) => Ok(()),
-                    Err(error) => {
-                        ssh.forget_sftp(&sftp);
-                        Err(error)
-                    }
-                }
+                checked_host_path(path)?;
+                ssh.with_sftp(async |sftp| files::create_dir_remote(sftp, path.as_str()).await)
+                    .await
             }
         }
     }
@@ -340,15 +307,9 @@ impl Host {
             }
             Self::Ssh(ssh) => {
                 let remote_path = format!("/tmp/{}", files::temp_file_name(name, ext_hint));
-
-                let sftp = files::sftp(ssh).await?;
-                match files::write_file_remote(&sftp, &remote_path, bytes, on_progress).await {
-                    Ok(()) => Ok(remote_path),
-                    Err(err) => {
-                        ssh.forget_sftp(&sftp);
-                        Err(err)
-                    }
-                }
+                ssh.with_sftp(async |sftp| files::write_file_remote(sftp, &remote_path, bytes, &mut on_progress).await)
+                    .await?;
+                Ok(remote_path)
             }
         }
     }
@@ -365,6 +326,18 @@ impl Host {
             ssh.close().await;
             tracing::info!(endpoint = %self.endpoint(), "disconnected");
         }
+    }
+}
+
+/// A path the frontend named, checked before a channel is opened.
+///
+/// A relative path is a mistake of the frontend: pi would resolve it against
+/// its own directory. The answer comes before an sftp handshake.
+fn checked_host_path(path: &HostPath) -> Result<&str, Error> {
+    if path.is_absolute() {
+        Ok(path.as_str())
+    } else {
+        Err(files::not_absolute(path.as_str()))
     }
 }
 

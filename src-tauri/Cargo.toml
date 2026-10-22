@@ -23,6 +23,7 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.23"
 dirs = "7"
 infer = "0.22"
+memchr = "2"
 mime_guess = "2"
 # The wire protocol, mirrored from the pinned Pi release. The crate carries that
 # release's commit in its own `[package.metadata.pi_rpc] pi_rev`, and

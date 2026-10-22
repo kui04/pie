@@ -15,7 +15,7 @@
 //! Which of the two machines a path belongs to is not visible in the path: both
 //! are absolute paths of a POSIX or a Windows host. Pie resolves no path against
 //! its own directory - on a phone that directory is not the home of a person -
-//! and [`is_absolute_on_the_host`] is what says so.
+//! and [`is_absolute_path`] is what says so.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -25,6 +25,7 @@ use russh_sftp::client::error::Error as SftpError;
 use serde::Serialize;
 
 use super::Error;
+use super::path::is_absolute_path;
 use super::ssh::SshHost;
 
 /// One row of a directory listing, for the directory picker.
@@ -176,7 +177,7 @@ pub(crate) async fn dir_exists_local(path: &str) -> Result<bool, Error> {
 /// [`Error::NotAbsolute`] for a relative path, and [`Error::UnreadableRemote`]
 /// when the answer cannot be told.
 pub(crate) async fn dir_exists_remote(sftp: &SftpSession, path: &str) -> Result<bool, Error> {
-    if !is_absolute_on_the_host(path) {
+    if !is_absolute_path(path) {
         return Err(not_absolute(path));
     }
     match sftp.metadata(path).await {
@@ -214,7 +215,7 @@ pub(crate) async fn create_dir_local(path: &str) -> Result<(), Error> {
 /// [`Error::NotAbsolute`] for a relative path, and [`Error::UncreatableRemote`]
 /// when a level cannot be made.
 pub(crate) async fn create_dir_remote(sftp: &SftpSession, path: &str) -> Result<(), Error> {
-    if !is_absolute_on_the_host(path) {
+    if !is_absolute_path(path) {
         return Err(not_absolute(path));
     }
     for level in levels_of(path) {
@@ -436,7 +437,7 @@ async fn remote_start(sftp: &SftpSession, path: Option<&str>) -> Result<String, 
             // These are the paths of the host, not the paths of this machine. Over sftp
             // they are as the host writes them, POSIX or Windows. Neither is the
             // directory of pie.
-            if !is_absolute_on_the_host(path) {
+            if !is_absolute_path(path) {
                 return Err(not_absolute(path));
             }
             Ok(path.to_string())
@@ -530,19 +531,6 @@ pub(crate) fn not_absolute(path: &str) -> Error {
     Error::NotAbsolute { path: path.to_string() }
 }
 
-/// Whether `path` is absolute on the host that it names: POSIX or Windows style.
-///
-/// These conventions belong to the host, not to this machine. Pie operates on one
-/// machine and reads the other, so both spellings belong to the host.
-pub(crate) fn is_absolute_on_the_host(path: &str) -> bool {
-    path.starts_with('/')
-        || path.starts_with("\\\\")
-        || matches!(
-            path.as_bytes(),
-            [drive, b':', sep, ..] if drive.is_ascii_alphabetic() && matches!(sep, b'\\' | b'/')
-        )
-}
-
 /// Whether an sftp failure is only "there is no such path".
 pub(crate) fn is_no_such_file(error: &SftpError) -> bool {
     use russh_sftp::protocol::StatusCode;
@@ -552,16 +540,6 @@ pub(crate) fn is_no_such_file(error: &SftpError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_path_of_a_host_is_absolute_in_either_spelling() {
-        for absolute in ["/home/pi", "\\\\host\\share", "C:\\Users\\pi", "c:/users"] {
-            assert!(is_absolute_on_the_host(absolute), "`{absolute}` is absolute");
-        }
-        for relative in ["", "pi", ".pi/agent", "./x", "C:", "1:\\x"] {
-            assert!(!is_absolute_on_the_host(relative), "`{relative}` is not absolute");
-        }
-    }
 
     #[test]
     fn a_relative_path_names_itself_in_the_refusal() {
