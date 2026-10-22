@@ -214,7 +214,7 @@ pub enum Error {
         source: SftpError,
     },
 
-    /// Pie cannot make a directory on this machine.
+    /// Pie cannot make a directory or file on this machine.
     #[error("cannot make {path}: {source}")]
     UncreatableLocal {
         /// The path at fault.
@@ -225,7 +225,7 @@ pub enum Error {
         source: std::io::Error,
     },
 
-    /// Pie cannot make a directory on the host.
+    /// Pie cannot make a directory or file on the host.
     #[error("cannot make {path}: {source}")]
     UncreatableRemote {
         /// The path at fault, as the host sees it.

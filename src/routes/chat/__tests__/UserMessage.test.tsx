@@ -1,15 +1,24 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as Bridge from "@/lib/bridge";
 import { user as userMessage } from "@/preview/fixtures";
 import { UserMessage } from "@/routes/chat/transcript/entries/UserMessage";
 import type { UserMessage as UserMessageData } from "@/lib/rpc-protocol";
 
-const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+type Call = (...args: unknown[]) => Promise<unknown>;
+
+const bridge = vi.hoisted(() => ({
+    writeClipboardText: vi.fn<Call>(() => Promise.resolve()),
+}));
+
+vi.mock("@/lib/bridge", async (importOriginal) => ({
+    ...(await importOriginal<typeof Bridge>()),
+    ...bridge,
+}));
 
 beforeEach(() => {
-    writeText.mockClear();
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    vi.clearAllMocks();
 });
 
 const asUser = (message: ReturnType<typeof userMessage>) => message as UserMessageData;
@@ -37,7 +46,7 @@ describe("UserMessage", () => {
         fireEvent.contextMenu(screen.getByText("copy me"));
         await userEvent.click(await screen.findByText("Copy"));
 
-        expect(writeText).toHaveBeenCalledWith("copy me");
+        expect(bridge.writeClipboardText).toHaveBeenCalledWith("copy me");
     });
 
     it("shows an image a request carried", () => {

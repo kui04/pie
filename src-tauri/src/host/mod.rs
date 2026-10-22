@@ -82,6 +82,11 @@ impl Host {
         }
     }
 
+    /// Whether this machine is the local machine.
+    pub fn is_local(&self) -> bool {
+        matches!(self, Self::Local(_))
+    }
+
     /// Reaches the machine that `spec` names, and reads the pi that runs there.
     ///
     /// The check happens before any session exists, because a `pi` that is not
@@ -300,6 +305,48 @@ impl Host {
                     Err(error) => {
                         ssh.forget_sftp(&sftp);
                         Err(error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Stages a file where pi reads it: the temporary directory of this machine,
+    /// or `/tmp/pie-{stem}-{id}.{ext}` on a host reached over SSH, written through
+    /// the `sftp` subsession of the same reach. `on_progress` hears the bytes that
+    /// are written.
+    ///
+    /// A file that already lies on this machine is not staged again: the caller
+    /// keeps that path itself, because the read of its bytes is the step this
+    /// function needs and that caller does not.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Subsystem`], [`Error::SftpUnanswered`], [`Error::UncreatableLocal`],
+    /// or [`Error::UncreatableRemote`] when staging fails.
+    pub async fn stage_file<F>(&self, name: &str, bytes: &[u8], mut on_progress: F) -> Result<String, Error>
+    where
+        F: FnMut(u64, u64) + Send,
+    {
+        let ext_hint = Path::new(name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default();
+        match self {
+            Self::Local(_) => {
+                let staged = files::stage_local(name, ext_hint, bytes).await?;
+                on_progress(bytes.len() as u64, bytes.len() as u64);
+                Ok(staged)
+            }
+            Self::Ssh(ssh) => {
+                let remote_path = format!("/tmp/{}", files::temp_file_name(name, ext_hint));
+
+                let sftp = files::sftp(ssh).await?;
+                match files::write_file_remote(&sftp, &remote_path, bytes, on_progress).await {
+                    Ok(()) => Ok(remote_path),
+                    Err(err) => {
+                        ssh.forget_sftp(&sftp);
+                        Err(err)
                     }
                 }
             }

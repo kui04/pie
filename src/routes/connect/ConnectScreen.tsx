@@ -172,7 +172,8 @@ const REAL_DEPS: ConnectScreenDeps = {
     connect: bridge.connect,
     trustHostKey: bridge.trustHostKey,
     onConnectionState: bridge.onConnectionState,
-    pickPrivateKey: bridge.pickPrivateKey,
+    pickPaths: bridge.pickPaths,
+    readTextFile: bridge.readTextFile,
     notify: (failure) => toast.error(failure.message),
     onHostKey: () => undefined,
 };
@@ -184,7 +185,8 @@ const REAL_DEPS: ConnectScreenDeps = {
  * replace a call that the machine never makes.
  */
 export type ConnectScreenDeps = ConnectionDeps & {
-    pickPrivateKey: typeof bridge.pickPrivateKey;
+    pickPaths: typeof bridge.pickPaths;
+    readTextFile: typeof bridge.readTextFile;
 };
 
 export interface ConnectScreenProps {
@@ -193,7 +195,7 @@ export interface ConnectScreenProps {
 }
 
 export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
-    const { pickPrivateKey } = deps;
+    const { pickPaths, readTextFile } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
     // The host of the last connection, as the card opens on it. Read once, for
@@ -231,13 +233,20 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
      */
     const pickKey = useCallback(async () => {
         try {
-            const key = await pickPrivateKey();
-            if (key !== null) setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
+            const paths = await pickPaths({
+                title: "Choose Private Key",
+                multiple: false,
+                target: "file",
+            });
+            if (paths && paths.length > 0) {
+                const key = await readTextFile(paths[0]);
+                setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
+            }
         } catch (thrown) {
             const failure = bridge.asPieError(thrown);
             toast.error(failure.message);
         }
-    }, [pickPrivateKey]);
+    }, [pickPaths, readTextFile]);
 
     return (
         <main id="window" className="flex min-h-0 w-full flex-1 overflow-hidden bg-surface font-sans text-foreground">

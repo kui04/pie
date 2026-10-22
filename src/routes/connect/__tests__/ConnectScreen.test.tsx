@@ -62,7 +62,8 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
             publish = onState as typeof publish;
             return () => undefined;
         }),
-        pickPrivateKey: vi.fn(async () => null),
+        pickPaths: vi.fn(async () => null),
+        readTextFile: vi.fn(async () => ""),
         notify: (failure: PieError) => toast.error(failure.message),
         onHostKey: () => undefined,
         ...overrides,
@@ -321,7 +322,10 @@ describe("ConnectScreen", () => {
 
     it("drops a picked key into the one field the card has", async () => {
         const user = userEvent.setup();
-        const { deps } = stubBridge({ pickPrivateKey: vi.fn(async () => KEY_TEXT) });
+        const { deps } = stubBridge({
+            pickPaths: vi.fn(async () => ["/home/user/id_ed25519"]),
+            readTextFile: vi.fn(async () => KEY_TEXT),
+        });
         renderGate(deps);
         await openKeyAuth(user);
 
@@ -334,7 +338,7 @@ describe("ConnectScreen", () => {
 
     it("leaves the field alone when the picker was closed", async () => {
         const user = userEvent.setup();
-        const { deps } = stubBridge({ pickPrivateKey: vi.fn(async () => null) });
+        const { deps } = stubBridge({ pickPaths: vi.fn(async () => null) });
         renderGate(deps);
         await openKeyAuth(user);
 

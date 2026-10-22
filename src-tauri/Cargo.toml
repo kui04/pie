@@ -22,18 +22,23 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.23"
 dirs = "7"
+infer = "0.22"
+mime_guess = "2"
 # The wire protocol, mirrored from the pinned Pi release. The crate carries that
 # release's commit in its own `[package.metadata.pi_rpc] pi_rev`, and
 # `Cargo.lock` holds the crate revision this app resolved.
 pi_rpc = { git = "https://github.com/kui04/pi_rpc" }
+png = "0.18"
 russh = { version = "0.63.3", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3.0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
+tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2.8.1"
 tauri-plugin-fs = "2.6.0"
 tauri-plugin-opener = "2.7.0"
+tempfile = "3.27.0"
 thiserror = "2"
 time = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
@@ -48,7 +53,6 @@ ureq = "3"
 # The app re-exports neither, so the tests depend on them as they are.
 russh = { version = "0.63.3", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3.0.1"
-tempfile = "3.27.0"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

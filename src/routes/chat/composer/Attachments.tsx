@@ -8,23 +8,17 @@
  */
 
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { Button } from "@/components/ui";
 import { Icon, ScrollPane, TruncatedText } from "@/components";
 import { useMotion } from "@/hooks";
+import type { StagedAttachment } from "@/machines/attachments.machine";
 import { EASE, MOTION } from "@/lib/motion";
-import type { ImageContent } from "@/lib/rpc-protocol";
-
-export interface StagedImage {
-    id: string;
-    name: string;
-    image: ImageContent;
-}
 
 export interface AttachmentsProps {
-    items: readonly StagedImage[];
+    items: readonly StagedAttachment[];
     onRemove: (id: string) => void;
     /** Merged into the strip last, for a caller that places it. */
     className?: string;
@@ -69,11 +63,11 @@ export function Attachments({ items, onRemove, className }: AttachmentsProps) {
     return (
         <div className={cn("relative", className)}>
             <ScrollPane bars="none" className="min-w-0" viewportRef={strip}>
-                <ul id="composer-attachments" aria-label="Attached images" className="flex gap-2.5 px-3">
+                <ul id="composer-attachments" aria-label="Attachments" className="flex gap-2.5 px-3">
                     <AnimatePresence initial={false} onExitComplete={measure}>
-                        {items.map(({ id, name, image }) => (
+                        {items.map((item) => (
                             <motion.li
-                                key={id}
+                                key={item.id}
                                 layout={still ? false : "position"}
                                 transition={{
                                     layout: still
@@ -86,39 +80,52 @@ export function Attachments({ items, onRemove, className }: AttachmentsProps) {
                                     rounded-2xl border border-foreground/12 bg-card py-0 pr-9 pl-3
                                 "
                             >
-                                <img
-                                    alt=""
-                                    src={`data:${image.mimeType};base64,${image.data}`}
-                                    className="size-12 shrink-0 rounded-xl object-cover"
-                                />
-                                <div className="flex min-w-0 flex-col">
+                                {item.type === "image" ? (
+                                    <img
+                                        alt=""
+                                        src={`data:${item.image.mimeType};base64,${item.image.data}`}
+                                        className="size-12 shrink-0 rounded-xl object-cover"
+                                    />
+                                ) : (
+                                    <div
+                                        className="
+                                            flex size-12 shrink-0 items-center justify-center rounded-xl bg-muted
+                                            text-muted-foreground
+                                        "
+                                    >
+                                        <Icon className="size-6">
+                                            <FileText />
+                                        </Icon>
+                                    </div>
+                                )}
+                                <div className="flex h-12 min-w-0 flex-col justify-around">
                                     <TruncatedText
-                                        content={name}
-                                        className="text-body-md leading-5.5 font-medium text-foreground"
+                                        content={item.name}
+                                        className="text-(length:--text-label-lg) font-medium text-foreground"
                                         offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
                                     >
-                                        {name}
+                                        {item.name}
                                     </TruncatedText>
                                     <TruncatedText
-                                        content={`${kindOf(name, image.mimeType)} · ${sizeOf(image.data)}`}
-                                        className="text-body-sm leading-3.75 text-muted-foreground"
+                                        content={subtitleOf(item)}
+                                        className="text-(length:--text-label-md) text-muted-foreground"
                                         offset={{ top: 8, right: 12, bottom: 8, left: 12 }}
                                     >
-                                        {kindOf(name, image.mimeType)} · {sizeOf(image.data)}
+                                        {subtitleOf(item)}
                                     </TruncatedText>
                                 </div>
                                 <Button
                                     type="button"
                                     variant="ghost"
                                     size="icon-xs"
-                                    aria-label={`Remove ${name}`}
-                                    onClick={() => onRemove(id)}
+                                    aria-label={`Remove ${item.name}`}
+                                    onClick={() => onRemove(item.id)}
                                     className="
-                                        absolute top-1.75 right-1.75 size-4.5 rounded-full bg-foreground p-0
+                                        absolute top-1.75 right-1.75 z-30 size-4.5 rounded-full bg-foreground p-0
                                         text-background opacity-0 transition-opacity
                                         group-focus-within:opacity-100
                                         group-hover:opacity-100
-                                        hover:bg-foreground hover:text-background
+                                        hover:cursor-pointer hover:bg-foreground hover:text-background
                                         focus-visible:opacity-100
                                         dark:hover:bg-foreground dark:hover:text-background
                                         pointer-coarse:opacity-100
@@ -128,6 +135,39 @@ export function Attachments({ items, onRemove, className }: AttachmentsProps) {
                                         <X />
                                     </Icon>
                                 </Button>
+                                <AnimatePresence>
+                                    {item.type === "file" && item.uploading && (
+                                        <motion.div
+                                            key="upload-mask"
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{ duration: MOTION.slot.out, ease: EASE.settle }}
+                                            className="
+                                                pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-2xl
+                                            "
+                                        >
+                                            <div className="absolute inset-0 bg-background/50 backdrop-blur-[0.5px]" />
+                                            <div
+                                                className="
+                                                    absolute inset-y-0 left-0 border-r border-primary/50 bg-primary/20
+                                                    transition-all duration-150 ease-out
+                                                "
+                                                style={{
+                                                    width: `${Math.min(100, Math.max(0, Math.round((item.progress ?? 0) * 100)))}%`,
+                                                }}
+                                            />
+                                            <span
+                                                className="
+                                                    absolute right-2 bottom-1.5 font-mono text-[10px] font-medium
+                                                    text-foreground/70
+                                                "
+                                            >
+                                                {Math.round((item.progress ?? 0) * 100)}%
+                                            </span>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </motion.li>
                         ))}
                     </AnimatePresence>
@@ -174,6 +214,25 @@ function Edge({ side, onPress }: { side: "left" | "right"; onPress: () => void }
     );
 }
 
+/** Formats a byte count into a readable string. */
+function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    const kilobytes = bytes / 1024;
+    if (kilobytes < 1024) return `${kilobytes < 10 ? kilobytes.toFixed(1) : Math.round(kilobytes)} KB`;
+    const megabytes = kilobytes / 1024;
+    return `${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB`;
+}
+
+function subtitleOf(item: StagedAttachment): string {
+    if (item.type === "file") {
+        if (item.uploading) {
+            return `Uploading · ${formatBytes(item.size)}`;
+        }
+        return `${kindOf(item.name, item.mimeType ?? "")} · ${formatBytes(item.size)}`;
+    }
+    return `${kindOf(item.name, item.image.mimeType)} · ${sizeOf(item.image.data)}`;
+}
+
 /** The extension the reader named, or the subtype of the type the picker reported. */
 function kindOf(name: string, mimeType: string): string {
     const dot = name.lastIndexOf(".");
@@ -185,9 +244,5 @@ function kindOf(name: string, mimeType: string): string {
 function sizeOf(data: string): string {
     const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
     const bytes = Math.max(0, Math.floor((data.length * 3) / 4) - padding);
-    if (bytes < 1024) return `${bytes} B`;
-    const kilobytes = bytes / 1024;
-    if (kilobytes < 1024) return `${kilobytes < 10 ? kilobytes.toFixed(1) : Math.round(kilobytes)} KB`;
-    const megabytes = kilobytes / 1024;
-    return `${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB`;
+    return formatBytes(bytes);
 }

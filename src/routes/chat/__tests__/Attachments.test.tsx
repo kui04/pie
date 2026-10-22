@@ -1,15 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Attachments, type StagedImage } from "@/routes/chat/composer/Attachments";
+import type { StagedAttachment } from "@/machines/attachments.machine";
+import { Attachments } from "@/routes/chat/composer/Attachments";
 
-const items: StagedImage[] = [
+const items: StagedAttachment[] = [
     {
         id: "attachment-1",
+        type: "image",
         name: "workspace.png",
         image: { type: "image", mimeType: "image/png", data: "A".repeat(2048) },
     },
     {
         id: "attachment-2",
+        type: "image",
         name: "sunset.jpg",
         image: { type: "image", mimeType: "image/jpeg", data: "AAAA" },
     },
@@ -19,7 +22,7 @@ describe("the pictures staged for a message", () => {
     it("names each picture, its kind, and its size", () => {
         render(<Attachments items={items} onRemove={() => undefined} />);
 
-        expect(screen.getByRole("list", { name: "Attached images" })).toBeInTheDocument();
+        expect(screen.getByRole("list", { name: "Attachments" })).toBeInTheDocument();
         expect(screen.getByText("workspace.png")).toBeInTheDocument();
         expect(screen.getByText("PNG · 1.5 KB")).toBeInTheDocument();
         expect(screen.getByText("sunset.jpg")).toBeInTheDocument();
@@ -33,6 +36,40 @@ describe("the pictures staged for a message", () => {
         fireEvent.click(screen.getByRole("button", { name: "Remove sunset.jpg" }));
 
         expect(remove).toHaveBeenCalledWith("attachment-2");
+    });
+
+    it("displays files with size and uploading progress mask", () => {
+        const fileItems: StagedAttachment[] = [
+            {
+                id: "file-1",
+                type: "file",
+                name: "document.pdf",
+                size: 2048,
+                mimeType: "application/pdf",
+                path: "/tmp/pie-document.pdf",
+                uploading: true,
+                progress: 0.65,
+            },
+            {
+                id: "file-2",
+                type: "file",
+                name: "report.txt",
+                size: 512,
+                mimeType: "text/plain",
+                path: "/home/user/report.txt",
+                uploading: false,
+                progress: 1,
+            },
+        ];
+
+        render(<Attachments items={fileItems} onRemove={() => undefined} />);
+
+        expect(screen.getByText("document.pdf")).toBeInTheDocument();
+        expect(screen.getByText("Uploading · 2.0 KB")).toBeInTheDocument();
+        expect(screen.getByText("65%")).toBeInTheDocument();
+
+        expect(screen.getByText("report.txt")).toBeInTheDocument();
+        expect(screen.getByText("TXT · 512 B")).toBeInTheDocument();
     });
 });
 

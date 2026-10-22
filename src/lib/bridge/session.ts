@@ -295,16 +295,17 @@ export function onSessionState(session: string, onState: (state: SessionLifecycl
  * The answer says what happened: `started`, `queued`, or `handled` for a message
  * that a command of an extension took without a run.
  *
- * `images` are the pictures of the message, as `pick.ts` answered them; pi
- * processes them itself.
+ * `images` are the pictures of the message; pi processes them itself.
+ * `attachments` are the staged file paths of non-image attachments; Rust formats them into the wire message.
  */
 export function prompt(
     session: string,
     message: string,
     behavior?: StreamingBehavior,
     images?: ImageContent[],
+    attachments?: string[],
 ): Promise<PromptData> {
-    return call<PromptData>("prompt", { session, message, behavior, images });
+    return call<PromptData>("prompt", { session, message, behavior, images, attachments });
 }
 
 /** Stops the run of one session, and a compaction in progress with it. */

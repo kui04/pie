@@ -1,23 +1,42 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Paperclip, Square } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ClipboardEvent,
+    type ComponentProps,
+    type KeyboardEvent,
+} from "react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
 import { useMotion } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import type { ExtensionEditorText } from "@/lib/bridge";
+import { hasPastedFilesOrUris, processPaste } from "@/lib/clipboard";
 import type { StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
-import { Attachments, type StagedImage } from "@/routes/chat/composer/Attachments";
+import {
+    attachmentsMachine,
+    itemsOf,
+    uploadingOf,
+    type AttachmentDeps,
+    type StagedAttachment,
+    type StagedFileAttachment,
+    type StagedImageAttachment,
+} from "@/machines/attachments.machine";
+import { Attachments } from "@/routes/chat/composer/Attachments";
 import { CommandList } from "@/routes/chat/composer/CommandList";
 import { bashCommandOf, commandRows, slashHint, slashName, type CommandRow } from "@/routes/chat/composer/command";
 import { ModelPicker } from "@/routes/chat/composer/ModelPicker";
 import { ThinkingLevelPicker } from "@/routes/chat/composer/ThinkingLevelPicker";
 import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
-import { useSelector } from "@xstate/react";
+import { useMachine, useSelector } from "@xstate/react";
 import type { SessionRef } from "@/lib/session";
 import { Icon } from "@/components";
 
@@ -76,13 +95,29 @@ export function Composer({
 }: ComposerProps) {
     const client = useQueryClient();
     const [value, setValue] = useState("");
-    const [staged, setStaged] = useState<StagedImage[]>([]);
+    /**
+     * What the chart of the attachments needs from the world: the commands that stage a
+     * file, and the toast that says one did not arrive. The composer hands them in, so the
+     * chart imports no command and a test of it needs no Tauri runtime.
+     */
+    const attachments = useMemo<AttachmentDeps>(
+        () => ({
+            progress: (uploadId, notify) =>
+                bridge.onUploadProgress(uploadId, (event) => notify(event.transferred, event.total)),
+            prepare: (request) =>
+                bridge.prepareAttachment(request.uploadId, request.name, request.localPath, request.bytesBase64),
+            notify: (failure) => toast.error(failure.message),
+        }),
+        [],
+    );
+    const [, stage, strip] = useMachine(attachmentsMachine, { input: { deps: attachments } });
+    const staged = useSelector(strip, itemsOf);
+    const uploading = useSelector(strip, uploadingOf);
     const [highlighted, setHighlighted] = useState<string | null>(null);
     const [pointed, setPointed] = useState<string | null>(null);
     const [dismissed, setDismissed] = useState(false);
     const [panel, setPanel] = useState<"model" | "thinking" | null>(null);
     const input = useRef<HTMLTextAreaElement>(null);
-    const attachment = useRef(0);
     const appliedEditorText = useRef<number | null>(null);
 
     const blurTimer = useRef<number | null>(null);
@@ -156,21 +191,32 @@ export function Composer({
     // that points at a row a new search has taken away, leaves the light with the keyboard.
     const litRow = rows.find((row) => row.id === pointed) ?? highlightedRow;
 
-    /** Sends the words and the pictures, and takes the box back when pi refuses. */
-    function send(text: string, sent: StagedImage[], behavior: StreamingBehavior | undefined) {
+    /** Sends the words and the attachments, and takes the box back when pi refuses. */
+    function send(text: string, sent: readonly StagedAttachment[], behavior: StreamingBehavior | undefined) {
+        const images = sent
+            .filter((item): item is StagedImageAttachment => item.type === "image")
+            .map((attachment) => attachment.image);
+        const filePaths = sent
+            .filter((item): item is StagedFileAttachment => item.type === "file")
+            .map((item) => item.path)
+            .filter(Boolean);
+
         setValue("");
-        setStaged([]);
+        stage({ type: "CLEAR" });
         setDismissed(false);
-        void bridge
-            .prompt(session, text, behavior, sent.length > 0 ? sent.map((attachment) => attachment.image) : undefined)
-            .catch((thrown: unknown) => {
-                toast.error(bridge.asPieError(thrown).message);
-                // The words and the pictures stay: a refusal of pi — no model, a
-                // compaction in progress — is worth another try, and typing it all
-                // again is not.
-                setValue((current) => (current === "" ? text : current));
-                setStaged((current) => (current.length === 0 ? sent : current));
-            });
+        const promptPromise =
+            filePaths.length > 0
+                ? bridge.prompt(session, text, behavior, images.length > 0 ? images : undefined, filePaths)
+                : bridge.prompt(session, text, behavior, images.length > 0 ? images : undefined);
+
+        void promptPromise.catch((thrown: unknown) => {
+            toast.error(bridge.asPieError(thrown).message);
+            // The words and the pictures stay: a refusal of pi — no model, a
+            // compaction in progress — is worth another try, and typing it all
+            // again is not.
+            setValue((current) => (current === "" ? text : current));
+            stage({ type: "RESTORE", items: sent });
+        });
     }
 
     /** Runs a command of the reader's own shell; the card waits above the box. */
@@ -213,6 +259,11 @@ export function Composer({
 
     /** What the send key does: a shell command, a command, or a message. */
     function submit(withFollowUp: boolean) {
+        if (uploading) {
+            toast.info("Please wait for file uploads to complete.");
+            return;
+        }
+
         const text = value.trim();
         if (text === "" && staged.length === 0) return;
 
@@ -294,23 +345,38 @@ export function Composer({
         }
     }
 
-    /** Asks the person for pictures and stages what they chose. */
+    /** Asks the person for attachments and stages what they chose. */
     function attach() {
         void bridge
-            .pickImages()
-            .then((picked) => {
-                if (picked === null || picked.length === 0) return;
-                const added = picked.map(({ name, image }) => {
-                    attachment.current += 1;
-                    return { id: `attachment-${attachment.current}`, name, image };
-                });
-                setStaged((current) => [...current, ...added]);
+            .pickPaths({ multiple: true })
+            .then(async (paths) => {
+                if (!paths || paths.length === 0) return;
+                const picked = await bridge.importPaths(paths);
+                if (picked.images.length > 0) stage({ type: "STAGE_IMAGES", images: picked.images });
+                if (picked.files.length > 0) stage({ type: "STAGE_FILES", files: picked.files });
             })
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
     }
 
+    function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+        const transfer = event.clipboardData;
+        const plainText = transfer.getData("text/plain");
+        const shouldIntercept = hasPastedFilesOrUris(transfer) || !plainText;
+        if (!shouldIntercept) {
+            return;
+        }
+        event.preventDefault();
+
+        void processPaste(transfer)
+            .then((result) => {
+                if (result.images.length > 0) stage({ type: "STAGE_IMAGES", images: result.images });
+                if (result.files.length > 0) stage({ type: "STAGE_FILES", files: result.files });
+            })
+            .catch(() => toast.error("Could not paste clipboard content."));
+    }
+
     const stopShown = working || runningBash !== null;
-    const sendable = value.trim() !== "" || staged.length > 0;
+    const sendable = (value.trim() !== "" || staged.length > 0) && !uploading;
     const shellMode = bashCommandOf(value) !== null;
 
     return (
@@ -359,9 +425,7 @@ export function Composer({
                                     <Attachments
                                         className="mt-3"
                                         items={staged}
-                                        onRemove={(id) =>
-                                            setStaged((current) => current.filter((item) => item.id !== id))
-                                        }
+                                        onRemove={(id) => stage({ type: "REMOVE", id })}
                                     />
                                 </motion.div>
                             )}
@@ -389,6 +453,7 @@ export function Composer({
                             }}
                             onBlur={handleBlur}
                             onPointerDown={handleFocus}
+                            onPaste={handlePaste}
                             className={cn(
                                 `
                                     block h-15 max-h-15 min-h-15 resize-none rounded-none border-0 bg-transparent pt-3
@@ -424,7 +489,7 @@ export function Composer({
                                     id="composer-attach"
                                     variant="ghost"
                                     size="icon"
-                                    aria-label="Attach images"
+                                    aria-label="Attach files"
                                     onClick={attach}
                                     className="
                                         size-8.5 shrink-0 rounded-full p-0 text-muted-foreground

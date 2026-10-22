@@ -231,6 +231,149 @@ pub(crate) async fn create_dir_remote(sftp: &SftpSession, path: &str) -> Result<
     Ok(())
 }
 
+/// How long a progress report may be held back. One report in a hundred milliseconds is
+/// as smooth as a bar can be read.
+const REPORT_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How much of a file may be written before a report, when the clock does not ask for one.
+const REPORT_SHARE: u64 = 20;
+
+/// Writes a binary payload to a remote file via SFTP, reporting progress while it goes.
+///
+/// A report is an IPC message and a render of the strip, so one per chunk is not a reason.
+/// The two bounds answer two different problems: the clock holds the rate to ten a second,
+/// and the share holds a fast write to one report in twenty. The last byte always closes the
+/// bar. A write of 50 MB in 64 KB chunks is 800 chunks and, when the link keeps up, about 20
+/// reports instead of 800.
+///
+/// # Errors
+///
+/// [`Error::UncreatableRemote`] when opening or writing the file fails.
+pub(crate) async fn write_file_remote<F>(
+    sftp: &SftpSession,
+    remote_path: &str,
+    data: &[u8],
+    mut on_progress: F,
+) -> Result<(), Error>
+where
+    F: FnMut(u64, u64) + Send,
+{
+    use russh_sftp::protocol::OpenFlags;
+    use tokio::io::AsyncWriteExt;
+
+    let mut file = sftp
+        .open_with_flags(remote_path, OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE)
+        .await
+        .map_err(|err| uncreatable_there(remote_path, err))?;
+
+    let chunk_size = 65536;
+    let total = data.len() as u64;
+    let share = (total / REPORT_SHARE).max(1);
+    let mut transferred = 0u64;
+    let mut reported = 0u64;
+    let mut reported_at = std::time::Instant::now();
+
+    // The bar starts at zero, and then hears only what it can show.
+    on_progress(0, total);
+
+    for chunk in data.chunks(chunk_size) {
+        file.write_all(chunk)
+            .await
+            .map_err(|err| uncreatable_there(remote_path, SftpError::from(err)))?;
+        transferred += chunk.len() as u64;
+        if transferred == total || reported_at.elapsed() >= REPORT_EVERY || transferred - reported >= share {
+            on_progress(transferred, total);
+            reported = transferred;
+            reported_at = std::time::Instant::now();
+        }
+    }
+
+    file.flush()
+        .await
+        .map_err(|err| uncreatable_there(remote_path, SftpError::from(err)))?;
+
+    Ok(())
+}
+
+/// The name of the temporary copy that a machine keeps for one attachment.
+///
+/// This names a file on a host that pie cannot create one on itself: the upload
+/// writes under this name. A file on this machine is named by [`stage_local`]
+/// instead, which lets `tempfile` choose the part that must not collide.
+pub fn temp_file_name(stem_hint: &str, ext_hint: &str) -> String {
+    let id = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
+    let stem = clean_stem(stem_hint);
+    let extension = clean_extension(ext_hint);
+    if extension.is_empty() {
+        format!("pie-{stem}-{id}")
+    } else {
+        format!("pie-{stem}-{id}.{extension}")
+    }
+}
+
+/// Writes `bytes` into the temporary directory of this machine, and answers where.
+///
+/// The name is claimed with `O_EXCL` and the bytes go through that same handle. The
+/// temporary directory is shared with every other process of the machine, so a name
+/// that another writer chose, or a path reopened after the claim, could put the bytes
+/// into a link that somebody planted; `tempfile` closes both doors with the one open.
+///
+/// The file stays after this call. Pi reads it, and pie has no moment at which it
+/// knows that pi has finished with it.
+///
+/// # Errors
+///
+/// [`Error::UncreatableLocal`] when the directory refuses a file, or when the
+/// write of it fails.
+pub(crate) async fn stage_local(stem_hint: &str, ext_hint: &str, bytes: &[u8]) -> Result<String, Error> {
+    use tokio::io::AsyncWriteExt as _;
+
+    let directory = std::env::temp_dir();
+    let prefix = format!("pie-{}-", clean_stem(stem_hint));
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix);
+    let extension = clean_extension(ext_hint);
+    let suffix = format!(".{extension}");
+    if !extension.is_empty() {
+        builder.suffix(&suffix);
+    }
+    let claimed = builder
+        .tempfile_in(&directory)
+        .map_err(|error| uncreatable(&directory.display().to_string(), error))?;
+    let (file, path) = claimed
+        .keep()
+        .map_err(|error| uncreatable(&directory.display().to_string(), error.error))?;
+    tokio::fs::File::from_std(file)
+        .write_all(bytes)
+        .await
+        .map_err(|error| uncreatable(&path.display().to_string(), error))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// The part of a name that a temporary copy keeps: letters, digits, `-` and `_`,
+/// so that the name is legal on every machine that pie reaches.
+fn clean_stem(stem_hint: &str) -> String {
+    let stem: String = Path::new(stem_hint)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if stem.is_empty() { "file".to_string() } else { stem }
+}
+
+/// The extension of a name without its dot.
+fn clean_extension(ext_hint: &str) -> String {
+    ext_hint.trim_start_matches('.').to_string()
+}
+
 /// Every level of a host path from the top down, in the spelling the host uses.
 ///
 /// The root keeps its own shape: `/`, `C:\`, or `\\host\share`.
@@ -565,5 +708,66 @@ mod tests {
 
         let error = dir_exists_local("sessions").await.expect_err("a relative path");
         assert!(matches!(error, Error::NotAbsolute { .. }), "got {error:?}");
+    }
+
+    #[test]
+    fn temp_file_name_avoids_trailing_dot_and_sanitizes() {
+        let with_ext = temp_file_name("sample.pdf", "pdf");
+        assert!(with_ext.starts_with("pie-sample-"));
+        assert!(with_ext.ends_with(".pdf"));
+
+        let without_ext = temp_file_name("noext", "");
+        assert!(without_ext.starts_with("pie-noext-"));
+        assert!(!without_ext.ends_with('.'));
+        assert!(!without_ext.contains('.'));
+
+        let with_dot_ext = temp_file_name("photo", ".png");
+        assert!(with_dot_ext.ends_with(".png"));
+        assert!(!with_dot_ext.ends_with("..png"));
+
+        let spaces = temp_file_name("my file (1)", "txt");
+        assert!(spaces.starts_with("pie-my_file__1_-"));
+        assert!(spaces.ends_with(".txt"));
+    }
+
+    #[tokio::test]
+    async fn a_staged_file_holds_the_bytes_under_a_pie_name() {
+        let path = stage_local("report.pdf", "pdf", b"%PDF-1.4").await.expect("the write");
+
+        let staged = Path::new(&path);
+        let name = staged.file_name().expect("a name").to_string_lossy().into_owned();
+        assert!(name.starts_with("pie-report-"), "a name of pie's own: {name}");
+        assert_eq!(staged.extension().and_then(|ext| ext.to_str()), Some("pdf"));
+        assert_eq!(
+            tokio::fs::read(staged).await.expect("the bytes"),
+            b"%PDF-1.4",
+            "the file holds what was handed to it"
+        );
+
+        tokio::fs::remove_file(staged).await.expect("the cleanup");
+    }
+
+    #[tokio::test]
+    async fn two_staged_files_of_one_name_do_not_meet() {
+        // The name of an attachment is the name the person's file has, so two of
+        // them arrive with one name as a matter of course.
+        let first = stage_local("notes.txt", "txt", b"one").await.expect("the first");
+        let second = stage_local("notes.txt", "txt", b"two").await.expect("the second");
+
+        assert_ne!(first, second, "the second write may not land on the first");
+        assert_eq!(tokio::fs::read(&first).await.expect("the first"), b"one");
+        assert_eq!(tokio::fs::read(&second).await.expect("the second"), b"two");
+
+        tokio::fs::remove_file(&first).await.expect("the cleanup");
+        tokio::fs::remove_file(&second).await.expect("the cleanup");
+    }
+
+    #[tokio::test]
+    async fn a_staged_file_without_an_extension_ends_on_no_dot() {
+        let path = stage_local("LICENSE", "", b"text").await.expect("the write");
+
+        assert!(!path.ends_with('.'), "a trailing dot names no file: {path}");
+
+        tokio::fs::remove_file(&path).await.expect("the cleanup");
     }
 }

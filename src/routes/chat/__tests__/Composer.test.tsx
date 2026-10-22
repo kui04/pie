@@ -21,7 +21,11 @@ const bridge = vi.hoisted(() => ({
     getAvailableThinkingLevels: vi.fn<Call>(),
     setModel: vi.fn<Call>(),
     setThinkingLevel: vi.fn<Call>(),
-    pickImages: vi.fn<Call>(),
+    pickPaths: vi.fn<Call>(),
+    readClipboard: vi.fn<Call>(),
+    importPaths: vi.fn<Call>(),
+    prepareAttachment: vi.fn<Call>(),
+    onUploadProgress: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
 }));
@@ -109,7 +113,8 @@ beforeEach(() => {
     bridge.abortBash.mockResolvedValue(undefined);
     bridge.setModel.mockResolvedValue({});
     bridge.setThinkingLevel.mockResolvedValue(undefined);
-    bridge.pickImages.mockResolvedValue(null);
+    bridge.pickPaths.mockResolvedValue(null);
+    bridge.onUploadProgress.mockResolvedValue(() => undefined);
 });
 
 describe("the composer sends what was typed", () => {
@@ -395,15 +400,16 @@ describe("the command menu", () => {
     });
 });
 
-describe("the pictures of a message", () => {
+describe("the attachments of a message", () => {
     const picture = { type: "image" as const, data: "aGk=", mimeType: "image/png" };
     const staged = { name: "workspace.png", image: picture };
 
     it("stages what the picker answered, and sends it with the words", async () => {
-        bridge.pickImages.mockResolvedValue([staged]);
+        bridge.pickPaths.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.importPaths.mockResolvedValue({ images: [staged], files: [] });
         renderComposer();
 
-        fireEvent.click(screen.getByRole("button", { name: "Attach images" }));
+        fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
         expect(await screen.findByText("workspace.png")).toBeInTheDocument();
 
         type("look at this");
@@ -412,10 +418,45 @@ describe("the pictures of a message", () => {
         expect(bridge.prompt).toHaveBeenCalledWith("main:1", "look at this", undefined, [picture]);
     });
 
-    it("removes one of the staged pictures again", async () => {
-        bridge.pickImages.mockResolvedValue([staged]);
+    it("stages files chosen through the file picker and appends paths on submit", async () => {
+        bridge.pickPaths.mockResolvedValue(["/tmp/report.pdf"]);
+        bridge.importPaths.mockResolvedValue({
+            images: [],
+            files: [
+                {
+                    name: "report.pdf",
+                    size: 2048,
+                    mimeType: "application/pdf",
+                    localPath: "/tmp/report.pdf",
+                },
+            ],
+        });
+        bridge.prepareAttachment.mockResolvedValue({
+            path: "/tmp/pie-report.pdf",
+            size: 2048,
+            mimeType: "application/pdf",
+        });
+
         renderComposer();
-        fireEvent.click(screen.getByRole("button", { name: "Attach images" }));
+        fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
+
+        expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+
+        type("analyze this report");
+        press("Enter");
+
+        await waitFor(() => {
+            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "analyze this report", undefined, undefined, [
+                "/tmp/pie-report.pdf",
+            ]);
+        });
+    });
+
+    it("removes one of the staged pictures again", async () => {
+        bridge.pickPaths.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.importPaths.mockResolvedValue({ images: [staged], files: [] });
+        renderComposer();
+        fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
         await screen.findByText("workspace.png");
 
         fireEvent.click(screen.getByRole("button", { name: "Remove workspace.png" }));
@@ -424,10 +465,11 @@ describe("the pictures of a message", () => {
     });
 
     it("stays on screen when pi refuses the message", async () => {
-        bridge.pickImages.mockResolvedValue([staged]);
+        bridge.pickPaths.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.importPaths.mockResolvedValue({ images: [staged], files: [] });
         bridge.prompt.mockRejectedValue(refusal("pi rejected `prompt`: image too large"));
         renderComposer();
-        fireEvent.click(screen.getByRole("button", { name: "Attach images" }));
+        fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
         await screen.findByText("workspace.png");
         type("look");
 
@@ -435,6 +477,120 @@ describe("the pictures of a message", () => {
 
         await waitFor(() => expect(box()).toHaveValue("look"));
         expect(screen.getByText("workspace.png")).toBeInTheDocument();
+    });
+
+    it("stages pictures pasted into the composer input", async () => {
+        renderComposer();
+
+        const file = new File(["bytes"], "pasted-screenshot.png", { type: "image/png" });
+        fireEvent.paste(box(), {
+            clipboardData: {
+                files: [file],
+                items: [
+                    {
+                        kind: "file",
+                        type: "image/png",
+                        getAsFile: () => file,
+                    },
+                ],
+            },
+        });
+
+        expect(await screen.findByText("pasted-screenshot.png")).toBeInTheDocument();
+
+        type("look at pasted");
+        press("Enter");
+
+        await waitFor(() => {
+            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "look at pasted", undefined, [
+                expect.objectContaining({ type: "image", mimeType: "image/png" }),
+            ]);
+        });
+    });
+
+    it("ignores paste events without image files", () => {
+        renderComposer();
+
+        fireEvent.paste(box(), {
+            clipboardData: {
+                files: [],
+                items: [
+                    {
+                        kind: "string",
+                        type: "text/plain",
+                    },
+                ],
+                getData: () => "plain words",
+            },
+        });
+
+        expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    });
+
+    it("stages non-image files as attachment cards and appends their paths on send", async () => {
+        bridge.prepareAttachment.mockResolvedValue({
+            path: "/tmp/pie-document.pdf",
+            size: 1024,
+            mimeType: "application/pdf",
+        });
+        renderComposer();
+
+        const file = new File(["bytes"], "document.pdf", { type: "application/pdf" });
+        fireEvent.paste(box(), {
+            clipboardData: {
+                files: [file],
+                items: [
+                    {
+                        kind: "file",
+                        type: "application/pdf",
+                        getAsFile: () => file,
+                    },
+                ],
+                getData: () => "",
+            },
+        });
+
+        expect(await screen.findByText("document.pdf")).toBeInTheDocument();
+
+        type("review this document");
+        press("Enter");
+
+        await waitFor(() => {
+            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "review this document", undefined, undefined, [
+                "/tmp/pie-document.pdf",
+            ]);
+        });
+    });
+
+    it("imports file URIs when pasting from file managers and appends path", async () => {
+        bridge.importPaths.mockResolvedValue({
+            images: [],
+            files: [
+                { name: "document.pdf", size: 1024, mimeType: "application/pdf", localPath: "/home/user/document.pdf" },
+            ],
+        });
+        bridge.prepareAttachment.mockResolvedValue({
+            path: "/home/user/document.pdf",
+            size: 1024,
+            mimeType: "application/pdf",
+        });
+        renderComposer();
+
+        fireEvent.paste(box(), {
+            clipboardData: {
+                files: [],
+                items: [],
+                getData: (type: string) => (type === "text/uri-list" ? "file:///home/user/document.pdf" : ""),
+            },
+        });
+
+        expect(await screen.findByText("document.pdf")).toBeInTheDocument();
+
+        press("Enter");
+
+        await waitFor(() => {
+            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "", undefined, undefined, ["/home/user/document.pdf"]);
+        });
     });
 });
 
@@ -480,7 +636,7 @@ describe("the focus of the composer", () => {
         const onFocusChange = vi.fn();
         renderComposer("idle", { onFocus, onFocusChange });
 
-        fireEvent.focus(screen.getByRole("button", { name: "Attach images" }));
+        fireEvent.focus(screen.getByRole("button", { name: "Attach files" }));
 
         expect(onFocus).not.toHaveBeenCalled();
         expect(onFocusChange).not.toHaveBeenCalled();

@@ -76,11 +76,56 @@ pub enum Error {
         #[source]
         source: tauri::Error,
     },
+
+    /// An argument that pie cannot use or parse.
+    #[error("invalid argument: {reason}")]
+    BadArgument {
+        /// Why the argument cannot be used.
+        reason: String,
+    },
+
+    /// An operation that the platform or configuration does not support.
+    #[error("{what} is not supported")]
+    NotSupported {
+        /// What was attempted.
+        what: String,
+    },
+
+    /// A clipboard operation failed.
+    #[error("clipboard operation failed: {reason}")]
+    Clipboard {
+        /// Why the clipboard operation failed.
+        reason: String,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serializes_tagged_errors_without_failure() {
+        let bad_arg = Error::BadArgument {
+            reason: "invalid path".to_string(),
+        };
+        let bad_arg_json = serde_json::to_value(&bad_arg).expect("bad_argument serializes");
+        assert_eq!(bad_arg_json["kind"], "bad_argument");
+        assert_eq!(bad_arg_json["reason"], "invalid path");
+
+        let not_supported = Error::NotSupported {
+            what: "folder picking on mobile".to_string(),
+        };
+        let not_supp_json = serde_json::to_value(&not_supported).expect("not_supported serializes");
+        assert_eq!(not_supp_json["kind"], "not_supported");
+        assert_eq!(not_supp_json["what"], "folder picking on mobile");
+
+        let clip = Error::Clipboard {
+            reason: "denied".to_string(),
+        };
+        let clip_json = serde_json::to_value(&clip).expect("clipboard serializes");
+        assert_eq!(clip_json["kind"], "clipboard");
+        assert_eq!(clip_json["reason"], "denied");
+    }
 
     #[test]
     fn the_state_of_the_one_connection_is_named_here() {

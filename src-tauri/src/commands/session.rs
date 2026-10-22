@@ -256,8 +256,8 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 /// Therefore a caller does not have to be right about the stream: it names the key
 /// that the person pressed.
 ///
-/// `images` are the pictures of the message, as [`super::pick::pick_images`]
-/// answered them; pi processes them itself.
+/// `images` are the pictures of the message, as [`super::files::PickedImage`]
+/// carries them; pi processes them itself.
 ///
 /// The answer says what happened: `started`, `queued`, or `handled` for a message
 /// that a command of an extension took without a run.
@@ -268,18 +268,53 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 /// the protocol - including a refusal of pi itself: no model, no credentials, or a
 /// compaction in progress.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, chars = message.chars().count(), images = images.as_ref().map_or(0, Vec::len), behavior = ?behavior))]
+#[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, chars = message.chars().count(), images = images.as_ref().map_or(0, Vec::len), attachments = attachments.as_ref().map_or(0, Vec::len), behavior = ?behavior))]
 pub async fn prompt(
     state: State<'_, AppState>,
     session: String,
     message: String,
     images: Option<Vec<ImageContent>>,
+    attachments: Option<Vec<String>>,
     behavior: Option<StreamingBehavior>,
 ) -> Result<PromptData, PieError> {
+    let wire_message = match attachments {
+        Some(ref list) if !list.is_empty() => compose_prompt_message(&message, list),
+        _ => message,
+    };
     named_session(&state, &session, "sending a message to a session")
         .await?
-        .prompt(&message, images, behavior)
+        .prompt(&wire_message, images, behavior)
         .await
+}
+
+/// Quotes a path with double quotes if it contains whitespace, backslashes, or quotes.
+pub fn quote_path(path: &str) -> String {
+    if path.contains([' ', '\t', '\n', '\r', '\\', '"']) {
+        format!("\"{}\"", path.replace('"', "\\\""))
+    } else {
+        path.to_string()
+    }
+}
+
+/// Composes a wire prompt message by labeling and quoting attached file paths.
+pub fn compose_prompt_message(message: &str, attachments: &[String]) -> String {
+    let text = message.trim();
+    if attachments.is_empty() {
+        return text.to_string();
+    }
+
+    let mut block = String::from("Attachments:");
+    for path in attachments {
+        block.push('\n');
+        block.push_str("- ");
+        block.push_str(&quote_path(path));
+    }
+
+    if text.is_empty() {
+        block
+    } else {
+        format!("{text}\n\n{block}")
+    }
 }
 
 /// Stops the run of one session, and a compaction in progress with it.
@@ -650,5 +685,25 @@ mod tests {
         assert_eq!(sent["type"], "session");
         assert_eq!(sent["error"]["kind"], "unknown_session");
         assert_eq!(sent["message"], "this connection has no session `main:9`");
+    }
+
+    #[test]
+    fn composes_prompt_with_labeled_and_quoted_attachments() {
+        let empty: Vec<String> = Vec::new();
+        assert_eq!(compose_prompt_message("hello", &empty), "hello");
+
+        let attachments = vec![
+            "/tmp/plain.txt".to_string(),
+            "/tmp/with space.pdf".to_string(),
+            r"C:\Windows\file.txt".to_string(),
+        ];
+        let composed = compose_prompt_message("look here", &attachments);
+        assert_eq!(
+            composed,
+            "look here\n\nAttachments:\n- /tmp/plain.txt\n- \"/tmp/with space.pdf\"\n- \"C:\\Windows\\file.txt\""
+        );
+
+        let only_files = compose_prompt_message("", &attachments[..1]);
+        assert_eq!(only_files, "Attachments:\n- /tmp/plain.txt");
     }
 }
