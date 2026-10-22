@@ -344,10 +344,14 @@ impl Handle {
 /// a cancelled watch read loses nothing, so asking to terminate and then waiting
 /// again is the same as having asked first.
 async fn keep_watch(mut behind: Behind, mut orders: mpsc::Receiver<()>, ended: watch::Sender<Option<Termination>>) {
+    // A closed receiver answers `None` at once. Polling it again would spin the
+    // loop, so the flag takes the branch out and leaves the wait for the
+    // program alone.
+    let mut nobody_asks = false;
     let termination = loop {
         tokio::select! {
             result = behind.wait() => break result.unwrap_or(Termination::Unknown),
-            order = orders.recv() => match order {
+            order = orders.recv(), if !nobody_asks => match order {
                 Some(()) => {
                     if let Err(error) = behind.terminate().await {
                         tracing::debug!(%error, "asking the program to stop failed");
@@ -355,7 +359,7 @@ async fn keep_watch(mut behind: Behind, mut orders: mpsc::Receiver<()>, ended: w
                 }
                 // Every hand is gone; the program is nobody's to end, so this
                 // keeps waiting for it to end on its own.
-                None => continue,
+                None => nobody_asks = true,
             },
         }
     };
