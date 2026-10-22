@@ -7,8 +7,8 @@
 //! The files here are the areas of the product, and each one is the area
 //! responsible for its answers: [`host`] opens, reads and closes the one machine,
 //! [`session`] is everything a pi session is asked to do, [`app`] is the app
-//! itself, [`files`] is file picking, staging and temporary storage, [`clipboard`]
-//! reads the native clipboard, and [`log`] is where a line of the frontend goes.
+//! itself, [`files`] is file picking, staging and temporary storage, and [`log`]
+//! is where a line of the frontend goes.
 //! [`pipe`] forwards what pi says about a session, and holds no command of its
 //! own: `connect` starts its task. [`Error`] names what this layer itself cannot do. What the commands share - the one
 //! connection, the one question, the count that names a pi process - lives at the
@@ -30,7 +30,6 @@
 //! `pi://connection/{id}/state` before it calls.
 
 pub mod app;
-pub mod clipboard;
 mod error;
 pub mod files;
 pub mod host;

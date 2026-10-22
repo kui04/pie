@@ -23,7 +23,6 @@ pub fn run() {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "pie starting");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
@@ -32,9 +31,6 @@ pub fn run() {
             commands::app::open_url,
             commands::app::platform,
             commands::app::provider_logo,
-            commands::clipboard::read_clipboard,
-            commands::clipboard::read_clipboard_text,
-            commands::clipboard::write_clipboard_text,
             commands::files::import_paths,
             commands::files::pick_paths,
             commands::files::prepare_attachment,

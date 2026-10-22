@@ -343,8 +343,11 @@ pub(crate) async fn stage_local(stem_hint: &str, ext_hint: &str, bytes: &[u8]) -
     let (file, path) = claimed
         .keep()
         .map_err(|error| uncreatable(&directory.display().to_string(), error.error))?;
-    tokio::fs::File::from_std(file)
-        .write_all(bytes)
+    let mut file = tokio::fs::File::from_std(file);
+    file.write_all(bytes)
+        .await
+        .map_err(|error| uncreatable(&path.display().to_string(), error))?;
+    file.flush()
         .await
         .map_err(|error| uncreatable(&path.display().to_string(), error))?;
     Ok(path.to_string_lossy().into_owned())

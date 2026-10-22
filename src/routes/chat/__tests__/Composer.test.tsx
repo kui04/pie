@@ -22,7 +22,6 @@ const bridge = vi.hoisted(() => ({
     setModel: vi.fn<Call>(),
     setThinkingLevel: vi.fn<Call>(),
     pickPaths: vi.fn<Call>(),
-    readClipboard: vi.fn<Call>(),
     importPaths: vi.fn<Call>(),
     prepareAttachment: vi.fn<Call>(),
     onUploadProgress: vi.fn<Call>(),

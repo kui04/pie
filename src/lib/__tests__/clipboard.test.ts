@@ -1,66 +1,68 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as Bridge from "@/lib/bridge";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     blobToBase64,
     copyText,
-    extractAllFiles,
+    extractFiles,
     extractUris,
-    hasPastedFilesOrUris,
-    processPaste,
+    hasFilesOrUris,
+    readClipboard,
     readText,
 } from "@/lib/clipboard";
 
-type Call = (...args: unknown[]) => Promise<unknown>;
-
-const bridge = vi.hoisted(() => ({
-    importPaths: vi.fn<Call>(),
-    onUploadProgress: vi.fn<Call>(),
-    prepareAttachment: vi.fn<Call>(),
-    readClipboard: vi.fn<Call>(),
-    readClipboardText: vi.fn<Call>(),
-    writeClipboardText: vi.fn<Call>(),
-}));
-
-vi.mock("@/lib/bridge", async (importOriginal) => ({
-    ...(await importOriginal<typeof Bridge>()),
-    ...bridge,
-}));
-
-beforeEach(() => {
-    vi.clearAllMocks();
+afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 describe("copying text", () => {
-    it("answers true when the text lands", async () => {
-        bridge.writeClipboardText.mockResolvedValue(undefined);
+    it("writes with the Web Clipboard API", async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        vi.stubGlobal("navigator", { clipboard: { writeText } });
 
         await expect(copyText("hello")).resolves.toBe(true);
-        expect(bridge.writeClipboardText).toHaveBeenCalledWith("hello");
+        expect(writeText).toHaveBeenCalledWith("hello");
     });
 
-    it("answers false when the clipboard refuses", async () => {
-        bridge.writeClipboardText.mockRejectedValue(new Error("denied"));
+    it("returns false when the Web Clipboard API is absent or rejects", async () => {
+        vi.stubGlobal("navigator", {});
+        await expect(copyText("hello")).resolves.toBe(false);
 
+        const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+        vi.stubGlobal("navigator", { clipboard: { writeText } });
         await expect(copyText("hello")).resolves.toBe(false);
     });
 });
 
 describe("reading text", () => {
-    it("returns text when readClipboardText succeeds", async () => {
-        bridge.readClipboardText.mockResolvedValue("clipboard text");
+    it("reads from paste DataTransfer first when present", async () => {
+        const readTextMock = vi.fn().mockResolvedValue("from web clipboard");
+        vi.stubGlobal("navigator", { clipboard: { readText: readTextMock } });
 
-        await expect(readText()).resolves.toBe("clipboard text");
+        const transfer = {
+            getData: (type: string) => (type === "text/plain" ? "from paste event" : ""),
+        } as unknown as DataTransfer;
+
+        await expect(readText(transfer)).resolves.toBe("from paste event");
+        expect(readTextMock).not.toHaveBeenCalled();
     });
 
-    it("returns null when readClipboardText rejects or throws", async () => {
-        bridge.readClipboardText.mockRejectedValue(new Error("denied"));
+    it("falls back to navigator.clipboard.readText when DataTransfer has no text", async () => {
+        const readTextMock = vi.fn().mockResolvedValue("from web clipboard");
+        vi.stubGlobal("navigator", { clipboard: { readText: readTextMock } });
+
+        await expect(readText()).resolves.toBe("from web clipboard");
+    });
+
+    it("returns null when both DataTransfer and Web Clipboard API are unavailable", async () => {
+        const readTextMock = vi.fn().mockRejectedValue(new Error("denied"));
+        vi.stubGlobal("navigator", { clipboard: { readText: readTextMock } });
 
         await expect(readText()).resolves.toBeNull();
     });
 });
 
 describe("blob conversion", () => {
-    it("converts blob to base64 without data prefix", async () => {
+    it("converts blob to base64 without data URI prefix", async () => {
         const blob = new Blob(["sample bytes"], { type: "image/png" });
         const b64 = await blobToBase64(blob);
 
@@ -79,7 +81,7 @@ describe("inspecting and extracting from DataTransfer", () => {
             getData: () => "",
         } as unknown as DataTransfer;
 
-        expect(extractAllFiles(transfer)).toHaveLength(2);
+        expect(extractFiles(transfer)).toHaveLength(2);
     });
 
     it("extracts all files from transfer.items", () => {
@@ -96,25 +98,46 @@ describe("inspecting and extracting from DataTransfer", () => {
             getData: () => "",
         } as unknown as DataTransfer;
 
-        const files = extractAllFiles(transfer);
+        const files = extractFiles(transfer);
         expect(files).toHaveLength(1);
         expect(files[0].name).toBe("screenshot.png");
     });
 
-    it("extracts URIs from text/uri-list and plain paths", () => {
+    it("extracts file URIs and pure path lines while ignoring prose and comments", () => {
         const uriTransfer = {
             files: [],
             items: [],
             getData: (format: string) => {
-                if (format === "text/uri-list") return "file:///tmp/pic.png\r\n# comment\r\nfile:///tmp/doc.pdf";
+                if (format === "text/uri-list") {
+                    return "file:///tmp/pic.png\r\n# comment\r\ncontent://com.android.providers.media/1\r\nhttps://example.com/a.png";
+                }
                 return "";
             },
         } as unknown as DataTransfer;
 
-        expect(extractUris(uriTransfer)).toEqual(["file:///tmp/pic.png", "file:///tmp/doc.pdf"]);
-        expect(hasPastedFilesOrUris(uriTransfer)).toBe(true);
+        expect(extractUris(uriTransfer)).toEqual(["file:///tmp/pic.png", "content://com.android.providers.media/1"]);
+        expect(hasFilesOrUris(uriTransfer)).toBe(true);
 
         const pathTransfer = {
+            files: [],
+            items: [],
+            getData: (format: string) => {
+                if (format === "text/plain") {
+                    return "/home/user/test.png\nC:\\Users\\me\\doc.pdf\n//server/share/a.txt\n\\\\server\\share\\b.txt";
+                }
+                return "";
+            },
+        } as unknown as DataTransfer;
+
+        expect(extractUris(pathTransfer)).toEqual([
+            "/home/user/test.png",
+            "C:\\Users\\me\\doc.pdf",
+            "//server/share/a.txt",
+            "\\\\server\\share\\b.txt",
+        ]);
+        expect(hasFilesOrUris(pathTransfer)).toBe(true);
+
+        const proseWithSlash = {
             files: [],
             items: [],
             getData: (format: string) => {
@@ -123,10 +146,11 @@ describe("inspecting and extracting from DataTransfer", () => {
             },
         } as unknown as DataTransfer;
 
-        expect(extractUris(pathTransfer)).toEqual(["/home/user/test.png"]);
+        expect(extractUris(proseWithSlash)).toEqual([]);
+        expect(hasFilesOrUris(proseWithSlash)).toBe(false);
     });
 
-    it("returns empty array and false when transfer has only text", () => {
+    it("returns empty array and false when transfer has only plain text", () => {
         const transfer = {
             files: [],
             items: [
@@ -139,75 +163,61 @@ describe("inspecting and extracting from DataTransfer", () => {
             getData: (type: string) => (type === "text/plain" ? "just plain text" : ""),
         } as unknown as DataTransfer;
 
-        expect(hasPastedFilesOrUris(transfer)).toBe(false);
-        expect(extractAllFiles(transfer)).toHaveLength(0);
+        expect(hasFilesOrUris(transfer)).toBe(false);
+        expect(extractFiles(transfer)).toHaveLength(0);
     });
 
     it("handles null transfer safely", () => {
-        expect(hasPastedFilesOrUris(null)).toBe(false);
-        expect(extractAllFiles(null)).toHaveLength(0);
-        expect(extractUris(null)).toHaveLength(0);
+        expect(hasFilesOrUris(null)).toBe(false);
+        expect(extractFiles(null)).toBeInstanceOf(Array);
+        expect(extractUris(null)).toEqual([]);
     });
 });
 
-describe("universal processPaste workflow", () => {
-    it("handles DOM files with image and non-image files", async () => {
+describe("readClipboard", () => {
+    it("reads and encodes images, files, and URIs from paste DataTransfer first", async () => {
+        const read = vi.fn();
+        vi.stubGlobal("navigator", { clipboard: { read } });
+
         const img = new File(["img-bytes"], "cat.png", { type: "image/png" });
         const pdf = new File(["pdf-bytes"], "notes.pdf", { type: "application/pdf" });
-
         const transfer = {
             files: [img, pdf],
             items: [],
-            getData: () => "",
+            getData: (type: string) => (type === "text/uri-list" ? "file:///home/user/extra.pdf" : ""),
         } as unknown as DataTransfer;
 
-        const result = await processPaste(transfer);
+        const result = await readClipboard(transfer);
+        expect(read).not.toHaveBeenCalled();
         expect(result.images).toHaveLength(1);
         expect(result.images[0].name).toBe("cat.png");
         expect(result.files).toHaveLength(1);
         expect(result.files[0].name).toBe("notes.pdf");
-        expect(result.files[0].bytesBase64).toBeDefined();
+        expect(result.files[0].bytesBase64).toBeTruthy();
+        expect(result.uris).toEqual(["file:///home/user/extra.pdf"]);
     });
 
-    it("imports URIs when text/uri-list is present", async () => {
-        bridge.importPaths.mockResolvedValue({
-            images: [{ name: "photo.png", image: { type: "image", data: "b64", mimeType: "image/png" } }],
-            files: [
-                { name: "document.pdf", size: 100, mimeType: "application/pdf", localPath: "/home/user/document.pdf" },
-            ],
-        });
-
-        const transfer = {
-            files: [],
-            items: [],
-            getData: (type: string) =>
-                type === "text/uri-list" ? "file:///home/user/photo.png\r\nfile:///home/user/document.pdf" : "",
-        } as unknown as DataTransfer;
-
-        const result = await processPaste(transfer);
-        expect(result.images).toHaveLength(1);
-        expect(result.files).toHaveLength(1);
-        expect(result.files[0].localPath).toBe("/home/user/document.pdf");
-        expect(bridge.importPaths).toHaveBeenCalledWith([
-            "file:///home/user/photo.png",
-            "file:///home/user/document.pdf",
+    it("falls back to navigator.clipboard.read when DataTransfer is empty", async () => {
+        const pngBlob = new Blob(["png-bytes"], { type: "image/png" });
+        const uriBlob = new Blob(["file:///home/user/doc.pdf"], { type: "text/uri-list" });
+        const read = vi.fn().mockResolvedValue([
+            {
+                types: ["image/png", "text/uri-list"],
+                getType: vi.fn((type: string) => Promise.resolve(type === "image/png" ? pngBlob : uriBlob)),
+            },
         ]);
-    });
+        vi.stubGlobal("navigator", { clipboard: { read } });
 
-    it("falls back to native clipboard content when transfer is empty", async () => {
-        bridge.readClipboard.mockResolvedValue({
-            images: [{ name: "Pasted image", image: { type: "image", data: "b64", mimeType: "image/png" } }],
-            files: [],
-        });
-
-        const transfer = {
+        const emptyTransfer = {
             files: [],
             items: [],
             getData: () => "",
         } as unknown as DataTransfer;
 
-        const result = await processPaste(transfer);
+        const result = await readClipboard(emptyTransfer);
+        expect(read).toHaveBeenCalledTimes(1);
         expect(result.images).toHaveLength(1);
-        expect(bridge.readClipboard).toHaveBeenCalled();
+        expect(result.images[0].mimeType).toBe("image/png");
+        expect(result.uris).toEqual(["file:///home/user/doc.pdf"]);
     });
 });

@@ -17,7 +17,7 @@ import { Button, Popover, PopoverTrigger, Textarea } from "@/components/ui";
 import { useMotion } from "@/hooks";
 import * as bridge from "@/lib/bridge";
 import type { ExtensionEditorText } from "@/lib/bridge";
-import { hasPastedFilesOrUris, processPaste } from "@/lib/clipboard";
+import { hasFilesOrUris, readClipboard } from "@/lib/clipboard";
 import type { StreamingBehavior } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
 import {
@@ -345,32 +345,49 @@ export function Composer({
         }
     }
 
+    async function stagePaths(paths: string[]) {
+        if (paths.length === 0) return;
+        try {
+            const picked = await bridge.importPaths(paths);
+            if (picked.images.length > 0) stage({ type: "STAGE_IMAGES", images: picked.images });
+            if (picked.files.length > 0) stage({ type: "STAGE_FILES", files: picked.files });
+        } catch (thrown: unknown) {
+            toast.error(bridge.asPieError(thrown).message);
+        }
+    }
+
     /** Asks the person for attachments and stages what they chose. */
     function attach() {
         void bridge
             .pickPaths({ multiple: true })
             .then(async (paths) => {
-                if (!paths || paths.length === 0) return;
-                const picked = await bridge.importPaths(paths);
-                if (picked.images.length > 0) stage({ type: "STAGE_IMAGES", images: picked.images });
-                if (picked.files.length > 0) stage({ type: "STAGE_FILES", files: picked.files });
+                if (paths && paths.length > 0) await stagePaths(paths);
             })
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
     }
 
     function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
         const transfer = event.clipboardData;
-        const plainText = transfer.getData("text/plain");
-        const shouldIntercept = hasPastedFilesOrUris(transfer) || !plainText;
+        const plainText = typeof transfer?.getData === "function" ? transfer.getData("text/plain") : "";
+        const shouldIntercept = hasFilesOrUris(transfer) || !plainText;
         if (!shouldIntercept) {
             return;
         }
         event.preventDefault();
 
-        void processPaste(transfer)
-            .then((result) => {
-                if (result.images.length > 0) stage({ type: "STAGE_IMAGES", images: result.images });
-                if (result.files.length > 0) stage({ type: "STAGE_FILES", files: result.files });
+        void readClipboard(transfer)
+            .then(async ({ images, files, uris }) => {
+                if (images.length > 0) {
+                    stage({
+                        type: "STAGE_IMAGES",
+                        images: images.map(({ name, data, mimeType }) => ({
+                            name,
+                            image: { type: "image", data, mimeType },
+                        })),
+                    });
+                }
+                if (files.length > 0) stage({ type: "STAGE_FILES", files });
+                await stagePaths(uris);
             })
             .catch(() => toast.error("Could not paste clipboard content."));
     }

@@ -90,13 +90,6 @@ pub enum Error {
         /// What was attempted.
         what: String,
     },
-
-    /// A clipboard operation failed.
-    #[error("clipboard operation failed: {reason}")]
-    Clipboard {
-        /// Why the clipboard operation failed.
-        reason: String,
-    },
 }
 
 #[cfg(test)]
@@ -118,13 +111,6 @@ mod tests {
         let not_supp_json = serde_json::to_value(&not_supported).expect("not_supported serializes");
         assert_eq!(not_supp_json["kind"], "not_supported");
         assert_eq!(not_supp_json["what"], "folder picking on mobile");
-
-        let clip = Error::Clipboard {
-            reason: "denied".to_string(),
-        };
-        let clip_json = serde_json::to_value(&clip).expect("clipboard serializes");
-        assert_eq!(clip_json["kind"], "clipboard");
-        assert_eq!(clip_json["reason"], "denied");
     }
 
     #[test]

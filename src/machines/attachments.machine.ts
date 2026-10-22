@@ -15,9 +15,19 @@
  */
 
 import { assign, enqueueActions, fromCallback, raise, setup, stopChild, type SnapshotFrom } from "xstate";
-import { asPieError, type PieError, type PickedImage, type PreparedAttachment, type Unsubscribe } from "@/lib/bridge";
-import type { RawPastedFile } from "@/lib/clipboard";
+import {
+    asPieError,
+    type AttachmentFile,
+    type PieError,
+    type PickedImage,
+    type PreparedAttachment,
+    type Unsubscribe,
+} from "@/lib/bridge";
 import type { ImageContent } from "@/lib/rpc-protocol";
+
+type StagedFileInput = AttachmentFile & {
+    bytesBase64?: string;
+};
 
 /** One picture staged for a message. Pi takes it inline, so it never uploads. */
 export interface StagedImageAttachment {
@@ -71,7 +81,7 @@ type CopyEvent =
 
 type AttachmentEvent =
     | { type: "STAGE_IMAGES"; images: readonly PickedImage[] }
-    | { type: "STAGE_FILES"; files: readonly RawPastedFile[] }
+    | { type: "STAGE_FILES"; files: readonly StagedFileInput[] }
     /** The attachments of a message whose send pi refused come back, already staged. */
     | { type: "RESTORE"; items: readonly StagedAttachment[] }
     | CopyEvent
