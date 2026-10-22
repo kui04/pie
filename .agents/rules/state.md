@@ -27,13 +27,13 @@ NOT rewrite unrelated old code unless asked.
 
 ## 1. Responsibilities (one owner per kind of state)
 
-| Tool                                              | One-line role                   | OWNS                                                                                                                                              | NEVER owns                                                                                                   |
-| ------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **TanStack Query**                                | What the **server knows**       | Remote data that can be refetched, cached, invalidated: lists, details, pagination, infinite scroll, mutations' network status                    | Client-only values; multi-step flow logic; copies of its data in other stores                                |
-| **XState**                                        | What the app is **doing**       | Behavior: modes, transitions, guards, async orchestration (retry, cancel, timeout), multi-step flows, lifecycle of connections/sessions/uploads   | Cached server entities; plain values with no transitions                                                     |
-| **Zustand**                                       | What the app **remembers**      | Plain values shared by distant components or that outlive a component: theme, sidebar open, user preferences, feature flags, command palette open | Server data; loading/error/status flags of flows; multi-step logic; fetching                                 |
-| **React hooks** (`useState`, `useRef`, `useMemo`) | What a component is **showing** | Ephemeral leaf-level view state, refs, derived values                                                                                             | Anything needed outside the component and its direct children; anything with related booleans or transitions |
-| **URL** (router / search params)                  | What the user can **link to**   | Filters, sort, page, selected tab/id: anything that must survive refresh, be shareable, or work with the Back button                              | Transient UI state                                                                                           |
+| Tool                                                                      | One-line role                   | OWNS                                                                                                                                              | NEVER owns                                                                                                   |
+| ------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **TanStack Query**                                                        | What the **server knows**       | Remote data that can be refetched, cached, invalidated: lists, details, pagination, infinite scroll, mutations' network status                    | Client-only values; multi-step flow logic; copies of its data in other stores                                |
+| **XState**                                                                | What the app is **doing**       | Behavior: modes, transitions, guards, async orchestration (retry, cancel, timeout), multi-step flows, lifecycle of connections/sessions/uploads   | Cached server entities; plain values with no transitions                                                     |
+| **Zustand**                                                               | What the app **remembers**      | Plain values shared by distant components or that outlive a component: theme, sidebar open, user preferences, feature flags, command palette open | Server data; loading/error/status flags of flows; multi-step logic; fetching                                 |
+| **React hooks** (`useState`, `useRef`, `useMemo`, `useSyncExternalStore`) | What a component is **showing** | Ephemeral leaf-level view state, refs, derived values, external browser/module subscriptions                                                      | Anything needed outside the component and its direct children; anything with related booleans or transitions |
+| **URL** (router / search params)                                          | What the user can **link to**   | Filters, sort, page, selected tab/id: anything that must survive refresh, be shareable, or work with the Back button                              | Transient UI state                                                                                           |
 
 Mnemonic: **Query = server knows. XState = app is doing. Zustand = app
 remembers. Hooks = component shows. URL = user can link.**
@@ -261,8 +261,10 @@ of a snapshot.
 2. NEVER store `isLoading` / `isError` / `status` in Zustand or hand-rolled
    state for server calls. Use Query status or a machine state.
 3. NEVER use `useEffect` to fetch data, to copy props/state into state, or to
-   sync two stores. `useEffect` is allowed ONLY to subscribe to external systems
-   (DOM events, timers, third-party widgets).
+   sync two stores. Prefer `useSyncExternalStore` to read external browser or
+   module-singleton stores (`matchMedia`, `window` size, lazy highlighters,
+   actor registries); `useEffect` is allowed ONLY for imperative external side
+   effects (DOM listeners without a snapshot, timers, third-party widgets).
 4. NEVER use `useReducer`. If state needs a reducer it has transitions, so use
    XState.
 5. NEVER create a machine that has one state and only `SET_VALUE` events.
@@ -369,6 +371,7 @@ Responsibilities, not paths. Wherever the files live:
 - Stores stay sliced per domain, with actions inside and selectors outside.
 - Screens own their machines and their local `useState`; shared actors get an
   explicit scope, never an implicit global. The session actors live in one
-  module registry (`src/lib/sessions.ts`): it holds one actor per attached
-  session, counts the screens that hold it, and a screen selects an actor rather
-  than creating one.
+  module registry (`src/lib/session/registry.ts`): `syncSessions` keeps one
+  actor per attached session of the active connection so off-screen sessions
+  keep consuming their records, and a screen selects an actor rather than
+  creating one.

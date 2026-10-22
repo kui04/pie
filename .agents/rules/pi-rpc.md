@@ -48,6 +48,7 @@ Pi's fields, or "improve" wire shapes.
   `host::Error::VersionMismatch`, not a silent continue.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is ours to implement (TOFU + known_hosts); private keys
-  cross the boundary as text, never as a path to a file — pie copies no secret
-  material into its own storage. The frontend turns a file into text, because a
-  picked file is a `content://` URI on Android rather than a path at all.
+  cross the connection boundary as text, never as a path to a file — pie copies
+  no secret material into its own storage. When a key file is picked (a path on
+  desktop or a `content://` URI on Android), `commands::files::read_text_file`
+  reads its text into the form before `connect` is called.

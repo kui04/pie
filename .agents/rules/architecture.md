@@ -13,8 +13,9 @@ src/                     React: UI + UI state only, and the IPC surface it calls
 src-tauri/src/channel/   One started program: its bytes, and its life
 src-tauri/src/host/      A machine: the reach to it, what runs on it, its files
 src-tauri/src/session/   The sessions of that machine, and their conversations
-src-tauri/src/commands/  The IPC surface: one file per area, mirrored by
-                         src/lib/bridge/ one to one
+src-tauri/src/commands/  The IPC surface: one file per command area (app, files,
+                         host, log, session), mirrored 1:1 by src/lib/bridge/,
+                         plus pipe.rs to forward session events
 pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
 ```
 
@@ -30,10 +31,12 @@ and `tests/layering.rs` is what holds it.
   the machine through permissions the capability file grants, and the frontend
   reaching one directly puts a second, unpoliced way out beside the command
   boundary. The Rust side registers the plugin it wants and exports a command
-  (`commands::pick::pick_private_key` over `tauri-plugin-dialog` +
-  `tauri-plugin-fs`); drop the npm package and the capability permission with
-  it. `@tauri-apps/api` is not a plugin: `invoke`, the event bus and the window
-  live in `src/lib/bridge/` and are the bridge itself.
+  (`commands::files::{pick_paths, read_text_file}` over `tauri-plugin-dialog` +
+  `tauri-plugin-fs`, or `commands::app::open_url` over `tauri-plugin-opener`);
+  drop the npm package with it; `src-tauri/capabilities/default.json` grants no
+  plugin permission, because the frontend reaches no plugin directly.
+  `@tauri-apps/api` is not a plugin: `invoke`, the event bus and the window live
+  in `src/lib/bridge/` and are the bridge itself.
 - Rust (`src-tauri`) owns ALL logic: process supervision, the reach to a
   machine, retries and backoff, host-key verification, protocol normalization,
   error mapping.
@@ -52,9 +55,10 @@ and `tests/layering.rs` is what holds it.
 - Commands live in `src-tauri/src/commands/`, snake_case, and return
   `Result<T, PieError>` — never a bare string error.
 - Events are namespaced `pi://<area>/{id}`, e.g. `pi://session/{id}/event`,
-  `pi://connection/{id}/state`; payloads are tagged on a `type` field. Tag
-  values are snake_case (`host_key`); field names are camelCase, matching the
-  fields the frontend already reads off Pi's own records.
+  `pi://connection/{id}/state`, `pi://upload/{id}`; payloads are tagged on a
+  `type` field. Tag values are snake_case (`host_key`); field names are
+  camelCase, matching the fields the frontend already reads off Pi's own
+  records.
 - Every layer names its own failures as a `thiserror` enum whose variants are
   what a caller matches on: `channel::Error` for the bytes of a program and the
   start of it, `host::Error` for the reach to a machine and what pie does on it,
@@ -67,13 +71,16 @@ and `tests/layering.rs` is what holds it.
   `PieError::{Channel, Host, Session, Commands, Rpc, Io}`
   (`src-tauri/src/error.rs`), one variant per module, each holding that module's
   error whole. It serializes as `type` (the module), `message` (what a person
-  reads), and `error` — the named variant underneath, tagged on `kind`. The
-  frontend branches on `kind`, so it reads the name the owning layer gave the
-  failure; a variant added in Rust needs no change here. Never stringify a
-  failure into a category of pie's own invention.
+  reads), and `error` — the named variant underneath, tagged on `kind` (`Io`
+  carries `type` and `message` only, because `std::io::Error` has no variant
+  enum to serialize). The frontend branches on `kind`, so it reads the name the
+  owning layer gave the failure; a variant added in Rust needs no change here.
+  Never stringify a failure into a category of pie's own invention.
 - Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the version
-  of this crate == the Pi release the protocol mirrors, and the `pi_rpc` crate
-  carries that release's commit in its `[package.metadata.pi_rpc] pi_rev`.
+  of this crate == the Pi release the protocol mirrors. The `pi_rpc` crate names
+  the Pi commit the protocol was recorded from in its
+  `[package.metadata.pi_rpc] pi_rev`; for `1.1.0` that commit is on main after
+  the `v1.1.0` tag, while the checkout and the test image stay at the tag.
   `src-tauri/tests/ssh.rs` fails when the test host's image pins another
   release, and `src-tauri/tests/conformance.rs` fails when the corpus records
   one the crate cannot read.
