@@ -105,4 +105,26 @@ describe("ScrollPane", () => {
         expect(contentOf(standing.container).className).toContain("min-w-0!");
         expect(contentOf(sideways.container).className).not.toContain("min-w-0!");
     });
+
+    it("confines overflow to active axes so gestures chain to enclosing containers", () => {
+        const standing = render(<ScrollPane>vertical</ScrollPane>);
+        const sideways = render(<ScrollPane bars="horizontal">horizontal</ScrollPane>);
+        const both = render(<ScrollPane bars="both">both</ScrollPane>);
+        const custom = render(<ScrollPane viewportStyle={{ touchAction: "none" }}>custom</ScrollPane>);
+
+        const standingViewport = standing.container.querySelector("[data-slot=scroll-area-viewport]");
+        const sidewaysViewport = sideways.container.querySelector("[data-slot=scroll-area-viewport]");
+        const bothViewport = both.container.querySelector("[data-slot=scroll-area-viewport]");
+        const customViewport = custom.container.querySelector("[data-slot=scroll-area-viewport]");
+
+        expect(standingViewport?.getAttribute("style")).toContain("overflow-x: hidden");
+        expect(standingViewport?.getAttribute("style")).toContain("overflow-y: scroll");
+
+        expect(sidewaysViewport?.getAttribute("style")).toContain("overflow-x: scroll");
+        expect(sidewaysViewport?.getAttribute("style")).toContain("overflow-y: hidden");
+
+        expect(bothViewport?.getAttribute("style")).toContain("overflow: scroll");
+
+        expect(customViewport?.getAttribute("style")).toContain("touch-action: none");
+    });
 });

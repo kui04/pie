@@ -7,6 +7,7 @@ function ScrollPane({
     viewport,
     viewportRef,
     viewportClassName,
+    viewportStyle,
     bars = "vertical",
     children,
     ...props
@@ -19,9 +20,18 @@ function ScrollPane({
     viewport?: React.ReactElement;
     viewportRef?: React.Ref<HTMLDivElement>;
     viewportClassName?: string;
+    viewportStyle?: React.CSSProperties;
     /** Which bars the pane draws; `none` for a pane whose own controls page it. */
     bars?: "vertical" | "horizontal" | "both" | "none";
 }) {
+    // Confine overflow to active axes so gestures chain to enclosing containers.
+    const overflowStyle: React.CSSProperties =
+        bars === "horizontal"
+            ? { overflowX: "scroll", overflowY: "hidden" }
+            : bars === "vertical"
+              ? { overflowX: "hidden", overflowY: "scroll" }
+              : { overflow: "scroll" };
+
     return (
         <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn("relative", className)} {...props}>
             {viewport ? (
@@ -31,6 +41,7 @@ function ScrollPane({
                     ref={viewportRef}
                     data-slot="scroll-area-viewport"
                     tabIndex={-1}
+                    style={{ ...overflowStyle, ...viewportStyle }}
                     className={cn("size-full rounded-[inherit] outline-none [&>div]:block!", viewportClassName)}
                 >
                     {/* Base UI's content wrapper carries `min-width: fit-content`, which inside a

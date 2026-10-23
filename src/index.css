@@ -271,7 +271,11 @@
     touch-action: none;
   }
 
-  [data-slot="scroll-area-viewport"],
+  [data-slot="scroll-area-viewport"] {
+    touch-action: pan-x pan-y;
+    overscroll-behavior: auto;
+  }
+
   [data-slot="message-scroller-viewport"],
   [data-slot="drawer-popup"] {
     touch-action: pan-x pan-y;
