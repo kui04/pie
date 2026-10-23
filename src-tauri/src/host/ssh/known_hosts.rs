@@ -41,12 +41,12 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
+use anyhow::{Context as _, Result};
 use russh::keys::HashAlg;
 use russh::keys::PublicKeyOrCertificate;
 use russh::keys::known_hosts::learn_known_hosts_path;
 use russh::keys::ssh_key::PublicKey as HostPublicKey;
 
-use super::super::{Error, Result};
 use super::trust::{AskHostKey, HostKey, PresentedKey};
 
 /// Host keys pie trusts, and who it asks about the ones it does not.
@@ -129,19 +129,18 @@ impl KnownHosts {
             fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
         };
         if !self.asker.ask(presented).await {
-            return Err(Error::HostKeyRejected {
-                endpoint,
-                reason: "the key it presented was not trusted".to_string(),
-            });
+            return Err(anyhow::anyhow!(
+                "the host key of {endpoint} was not accepted: the key it presented was not trusted"
+            ));
         }
 
-        learn_known_hosts_path(&host, port, &key, &self.own).map_err(|error| Error::HostKeyRejected {
-            endpoint: endpoint.clone(),
-            reason: format!(
-                "the key was trusted but could not be remembered in {}: {error}",
+        learn_known_hosts_path(&host, port, &key, &self.own).with_context(|| {
+            format!(
+                "the host key of {endpoint} was trusted but could not be remembered in {}",
                 self.own.display()
-            ),
-        })
+            )
+        })?;
+        Ok(())
     }
 }
 
@@ -208,36 +207,27 @@ fn check(path: &Path, host: &str, port: u16, key: &HostPublicKey) -> Verdict {
 ///
 /// [`Verdict::Unknown`] is the only verdict that leaves a question open: it is
 /// what a store says about a host it has never heard of.
-fn refusal(verdict: &Verdict, path: &Path, endpoint: &str) -> Option<Error> {
+fn refusal(verdict: &Verdict, path: &Path, endpoint: &str) -> Option<anyhow::Error> {
     match verdict {
         // A record for this host that is not this key. `ssh` treats this as the
         // host having changed and refuses as well - for the key it presented;
         // it can try another of the host's keys, which a one-key verifier
         // cannot, so a host whose other records do match is the case that
         // matters here.
-        Verdict::Changed { line } => Some(Error::HostKeyRejected {
-            endpoint: endpoint.to_string(),
-            reason: format!(
-                "{} line {line} records a different key for this host; if the host was rebuilt, or that line is a leftover, remove it and connect again",
-                path.display()
-            ),
-        }),
-        Verdict::Broken { error } => Some(Error::HostKeyRejected {
-            endpoint: endpoint.to_string(),
-            reason: format!(
-                "the record for this host in {} could not be read ({error}), so pie cannot tell whether this key is the one on record; repair or remove that record and connect again",
-                path.display()
-            ),
-        }),
+        Verdict::Changed { line } => Some(anyhow::anyhow!(
+            "the host key of {endpoint} was not accepted: {} line {line} records a different key for this host; if the host was rebuilt, or that line is a leftover, remove it and connect again",
+            path.display()
+        )),
+        Verdict::Broken { error } => Some(anyhow::anyhow!(
+            "the host key of {endpoint} was not accepted: the record for this host in {} could not be read ({error}), so pie cannot tell whether this key is the one on record; repair or remove that record and connect again",
+            path.display()
+        )),
         // The store itself could not be opened: what it holds for this host is
         // unknown, and unknown is the answer that must not be guessed at.
-        Verdict::Inaccessible { error } => Some(Error::HostKeyRejected {
-            endpoint: endpoint.to_string(),
-            reason: format!(
-                "pie cannot read {} ({error}), so it cannot tell whether this host is one already trusted there; make that file readable, or remove it, and connect again",
-                path.display()
-            ),
-        }),
+        Verdict::Inaccessible { error } => Some(anyhow::anyhow!(
+            "the host key of {endpoint} was not accepted: pie cannot read {} ({error}), so it cannot tell whether this host is one already trusted there; make that file readable, or remove it, and connect again",
+            path.display()
+        )),
         Verdict::Trusted | Verdict::Unknown => None,
     }
 }
@@ -361,7 +351,7 @@ mod tests {
         let policy = KnownHosts::new(store.path(), None, asker.clone());
 
         let error = verify(&policy, &key(KEY_A)).await.expect_err("the answer was no");
-        assert!(matches!(error, Error::HostKeyRejected { .. }), "got {error:?}");
+        assert!(error.to_string().contains("not accepted"), "got {error}");
         assert_eq!(asker.questions(), 1);
         assert_eq!(store.read(), "", "a refused key is not written down");
     }
@@ -376,10 +366,8 @@ mod tests {
         let error = verify(&policy, &key(KEY_B))
             .await
             .expect_err("a different key is not the host");
-        match error {
-            Error::HostKeyRejected { reason, .. } => assert!(reason.contains("line 1"), "got `{reason}`"),
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let reason = error.to_string();
+        assert!(reason.contains("line 1"), "got `{reason}`");
         assert_eq!(asker.questions(), 0, "a changed key is not something to click through");
     }
 
@@ -464,16 +452,12 @@ mod tests {
         let policy = KnownHosts::new(store.path(), None, asker.clone());
 
         let error = verify(&policy, &key(KEY_A)).await.expect_err("it cannot be compared");
-        match error {
-            Error::HostKeyRejected { reason, .. } => {
-                assert!(reason.contains("could not be read"), "got `{reason}`");
-                assert!(
-                    reason.contains(&store.path().display().to_string()),
-                    "and names the file to fix: `{reason}`"
-                );
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let reason = error.to_string();
+        assert!(reason.contains("could not be read"), "got `{reason}`");
+        assert!(
+            reason.contains(&store.path().display().to_string()),
+            "and names the file to fix: `{reason}`"
+        );
         assert_eq!(asker.questions(), 0, "a record that exists is not a question");
         assert!(!store.read().contains(KEY_A), "and nothing is written over it");
     }
@@ -489,10 +473,8 @@ mod tests {
         let error = verify(&policy, &key(KEY_A))
             .await
             .expect_err("it cannot be compared either");
-        match error {
-            Error::HostKeyRejected { reason, .. } => assert!(reason.contains("could not be read"), "got `{reason}`"),
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let reason = error.to_string();
+        assert!(reason.contains("could not be read"), "got `{reason}`");
         assert_eq!(asker.questions(), 0);
     }
 
@@ -505,10 +487,8 @@ mod tests {
         let policy = KnownHosts::new(directory.path(), None, asker.clone());
 
         let error = verify(&policy, &key(KEY_A)).await.expect_err("it cannot be read");
-        match error {
-            Error::HostKeyRejected { reason, .. } => assert!(reason.contains("could not be read"), "got `{reason}`"),
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let reason = error.to_string();
+        assert!(reason.contains("could not be read"), "got `{reason}`");
         assert_eq!(asker.questions(), 0, "a store that cannot be read is not a question");
     }
 
@@ -547,10 +527,8 @@ mod tests {
         let asker = Answering::new(true);
         let policy = KnownHosts::new(store.path(), None, asker.clone());
         let error = verify(&policy, &key(KEY_A)).await.expect_err("it cannot be read");
-        match error {
-            Error::HostKeyRejected { reason, .. } => assert!(reason.contains("cannot read"), "got `{reason}`"),
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let reason = error.to_string();
+        assert!(reason.contains("cannot read"), "got `{reason}`");
         assert_eq!(asker.questions(), 0, "an unreadable store is not a question");
     }
 
@@ -594,11 +572,7 @@ mod tests {
         let policy = KnownHosts::new(store, None, asker);
 
         let error = verify(&policy, &key(KEY_A)).await.expect_err("it cannot be remembered");
-        match error {
-            Error::HostKeyRejected { reason, .. } => {
-                assert!(reason.contains("could not be remembered"), "got `{reason}`")
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let reason = error.to_string();
+        assert!(reason.contains("could not be remembered"), "got `{reason}`");
     }
 }

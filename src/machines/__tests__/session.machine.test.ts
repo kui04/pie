@@ -42,10 +42,10 @@ function deps(overrides: Partial<SessionDeps> = {}) {
 type StateTarget = Parameters<SessionSnapshot["matches"]>[0];
 
 /** The failure of a listener, in the shape Rust reports one. */
-const REFUSED: PieError = { type: "rpc", message: "the bus refused the listener", error: { kind: "closed" } };
+const REFUSED: PieError = { kind: "failed", message: "the bus refused the listener" };
 
 /** The same, for the paths of the graph walk. */
-const GONE: PieError = { type: "rpc", message: "gone", error: { kind: "closed" } };
+const GONE: PieError = { kind: "failed", message: "gone" };
 
 /** A record of the wire, in the shape the feed hands it over. */
 function record(type: SessionRecord["type"], more: Record<string, unknown> = {}): SessionRecord {

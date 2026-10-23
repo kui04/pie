@@ -271,7 +271,7 @@ describe("the session of the workspace", () => {
         // the later visit is a later mount of its own, which is how a screen
         // shows a session a second time.
         fake.onSessionEvent.mockImplementationOnce(async () => {
-            throw { type: "rpc", message: "the bus refused the listener", error: { kind: "closed" } };
+            throw { kind: "failed", message: "the bus refused the listener" };
         });
         const first = render("main:1");
         subscribed.resolve();
@@ -325,9 +325,8 @@ describe("the session of the workspace", () => {
         // TanStack retries three times by default, which would report the reason
         // of a dead pi seconds after it is known.
         fake.getEntries.mockRejectedValue({
-            type: "rpc",
+            kind: "failed",
             message: "the pi of this session is gone",
-            error: { kind: "closed" },
         });
         const { result } = render("main:1");
         subscribed.resolve();
@@ -409,7 +408,7 @@ describe("the session of the workspace", () => {
         // machine treats the same failure as a failed handshake, and this hook
         // refuses the read the same way.
         fake.onSessionState.mockImplementation(async () => {
-            throw { type: "rpc", message: "the bus refused the listener", error: { kind: "closed" } };
+            throw { kind: "failed", message: "the bus refused the listener" };
         });
         const { result } = render("main:1");
         subscribed.resolve();

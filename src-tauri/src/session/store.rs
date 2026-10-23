@@ -6,92 +6,31 @@
 //! [`SessionSummary`] is that summary, and the parsers of the lines behind it live
 //! here, because the format is pi's wherever the bytes come from.
 //!
-//! [`SessionStore`] hands the reading to one of two readers, and the machine decides
-//! which: [`local`] reads this machine's own filesystem, and [`ssh`] asks the host
-//! itself. The session file names come from pi (`<timestamp>_<id>.jsonl`).
-//! Therefore a plain glob is safe over them.
-//!
-//! This is the file layout of pi, not of a machine, which is why it lives with
-//! the sessions: the layout is the same on both machines, and what differs - the
-//! filesystem here, sftp there - is the file channel of the machine that
-//! [`host`](crate::host) provides.
-//!
-//! `modified` is the time of the last growth of the file. Pi computes the
-//! greatest message time in the full file. The last write of the file is that
-//! time or later (pi appends). The listing carries the value at no cost, and it
-//! never puts the order wrong.
+//! How the files are read from a machine is [`Host::read_session_files`]'s
+//! business; this module knows only the JSONL format that pi writes and how to
+//! turn each file's lines into a [`SessionSummary`].
 
-mod local;
-mod ssh;
-
-use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::PieError;
-use crate::host::{Error, Host, HostPath};
+use crate::host::{Host, SessionFileLines};
 
 use pi_rpc::entry::Entry;
 use pi_rpc::message::{Message, UserBlock, UserContent};
 
-/// The conversations of one connection's machine.
+/// Every conversation that pi wrote on `host`, the newest first.
 ///
-/// Which machine it is decides how the files are read, and nothing else: the
-/// layout belongs to pi and is the same on both.
-pub(crate) enum SessionStore {
-    /// This machine: pi's own directory here, read straight from the filesystem.
-    Local(local::Local),
-
-    /// An SSH host: the tools of the host first, then sftp for what they miss.
-    Ssh(ssh::Ssh),
+/// # Errors
+///
+/// A sentence when the files cannot be read, with the path at fault in it,
+/// and the failure of the reach over SSH.
+pub(crate) async fn summaries(host: &dyn Host) -> anyhow::Result<Vec<SessionSummary>> {
+    let files = host.read_session_files(first_text, name_in).await?;
+    let mut list: Vec<SessionSummary> = files.into_iter().filter_map(SessionSummary::of).collect();
+    newest_first(&mut list);
+    Ok(list)
 }
-
-impl SessionStore {
-    /// The reader of the machine that a host reached.
-    pub(crate) fn of(host: &Host) -> SessionStore {
-        match host.ssh_handle() {
-            None => SessionStore::Local(local::Local::new()),
-            Some(ssh) => SessionStore::Ssh(ssh::Ssh::new(ssh)),
-        }
-    }
-
-    /// Every conversation that pi wrote on this machine, the newest first.
-    ///
-    /// # Errors
-    ///
-    /// [`PieError::Host`] when the files cannot be read, with the path at fault in
-    /// the message: `UnreadableLocal` on this machine, and `UnreadableRemote` or
-    /// the failure of the reach over SSH.
-    pub(crate) async fn summaries(&self) -> Result<Vec<SessionSummary>, PieError> {
-        match self {
-            SessionStore::Local(local) => local.summaries().await,
-            SessionStore::Ssh(ssh) => ssh.summaries().await,
-        }
-    }
-
-    /// Removes one conversation file of this machine.
-    ///
-    /// This is pi's file and nothing else of it: the process that holds the
-    /// conversation must be gone first, because a pi that keeps writing to a removed
-    /// file writes into a name nobody can open again. The caller ends it
-    /// (`SessionManager::detach`).
-    ///
-    /// # Errors
-    ///
-    /// [`PieError::Host`] when the file cannot be removed, with the path at fault in
-    /// the message: `UnremovableLocal` on this machine, and `UnremovableRemote` or
-    /// the failure of the reach over SSH.
-    pub(crate) async fn remove(&self, path: &str) -> Result<(), PieError> {
-        match self {
-            SessionStore::Local(local) => local.remove(path).await,
-            SessionStore::Ssh(ssh) => ssh.remove(path).await,
-        }
-    }
-}
-
-/// One read of the head scan.
-const READ_CHUNK: usize = 8 * 1024;
 
 /// One session that pi wrote, as its own lines report it.
 #[derive(Debug, Clone, Serialize)]
@@ -132,18 +71,22 @@ impl SessionSummary {
     ///
     /// `None` when the file is not a session of pi: its first line is not a
     /// header, or the header names another kind.
-    fn of(path: &str, lines: SessionSummaryLines, modified: Option<String>) -> Option<SessionSummary> {
+    fn of(lines: SessionFileLines) -> Option<SessionSummary> {
         let header: SessionFileHeader = serde_json::from_str(lines.header.as_deref()?).ok()?;
         if header.kind != "session" {
             return None;
         }
+        let modified = lines
+            .modified
+            .and_then(rfc3339)
+            .unwrap_or_else(|| header.timestamp.clone());
         Some(SessionSummary {
-            path: path.to_string(),
+            path: lines.path,
             id: header.id,
             cwd: header.cwd,
             name: lines.name,
             parent_session_path: header.parent_session,
-            modified: modified.unwrap_or_else(|| header.timestamp.clone()),
+            modified,
             created: header.timestamp,
             first_message: lines.first,
         })
@@ -182,24 +125,6 @@ struct SessionFileHeader {
     parent_session: Option<String>,
 }
 
-/// The three lines that one session's summary is built from, from any place of
-/// the read.
-///
-/// One file's worth: the header line, the first words of the user, and the latest
-/// name. Which reader produced them - a full scan here, a script on the machine,
-/// or fragments over sftp - is not part of this value.
-#[derive(Debug, Default, Clone)]
-struct SessionSummaryLines {
-    /// The header line of the file.
-    header: Option<String>,
-
-    /// The first words of the user, as pi reads them.
-    first: Option<String>,
-
-    /// The latest display name in the file, including a clear.
-    name: Option<String>,
-}
-
 /// A session name as pi stores it: without space at the ends, and empty for no
 /// name. The scan of pi takes the latest `session_info` entry, whatever it says,
 /// including an empty entry: a rename to nothing clears a name.
@@ -212,7 +137,7 @@ fn cleaned_name(name: Option<&str>) -> Option<String> {
 ///
 /// `Some(None)` is a clear. Pi removes a name with a rename to nothing. A scan
 /// stops there and does not read an older name.
-fn name_in(line: &[u8]) -> Option<Option<String>> {
+pub(crate) fn name_in(line: &[u8]) -> Option<Option<String>> {
     let entry: Entry = serde_json::from_slice(line).ok()?;
     let Entry::SessionInfo(info) = entry else {
         return None;
@@ -222,15 +147,7 @@ fn name_in(line: &[u8]) -> Option<Option<String>> {
 
 /// What one line reports as the words of the user, in the shape that the scan of
 /// pi uses: a user message with text in it (pinned `extractTextContent`).
-///
-/// One difference from the scan of pi is deliberate. The scan of pi keeps a
-/// first turn without text: `if (!textContent) continue` is false for a
-/// non-empty string such as `" "`. Therefore that turn becomes the first message
-/// of pi (pinned `session-manager.ts:840`). This reader looks for a turn that says
-/// something, and continues the search. The difference is the value in the
-/// session drawer for a session that started with one space. The skip of that
-/// turn is the correct result.
-fn first_text(line: &[u8]) -> Option<String> {
+pub(crate) fn first_text(line: &[u8]) -> Option<String> {
     let entry: Entry = serde_json::from_slice(line).ok()?;
     let Entry::Message(message) = entry else {
         return None;
@@ -280,22 +197,6 @@ fn rfc3339_of_millis(millis: i64) -> Option<String> {
     ))
 }
 
-/// Pi expands a leading `~` in these paths (pinned `expandTildePath`). A value
-/// without a `~` stays as it is, with or without a home. Both readers use it: the
-/// session root of this machine ([`local`]) and the one that a host reports
-/// ([`ssh`]).
-pub(super) fn expand_home(path: &str, home: Option<&Path>) -> PathBuf {
-    match (path, home) {
-        ("~", Some(home)) => home.to_path_buf(),
-        (_, Some(home)) => path
-            .strip_prefix("~/")
-            .or_else(|| path.strip_prefix("~\\"))
-            .map(|rest| home.join(rest))
-            .unwrap_or_else(|| PathBuf::from(path)),
-        (_, None) => PathBuf::from(path),
-    }
-}
-
 /// The newest conversation first, the order of the session list.
 fn newest_first(summaries: &mut [SessionSummary]) {
     summaries.sort_by(|a, b| b.modified.cmp(&a.modified));
@@ -303,64 +204,40 @@ fn newest_first(summaries: &mut [SessionSummary]) {
 
 /// The path of a session file, or the mistake of a caller that handed in another.
 ///
-/// A session file is named the way the listings hand it out: absolutely. Pi
-/// resolves a relative path against its own directory, which on a phone is not the
-/// home of a person. The answer comes before any channel or process is touched.
-///
 /// # Errors
 ///
-/// [`Error::NotAbsolute`] for a relative path.
-pub(crate) fn checked_session_path(path: &HostPath) -> Result<&str, Error> {
-    if path.is_absolute() {
-        Ok(path.as_str())
-    } else {
-        Err(crate::host::files::not_absolute(path.as_str()))
-    }
+/// A sentence when the path is relative.
+pub(crate) fn checked_session_path(path: &str) -> anyhow::Result<&str> {
+    crate::host::checked_host_path(path)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
-    /// The first line of a session file, as pi writes it.
-    pub(super) const HEADER: &str =
+    const HEADER: &str =
         r#"{"type":"session","version":3,"id":"s1","timestamp":"2026-10-02T13:45:12.345Z","cwd":"/home/pie"}"#;
 
-    pub(super) fn user_line(id: &str, timestamp: &str, millis: i64, text: &str) -> String {
+    fn user_line(id: &str, timestamp: &str, millis: i64, text: &str) -> String {
         format!(
             r#"{{"type":"message","id":"{id}","parentId":null,"timestamp":"{timestamp}","message":{{"role":"user","content":"{text}","timestamp":{millis}}}}}"#
         )
     }
 
-    pub(super) fn name_line(id: &str, name: &str) -> String {
-        format!(
-            r#"{{"type":"session_info","id":"{id}","parentId":null,"timestamp":"2026-10-02T13:50:00.000Z","name":"{name}"}}"#
-        )
-    }
-
-    pub(super) fn system_line(fill: &str) -> String {
-        format!(
-            r#"{{"type":"message","id":"sys","parentId":null,"timestamp":"2026-10-02T13:45:12.900Z","message":{{"role":"system","content":"","sections":{{"tools":"{fill}"}},"timestamp":1790948712900}}}}"#
-        )
-    }
-
-    pub(super) async fn on_disk(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-        let directory = tempfile::tempdir().expect("a temp directory");
-        let path = directory.path().join("s.jsonl");
-        std::fs::write(&path, content).expect("the session file");
-        (directory, path)
-    }
-
     #[test]
     fn a_summary_reads_its_header_and_first_message() {
-        let lines = SessionSummaryLines {
+        let modified = std::time::UNIX_EPOCH + Duration::from_millis(1_790_948_720_000);
+        let lines = SessionFileLines {
+            path: "/x/s.jsonl".to_string(),
+            modified: Some(modified),
             header: Some(HEADER.to_string()),
             first: Some("hello there".to_string()),
             name: Some("Renamed".to_string()),
         };
 
-        let summary = SessionSummary::of("/x/s.jsonl", lines, Some("2026-10-02T13:45:20.000Z".to_string()))
-            .expect("a session file");
+        let summary = SessionSummary::of(lines).expect("a session file");
 
         assert_eq!(summary.id, "s1");
         assert_eq!(summary.cwd, "/home/pie");
@@ -372,12 +249,13 @@ mod tests {
 
     #[test]
     fn the_file_time_is_what_modified_falls_back_to() {
-        let lines = SessionSummaryLines {
+        let lines = SessionFileLines {
+            path: "/x/s.jsonl".to_string(),
             header: Some(HEADER.to_string()),
-            ..SessionSummaryLines::default()
+            ..SessionFileLines::default()
         };
 
-        let summary = SessionSummary::of("/x/s.jsonl", lines, None).expect("a session file");
+        let summary = SessionSummary::of(lines).expect("a session file");
 
         assert_eq!(
             summary.modified, summary.created,
@@ -387,13 +265,14 @@ mod tests {
 
     #[test]
     fn a_file_without_a_session_header_is_not_a_session() {
-        let lines = SessionSummaryLines {
+        let lines = SessionFileLines {
+            path: "/x/s.jsonl".to_string(),
             header: Some(user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "hi")),
-            ..SessionSummaryLines::default()
+            ..SessionFileLines::default()
         };
 
         assert!(
-            SessionSummary::of("/x/s.jsonl", lines, None).is_none(),
+            SessionSummary::of(lines).is_none(),
             "pi's own scan drops files whose first entry is not a header"
         );
     }
@@ -407,25 +286,26 @@ mod tests {
 
     #[test]
     fn a_session_file_is_named_absolutely() {
-        // The rule that an attach on a conversation answers with before it touches the host.
         assert_eq!(
-            checked_session_path(&HostPath::new("/home/u/.pi/agent/sessions/x/one.jsonl")).expect("absolute"),
+            checked_session_path("/home/u/.pi/agent/sessions/x/one.jsonl").expect("absolute"),
             "/home/u/.pi/agent/sessions/x/one.jsonl"
         );
-        assert!(matches!(
-            checked_session_path(&HostPath::new("sessions/one.jsonl")),
-            Err(Error::NotAbsolute { .. })
-        ));
-        assert!(matches!(
-            checked_session_path(&HostPath::new("")),
-            Err(Error::NotAbsolute { .. })
-        ));
+        assert!(
+            checked_session_path("sessions/one.jsonl")
+                .unwrap_err()
+                .to_string()
+                .contains("is not absolute")
+        );
+        assert!(
+            checked_session_path("")
+                .unwrap_err()
+                .to_string()
+                .contains("is not absolute")
+        );
     }
 
     #[test]
     fn the_modified_time_formats_the_way_pi_stores_it() {
-        // The ISO strings of pi and the file times of pie must land in one order
-        // for the sort of the list.
         assert_eq!(
             rfc3339_of_millis(1790948713000).as_deref(),
             Some("2026-10-02T13:45:13.000Z")

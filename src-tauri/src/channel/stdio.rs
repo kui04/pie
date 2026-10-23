@@ -4,26 +4,16 @@
 //! records, standard input for the answers, standard error for the log. Every
 //! pipe is taken at [`Program::spawn`], where a missing one can still be
 //! reported: after that a channel is only bytes and a life.
-//!
-//! ```no_run
-//! use pie_lib::channel::Program;
-//!
-//! # fn example() -> pie_lib::channel::Result<()> {
-//! let channel = Program::new("pi").args(["--mode", "rpc"]).spawn()?;
-//! let handle = channel.handle();
-//! # let _ = handle;
-//! # Ok(())
-//! # }
-//! ```
 
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 
+use anyhow::Context as _;
 use tokio::process::Child;
 
-use super::{Channel, Error, Result, Termination};
+use super::{Channel, Termination};
 
 /// How to start a program on this machine.
 ///
@@ -72,14 +62,14 @@ impl Program {
     ///
     /// # Errors
     ///
-    /// [`Error::Spawn`] when the binary is missing, not executable, or the
-    /// process cannot be created, and [`Error::Io`] when a pipe that the start
-    /// asked for is not there.
+    /// A failure with the program's name when the binary is missing, not
+    /// executable, or the process cannot be created, and one when a pipe that
+    /// the start asked for is not there.
     ///
     /// # Panics
     ///
     /// Without a Tokio runtime, like the channel's own assembly.
-    pub fn spawn(self) -> Result<Channel> {
+    pub fn spawn(self) -> anyhow::Result<Channel> {
         let mut command = tokio::process::Command::from(self.command);
         command
             .stdin(Stdio::piped())
@@ -87,20 +77,28 @@ impl Program {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         let program = command.as_std().get_program().to_string_lossy().into_owned();
-        let mut child = command.spawn().map_err(|source| Error::Spawn {
-            program: program.clone(),
-            source,
-        })?;
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("failed to start `{program}`"))?;
 
-        let stdout = child.stdout.take().ok_or_else(|| Error::missing_pipe("stdout"))?;
-        let stdin = child.stdin.take().ok_or_else(|| Error::missing_pipe("stdin"))?;
-        let stderr = child.stderr.take().ok_or_else(|| Error::missing_pipe("stderr"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("the program's stdout pipe is not available")?;
+        let stdin = child
+            .stdin
+            .take()
+            .context("the program's stdin pipe is not available")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("the program's stderr pipe is not available")?;
 
-        Ok(Channel::of(
-            Box::new(stdout),
-            Box::new(stdin),
-            Box::new(stderr),
-            super::Behind::Stdio(Control { child }),
+        Ok(Channel::new(
+            stdout,
+            stdin,
+            stderr,
+            super::Lifecycle::Stdio(Control { child }),
         ))
     }
 }
@@ -113,39 +111,45 @@ pub(crate) struct Control {
 
 impl Control {
     /// Ends the process now, and reaps it.
-    pub(crate) async fn terminate(&mut self) -> Result<()> {
+    pub(super) async fn terminate(&mut self) {
         if self.child.id().is_none() {
-            return Ok(());
+            return;
         }
-        match self.child.kill().await {
-            Ok(()) => Ok(()),
+        if let Err(error) = self.child.kill().await {
             // Already gone: the exit status is collected by `wait`.
-            Err(error) if error.kind() == ErrorKind::InvalidInput => Ok(()),
-            Err(error) => Err(error.into()),
+            if error.kind() != ErrorKind::InvalidInput {
+                tracing::debug!(%error, "asking the process to stop failed");
+            }
         }
     }
 
     /// Waits for the process to end and reports how it ended.
-    pub(crate) async fn wait(&mut self) -> Result<Termination> {
-        let status = self.child.wait().await?;
-        Ok(termination_of(status))
+    pub(super) async fn wait(&mut self) -> Termination {
+        match self.child.wait().await {
+            Ok(status) => Termination::from(status),
+            Err(error) => {
+                tracing::debug!(%error, "waiting for the process failed");
+                Termination::Unknown
+            }
+        }
     }
 }
 
-/// Maps a process exit status onto [`Termination`].
-fn termination_of(status: ExitStatus) -> Termination {
-    if let Some(code) = status.code() {
-        return Termination::Exited {
-            code,
-            success: status.success(),
-        };
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
-            return Termination::Signalled { signal };
+impl From<ExitStatus> for Termination {
+    fn from(status: ExitStatus) -> Self {
+        if let Some(code) = status.code() {
+            return Termination::Exited {
+                code,
+                success: status.success(),
+            };
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            if let Some(signal) = status.signal() {
+                return Termination::Signalled { signal };
+            }
+        }
+        Termination::Unknown
     }
-    Termination::Unknown
 }

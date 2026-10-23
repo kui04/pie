@@ -367,9 +367,8 @@ describe("ConnectScreen", () => {
         const connect = vi
             .fn()
             .mockRejectedValueOnce({
-                type: "channel",
+                kind: "failed",
                 message: "failed to start `pi`: No such file or directory",
-                error: { kind: "spawn" },
             } satisfies PieError)
             .mockImplementation(never);
         renderGate(stubBridge({ connect }).deps);
@@ -389,9 +388,8 @@ describe("ConnectScreen", () => {
     it("says nothing on a second failure once the first toast has gone", async () => {
         const user = userEvent.setup();
         const connect = vi.fn().mockRejectedValue({
-            type: "host",
+            kind: "failed",
             message: "connection refused",
-            error: { kind: "connect" },
         } satisfies PieError);
         const { unmount } = renderGate(stubBridge({ connect }).deps);
 

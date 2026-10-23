@@ -17,14 +17,16 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use anyhow::{Context as _, Result};
 use russh::client::{self, Config, Handle, Msg};
 use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key};
 use russh::{Channel, ChannelMsg, Disconnect};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 
+use crate::channel::ssh::EarlyOutput;
 use crate::channel::{Exec, Termination};
-use crate::host::{Endpoint, Error, HostKey, Result, SshAuth, SshTarget, Trust};
+use crate::host::{Endpoint, HostKey, SshAuth, SshTarget, Trust};
 
 use super::command::RemoteCommand;
 
@@ -113,11 +115,9 @@ impl SshSession {
     ///
     /// # Errors
     ///
-    /// [`Error::ConnectTimeout`] when the TCP connection is not established in
-    /// time, whatever the trust policy reports, [`Error::Ssh`] for anything the
-    /// SSH layer fails on, [`Error::SshKey`] when a private key cannot be read
-    /// or decrypted, [`Error::Auth`] when the host refuses the credentials and
-    /// [`Error::AuthTimeout`] when it says nothing at all.
+    /// A sentence when the TCP connection is not established in time, when the
+    /// SSH layer fails, when a private key cannot be read or decrypted, when the
+    /// host refuses the credentials, and when it says nothing at all.
     pub async fn open(target: SshTarget, auth: SshAuth, trust: Trust) -> Result<Self> {
         let endpoint = target.endpoint();
         let config = Arc::new(Config {
@@ -136,14 +136,8 @@ impl SshSession {
         // a person to compare a fingerprint would be bounded too.
         let socket = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((target.host.as_str(), target.port)))
             .await
-            .map_err(|_elapsed| Error::ConnectTimeout {
-                endpoint: endpoint.to_string(),
-                timeout: CONNECT_TIMEOUT,
-            })?
-            .map_err(|source| Error::Connect {
-                endpoint: endpoint.to_string(),
-                source,
-            })?;
+            .map_err(|_elapsed| anyhow::anyhow!("connecting to {endpoint} timed out after {CONNECT_TIMEOUT:?}"))?
+            .with_context(|| format!("connecting to {endpoint} failed"))?;
         // Nagle's algorithm is on in russh's default config, and the one place
         // russh applies `Config.nodelay` is `client::connect`, which opens its
         // own socket. This socket is opened here instead (for the timeout above),
@@ -154,13 +148,10 @@ impl SshSession {
             tracing::debug!(%error, "could not disable Nagle's algorithm");
         }
 
-        let mut handle = client::connect_stream(config, socket, handler).await?;
+        let mut handle = client::connect_stream(config, socket, handler).await.context("ssh")?;
         tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut handle, &target, auth, &endpoint))
             .await
-            .map_err(|_elapsed| Error::AuthTimeout {
-                endpoint: endpoint.to_string(),
-                timeout: AUTH_TIMEOUT,
-            })??;
+            .map_err(|_elapsed| anyhow::anyhow!("{endpoint} did not answer within {AUTH_TIMEOUT:?}"))??;
 
         tracing::debug!(endpoint = %endpoint, "ssh session established");
         Ok(Self { handle, endpoint })
@@ -170,8 +161,8 @@ impl SshSession {
     ///
     /// # Errors
     ///
-    /// [`Error::Exec`] when the host refuses to run the command, and
-    /// [`Error::ExecTimeout`] when it does not say whether it can.
+    /// A sentence when the host refuses to run the command, and one when it does
+    /// not say whether it can.
     pub async fn exec(&self, command: impl Into<RemoteCommand>) -> Result<Exec> {
         let command = command.into();
         let command_line = command.command_line();
@@ -192,8 +183,8 @@ impl SshSession {
     ///
     /// # Errors
     ///
-    /// [`SshSession::exec`]'s errors, and [`Error::ExecTimeout`] when the
-    /// command does not finish in time. On expiry the command is sent the signal
+    /// [`SshSession::exec`]'s failures, and a sentence when the command does not
+    /// finish in time. On expiry the command is sent the signal
     /// request a terminate sends - SIGKILL - and reading stops, so on any host
     /// that answers it the command does not outlive the call. A host that takes
     /// no signal request leaves the command running; nothing else pie can do
@@ -260,12 +251,11 @@ impl SshSession {
         let (out, err, over_cap) = match captured {
             Ok(captured) => captured,
             Err(_elapsed) => {
-                let _ = control.terminate().await;
-                return Err(Error::ExecTimeout {
-                    endpoint: self.endpoint.to_string(),
-                    command: command_line,
-                    timeout: OUTPUT_TIMEOUT,
-                });
+                control.terminate().await;
+                return Err(anyhow::anyhow!(
+                    "{} did not answer within {OUTPUT_TIMEOUT:?} whether it can run `{command_line}`",
+                    self.endpoint
+                ));
             }
         };
         // The capture is what it got, not what it was promised: a stream that
@@ -284,20 +274,12 @@ impl SshSession {
 
         let left = OUTPUT_TIMEOUT.saturating_sub(started.elapsed());
         let termination = match tokio::time::timeout(left, control.wait()).await {
-            Ok(Ok(termination)) => termination,
-            // The channel gave way before a status arrived. The bytes that did
-            // arrive are still what the caller asked for, and the end is unknown
-            // rather than cut short here.
-            Ok(Err(error)) => {
-                tracing::warn!(endpoint = %self.endpoint, %error, "the command's channel ended without a status");
-                Termination::Unknown
-            }
+            Ok(termination) => termination,
             Err(_elapsed) => {
-                return Err(Error::ExecTimeout {
-                    endpoint: self.endpoint.to_string(),
-                    command: command_line,
-                    timeout: OUTPUT_TIMEOUT,
-                });
+                return Err(anyhow::anyhow!(
+                    "{} did not answer within {OUTPUT_TIMEOUT:?} whether it can run `{command_line}`",
+                    self.endpoint
+                ));
             }
         };
         Ok(ExecOutput {
@@ -314,9 +296,9 @@ impl SshSession {
     ///
     /// # Errors
     ///
-    /// [`Error::Subsystem`] when the host refuses the subsystem - an sshd
-    /// without `sftp` on its `Subsystem` line says so here - and
-    /// [`Error::SubsystemTimeout`] when it does not answer at all.
+    /// A sentence when the host refuses the subsystem - an sshd without `sftp`
+    /// on its `Subsystem` line says so here - and one when it does not answer at
+    /// all.
     pub async fn subsystem(&self, name: &str) -> Result<SubsystemStream> {
         let mut channel = self.handle.channel_open_session().await?;
         channel.request_subsystem(true, name).await?;
@@ -414,7 +396,7 @@ struct Handler {
 }
 
 impl client::Handler for Handler {
-    type Error = Error;
+    type Error = anyhow::Error;
 
     async fn check_server_key(&mut self, key: &russh::keys::PublicKeyOrCertificate) -> Result<bool> {
         self.trust.verify(&self.host, self.port, key).await?;
@@ -422,7 +404,7 @@ impl client::Handler for Handler {
     }
 }
 
-/// Authenticates the session, turning a refusal into [`Error::Auth`].
+/// Authenticates the session, and names the credentials a refusal was about.
 async fn authenticate(
     handle: &mut Handle<Handler>,
     target: &SshTarget,
@@ -432,7 +414,7 @@ async fn authenticate(
     let outcome = match auth {
         SshAuth::Password(password) => handle.authenticate_password(target.user.clone(), password).await?,
         SshAuth::Key { key, passphrase } => {
-            let key = decode_secret_key(&key, passphrase.as_deref()).map_err(|source| Error::SshKey { source })?;
+            let key = decode_secret_key(&key, passphrase.as_deref()).context("reading the private key")?;
             // RSA stands between `ssh-rsa` and the SHA-2 variants; the server
             // advertises which it accepts, and anything else ignores this.
             let hash = handle.best_supported_rsa_hash().await?.flatten();
@@ -444,9 +426,7 @@ async fn authenticate(
     if outcome.success() {
         return Ok(());
     }
-    Err(Error::Auth {
-        endpoint: endpoint.to_string(),
-    })
+    Err(anyhow::anyhow!("the host refused the credentials for {endpoint}"))
 }
 
 /// Waits for the server's reply to the exec request.
@@ -458,36 +438,26 @@ async fn authenticate(
 /// Bounded, unlike the handshake before it: nothing is waiting on a person here,
 /// and the channel has no lifecycle handle yet, so a host that accepts the
 /// connection and then says nothing could not be torn down from outside.
-async fn await_exec_reply(
-    channel: &mut Channel<Msg>,
-    endpoint: &Endpoint,
-    command: &str,
-) -> Result<(Vec<u8>, Vec<u8>)> {
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
+async fn await_exec_reply(channel: &mut Channel<Msg>, endpoint: &Endpoint, command: &str) -> Result<EarlyOutput> {
+    let mut early = EarlyOutput::default();
 
     loop {
         let message = match tokio::time::timeout(REPLY_TIMEOUT, channel.wait()).await {
             Ok(message) => message,
             Err(_elapsed) => {
-                return Err(Error::ExecTimeout {
-                    endpoint: endpoint.to_string(),
-                    command: command.to_string(),
-                    timeout: REPLY_TIMEOUT,
-                });
+                return Err(anyhow::anyhow!(
+                    "{endpoint} did not answer within {REPLY_TIMEOUT:?} whether it can run `{command}`"
+                ));
             }
         };
         match message {
-            Some(ChannelMsg::Success) => return Ok((stdout, stderr)),
-            Some(ChannelMsg::Data { data }) => stdout.extend_from_slice(&data),
+            Some(ChannelMsg::Success) => return Ok(early),
+            Some(ChannelMsg::Data { data }) => early.stdout.extend_from_slice(&data),
             Some(ChannelMsg::ExtendedData { data, ext }) if ext == STDERR => {
-                stderr.extend_from_slice(&data);
+                early.stderr.extend_from_slice(&data);
             }
             Some(ChannelMsg::Failure | ChannelMsg::Close) | None => {
-                return Err(Error::Exec {
-                    endpoint: endpoint.to_string(),
-                    command: command.to_string(),
-                });
+                return Err(anyhow::anyhow!("{endpoint} refused to run `{command}`"));
             }
             Some(_) => {}
         }
@@ -498,8 +468,8 @@ async fn await_exec_reply(
 /// [`await_exec_reply`] does for an exec request.
 ///
 /// A refused subsystem is a fact about the host - an sshd without `sftp` on its
-/// `Subsystem` line - so it is reported as [`Error::Subsystem`] rather than
-/// folded into the exec errors. Early data is collected for the same reason as
+/// `Subsystem` line - so it keeps its own sentence rather than being folded into
+/// the exec failures. Early data is collected for the same reason as
 /// there: a subsystem that answers before being asked is already speaking.
 async fn await_subsystem_reply(channel: &mut Channel<Msg>, endpoint: &Endpoint, name: &str) -> Result<Vec<u8>> {
     let mut early = Vec::new();
@@ -508,21 +478,16 @@ async fn await_subsystem_reply(channel: &mut Channel<Msg>, endpoint: &Endpoint, 
         let message = match tokio::time::timeout(REPLY_TIMEOUT, channel.wait()).await {
             Ok(message) => message,
             Err(_elapsed) => {
-                return Err(Error::SubsystemTimeout {
-                    endpoint: endpoint.to_string(),
-                    name: name.to_string(),
-                    timeout: REPLY_TIMEOUT,
-                });
+                return Err(anyhow::anyhow!(
+                    "{endpoint} did not answer within {REPLY_TIMEOUT:?} whether it will start the `{name}` subsystem"
+                ));
             }
         };
         match message {
             Some(ChannelMsg::Success) => return Ok(early),
             Some(ChannelMsg::Data { data }) => early.extend_from_slice(&data),
             Some(ChannelMsg::Failure | ChannelMsg::Close) | None => {
-                return Err(Error::Subsystem {
-                    endpoint: endpoint.to_string(),
-                    name: name.to_string(),
-                });
+                return Err(anyhow::anyhow!("{endpoint} refused to start the `{name}` subsystem"));
             }
             Some(_) => {}
         }

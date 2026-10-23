@@ -1,25 +1,21 @@
 /**
- * The one signal that a read failed against the reach: which failures count as the reach's,
- * and that a listener hears every one and only what it asked for.
+ * The one signal that a read failed: which reads can carry news of the reach, and
+ * that a listener hears every report and only while it asked.
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { isReachFailure, reportReachFailure, subscribeToReachFailures } from "../health";
+import { isReachRead, reportReachFailure, subscribeToReachFailures } from "../health";
 
 describe("a failed read against the reach", () => {
-    it("counts the failures that can carry a lost reach, and not the ones behind it", () => {
-        expect(isReachFailure({ type: "channel", message: "the program ended" })).toBe(true);
-        expect(isReachFailure({ type: "host", message: "the host never answered" })).toBe(true);
-        // A closed transport arrives here, and a pi that exited arrives the same way: the
-        // failure only says which of the two to ask Rust about.
-        expect(isReachFailure({ type: "rpc", message: "closed: transport closed" })).toBe(true);
+    it("counts every read of the machine, and not the read of the connection itself", () => {
+        // The reads of a session, of its transcript, and of the session list are all
+        // questions to the machine; their failure can be the first news that the reach went.
+        expect(isReachRead(["session", "main:1", "state"])).toBe(true);
+        expect(isReachRead(["session", "main:1", "entries"])).toBe(true);
 
-        // pi behind a live reach, and the IPC itself: neither is a connection that ended.
-        expect(isReachFailure({ type: "session", message: "unknown session" })).toBe(false);
-        expect(isReachFailure({ type: "commands", message: "no such command" })).toBe(false);
-        expect(isReachFailure(new Error("the host never answered"))).toBe(false);
-        expect(isReachFailure("a string Tauri rejected with")).toBe(false);
-        expect(isReachFailure(null)).toBe(false);
+        // The connection read is the question itself. Asking it again because it failed
+        // would repeat the failure, not answer it.
+        expect(isReachRead(["connection"])).toBe(false);
     });
 
     it("tells every listener, and stops telling the one that left", () => {

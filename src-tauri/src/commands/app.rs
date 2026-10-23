@@ -16,8 +16,6 @@ use tauri_plugin_opener::OpenerExt;
 use crate::error::PieError;
 use crate::state::AppState;
 
-use super::Error;
-
 /// Which kind of machine this is.
 ///
 /// Pie asks the host. CSS does not measure this. A window in the shape of a phone
@@ -49,13 +47,13 @@ const SHOWN: usize = 120;
 const LONGEST: usize = 2048;
 
 /// Parses a link that pie will open, or refuses it with the reason named.
-fn openable(url: &str) -> Result<Url, Error> {
+fn openable(url: &str) -> Result<Url, PieError> {
     if url.chars().count() > LONGEST {
-        return Err(Error::UnopenableUrl { url: shown(url) });
+        return Err(PieError::UnopenableUrl { url: shown(url) });
     }
-    let parsed = Url::parse(url).map_err(|_| Error::UnopenableUrl { url: shown(url) })?;
+    let parsed = Url::parse(url).map_err(|_| PieError::UnopenableUrl { url: shown(url) })?;
     if !SCHEMES.contains(&parsed.scheme()) {
-        return Err(Error::UnopenableUrl {
+        return Err(PieError::UnopenableUrl {
             url: shown(parsed.as_str()),
         });
     }
@@ -87,18 +85,16 @@ fn shown(url: &str) -> String {
 ///
 /// # Errors
 ///
-/// [`Error::UnopenableUrl`] for a link pie does not trust, and
-/// [`Error::OpenFailed`] when the machine will not open one it does.
+/// [`PieError::UnopenableUrl`] for a link pie does not trust, and a sentence
+/// when the machine will not open one it does.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(chars = url.chars().count()))]
 pub async fn open_url(app: AppHandle, url: String) -> Result<(), PieError> {
     let parsed = openable(&url)?;
+    let url = shown(parsed.as_str());
     app.opener()
         .open_url(parsed.as_str(), None::<&str>)
-        .map_err(|source| Error::OpenFailed {
-            url: shown(parsed.as_str()),
-            source: Box::new(source),
-        })?;
+        .map_err(|source| anyhow::anyhow!("the machine would not open `{url}`: {source}"))?;
     Ok(())
 }
 
@@ -136,25 +132,19 @@ fn logo_url(svg: &str) -> String {
 
 /// Fetches one SVG of models.dev. The call is blocking, so the command gives it
 /// a thread of its own.
-fn fetch_logo(provider: &str, url: &str) -> Result<String, Error> {
+fn fetch_logo(provider: &str, url: &str) -> anyhow::Result<String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(LOGO_PATIENCE))
         .build()
         .into();
-    let mut answer = agent.get(url).call().map_err(|source| logo_failure(provider, source))?;
+    let mut answer = agent
+        .get(url)
+        .call()
+        .map_err(|source| anyhow::anyhow!("fetching the mark of {provider} failed: {source}"))?;
     answer
         .body_mut()
         .read_to_string()
-        .map_err(|source| logo_failure(provider, source))
-}
-
-/// Makes the named failure of one fetch: the provider is part of the sentence
-/// the person reads, and the request error travels with it.
-fn logo_failure(provider: &str, source: ureq::Error) -> Error {
-    Error::LogoFetch {
-        provider: provider.to_string(),
-        source: Box::new(source),
-    }
+        .map_err(|source| anyhow::anyhow!("fetching the mark of {provider} failed: {source}"))
 }
 
 /// The mark of a provider of models.dev, as a data URL, or `None` when there is
@@ -167,7 +157,7 @@ fn logo_failure(provider: &str, source: ureq::Error) -> Error {
 ///
 /// # Errors
 ///
-/// [`Error::LogoFetch`] when models.dev cannot be reached or answers badly.
+/// A sentence when models.dev cannot be reached or answers badly.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(provider = %provider))]
 pub async fn provider_logo(state: State<'_, AppState>, provider: String) -> Result<Option<String>, PieError> {
@@ -216,7 +206,7 @@ fn remember(state: &AppState, provider: &str, mark: Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::{LOGO_NAME, LONGEST, SHOWN, logo_slug, logo_url, openable, platform, shown};
-    use crate::commands::error::Error;
+    use crate::error::PieError;
 
     #[test]
     fn the_platform_answers_one_of_the_two_words_the_frontend_asks_about() {
@@ -244,7 +234,7 @@ mod tests {
             "not a url",
         ] {
             assert!(
-                matches!(openable(refused), Err(Error::UnopenableUrl { .. })),
+                matches!(openable(refused), Err(PieError::UnopenableUrl { .. })),
                 "{refused} should be refused"
             );
         }
@@ -254,7 +244,7 @@ mod tests {
     fn an_address_is_refused_before_it_can_be_a_payload() {
         let long = format!("https://example.com/{}", "a".repeat(LONGEST));
 
-        assert!(matches!(openable(&long), Err(Error::UnopenableUrl { url }) if url.chars().count() == SHOWN + 1));
+        assert!(matches!(openable(&long), Err(PieError::UnopenableUrl { url }) if url.chars().count() == SHOWN + 1));
     }
 
     #[test]

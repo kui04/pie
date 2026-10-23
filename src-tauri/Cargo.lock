@@ -3283,6 +3283,7 @@ dependencies = [
 name = "pie"
 version = "1.1.0"
 dependencies = [
+ "anyhow",
  "base64 0.23.1",
  "dirs",
  "infer",
@@ -3305,6 +3306,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "typed-path",
  "ureq",
 ]
 
@@ -5388,6 +5390,12 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typed-path"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
 name = "typeid"

@@ -59,23 +59,24 @@ and `tests/layering.rs` is what holds it.
   `type` field. Tag values are snake_case (`host_key`); field names are
   camelCase, matching the fields the frontend already reads off Pi's own
   records.
-- Every layer names its own failures as a `thiserror` enum whose variants are
-  what a caller matches on: `channel::Error` for the bytes of a program and the
-  start of it, `host::Error` for the reach to a machine and what pie does on it,
-  `session::Error` for which session was asked for, `commands::Error` for the
-  IPC layer and the state of its one-connection slot. No layer wraps another's
-  error — a `pi` that is not installed is `channel::Error::Spawn`, not a variant
-  invented by the layer above it. The protocol crate names its five kinds
-  (`pi_rpc::error::ErrorKind`).
-- The boundary type is an aggregation, not a taxonomy:
-  `PieError::{Channel, Host, Session, Commands, Rpc, Io}`
-  (`src-tauri/src/error.rs`), one variant per module, each holding that module's
-  error whole. It serializes as `type` (the module), `message` (what a person
-  reads), and `error` — the named variant underneath, tagged on `kind` (`Io`
-  carries `type` and `message` only, because `std::io::Error` has no variant
-  enum to serialize). The frontend branches on `kind`, so it reads the name the
-  owning layer gave the failure; a variant added in Rust needs no change here.
-  Never stringify a failure into a category of pie's own invention.
+- Every layer below the IPC boundary returns `anyhow::Result` and builds the
+  sentence where the failure happened: the step (`.context(...)`), the path or
+  the endpoint, and the cause. A layer does not name a category of its own, and
+  no layer wraps another's failure. The one typed failure that survives is
+  `host::VersionMismatch`: a mismatch is a warning, not a failure of the
+  connect, so `Host::connect` matches it and goes on. The protocol crate keeps
+  its five kinds (`pi_rpc::error::ErrorKind`).
+- The boundary type is `PieError` (`src-tauri/src/error.rs`): a small enum for
+  the failures pie itself decides (the state of its one connection, an argument
+  it cannot use, an operation the platform does not support, a link it will not
+  open), plus `Failed(anyhow::Error)` for everything a machine, a program, or
+  the protocol failed on. It serializes as one object: `kind` (the name,
+  `failed` when the failure has none of its own), `message` (the whole chain,
+  outermost first, which is what a person reads), and the fields of a named
+  variant (`doing`, `reason`, `url`). A new failure from below is a
+  `.context(...)` and needs no change here; a new failure of the app is a
+  variant and a name. Never stringify a failure into a category of pie's own
+  invention.
 - Version pinning: `package.json` == `src-tauri/tauri.conf.json` == the version
   of this crate == the Pi release the protocol mirrors. The `pi_rpc` crate names
   the Pi commit the protocol was recorded from in its

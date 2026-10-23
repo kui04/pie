@@ -13,14 +13,13 @@
 //! A read runs on a shared hand, not on the connection slot. The slot must stay
 //! free for `disconnect`.
 //!
-//! A command fails as the layer that owns the failure: no connection or no such
-//! session is [`crate::commands::Error`] or [`crate::session::Error`], and everything below
-//! is the protocol layer's own errors. Neither is wrapped here.
+//! A command fails with the sentence that the step which failed wrote: no
+//! connection and no such session have sentences of their own, and everything
+//! below is the protocol layer's own error. Neither is wrapped here.
 
 use tauri::{AppHandle, State};
 
 use crate::error::PieError;
-use crate::host::HostPath;
 use crate::session::{
     self, CommandsData, ExtensionAnswer, ExtensionState, LastAssistantTextData, PromptData, Session, SessionInfo,
     SessionSummary,
@@ -41,16 +40,13 @@ use crate::state::AppState;
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) when there is no connection, and
-/// [`session::Error::UnknownSession`] when the id belongs to no session of this
-/// connection.
+/// [`PieError::NotConnected`] when there is no connection, and a sentence when
+/// the id belongs to no session of this connection.
 async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<Session, PieError> {
-    super::connected(state, doing).await?.session(session).ok_or_else(|| {
-        session::Error::UnknownSession {
-            id: session.to_string(),
-        }
-        .into()
-    })
+    super::connected(state, doing)
+        .await?
+        .session(session)
+        .ok_or_else(|| PieError::failed(format!("this connection has no session `{session}`")))
 }
 
 /// Every conversation that pi wrote on the connected machine.
@@ -61,13 +57,13 @@ async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<S
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine to list, and the failure of the
+/// [`PieError::NotConnected`] if there is no machine to list, and the failure of the
 /// machine if pie cannot read the sessions directory.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, PieError> {
     let sessions = super::connected(&state, "listing its sessions").await?;
-    sessions.summaries().await
+    Ok(sessions.summaries().await?)
 }
 
 /// Deletes one conversation of the connected machine.
@@ -80,14 +76,13 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine, the path failure of
-/// [`crate::host::Error::NotAbsolute`] for a relative path, and [`PieError::Host`]
-/// when the file cannot be removed.
+/// [`PieError::NotConnected`] if there is no machine, a sentence for a relative
+/// path, and one when the file cannot be removed.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn delete_session(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
     let sessions = super::connected(&state, "deleting a conversation").await?;
-    sessions.delete_conversation(&HostPath::new(path)).await
+    Ok(sessions.delete_conversation(&path).await?)
 }
 
 /// Starts a pi on the connected machine and hands its records to the frontend.
@@ -98,13 +93,11 @@ pub async fn delete_session(state: State<'_, AppState>, path: String) -> Result<
 async fn begin(
     app: AppHandle,
     state: &AppState,
-    conversation: Option<HostPath>,
-    cwd: Option<HostPath>,
+    conversation: Option<&str>,
+    cwd: Option<&str>,
 ) -> Result<SessionInfo, PieError> {
     let sessions = super::connected(state, "starting pi").await?;
-    let session = sessions
-        .attach(state.next_session_number(), conversation.as_ref(), cwd.as_ref())
-        .await?;
+    let session = sessions.attach(state.next_session_number(), conversation, cwd).await?;
     // The subscription happens before the task starts, not inside it, so the pipe
     // itself misses nothing that pi writes after this line.
     //
@@ -134,8 +127,8 @@ async fn begin(
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine to start pi on, and
-/// [`PieError::Channel`] when pi cannot be started.
+/// [`PieError::NotConnected`] if there is no machine to start pi on, and a
+/// sentence when pi cannot be started.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn attach_session(
@@ -143,7 +136,7 @@ pub async fn attach_session(
     app: AppHandle,
     path: Option<String>,
 ) -> Result<SessionInfo, PieError> {
-    begin(app, &state, path.map(HostPath::new), None).await
+    begin(app, &state, path.as_deref(), None).await
 }
 
 /// Starts a pi on the connected machine in a directory, and answers with the
@@ -159,8 +152,8 @@ pub async fn attach_session(
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine to start pi on, and
-/// [`PieError::Channel`] when pi cannot be started in that directory.
+/// [`PieError::NotConnected`] if there is no machine to start pi on, and a
+/// sentence when pi cannot be started in that directory.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(cwd = ?cwd))]
 pub async fn start_session(
@@ -168,7 +161,7 @@ pub async fn start_session(
     app: AppHandle,
     cwd: Option<String>,
 ) -> Result<SessionInfo, PieError> {
-    begin(app, &state, None, cwd.map(HostPath::new)).await
+    begin(app, &state, None, cwd.as_deref()).await
 }
 
 /// Ends one pi. The machine stays reached, and the conversation file stays.
@@ -179,29 +172,28 @@ pub async fn start_session(
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) if there is no machine, and
-/// [`session::Error::UnknownSession`] when the id belongs to no session of this
-/// connection.
+/// [`PieError::NotConnected`] if there is no machine, and a sentence when the id
+/// belongs to no session of this connection.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn detach_session(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
     let sessions = super::connected(&state, "ending the session").await?;
-    sessions.detach(&session).await
+    Ok(sessions.detach(&session).await?)
 }
 
 /// The state of one session: its model, its run, its name, its counts.
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected) and [`session::Error::UnknownSession`], and the
+/// [`PieError::NotConnected`] and a sentence for a missing session, and the
 /// failure of the protocol.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_state(state: State<'_, AppState>, session: String) -> Result<SessionState, PieError> {
-    named_session(&state, &session, "reading the state of a session")
+    Ok(named_session(&state, &session, "reading the state of a session")
         .await?
         .state()
-        .await
+        .await?)
 }
 
 /// Every entry of one session, and the leaf it points at.
@@ -216,10 +208,10 @@ pub async fn get_state(state: State<'_, AppState>, session: String) -> Result<Se
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_entries(state: State<'_, AppState>, session: String) -> Result<EntryList, PieError> {
-    named_session(&state, &session, "reading the transcript of a session")
+    Ok(named_session(&state, &session, "reading the transcript of a session")
         .await?
         .entries()
-        .await
+        .await?)
 }
 
 /// The usage of one session: its counts, its tokens, its cost, its context.
@@ -230,10 +222,10 @@ pub async fn get_entries(state: State<'_, AppState>, session: String) -> Result<
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> Result<SessionStats, PieError> {
-    named_session(&state, &session, "reading the usage of a session")
+    Ok(named_session(&state, &session, "reading the usage of a session")
         .await?
         .stats()
-        .await
+        .await?)
 }
 
 /// Sends a message to one session.
@@ -252,7 +244,7 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 ///
 /// # Errors
 ///
-/// [`Error::NotConnected`](super::Error::NotConnected), [`session::Error::UnknownSession`], and the failure of
+/// [`PieError::NotConnected`], a sentence for a missing session, and the failure of
 /// the protocol - including a refusal of pi itself: no model, no credentials, or a
 /// compaction in progress.
 #[tauri::command]
@@ -269,10 +261,10 @@ pub async fn prompt(
         Some(ref list) if !list.is_empty() => compose_prompt_message(&message, list),
         _ => message,
     };
-    named_session(&state, &session, "sending a message to a session")
+    Ok(named_session(&state, &session, "sending a message to a session")
         .await?
         .prompt(&wire_message, images, behavior)
-        .await
+        .await?)
 }
 
 /// Quotes a path with double quotes if it contains whitespace, backslashes, or quotes.
@@ -316,10 +308,10 @@ pub fn compose_prompt_message(message: &str, attachments: &[String]) -> String {
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn abort(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
-    named_session(&state, &session, "stopping the run of a session")
+    Ok(named_session(&state, &session, "stopping the run of a session")
         .await?
         .abort()
-        .await
+        .await?)
 }
 
 /// Drops every queued message of one session.
@@ -333,10 +325,10 @@ pub async fn abort(state: State<'_, AppState>, session: String) -> Result<(), Pi
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn clear_queue(state: State<'_, AppState>, session: String) -> Result<ClearQueueData, PieError> {
-    named_session(&state, &session, "clearing the queue of a session")
+    Ok(named_session(&state, &session, "clearing the queue of a session")
         .await?
         .clear_queue()
-        .await
+        .await?)
 }
 
 /// Runs a shell command on the machine of one session, in the directory of that
@@ -358,10 +350,10 @@ pub async fn bash(
     command: String,
     exclude_from_context: bool,
 ) -> Result<BashResult, PieError> {
-    named_session(&state, &session, "running a shell command in a session")
+    Ok(named_session(&state, &session, "running a shell command in a session")
         .await?
         .bash(&command, exclude_from_context)
-        .await
+        .await?)
 }
 
 /// Stops the shell command of one session, if one runs.
@@ -372,10 +364,12 @@ pub async fn bash(
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn abort_bash(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
-    named_session(&state, &session, "stopping the shell command of a session")
-        .await?
-        .abort_bash()
-        .await
+    Ok(
+        named_session(&state, &session, "stopping the shell command of a session")
+            .await?
+            .abort_bash()
+            .await?,
+    )
 }
 
 /// The commands that a prompt of one session can invoke.
@@ -390,10 +384,10 @@ pub async fn abort_bash(state: State<'_, AppState>, session: String) -> Result<(
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_commands(state: State<'_, AppState>, session: String) -> Result<CommandsData, PieError> {
-    named_session(&state, &session, "reading the commands of a session")
+    Ok(named_session(&state, &session, "reading the commands of a session")
         .await?
         .commands()
-        .await
+        .await?)
 }
 
 /// The models that one session can use.
@@ -407,10 +401,10 @@ pub async fn get_available_models(
     state: State<'_, AppState>,
     session: String,
 ) -> Result<session::AvailableModelsData, PieError> {
-    named_session(&state, &session, "reading the models of a session")
+    Ok(named_session(&state, &session, "reading the models of a session")
         .await?
         .available_models()
-        .await
+        .await?)
 }
 
 /// The thinking levels that one session accepts.
@@ -424,10 +418,12 @@ pub async fn get_available_thinking_levels(
     state: State<'_, AppState>,
     session: String,
 ) -> Result<session::AvailableThinkingLevelsData, PieError> {
-    named_session(&state, &session, "reading the thinking levels of a session")
-        .await?
-        .available_thinking_levels()
-        .await
+    Ok(
+        named_session(&state, &session, "reading the thinking levels of a session")
+            .await?
+            .available_thinking_levels()
+            .await?,
+    )
 }
 
 /// Selects the model of one session and answers the one that is now active.
@@ -447,10 +443,10 @@ pub async fn set_model(
     provider: String,
     model_id: String,
 ) -> Result<Model, PieError> {
-    named_session(&state, &session, "choosing the model of a session")
+    Ok(named_session(&state, &session, "choosing the model of a session")
         .await?
         .set_model(&provider, &model_id)
-        .await
+        .await?)
 }
 
 /// Sets the thinking level of one session.
@@ -466,10 +462,12 @@ pub async fn set_thinking_level(
     session: String,
     level: ThinkingLevel,
 ) -> Result<(), PieError> {
-    named_session(&state, &session, "setting the thinking level of a session")
-        .await?
-        .set_thinking_level(level)
-        .await
+    Ok(
+        named_session(&state, &session, "setting the thinking level of a session")
+            .await?
+            .set_thinking_level(level)
+            .await?,
+    )
 }
 
 /// Turns automatic compaction of one session on or off.
@@ -483,10 +481,12 @@ pub async fn set_thinking_level(
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, enabled))]
 pub async fn set_auto_compaction(state: State<'_, AppState>, session: String, enabled: bool) -> Result<(), PieError> {
-    named_session(&state, &session, "changing automatic compaction of a session")
-        .await?
-        .set_auto_compaction(enabled)
-        .await
+    Ok(
+        named_session(&state, &session, "changing automatic compaction of a session")
+            .await?
+            .set_auto_compaction(enabled)
+            .await?,
+    )
 }
 
 /// Compacts the conversation of one session into a summary, now.
@@ -506,10 +506,12 @@ pub async fn compact(
     session: String,
     custom_instructions: Option<String>,
 ) -> Result<CompactionResult, PieError> {
-    named_session(&state, &session, "compacting the conversation of a session")
-        .await?
-        .compact(custom_instructions.as_deref())
-        .await
+    Ok(
+        named_session(&state, &session, "compacting the conversation of a session")
+            .await?
+            .compact(custom_instructions.as_deref())
+            .await?,
+    )
 }
 
 /// The text of the last assistant message of one session.
@@ -525,10 +527,10 @@ pub async fn get_last_assistant_text(
     state: State<'_, AppState>,
     session: String,
 ) -> Result<LastAssistantTextData, PieError> {
-    named_session(&state, &session, "reading the last answer of a session")
+    Ok(named_session(&state, &session, "reading the last answer of a session")
         .await?
         .last_assistant_text()
-        .await
+        .await?)
 }
 
 /// Names one session.
@@ -540,10 +542,10 @@ pub async fn get_last_assistant_text(
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, chars = name.chars().count()))]
 pub async fn set_session_name(state: State<'_, AppState>, session: String, name: String) -> Result<(), PieError> {
-    named_session(&state, &session, "naming a session")
+    Ok(named_session(&state, &session, "naming a session")
         .await?
         .set_session_name(&name)
-        .await
+        .await?)
 }
 
 /// The user messages of one session that a fork can start from.
@@ -558,10 +560,10 @@ pub async fn set_session_name(state: State<'_, AppState>, session: String, name:
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn get_fork_messages(state: State<'_, AppState>, session: String) -> Result<Vec<ForkMessage>, PieError> {
-    named_session(&state, &session, "reading the fork points of a session")
+    Ok(named_session(&state, &session, "reading the fork points of a session")
         .await?
         .fork_messages()
-        .await
+        .await?)
 }
 
 /// Forks one session at a user message, in the same process.
@@ -580,10 +582,10 @@ pub async fn get_fork_messages(state: State<'_, AppState>, session: String) -> R
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session, entry = %entry_id))]
 pub async fn fork_session(state: State<'_, AppState>, session: String, entry_id: String) -> Result<ForkData, PieError> {
-    named_session(&state, &session, "forking a session")
+    Ok(named_session(&state, &session, "forking a session")
         .await?
         .fork(&entry_id)
-        .await
+        .await?)
 }
 
 /// Copies the whole branch of one session into a new file, in the same process.
@@ -599,10 +601,10 @@ pub async fn fork_session(state: State<'_, AppState>, session: String, entry_id:
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn clone_session(state: State<'_, AppState>, session: String) -> Result<SessionSwitch, PieError> {
-    named_session(&state, &session, "cloning a session")
+    Ok(named_session(&state, &session, "cloning a session")
         .await?
         .clone_session()
-        .await
+        .await?)
 }
 
 /// The extension UI state of one session: pending dialogs and the current
@@ -643,35 +645,32 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn a_command_without_a_connection_fails_as_the_ipc_layer() {
-        // The frontend matches on the pair below. The name of the layer says which
-        // part of pie failed: no connection is a state of the IPC layer's own slot.
+    async fn a_command_without_a_connection_carries_the_name_of_its_state() {
+        // The frontend reads the name below when it must tell this failure from
+        // another: no connection is the state of the IPC layer's own slot.
         let state = AppState::default();
         let error = named_session(&state, "main:9", "sending a message to a session")
             .await
             .unwrap_err();
         let sent = serde_json::to_value(&error).expect("a failure serializes");
 
-        assert_eq!(sent["type"], "commands");
-        assert_eq!(sent["error"]["kind"], "not_connected");
+        assert_eq!(sent["kind"], "not_connected");
         assert_eq!(
             sent["message"],
             "connect to a host before sending a message to a session"
         );
+        assert_eq!(sent["doing"], "sending a message to a session");
     }
 
     #[tokio::test]
-    async fn a_session_that_is_not_there_fails_as_the_session_layer() {
+    async fn a_session_that_is_not_there_is_a_sentence_with_no_name() {
         let _state = AppState::default();
         // A connection is needed before a session can be absent from it, so this
-        // holds the name of the layer that a missing session belongs to.
-        let error = PieError::from(session::Error::UnknownSession {
-            id: "main:9".to_string(),
-        });
+        // holds the sentence that a missing session carries.
+        let error = PieError::failed("this connection has no session `main:9`");
         let sent = serde_json::to_value(&error).expect("a failure serializes");
 
-        assert_eq!(sent["type"], "session");
-        assert_eq!(sent["error"]["kind"], "unknown_session");
+        assert_eq!(sent["kind"], "failed");
         assert_eq!(sent["message"], "this connection has no session `main:9`");
     }
 

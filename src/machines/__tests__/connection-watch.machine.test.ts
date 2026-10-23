@@ -91,7 +91,7 @@ describe("the reach to the machine", () => {
     it("keeps the sentence of a dial that failed, and stays able to try again", async () => {
         const { actor } = started({
             reconnect: async () => {
-                throw { type: "host", message: "the host never answered" };
+                throw { kind: "failed", message: "the host never answered" };
             },
         });
         actor.send({ type: "LOST", at: 1_000 });

@@ -13,7 +13,7 @@
 
 import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
-import { isReachFailure, reportReachFailure } from "./health";
+import { isReachRead, reportReachFailure } from "./health";
 import type { RunPhase } from "@/lib/transcript";
 
 /**
@@ -48,7 +48,7 @@ export const queryDefaults = {
 const queryCache = new QueryCache({
     onError: (error, query) => {
         bridge.log.error("a read failed", { key: query.queryHash, reason: bridge.asPieError(error).message });
-        if (isReachFailure(error)) reportReachFailure();
+        if (isReachRead(query.queryKey)) reportReachFailure();
     },
 });
 

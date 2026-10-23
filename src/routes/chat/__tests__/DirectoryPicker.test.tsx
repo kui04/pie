@@ -301,9 +301,8 @@ describe("the directory picker", () => {
 
     it("says what the host reported when the probe fails", async () => {
         bridge.dirExists.mockRejectedValue({
-            type: "host",
+            kind: "failed",
             message: "cannot read /srv/empty: permission denied",
-            error: { kind: "unreadable_local" },
         });
         renderPicker();
 
@@ -316,9 +315,8 @@ describe("the directory picker", () => {
 
     it("says what the host reported when a level cannot be read", async () => {
         bridge.listDirs.mockRejectedValueOnce({
-            type: "host",
+            kind: "failed",
             message: "cannot read /home/kui: permission denied",
-            error: { kind: "unreadable_local" },
         });
         renderPicker();
 

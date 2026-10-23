@@ -38,14 +38,14 @@ Pi's fields, or "improve" wire shapes.
 - One read loop per connection; fan out through a channel. NEVER block the read
   loop on UI or command handling — Pi relies on stdout backpressure.
 - Correlate `id`s in a map; one in-flight request per id; a `success: false`
-  response is the crate's own command failure, never a panic. The app reports it
-  as `PieError::Rpc` with the crate's coarse kind (`RpcFailure`) and keeps the
-  detail on its own side of the boundary, in the log.
+  response is the crate's own command failure, never a panic. The app passes it
+  up as a context of the failing read: the sentence carries the crate's own kind
+  and detail to the log and to the frontend.
 - Lifecycle: closing stdin is the graceful shutdown path; handle SIGTERM and
   channel EOF; the SSH case follows the same rules over the russh channel.
 - Check `pi --version` against the pin (`host::check_version` and
-  `host::probe_version`); a mismatch is surfaced as
-  `host::Error::VersionMismatch`, not a silent continue.
+  `host::probe_version`); a mismatch is a `host::VersionMismatch`, which the
+  connect logs and goes on from - never a silent continue.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is ours to implement (TOFU + known_hosts); private keys
   cross the connection boundary as text, never as a path to a file — pie copies

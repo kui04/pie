@@ -53,7 +53,7 @@ function harness() {
     return { actor, pending, reporters, stopped, told, started: () => started };
 }
 
-const refusal: PieError = { type: "commands", message: "the file was refused", error: { kind: "bad_argument" } };
+const refusal: PieError = { kind: "bad_argument", message: "the file was refused" };
 
 describe("the attachments of a message", () => {
     it("starts with none, and stays idle while a picture is staged", () => {

@@ -560,9 +560,8 @@ describe("ChatScreen", () => {
 
     it("says which failure stopped the read", async () => {
         bridge.getEntries.mockRejectedValue({
-            type: "session",
+            kind: "failed",
             message: "this connection has no session `main:1`",
-            error: { kind: "unknown_session" },
         });
 
         await renderOpen();
@@ -573,9 +572,8 @@ describe("ChatScreen", () => {
 
     it("shows the message Rust sent for a failure it has never seen", async () => {
         bridge.getEntries.mockRejectedValue({
-            type: "rpc",
+            kind: "failed",
             message: "a_kind_of_a_later_pi",
-            error: { kind: "a_kind_of_a_later_pi" },
         });
 
         await renderOpen();
@@ -585,14 +583,12 @@ describe("ChatScreen", () => {
 
     it("blames the listeners before the reads when both failed", async () => {
         bridge.onSessionEvent.mockRejectedValue({
-            type: "rpc",
+            kind: "failed",
             message: "the feed failed",
-            error: { kind: "closed" },
         });
         bridge.getEntries.mockRejectedValue({
-            type: "session",
+            kind: "failed",
             message: "a read failed",
-            error: { kind: "unknown_session" },
         });
 
         await renderOpen();
@@ -604,7 +600,7 @@ describe("ChatScreen", () => {
     });
 
     it("opens the listeners again when the reader asks for another try", async () => {
-        bridge.onSessionEvent.mockRejectedValueOnce({ type: "rpc", message: "raw", error: { kind: "closed" } });
+        bridge.onSessionEvent.mockRejectedValueOnce({ kind: "failed", message: "raw" });
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("hello again")))));
 
         await renderOpen();
@@ -949,9 +945,8 @@ describe("ChatScreen", () => {
         const other = sessionSummary({ name: "The other one" });
         bridge.listSessions.mockResolvedValue([HELD, other]);
         bridge.attachSession.mockRejectedValue({
-            type: "rpc",
+            kind: "failed",
             message: "pi refused the conversation",
-            error: { kind: "command" },
         });
 
         await renderOpen([HELD, other]);

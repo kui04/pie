@@ -11,6 +11,7 @@
 //! tauri 2.12.1 spawns the body).
 
 use std::path::Path;
+use std::sync::Arc;
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -18,8 +19,10 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::{FilePath, FsExt};
 use tokio::io::AsyncReadExt as _;
+use typed_path::Utf8TypedPath;
 
 use crate::error::PieError;
+use crate::host::{Host, LocalHost, StageSource};
 use crate::state::AppState;
 
 use pi_rpc::types::{ImageContent, ImageKind};
@@ -193,7 +196,7 @@ pub fn parse_uri_or_path(raw: &str) -> Option<FilePath> {
         return None;
     }
     match clean.parse::<FilePath>().ok()? {
-        FilePath::Path(path) if path.is_absolute() || crate::host::HostPath::new(clean).is_absolute() => {
+        FilePath::Path(path) if path.is_absolute() || Utf8TypedPath::derive(clean).is_absolute() => {
             Some(FilePath::Path(path))
         }
         FilePath::Url(url) if url.scheme() == "content" => Some(FilePath::Url(url)),
@@ -211,13 +214,13 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
 
     for raw in paths {
         let Some(file_path) = parse_uri_or_path(&raw) else {
-            return Err(PieError::from(crate::commands::Error::BadArgument {
+            return Err(PieError::BadArgument {
                 reason: format!("invalid file path or URI: {raw}"),
-            }));
+            });
         };
 
         if let Some(path) = file_path.as_path() {
-            let metadata = tokio::fs::metadata(path).await.map_err(PieError::file)?;
+            let metadata = tokio::fs::metadata(path).await?;
             let size = metadata.len();
 
             let name = path
@@ -230,14 +233,14 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
 
             // The type comes from the first bytes. A pipe or a FUSE mount answers with fewer
             // bytes than it was asked for, so the head is gathered until it is whole.
-            let mut file = tokio::fs::File::open(path).await.map_err(PieError::file)?;
-            let head = read_head(&mut file).await.map_err(PieError::file)?;
+            let mut file = tokio::fs::File::open(path).await?;
+            let head = read_head(&mut file).await?;
             let (mime, _) = detect_mime(&head, ext);
 
             if is_supported_image_mime(&mime) {
                 // The head is the start of this file: the rest is read on, not read again.
                 let mut bytes = head;
-                file.read_to_end(&mut bytes).await.map_err(PieError::file)?;
+                file.read_to_end(&mut bytes).await?;
                 images.push(image_of(name, mime, &bytes));
             } else {
                 files.push(AttachmentFile {
@@ -248,7 +251,7 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
                 });
             }
         } else {
-            let bytes = app.fs().read(file_path.clone()).map_err(PieError::file)?;
+            let bytes = app.fs().read(file_path.clone())?;
             let name = match &file_path {
                 FilePath::Url(u) => u
                     .path_segments()
@@ -267,7 +270,10 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
                 images.push(image_of(name, mime, &bytes));
             } else {
                 let size = bytes.len() as u64;
-                let path = crate::host::files::stage_local(&name, &ext, &bytes).await?;
+                let local_host = LocalHost::new(None);
+                let path = local_host
+                    .stage_file(&name, &ext, StageSource::Bytes(&bytes), Box::new(|_, _| {}))
+                    .await?;
                 files.push(AttachmentFile {
                     name,
                     size,
@@ -320,9 +326,9 @@ pub async fn pick_paths(app: AppHandle, options: Option<PickOptions>) -> Result<
             }
             #[cfg(mobile)]
             {
-                Err(PieError::from(crate::commands::Error::NotSupported {
+                Err(PieError::NotSupported {
                     what: "folder selection on mobile".to_string(),
-                }))
+                })
             }
         }
     }
@@ -333,14 +339,14 @@ pub async fn pick_paths(app: AppHandle, options: Option<PickOptions>) -> Result<
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn read_text_file(app: AppHandle, path: String) -> Result<String, PieError> {
     let Some(file_path) = parse_uri_or_path(&path) else {
-        return Err(PieError::from(crate::commands::Error::BadArgument {
+        return Err(PieError::BadArgument {
             reason: format!("path must be absolute or a content URI: {path}"),
-        }));
+        });
     };
     if let Some(fs_path) = file_path.as_path() {
-        tokio::fs::read_to_string(fs_path).await.map_err(PieError::file)
+        Ok(tokio::fs::read_to_string(fs_path).await?)
     } else {
-        app.fs().read_to_string(file_path).map_err(PieError::file)
+        app.fs().read_to_string(file_path).map_err(PieError::from)
     }
 }
 
@@ -373,65 +379,53 @@ pub async fn prepare_attachment(
         .unwrap_or_default();
 
     let sessions = state.sessions.lock().await.clone();
-    let is_local = sessions.as_ref().map(|s| s.host().is_local()).unwrap_or(true);
+    let fallback: Arc<dyn Host> = Arc::new(LocalHost::new(None));
+    let host: &dyn Host = match sessions.as_ref() {
+        Some(sessions) => sessions.host().as_ref(),
+        None => fallback.as_ref(),
+    };
 
-    // Fast path: if the target host is local and the file already exists on disk,
-    // reuse the path directly without reading the entire file into memory.
-    if is_local && let Some(ref lp) = local_path {
-        let path = Path::new(lp);
-        if path.is_absolute() && path.exists() {
-            let metadata = tokio::fs::metadata(path).await.map_err(PieError::file)?;
-            let size = metadata.len();
-            // Bounded, not assumed: a read that comes short is a fact of a FUSE mount.
-            let mut file = tokio::fs::File::open(path).await.map_err(PieError::file)?;
-            let head = read_head(&mut file).await.map_err(PieError::file)?;
-            let (mime_type, _) = detect_mime(&head, ext_hint);
-            let _ = app.emit(
-                &format!("pi://upload/{upload_id}"),
-                UploadEvent::Progress {
-                    transferred: size,
-                    total: size,
-                },
-            );
-            return Ok(PreparedAttachment {
-                path: lp.clone(),
-                size,
-                mime_type,
-            });
-        }
+    let upload_event_name = format!("pi://upload/{upload_id}");
+    let app_clone = app.clone();
+    let progress = Box::new(move |transferred, total| {
+        let _ = app_clone.emit(&upload_event_name, UploadEvent::Progress { transferred, total });
+    });
+
+    if let Some(b64) = bytes_base64 {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&b64)
+            .map_err(|e| PieError::BadArgument {
+                reason: format!("invalid base64 payload: {e}"),
+            })?;
+        let (mime_type, ext) = detect_mime(&bytes, ext_hint);
+        let size = bytes.len() as u64;
+        let path = host
+            .stage_file(&name, &ext, StageSource::Bytes(&bytes), progress)
+            .await?;
+        return Ok(PreparedAttachment { path, size, mime_type });
     }
 
-    let bytes = if let Some(b64) = bytes_base64 {
-        base64::engine::general_purpose::STANDARD.decode(&b64).map_err(|e| {
-            PieError::from(crate::commands::Error::BadArgument {
-                reason: format!("invalid base64 payload: {e}"),
-            })
-        })?
-    } else if let Some(ref lp) = local_path {
-        tokio::fs::read(Path::new(lp)).await.map_err(PieError::file)?
-    } else {
-        return Err(PieError::from(crate::commands::Error::BadArgument {
-            reason: "attachment has neither local path nor binary content".to_string(),
-        }));
-    };
+    if let Some(ref lp) = local_path {
+        let path = Path::new(lp);
+        let metadata = tokio::fs::metadata(path).await?;
+        let size = metadata.len();
+        // Bounded, not assumed: a read that comes short is a fact of a FUSE mount.
+        let mut file = tokio::fs::File::open(path).await?;
+        let head = read_head(&mut file).await?;
+        let (mime_type, ext) = detect_mime(&head, ext_hint);
+        let staged = host
+            .stage_file(&name, &ext, StageSource::LocalFile(path), progress)
+            .await?;
+        return Ok(PreparedAttachment {
+            path: staged,
+            size,
+            mime_type,
+        });
+    }
 
-    let (mime_type, ext) = detect_mime(&bytes, ext_hint);
-
-    let path = match sessions {
-        Some(sessions) => {
-            let host = sessions.host();
-            let upload_event_name = format!("pi://upload/{upload_id}");
-            let app_clone = app.clone();
-            host.stage_file(&name, &bytes, move |transferred, total| {
-                let _ = app_clone.emit(&upload_event_name, UploadEvent::Progress { transferred, total });
-            })
-            .await?
-        }
-        None => crate::host::files::stage_local(&name, &ext, &bytes).await?,
-    };
-
-    let size = bytes.len() as u64;
-    Ok(PreparedAttachment { path, size, mime_type })
+    Err(PieError::BadArgument {
+        reason: "attachment has neither local path nor binary content".to_string(),
+    })
 }
 
 #[cfg(test)]

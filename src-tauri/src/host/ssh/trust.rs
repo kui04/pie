@@ -14,7 +14,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::super::Result;
+use anyhow::Result;
 use russh::keys::PublicKeyOrCertificate;
 use serde::Serialize;
 
@@ -32,9 +32,8 @@ pub trait HostKey: Send + Sync + 'static {
     ///
     /// # Errors
     ///
-    /// Any error ends the handshake and surfaces from the connect unchanged.
-    /// [`Error::HostKeyRejected`](super::super::Error::HostKeyRejected) is the refusal
-    /// of a policy that will not trust the key.
+    /// Any error ends the handshake and surfaces from the connect unchanged. A
+    /// policy that will not trust the key returns the sentence that says why.
     ///
     /// The future is boxed because the reach holds the policy as a shared
     /// handle: it runs once per connection, where the allocation is nothing.

@@ -23,14 +23,12 @@
 //! lists conversations runs no pi, and one that is done speaking ends just that
 //! pi with [`SessionManager::detach`].
 
-mod error;
 mod extension;
 mod id;
 mod process;
-mod store;
+pub(crate) mod store;
 mod wire;
 
-pub use error::Error;
 #[doc(inline)]
 pub use extension::{
     EditorTextUpdate, ExtensionAnswer, ExtensionEvent, ExtensionRequest, ExtensionState, ExtensionStatus,
@@ -46,11 +44,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::Serialize;
 
-use crate::error::PieError;
-use crate::host::{Host, HostPath, Options, Spec};
+use crate::host::Host;
 
 use process::speaking;
-use store::{SessionStore, checked_session_path};
+use store::checked_session_path;
 
 /// The sessions of one machine, and the reach to it.
 #[derive(Clone)]
@@ -64,15 +61,7 @@ struct Inner {
     id: Id,
     /// The machine. It stays here: a session cannot outlive the reach that runs
     /// it, and nothing outside this module reaches a machine on its own.
-    host: Host,
-    /// What the machine was reached with, kept for the day the reach ends: pie dials
-    /// it again without asking a person for the credential a second time. It lives in
-    /// this process and nowhere else - no store, no file, no frontend.
-    spec: Spec,
-    /// The reader of the conversation files on that machine. One host, one
-    /// store: it is built with the host and kept, because the root of pi's
-    /// sessions is resolved once per connection, not once per drawer.
-    store: SessionStore,
+    host: Arc<dyn Host>,
     /// The pi processes of this connection.
     ///
     /// The product keeps one session per connection today, and the list is a
@@ -108,20 +97,41 @@ impl SessionManager {
     ///
     /// # Errors
     ///
-    /// [`PieError::Host`] when the machine cannot be reached, its credentials are
+    /// A sentence when the machine cannot be reached, its credentials are
     /// refused, its host key is not trusted, or it has no `pi` for pie to speak
-    /// to, and [`PieError::Session`] when the name cannot be used.
-    pub async fn connect(id: Id, spec: &Spec, options: &Options) -> Result<Self, PieError> {
-        let host = Host::connect(spec, options).await?;
-        let store = SessionStore::of(&host);
+    /// to.
+    pub async fn connect(id: Id, host: Arc<dyn Host>) -> anyhow::Result<Self> {
+        host.connect().await?;
 
         tracing::info!(connection = %id, endpoint = %host.endpoint(), "connected");
         Ok(Self {
             inner: Arc::new(Inner {
                 id,
                 host,
-                spec: spec.clone(),
-                store,
+                live: Mutex::new(Vec::new()),
+            }),
+        })
+    }
+
+    /// Dials the same machine again after its reach ended, and returns a new
+    /// manager holding the restored reach.
+    ///
+    /// # Errors
+    ///
+    /// Every failure [`SessionManager::connect`] reports. When the dial fails,
+    /// this manager is left untouched so a later retry can dial again.
+    pub async fn reconnect(&self) -> anyhow::Result<Self> {
+        self.inner.host.connect().await?;
+        for session in self.sessions() {
+            if let Err(error) = self.detach(session.id().as_str()).await {
+                tracing::warn!(session = %session.id(), %error, "a detach of an ended connection did not finish");
+            }
+        }
+        tracing::info!(connection = %self.inner.id, endpoint = %self.inner.host.endpoint(), "connected");
+        Ok(Self {
+            inner: Arc::new(Inner {
+                id: self.inner.id.clone(),
+                host: Arc::clone(&self.inner.host),
                 live: Mutex::new(Vec::new()),
             }),
         })
@@ -149,37 +159,15 @@ impl SessionManager {
     ///
     /// # Errors
     ///
-    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a
-    /// conversation path or a directory that is not absolute: pi would resolve a
-    /// relative one against its own directory and quietly open another
-    /// conversation or another directory there. [`PieError::Channel`] when pi
-    /// cannot be started, and [`PieError::Host`] when the channel it runs in
-    /// cannot be opened.
-    pub async fn attach(
-        &self,
-        number: u64,
-        conversation: Option<&HostPath>,
-        cwd: Option<&HostPath>,
-    ) -> Result<Session, PieError> {
-        // The paths are of the caller, so they are checked before pi sees them.
-        let conversation = match conversation {
-            Some(path) => Some(HostPath::new(checked_session_path(path)?)),
-            None => None,
-        };
-        let cwd = match cwd {
-            Some(dir) if !dir.is_absolute() => {
-                return Err(crate::host::files::not_absolute(dir.as_str()).into());
-            }
-            Some(dir) => Some(dir.clone()),
-            None => None,
-        };
-        let channel = self.inner.host.open_pi(cwd.as_ref(), conversation.as_ref()).await?;
+    /// A sentence for a conversation path or a directory that is not absolute: pi
+    /// would resolve a relative one against its own directory and quietly open
+    /// another conversation or another directory there. A sentence when pi
+    /// cannot be started, and one when the channel it runs in cannot be opened.
+    pub async fn attach(&self, number: u64, conversation: Option<&str>, cwd: Option<&str>) -> anyhow::Result<Session> {
+        let conversation = conversation.map(checked_session_path).transpose()?;
+        let cwd = cwd.map(crate::host::checked_host_path).transpose()?;
+        let (channel, label) = self.inner.host.open_pi(cwd, conversation).await?;
         let (client, handle) = speaking(channel);
-        // What the screen is told about the start: the directory pie chose, or the
-        // home of this machine. A host reached over SSH has no home here; pi
-        // starts in the directory of the login shell, and only pi can say which
-        // one that was.
-        let label = cwd.or_else(|| self.inner.host.home().map(HostPath::of_local));
         let session = Session::new(self.inner.id.for_session(number), label, client, handle);
         session.extension().install(session.client()).await;
 
@@ -205,12 +193,11 @@ impl SessionManager {
     ///
     /// # Errors
     ///
-    /// [`crate::session::Error::UnknownSession`] when this connection has no such
-    /// session.
-    pub async fn detach(&self, id: &str) -> Result<(), PieError> {
+    /// A sentence when this connection has no such session.
+    pub async fn detach(&self, id: &str) -> anyhow::Result<()> {
         let session = self
             .session(id)
-            .ok_or_else(|| crate::session::Error::UnknownSession { id: id.to_string() })?;
+            .ok_or_else(|| anyhow::anyhow!("this connection has no session `{id}`"))?;
         if session.client().close().await.is_err() {
             tracing::warn!(session = %session.id(), "pi did not exit in time; killing it");
             session.handle().terminate().await;
@@ -228,7 +215,7 @@ impl SessionManager {
     }
 
     /// The machine these sessions run on.
-    pub fn host(&self) -> &Host {
+    pub fn host(&self) -> &Arc<dyn Host> {
         &self.inner.host
     }
 
@@ -282,15 +269,6 @@ impl SessionManager {
         self.inner.host.close().await;
     }
 
-    /// What this connection was reached with.
-    ///
-    /// Kept in memory for a reach that has to be dialled again. A credential is in
-    /// it, so it never leaves this process: nothing writes it down, and no command
-    /// answers with it.
-    pub fn spec(&self) -> &Spec {
-        &self.inner.spec
-    }
-
     /// Whether this is the same connection as another hand, not one that carries the
     /// same name.
     ///
@@ -316,15 +294,12 @@ impl SessionManager {
     /// This is the listing of the session drawer: the conversation files of pi,
     /// not the processes pie runs. A session that has said nothing yet has no
     /// file, and therefore no row: pi writes one at the start of the first turn.
-    /// Which machine it is decides how the files are read, and nothing else: the
-    /// layout belongs to pi and is the same on both.
     ///
     /// # Errors
     ///
-    /// [`PieError::Host`] when the files cannot be read, with the path at fault
-    /// in the message.
-    pub async fn summaries(&self) -> Result<Vec<SessionSummary>, PieError> {
-        self.inner.store.summaries().await
+    /// A sentence when the files cannot be read, with the path at fault in it.
+    pub async fn summaries(&self) -> anyhow::Result<Vec<SessionSummary>> {
+        store::summaries(self.inner.host.as_ref()).await
     }
 
     /// Deletes one conversation file of this machine.
@@ -334,20 +309,13 @@ impl SessionManager {
     /// again. [`SessionManager::detach`] ends that process; the caller orders the
     /// two.
     ///
-    /// A fork is not damaged by removing the file it came from. A branch holds a
-    /// copy of the entries it keeps (`createBranchedSession` of pi's
-    /// `core/session-manager.ts`, pinned), and the path in its header is a name for
-    /// the tree of pi's selector: a name that resolves to nothing is a root, which is
-    /// how the selector reads it.
-    ///
     /// # Errors
     ///
-    /// [`host::Error::NotAbsolute`](crate::host::Error::NotAbsolute) for a path that
-    /// is not absolute - pi would resolve a relative one against its own directory -
-    /// and [`PieError::Host`] when the file cannot be removed.
-    pub async fn delete_conversation(&self, path: &HostPath) -> Result<(), PieError> {
+    /// A sentence for a path that is not absolute - pi would resolve a relative
+    /// one against its own directory - and one when the file cannot be removed.
+    pub async fn delete_conversation(&self, path: &str) -> anyhow::Result<()> {
         let path = checked_session_path(path)?;
-        self.inner.store.remove(path).await
+        self.inner.host.remove_file(path).await
     }
 
     /// Ends every session of this machine, and then the reach to it.
@@ -381,11 +349,6 @@ pub struct ConnectionInfo {
     /// The sessions that operate on the machine.
     pub sessions: Vec<SessionInfo>,
     /// Whether the reach to the machine is still open.
-    ///
-    /// A connection that ended is still the one pie holds, so the frontend cannot read this
-    /// off the answer being there at all. A read that failed against the reach is what makes
-    /// it ask, and this is what the answer says: the alternative - trusting the failure itself
-    /// - would veil the window for a failure that had another reason.
     pub open: bool,
 }
 
@@ -396,5 +359,5 @@ pub struct SessionInfo {
     /// The id of this session, for the `pi://session/{id}/...` events.
     pub id: Id,
     /// The start of pi, if pie selected it.
-    pub cwd: Option<HostPath>,
+    pub cwd: Option<String>,
 }

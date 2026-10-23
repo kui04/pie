@@ -20,8 +20,7 @@ use std::time::Duration;
 
 use tempfile::TempDir;
 
-use pie_lib::error::PieError;
-use pie_lib::host::{AskHostKey, Auth, Error as HostError, HostPath, KnownHosts, Options, PresentedKey, Spec, Trust};
+use pie_lib::host::{AskHostKey, Host, KnownHosts, LocalHost, PresentedKey, SshAuth, SshHost, SshTarget, Trust};
 use pie_lib::session::{Id, Session, SessionManager, SessionSummary};
 
 use ::pi_rpc::command::Command;
@@ -89,28 +88,32 @@ impl Fixture {
         }
     }
 
-    fn spec(&self) -> Spec {
-        Spec::Ssh {
-            host: self.host.clone(),
-            port: Some(self.port),
-            user: self.user.clone(),
-            auth: Auth::Password {
-                password: self.password.clone(),
-            },
-        }
+    fn target(&self) -> SshTarget {
+        SshTarget::new(self.host.clone(), self.user.clone()).port(self.port)
+    }
+
+    fn password_auth(&self) -> SshAuth {
+        SshAuth::Password(self.password.clone())
     }
 
     /// The same host, with the fixture key for authentication.
-    fn key_spec(&self) -> Spec {
-        Spec::Ssh {
-            host: self.host.clone(),
-            port: Some(self.port),
-            user: self.user.clone(),
-            auth: Auth::Key {
-                key: std::fs::read_to_string(&self.key).expect("the fixture key is readable"),
-                passphrase: None,
-            },
+    fn key_auth(&self) -> SshAuth {
+        SshAuth::Key {
+            key: std::fs::read_to_string(&self.key).expect("the fixture key is readable"),
+            passphrase: None,
         }
+    }
+
+    /// Build an `SshHost` with a host-key policy over `store`, asking `asker`.
+    fn host(
+        &self,
+        auth: SshAuth,
+        store: &Path,
+        borrowed: Option<PathBuf>,
+        asker: impl AskHostKey + 'static,
+    ) -> Arc<dyn Host> {
+        let trust = Trust::new(KnownHosts::new(store, borrowed, asker));
+        Arc::new(SshHost::new(self.target(), auth, trust))
     }
 
     /// Reaches the host with a host-key policy over `store`, asking `asker`.
@@ -119,46 +122,39 @@ impl Fixture {
         store: &Path,
         borrowed: Option<PathBuf>,
         asker: impl AskHostKey + 'static,
-    ) -> Result<SessionManager, PieError> {
-        self.connect_with(&self.spec(), store, borrowed, asker).await
+    ) -> anyhow::Result<SessionManager> {
+        self.connect_with(self.password_auth(), store, borrowed, asker).await
     }
 
-    /// Reaches the host with `spec`, and a host-key policy over `store`.
+    /// Reaches the host with `auth`, and a host-key policy over `store`.
     async fn connect_with(
         &self,
-        spec: &Spec,
+        auth: SshAuth,
         store: &Path,
         borrowed: Option<PathBuf>,
         asker: impl AskHostKey + 'static,
-    ) -> Result<SessionManager, PieError> {
-        let options = Options {
-            home: None,
-            trust: Trust::new(KnownHosts::new(store, borrowed, asker)),
-        };
-        attached("test", spec, &options, 1).await
+    ) -> anyhow::Result<SessionManager> {
+        let host = self.host(auth, store, borrowed, asker);
+        attached("test", host, 1).await
     }
 }
 
-/// Reaches `spec`. No pi starts here: a test that speaks calls [`started`].
-async fn connected(id: &str, spec: &Spec, options: &Options) -> Result<SessionManager, PieError> {
-    SessionManager::connect(Id::new(id).expect("a usable name"), spec, options).await
+/// Reaches `host`. No pi starts here: a test that speaks calls [`attached`].
+async fn connected(id: &str, host: Arc<dyn Host>) -> anyhow::Result<SessionManager> {
+    SessionManager::connect(Id::new(id).expect("a usable name"), host).await
 }
 
-/// Reaches `spec` and starts a pi on it.
-async fn attached(id: &str, spec: &Spec, options: &Options, number: u64) -> Result<SessionManager, PieError> {
-    let sessions = connected(id, spec, options).await?;
+/// Reaches `host` and starts a pi on it.
+async fn attached(id: &str, host: Arc<dyn Host>, number: u64) -> anyhow::Result<SessionManager> {
+    let sessions = connected(id, host).await?;
     sessions.attach(number, None, None).await?;
     Ok(sessions)
 }
 
-/// A session of this machine, with pi started in `home`, and a policy that is
-/// never asked: there is no host to verify here.
-async fn local(name: &str, home: &Path, number: u64) -> Result<SessionManager, PieError> {
-    let options = Options {
-        home: Some(home.to_path_buf()),
-        trust: Trust::new(KnownHosts::new(home.join("known_hosts"), None, Answering::never())),
-    };
-    attached(name, &Spec::Local, &options, number).await
+/// A session of this machine, with pi started in `home`.
+async fn local(name: &str, home: &Path, number: u64) -> anyhow::Result<SessionManager> {
+    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Some(home.to_path_buf())));
+    attached(name, host, number).await
 }
 
 /// Waits for pi to write the session file and for the listing to see it.
@@ -214,18 +210,11 @@ impl Drop for StopsPi {
 #[tokio::test]
 async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
     let home = TempDir::new().expect("a temp directory");
-    let options = Options {
-        home: Some(home.path().to_path_buf()),
-        trust: Trust::new(KnownHosts::new(
-            home.path().join("known_hosts"),
-            None,
-            Answering::never(),
-        )),
-    };
+    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Some(home.path().to_path_buf())));
 
     // The reach is the machine. It is complete before any pi runs on it, and the
     // listing of the conversations needs no pi at all.
-    let connection = connected("no-pi", &Spec::Local, &options).await.expect("this machine");
+    let connection = connected("no-pi", host).await.expect("this machine");
     assert!(connection.sessions().is_empty(), "a connect starts no pi");
     assert!(!connection.is_alive(), "and nothing of it is running");
     assert_eq!(connection.host().endpoint().to_string(), "local");
@@ -283,7 +272,7 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
     assert_eq!(session.id().as_str(), "local-test:1");
     let started_in = home.path().to_string_lossy().into_owned();
     assert_eq!(
-        session.cwd().map(HostPath::as_str),
+        session.cwd(),
         Some(started_in.as_str()),
         "the session starts where pie said"
     );
@@ -320,28 +309,19 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
 async fn a_new_session_starts_in_the_directory_it_was_given() {
     let home = TempDir::new().expect("a temp directory");
     let project = TempDir::new().expect("a temp directory");
-    let options = Options {
-        home: Some(home.path().to_path_buf()),
-        trust: Trust::new(KnownHosts::new(
-            home.path().join("known_hosts"),
-            None,
-            Answering::never(),
-        )),
-    };
+    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Some(home.path().to_path_buf())));
 
-    let connection = connected("start-dir", &Spec::Local, &options)
-        .await
-        .expect("pi is on PATH");
+    let connection = connected("start-dir", host).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
     let _stops_pi = StopsPi(Arc::clone(&connection));
 
-    let dir = HostPath::new(project.path().to_string_lossy().into_owned());
+    let dir = project.path().to_string_lossy().into_owned();
     let session = connection
         .attach(1, None, Some(&dir))
         .await
         .expect("pi takes the directory");
     assert_eq!(
-        session.cwd().map(HostPath::as_str),
+        session.cwd(),
         Some(dir.as_str()),
         "the session reports the directory pie chose"
     );
@@ -374,12 +354,8 @@ async fn a_host_key_nobody_trusted_ends_the_connection() {
         .expect_err("a key nobody trusted is not a connection");
 
     assert!(
-        matches!(
-            &error,
-            PieError::Host { error, .. }
-                if matches!(&**error, HostError::HostKeyRejected { .. })
-        ),
-        "got {error:?}"
+        error.to_string().contains("was not accepted"),
+        "the host key is the reason: {error}"
     );
     assert_eq!(asker.questions(), 1, "the key was put to the frontend");
     assert!(
@@ -415,7 +391,7 @@ async fn a_trusted_host_key_is_remembered_and_used_without_asking_again() {
     // The second time, pie must ask nobody: the answer is on record. The key
     // belongs to the host and is also correct for another entry.
     let remembered = fixture
-        .connect_with(&fixture.key_spec(), &store, None, Answering::never())
+        .connect_with(fixture.key_auth(), &store, None, Answering::never())
         .await
         .expect("the recorded key is trusted");
     assert!(remembered.is_alive());
@@ -444,22 +420,15 @@ async fn a_host_key_that_changed_is_refused_and_says_which_store_to_fix() {
         .await
         .expect_err("a key that changed is not this host");
 
-    match &error {
-        PieError::Host { error, .. } => match &**error {
-            HostError::HostKeyRejected { reason, .. } => {
-                // The message must tell a person what to do: the file, the line
-                // in the file, and the next step of another connect.
-                assert!(
-                    reason.contains(&store.display().to_string()),
-                    "the message names the store: {reason}"
-                );
-                assert!(reason.contains("line 1"), "and the line: {reason}");
-                assert!(reason.contains("connect again"), "and what to do: {reason}");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        },
-        other => panic!("unexpected error: {other:?}"),
-    }
+    // The message must tell a person what to do: the file, the line in the file,
+    // and the next step of another connect.
+    let reason = error.to_string();
+    assert!(
+        reason.contains(&store.display().to_string()),
+        "the message names the store: {reason}"
+    );
+    assert!(reason.contains("line 1"), "and the line: {reason}");
+    assert!(reason.contains("connect again"), "and what to do: {reason}");
 }
 
 #[ignore = "requires the ssh fixture"]
@@ -532,24 +501,19 @@ async fn the_host_session_listing_comes_back_over_sftp() {
 async fn a_new_session_starts_in_the_directory_it_was_given_over_ssh() {
     let fixture = Fixture::from_env();
     let store = TempDir::new().expect("a temp directory");
-    let options = Options {
-        home: None,
-        trust: Trust::new(KnownHosts::new(
-            store.path().join("known_hosts"),
-            None,
-            Answering::trusting(true),
-        )),
-    };
-    let connection = connected("start-ssh", &fixture.spec(), &options)
-        .await
-        .expect("the host is reached");
+    let host = fixture.host(
+        fixture.password_auth(),
+        &store.path().join("known_hosts"),
+        None,
+        Answering::trusting(true),
+    );
+    let connection = connected("start-ssh", host).await.expect("the host is reached");
 
-    let dir = HostPath::new("/tmp");
     let session = connection
-        .attach(1, None, Some(&dir))
+        .attach(1, None, Some("/tmp"))
         .await
         .expect("pi starts in the directory pie chose");
-    assert_eq!(session.cwd().map(HostPath::as_str), Some("/tmp"));
+    assert_eq!(session.cwd(), Some("/tmp"));
 
     let state = session.state().await.expect("a state");
     session
@@ -597,7 +561,7 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
     let sessions = format!("{}/agent/sessions", pi_root.path);
     let projects = connection
         .host()
-        .dirs(Some(&HostPath::new(sessions.clone())))
+        .dirs(Some(&sessions))
         .await
         .expect("the sessions directory lists");
     assert!(
@@ -607,10 +571,10 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
 
     let error = connection
         .host()
-        .dirs(Some(&HostPath::new(".pi/agent/sessions")))
+        .dirs(Some(".pi/agent/sessions"))
         .await
         .expect_err("a relative path is not a path pie resolves");
-    assert!(matches!(&error, HostError::NotAbsolute { .. }), "got {error:?}");
+    assert!(error.to_string().contains("is not absolute"), "got {error}");
 }
 
 /// The directory picker makes a missing folder over the same sftp channel.
@@ -628,46 +592,39 @@ async fn the_directory_picker_makes_a_missing_folder_over_sftp() {
     let home = connection.host().dirs(None).await.expect("the home directory lists");
     let fresh = format!("{}/pie-probe/sub", home.directory);
     assert!(
-        !connection
-            .host()
-            .dir_exists(&HostPath::new(fresh.clone()))
-            .await
-            .expect("the probe answers"),
+        !connection.host().dir_exists(&fresh).await.expect("the probe answers"),
         "the folder is missing before it is made"
     );
     connection
         .host()
-        .create(&HostPath::new(fresh.clone()))
+        .create_dir(&fresh)
         .await
         .expect("the missing folder is made with its parent");
     assert!(
-        connection
-            .host()
-            .dir_exists(&HostPath::new(fresh.clone()))
-            .await
-            .expect("the probe answers"),
+        connection.host().dir_exists(&fresh).await.expect("the probe answers"),
         "the folder stands after it is made"
     );
 
+    let probe_dir = format!("{}/pie-probe", home.directory);
     let read = connection
         .host()
-        .dirs(Some(&HostPath::new(format!("{}/pie-probe", home.directory))))
+        .dirs(Some(&probe_dir))
         .await
         .expect("the made folder lists");
     assert!(read.entries.iter().any(|row| row.name == "sub" && row.is_dir));
 
     connection
         .host()
-        .create(&HostPath::new(fresh))
+        .create_dir(&fresh)
         .await
         .expect("making what stands is fine");
 
     let error = connection
         .host()
-        .create(&HostPath::new(".pi/agent/sessions"))
+        .create_dir(".pi/agent/sessions")
         .await
         .expect_err("a relative path is not a path pie resolves");
-    assert!(matches!(&error, HostError::NotAbsolute { .. }), "got {error:?}");
+    assert!(error.to_string().contains("is not absolute"), "got {error}");
 }
 
 /// The id of an entry, read from its wire shape.
@@ -787,10 +744,7 @@ async fn an_attach_on_a_conversation_starts_pi_holding_that_file() {
 
     // The second process starts on that file. No `switch_session` runs: the file
     // is what pi holds from its first moment.
-    let loaded = connection
-        .attach(2, Some(&HostPath::new(file.clone())), None)
-        .await
-        .expect("pi is on PATH");
+    let loaded = connection.attach(2, Some(&file), None).await.expect("pi is on PATH");
     let state = loaded.state().await.expect("the state of the loaded conversation");
     assert_eq!(
         state.session_file.as_deref(),
@@ -930,10 +884,7 @@ async fn a_deleted_conversation_leaves_the_listing() {
     let row = wait_for_the_listing(&connection, &state.session_id).await;
 
     connection.detach("delete:1").await.expect("the process goes first");
-    connection
-        .delete_conversation(&HostPath::new(row.path.clone()))
-        .await
-        .expect("the file goes");
+    connection.delete_conversation(&row.path).await.expect("the file goes");
 
     assert!(
         !connection
@@ -970,7 +921,7 @@ async fn a_conversation_deleted_over_sftp_leaves_the_host_listing() {
 
     connection.detach("test:1").await.expect("the process goes first");
     connection
-        .delete_conversation(&HostPath::new(row.path.clone()))
+        .delete_conversation(&row.path)
         .await
         .expect("the file goes over sftp");
 

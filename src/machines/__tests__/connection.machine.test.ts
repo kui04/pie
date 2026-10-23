@@ -131,7 +131,7 @@ describe("connectionMachine", () => {
 
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
         expect(actor.getSnapshot().context.error).toEqual({
-            type: "commands",
+            kind: "unreached",
             message: "no IPC bridge here",
         });
         expect(harness.deps.connect).not.toHaveBeenCalled();
@@ -229,13 +229,11 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "waiting" })).toBe(true));
 
         harness.failWith({
-            type: "rpc",
+            kind: "failed",
             message: "nobody answered whether to trust this host key",
-            error: { kind: "host_key_rejected" },
         });
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
-        expect(actor.getSnapshot().context.error?.type).toBe("rpc");
-        expect(actor.getSnapshot().context.error?.error?.kind).toBe("host_key_rejected");
+        expect(actor.getSnapshot().context.error?.kind).toBe("failed");
     });
 
     it("answers once, and the question comes down while the handshake runs on", async () => {
@@ -269,13 +267,12 @@ describe("connectionMachine", () => {
         await vi.waitFor(() => expect(harness.deps.trustHostKey).toHaveBeenCalledWith("main", false));
     });
 
-    it("reports a refused host key as the kind Rust gave it", async () => {
+    it("reports a refused host key as the sentence Rust wrote", async () => {
         const harness = fakeDeps({
             connect: async () => {
                 throw {
-                    type: "rpc",
+                    kind: "failed",
                     message: "the key at 192.168.1.10:22 is not the one on record",
-                    error: { kind: "host_key_rejected" },
                 };
             },
         });
@@ -284,16 +281,15 @@ describe("connectionMachine", () => {
         actor.send({ type: "CONNECT", spec: SPEC });
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
         expect(actor.getSnapshot().context.error).toEqual({
-            type: "rpc",
+            kind: "failed",
             message: "the key at 192.168.1.10:22 is not the one on record",
-            error: { kind: "host_key_rejected" },
         });
     });
 
     it("unlocks for a retry, and clears the failure", async () => {
         const harness = fakeDeps({
             connect: async () => {
-                throw { type: "rpc", message: "connection refused", error: { kind: "connect" } };
+                throw { kind: "failed", message: "connection refused" };
             },
         });
         const actor = createActor(connectionMachine, { input: harness.deps }).start();

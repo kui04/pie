@@ -21,11 +21,9 @@
 //!   is the one place that knows which machine it reached, and the one place
 //!   that knows how a channel is opened over SSH.
 
-mod error;
 pub(crate) mod ssh;
 mod stdio;
 
-pub use error::{Error, Result};
 pub use ssh::Exec;
 pub use stdio::Program;
 
@@ -44,6 +42,9 @@ const READ_BUFFER: usize = 32 * 1024;
 
 /// The largest record pie frames from pi: one answer holds a whole conversation.
 pub(crate) const MAX_LINE: usize = 128 * 1024 * 1024;
+
+type BoxedReader = Box<dyn AsyncRead + Unpin + Send + 'static>;
+type BoxedWriter = Box<dyn AsyncWrite + Unpin + Send + 'static>;
 
 /// How a program stopped.
 ///
@@ -72,35 +73,31 @@ pub enum Termination {
 }
 
 /// One started program: a byte path, and the life behind it.
-///
-/// `Debug` is written by hand: the byte paths are trait objects, and a trait
-/// object of a foreign trait carries no `Debug` with it.
 pub struct Channel {
-    source: Box<dyn AsyncRead + Unpin + Send + 'static>,
-    sink: Box<dyn AsyncWrite + Unpin + Send + 'static>,
+    reader: BoxedReader,
+    writer: BoxedWriter,
     handle: Handle,
 }
 
 impl Channel {
-    /// Assembles a channel from its paths, its diagnostics and its life.
+    /// Assembles a channel from its I/O streams and lifecycle controller.
     ///
-    /// The standard error is read from here on, in a task of its own, for the
-    /// reason in the module documentation.
+    /// Spawns background tasks to drain `stderr` and monitor `lifecycle`.
     ///
     /// # Panics
     ///
-    /// Without a Tokio runtime, like `tokio::spawn`.
-    pub(crate) fn of(
-        source: Box<dyn AsyncRead + Unpin + Send + 'static>,
-        sink: Box<dyn AsyncWrite + Unpin + Send + 'static>,
-        diagnostics: Box<dyn AsyncRead + Unpin + Send + 'static>,
-        behind: Behind,
+    /// Panics if called outside of a Tokio runtime.
+    pub(crate) fn new(
+        reader: impl AsyncRead + Unpin + Send + 'static,
+        writer: impl AsyncWrite + Unpin + Send + 'static,
+        stderr: impl AsyncRead + Unpin + Send + 'static,
+        lifecycle: Lifecycle,
     ) -> Self {
-        tokio::spawn(drain(diagnostics));
+        tokio::spawn(drain_stderr(Box::new(stderr)));
         Self {
-            source,
-            sink,
-            handle: Handle::watch(behind),
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            handle: Handle::spawn(lifecycle),
         }
     }
 
@@ -129,12 +126,12 @@ impl Transport for Channel {
 
     fn split(self) -> (Self::Tx, Self::Rx) {
         (
-            Sender { sink: self.sink },
+            Sender { writer: self.writer },
             Receiver {
-                source: self.source,
+                reader: self.reader,
                 decoder: Decoder::with_max_line(MAX_LINE),
                 ready: VecDeque::new(),
-                buffer: vec![0u8; READ_BUFFER],
+                buffer: vec![0u8; READ_BUFFER].into_boxed_slice(),
             },
         )
     }
@@ -150,27 +147,25 @@ impl Transport for Channel {
 ///
 /// Never. A line that the cap or the encoding refuses is dropped, and a read
 /// that fails ends the drain.
-async fn drain(mut reader: Box<dyn AsyncRead + Unpin + Send + 'static>) {
+async fn drain_stderr(mut stderr: BoxedReader) {
     let mut decoder = Decoder::with_max_line(MAX_LINE);
-    let mut buffer = vec![0u8; READ_BUFFER];
+    let mut buffer = vec![0u8; READ_BUFFER].into_boxed_slice();
+
     loop {
-        match reader.read(&mut buffer).await {
+        match stderr.read(&mut buffer).await {
             Ok(0) => break,
-            Ok(count) => match decoder.push(&buffer[..count]) {
+            Ok(n) => match decoder.push(&buffer[..n]) {
                 Ok(lines) => {
                     for line in lines {
-                        tracing::debug!(target: "channel::stderr", line = %line, "the program wrote to stderr");
+                        tracing::debug!(target: "channel::stderr", %line, "the program wrote to stderr");
                     }
                 }
-                // A log line that is not a line: what the cap or the encoding
-                // refused is not worth stopping the drain for, and the reader is
-                // where the program is blocked until this runs.
                 Err(error) => {
                     tracing::debug!(target: "channel::stderr", %error, "a line of the program's log was dropped");
                     decoder.reset();
                 }
             },
-            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(error) => {
                 tracing::debug!(target: "channel::stderr", %error, "the program's log ended in a failure");
                 break;
@@ -181,7 +176,7 @@ async fn drain(mut reader: Box<dyn AsyncRead + Unpin + Send + 'static>) {
 
 /// The writing half of a [`Channel`], in records.
 pub struct Sender {
-    sink: Box<dyn AsyncWrite + Unpin + Send + 'static>,
+    writer: BoxedWriter,
 }
 
 impl std::fmt::Debug for Sender {
@@ -191,38 +186,32 @@ impl std::fmt::Debug for Sender {
 }
 
 impl TransportSend for Sender {
-    async fn send(&mut self, line: String) -> pi_rpc::error::Result<()> {
-        // The client hands a record without its terminator, and framing is this
-        // layer's job: one record is one LF-terminated line.
-        let (head, tail) = (line.as_bytes(), b"\n".as_slice());
-        self.sink.write_all(head).await?;
-        self.sink.write_all(tail).await?;
-        self.sink.flush().await?;
+    async fn send(&mut self, mut line: String) -> pi_rpc::error::Result<()> {
+        line.push('\n');
+        self.writer.write_all(line.as_bytes()).await?;
+        self.writer.flush().await?;
         Ok(())
     }
 
     async fn close(&mut self) -> pi_rpc::error::Result<()> {
-        // The program's standard input must reach EOF, and which half of that a
-        // path delivers differs: `AsyncWrite::shutdown` is a no-op for
-        // `tokio::process::ChildStdin` (`ChildStdio::poll_shutdown` returns
-        // `Ready(Ok(()))` without touching the pipe) while dropping the write
-        // half is what gives it EOF - and the client drops this value once close
-        // returns. An SSH channel is the other way around: dropping its writer
-        // sends nothing, while `shutdown` sends the channel EOF that reaches the
-        // remote program as standard-input EOF. Doing both covers each.
-        Ok(self.sink.shutdown().await?)
+        // Standard input reaches EOF differently on each path: `shutdown` is a
+        // no-op for a child's stdin, which sees EOF when the writer is dropped,
+        // while an SSH writer sends the channel EOF only on `shutdown`. Doing
+        // both covers each; the client drops this value once `close` returns.
+        self.writer.shutdown().await?;
+        Ok(())
     }
 }
 
 /// The reading half of a [`Channel`], in records.
 pub struct Receiver {
-    source: Box<dyn AsyncRead + Unpin + Send + 'static>,
+    reader: BoxedReader,
     decoder: Decoder,
     /// Lines that arrived in the same chunk as the one returned before them.
     ready: VecDeque<String>,
     /// The place of the next read, kept between calls so a read allocates
     /// nothing.
-    buffer: Vec<u8>,
+    buffer: Box<[u8]>,
 }
 
 impl std::fmt::Debug for Receiver {
@@ -240,14 +229,13 @@ impl TransportRecv for Receiver {
             if let Some(line) = self.ready.pop_front() {
                 return Ok(Some(line));
             }
-            match self.source.read(&mut self.buffer).await {
-                // A clean end: every byte wrote arrived before it.
+            match self.reader.read(&mut self.buffer).await {
                 Ok(0) => return Ok(None),
-                Ok(count) => {
-                    self.ready.extend(self.decoder.push(&self.buffer[..count])?);
+                Ok(n) => {
+                    self.ready.extend(self.decoder.push(&self.buffer[..n])?);
                 }
-                Err(error) if error.kind() == ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
             }
         }
     }
@@ -256,32 +244,24 @@ impl TransportRecv for Receiver {
 /// The two halves of a program's lifecycle, behind one enum so a caller that does
 /// not care where it runs can handle either.
 ///
-/// Contract: once [`Behind::wait`] resolves, the program's bytes reached their end
+/// Contract: once [`Lifecycle::wait`] resolves, the program's bytes reached their end
 /// too, so a reader has already seen everything it wrote.
-pub(crate) enum Behind {
+#[derive(Debug)]
+pub(crate) enum Lifecycle {
     Stdio(stdio::Control),
     Ssh(ssh::Control),
 }
 
-impl std::fmt::Debug for Behind {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Stdio(control) => formatter.debug_tuple("Behind::Stdio").field(control).finish(),
-            Self::Ssh(control) => formatter.debug_tuple("Behind::Ssh").field(control).finish(),
-        }
-    }
-}
-
-impl Behind {
+impl Lifecycle {
     /// Ends the program. For a process: kill and reap.
-    async fn terminate(&mut self) -> Result<()> {
+    async fn terminate(&mut self) {
         match self {
             Self::Stdio(control) => control.terminate().await,
             Self::Ssh(control) => control.terminate().await,
         }
     }
 
-    async fn wait(&mut self) -> Result<Termination> {
+    async fn wait(&mut self) -> Termination {
         match self {
             Self::Stdio(control) => control.wait().await,
             Self::Ssh(control) => control.wait().await,
@@ -298,76 +278,53 @@ impl Behind {
 /// second hand reaching the first, and this channel is it.
 #[derive(Debug, Clone)]
 pub struct Handle {
-    commands: mpsc::Sender<()>,
-    ended: watch::Receiver<Option<Termination>>,
+    term_tx: mpsc::Sender<()>,
+    ended_rx: watch::Receiver<Option<Termination>>,
 }
 
 impl Handle {
-    /// Starts the watch of one program.
-    fn watch(behind: Behind) -> Self {
-        let (commands, orders) = mpsc::channel(1);
-        let (ended, ended_rx) = watch::channel(None);
-        tokio::spawn(keep_watch(behind, orders, ended));
-        Self {
-            commands,
-            ended: ended_rx,
-        }
+    fn spawn(mut lifecycle: Lifecycle) -> Self {
+        let (term_tx, mut term_rx) = mpsc::channel(1);
+        let (ended_tx, ended_rx) = watch::channel(None);
+
+        tokio::spawn(async move {
+            let termination = tokio::select! {
+                term = lifecycle.wait() => term,
+                cmd = term_rx.recv() => {
+                    if cmd.is_some() {
+                        lifecycle.terminate().await;
+                    }
+                    lifecycle.wait().await
+                }
+            };
+            tracing::debug!(?termination, "the program ended");
+            ended_tx.send_replace(Some(termination));
+        });
+
+        Self { term_tx, ended_rx }
     }
 
     /// Whether the program still runs.
     pub fn is_alive(&self) -> bool {
-        self.ended.borrow().is_none()
+        self.ended_rx.borrow().is_none()
     }
 
     /// Asks the program to stop, and answers once the order is in the watcher's
     /// hands. The end itself arrives through [`Handle::wait`].
     pub async fn terminate(&self) {
-        let _ = self.commands.send(()).await;
+        let _ = self.term_tx.send(()).await;
     }
 
     /// Waits until the program ends, however it ends.
     pub async fn wait(&self) -> Termination {
-        let mut ended = self.ended.clone();
-        loop {
-            if let Some(termination) = *ended.borrow_and_update() {
-                return termination;
-            }
-            if ended.changed().await.is_err() {
-                // The watcher is gone, which is the watcher's own end.
-                return Termination::Unknown;
-            }
-        }
+        self.ended_rx
+            .clone()
+            .wait_for(Option::is_some)
+            .await
+            .ok()
+            .and_then(|t| *t)
+            .unwrap_or(Termination::Unknown)
     }
-}
-
-/// Watches one program to its end, ending it when asked.
-///
-/// Both `wait` futures are dropped when the other branch of the select wins, and
-/// both are cancel-safe: a cancelled `Child::wait` leaves the child unreaped and
-/// a cancelled watch read loses nothing, so asking to terminate and then waiting
-/// again is the same as having asked first.
-async fn keep_watch(mut behind: Behind, mut orders: mpsc::Receiver<()>, ended: watch::Sender<Option<Termination>>) {
-    // A closed receiver answers `None` at once. Polling it again would spin the
-    // loop, so the flag takes the branch out and leaves the wait for the
-    // program alone.
-    let mut nobody_asks = false;
-    let termination = loop {
-        tokio::select! {
-            result = behind.wait() => break result.unwrap_or(Termination::Unknown),
-            order = orders.recv(), if !nobody_asks => match order {
-                Some(()) => {
-                    if let Err(error) = behind.terminate().await {
-                        tracing::debug!(%error, "asking the program to stop failed");
-                    }
-                }
-                // Every hand is gone; the program is nobody's to end, so this
-                // keeps waiting for it to end on its own.
-                None => nobody_asks = true,
-            },
-        }
-    };
-    tracing::debug!(?termination, "the program ended");
-    ended.send_replace(Some(termination));
 }
 
 #[cfg(test)]

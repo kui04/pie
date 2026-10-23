@@ -20,8 +20,6 @@ use pi_rpc::response::{
 use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
 use crate::channel::{Channel, Handle};
-use crate::error::PieError;
-use crate::host::HostPath;
 
 use super::SessionInfo;
 use super::extension::Extension;
@@ -55,7 +53,7 @@ pub struct Session {
     id: Id,
     /// The start of pi, if pie selected it. `None` means the directory of the
     /// login shell decided, or the machine has no home directory.
-    cwd: Option<HostPath>,
+    cwd: Option<String>,
     client: Client,
     /// The extension UI state of this session: what pi asks before a screen can
     /// answer, and what a listener that arrives late reads again.
@@ -86,7 +84,7 @@ pub(crate) fn speaking(channel: Channel) -> (Client, Handle) {
 
 impl Session {
     /// Assembles a session from its id, its directory, and its started pi.
-    pub(crate) fn new(id: Id, cwd: Option<HostPath>, client: Client, handle: Handle) -> Self {
+    pub(crate) fn new(id: Id, cwd: Option<String>, client: Client, handle: Handle) -> Self {
         Self {
             id,
             cwd,
@@ -102,8 +100,8 @@ impl Session {
     }
 
     /// The start of pi, if pie selected it.
-    pub fn cwd(&self) -> Option<&HostPath> {
-        self.cwd.as_ref()
+    pub fn cwd(&self) -> Option<&str> {
+        self.cwd.as_deref()
     }
 
     /// The client that speaks to the pi of this session.
@@ -143,7 +141,7 @@ impl Session {
     ///
     /// The failure of the protocol: pi refuses the command, or its answer does
     /// not match the mirrored type, or the pi of this session is gone.
-    pub async fn state(&self) -> Result<SessionState, PieError> {
+    pub async fn state(&self) -> anyhow::Result<SessionState> {
         Ok(self.client.get_state().await?)
     }
 
@@ -157,7 +155,7 @@ impl Session {
     /// # Errors
     ///
     /// The same as [`Session::state`].
-    pub async fn entries(&self) -> Result<EntryList, PieError> {
+    pub async fn entries(&self) -> anyhow::Result<EntryList> {
         Ok(self.client.get_entries(None).await?)
     }
 
@@ -166,7 +164,7 @@ impl Session {
     /// # Errors
     ///
     /// The same as [`Session::state`].
-    pub async fn stats(&self) -> Result<SessionStats, PieError> {
+    pub async fn stats(&self) -> anyhow::Result<SessionStats> {
         Ok(self.client.get_session_stats().await?)
     }
 
@@ -197,7 +195,7 @@ impl Session {
         message: &str,
         images: Option<Vec<ImageContent>>,
         behavior: Option<StreamingBehavior>,
-    ) -> Result<PromptData, PieError> {
+    ) -> anyhow::Result<PromptData> {
         let disposition = self
             .client
             .prompt_with(PromptReq {
@@ -220,7 +218,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn abort(&self) -> Result<(), PieError> {
+    pub async fn abort(&self) -> anyhow::Result<()> {
         Ok(self.client.abort().await?)
     }
 
@@ -233,7 +231,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn clear_queue(&self) -> Result<ClearQueueData, PieError> {
+    pub async fn clear_queue(&self) -> anyhow::Result<ClearQueueData> {
         Ok(self.client.clear_queue().await?)
     }
 
@@ -252,7 +250,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn bash(&self, command: &str, exclude_from_context: bool) -> Result<BashResult, PieError> {
+    pub async fn bash(&self, command: &str, exclude_from_context: bool) -> anyhow::Result<BashResult> {
         Ok(self
             .client
             .bash_with(BashReq {
@@ -267,7 +265,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn abort_bash(&self) -> Result<(), PieError> {
+    pub async fn abort_bash(&self) -> anyhow::Result<()> {
         Ok(self.client.abort_bash().await?)
     }
 
@@ -280,7 +278,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn commands(&self) -> Result<CommandsData, PieError> {
+    pub async fn commands(&self) -> anyhow::Result<CommandsData> {
         Ok(CommandsData {
             commands: self.client.get_commands().await?,
         })
@@ -291,7 +289,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn available_models(&self) -> Result<AvailableModelsData, PieError> {
+    pub async fn available_models(&self) -> anyhow::Result<AvailableModelsData> {
         Ok(AvailableModelsData {
             models: self.client.get_available_models().await?,
         })
@@ -302,7 +300,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn available_thinking_levels(&self) -> Result<AvailableThinkingLevelsData, PieError> {
+    pub async fn available_thinking_levels(&self) -> anyhow::Result<AvailableThinkingLevelsData> {
         Ok(AvailableThinkingLevelsData {
             levels: self.client.get_available_thinking_levels().await?,
         })
@@ -313,7 +311,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol, including a model that pi does not know.
-    pub async fn set_model(&self, provider: &str, model_id: &str) -> Result<Model, PieError> {
+    pub async fn set_model(&self, provider: &str, model_id: &str) -> anyhow::Result<Model> {
         Ok(self.client.set_model(provider, model_id).await?)
     }
 
@@ -322,7 +320,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol, including a level that the session does not support.
-    pub async fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), PieError> {
+    pub async fn set_thinking_level(&self, level: ThinkingLevel) -> anyhow::Result<()> {
         Ok(self.client.set_thinking_level(level).await?)
     }
 
@@ -331,7 +329,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn set_auto_compaction(&self, enabled: bool) -> Result<(), PieError> {
+    pub async fn set_auto_compaction(&self, enabled: bool) -> anyhow::Result<()> {
         Ok(self.client.set_auto_compaction(enabled).await?)
     }
 
@@ -345,7 +343,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol, including a compaction that already runs.
-    pub async fn compact(&self, custom_instructions: Option<&str>) -> Result<CompactionResult, PieError> {
+    pub async fn compact(&self, custom_instructions: Option<&str>) -> anyhow::Result<CompactionResult> {
         Ok(self.client.compact(custom_instructions).await?)
     }
 
@@ -356,7 +354,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn last_assistant_text(&self) -> Result<LastAssistantTextData, PieError> {
+    pub async fn last_assistant_text(&self) -> anyhow::Result<LastAssistantTextData> {
         Ok(LastAssistantTextData {
             text: self.client.get_last_assistant_text().await?,
         })
@@ -367,7 +365,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol, including an empty name, which pi refuses.
-    pub async fn set_session_name(&self, name: &str) -> Result<(), PieError> {
+    pub async fn set_session_name(&self, name: &str) -> anyhow::Result<()> {
         Ok(self.client.set_session_name(name).await?)
     }
 
@@ -381,7 +379,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol.
-    pub async fn fork_messages(&self) -> Result<Vec<ForkMessage>, PieError> {
+    pub async fn fork_messages(&self) -> anyhow::Result<Vec<ForkMessage>> {
         Ok(self.client.get_fork_messages().await?)
     }
 
@@ -402,7 +400,7 @@ impl Session {
     /// The failure of the protocol, including a conversation with no file yet
     /// ("send a message before cloning or forking it") and an entry that is not a
     /// user message.
-    pub async fn fork(&self, entry_id: &str) -> Result<ForkData, PieError> {
+    pub async fn fork(&self, entry_id: &str) -> anyhow::Result<ForkData> {
         Ok(self.client.fork(entry_id).await?)
     }
 
@@ -416,7 +414,7 @@ impl Session {
     /// # Errors
     ///
     /// The failure of the protocol, including a conversation with no file yet.
-    pub async fn clone_session(&self) -> Result<SessionSwitch, PieError> {
+    pub async fn clone_session(&self) -> anyhow::Result<SessionSwitch> {
         Ok(self.client.clone_session().await?)
     }
 }

@@ -23,17 +23,19 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
 }));
 
 /** A failure as the boundary really receives one: the plain object Rust rejected with. */
-function aFailure(type: string, message: string): Error {
-    return { type, message } as unknown as Error;
+function aFailure(message: string): Error {
+    return { kind: "failed", message } as unknown as Error;
 }
 
-/** What the cache is handed when it reports: only the hash is read. */
-const aQuery = { queryHash: `["session","main:1","entries"]` } as unknown as Query<
-    unknown,
-    unknown,
-    unknown,
-    readonly unknown[]
->;
+/** What the cache is handed when it reports: the hash for the log, and the key for the rule. */
+function aQuery(queryKey: readonly unknown[]): Query<unknown, unknown, unknown, readonly unknown[]> {
+    return { queryHash: JSON.stringify(queryKey), queryKey } as unknown as Query<
+        unknown,
+        unknown,
+        unknown,
+        readonly unknown[]
+    >;
+}
 
 describe("a read that failed", () => {
     let stop: (() => void) | undefined;
@@ -43,21 +45,24 @@ describe("a read that failed", () => {
         stop = undefined;
     });
 
-    it("tells the boundary when the failure is the reach to the machine", () => {
+    it("tells the boundary when a read of the machine failed", () => {
         const heard = vi.fn();
         stop = subscribeToReachFailures(heard);
 
-        queryClient.getQueryCache().config.onError?.(aFailure("host", "the host never answered"), aQuery);
+        queryClient
+            .getQueryCache()
+            .config.onError?.(aFailure("the host never answered"), aQuery(["session", "main:1", "entries"]));
 
         expect(heard).toHaveBeenCalledTimes(1);
     });
 
-    it("leaves the boundary alone when the failure is behind a live reach", () => {
+    it("leaves the boundary alone when the read of the connection itself failed", () => {
         const heard = vi.fn();
         stop = subscribeToReachFailures(heard);
 
-        // A session that ended is not a connection that ended: pi is gone, the machine is not.
-        queryClient.getQueryCache().config.onError?.(aFailure("session", "unknown session"), aQuery);
+        // The connection read is the question itself: asking it again because it failed
+        // would repeat the failure, not answer it.
+        queryClient.getQueryCache().config.onError?.(aFailure("the IPC did not answer"), aQuery(["connection"]));
 
         expect(heard).not.toHaveBeenCalled();
     });

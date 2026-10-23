@@ -11,8 +11,6 @@ use std::fmt::{Display, Formatter};
 
 use serde::Serialize;
 
-use super::Error;
-
 /// The name of a connection, and the stem of the ids of its sessions.
 ///
 /// The number that makes a session id unique is the app's: it counts the pi
@@ -27,9 +25,9 @@ impl Id {
     ///
     /// # Errors
     ///
-    /// [`Error::UnusableName`] when the name is empty, longer than 64 characters,
-    /// or holds a character that an event name cannot carry.
-    pub fn new(connection: &str) -> Result<Self, Error> {
+    /// A sentence when the name is empty, longer than 64 characters, or holds a
+    /// character that an event name cannot carry.
+    pub fn new(connection: &str) -> anyhow::Result<Self> {
         let usable = !connection.is_empty()
             && connection.len() <= 64
             && connection
@@ -38,9 +36,9 @@ impl Id {
         if usable {
             return Ok(Self(connection.to_string()));
         }
-        Err(Error::UnusableName {
-            id: connection.to_string(),
-        })
+        Err(anyhow::anyhow!(
+            "`{connection}` cannot name a connection: use up to 64 letters, digits, `-` and `_`"
+        ))
     }
 
     /// The id of a session of this connection: the name, a colon, the number.
@@ -75,8 +73,8 @@ mod tests {
         for unusable in ["", "a/b", "a b", "pi://connection/x", &"y".repeat(65)] {
             let error = Id::new(unusable).expect_err("this name cannot name an event");
             assert!(
-                matches!(error, Error::UnusableName { .. }),
-                "got {error:?} for `{unusable}`"
+                error.to_string().contains("cannot name a connection"),
+                "got {error} for `{unusable}`"
             );
         }
     }

@@ -11,9 +11,8 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use super::spec::Endpoint;
+use super::Endpoint;
 use super::ssh::ExecOutput;
-use super::{Error, Result};
 use crate::channel::Termination;
 
 /// The Pi release this crate mirrors.
@@ -42,15 +41,15 @@ const SPAWN_RETRY_DELAY: Duration = Duration::from_millis(20);
 ///
 /// # Errors
 ///
-/// [`Error::VersionProbe`] when the program cannot be run at all (a missing `pi`), when
-/// it exits non-zero, prints nothing usable, or does not answer within
+/// A sentence when the program cannot be run at all (a missing `pi`), when it
+/// exits non-zero, prints nothing usable, or does not answer within
 /// `VERSION_PROBE_TIMEOUT`.
-pub async fn probe_version(program: impl AsRef<OsStr>) -> Result<String> {
+pub async fn probe_version(program: impl AsRef<OsStr>) -> anyhow::Result<String> {
     probe_version_within(program, VERSION_PROBE_TIMEOUT).await
 }
 
 /// [`probe_version`], with the bound the caller needs.
-async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> Result<String> {
+async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> anyhow::Result<String> {
     let program = program.as_ref();
     let name = program.to_string_lossy().into_owned();
     // `ETXTBSY` means the program is being written or executed right now; the
@@ -72,10 +71,9 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
                 tokio::time::sleep(SPAWN_RETRY_DELAY).await;
             }
             Err(source) => {
-                return Err(Error::VersionProbe {
-                    program: name,
-                    message: format!("could not be started: {source}"),
-                });
+                return Err(anyhow::anyhow!(
+                    "`{name} --version` failed: could not be started: {source}"
+                ));
             }
         }
     };
@@ -101,16 +99,13 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
         Ok(joined) => joined,
         Err(_elapsed) => {
             let _ = child.kill().await;
-            return Err(Error::VersionProbe {
-                program: name,
-                message: format!("printed no version within {timeout:?}"),
-            });
+            return Err(anyhow::anyhow!(
+                "`{name} --version` failed: printed no version within {timeout:?}"
+            ));
         }
     };
-    let status = status.map_err(|source| Error::VersionProbe {
-        program: name.clone(),
-        message: format!("could not be waited for: {source}"),
-    })?;
+    let status =
+        status.map_err(|source| anyhow::anyhow!("`{name} --version` failed: could not be waited for: {source}"))?;
 
     let stdout = String::from_utf8_lossy(&stdout);
     let stdout = stdout.trim();
@@ -129,20 +124,19 @@ async fn probe_version_within(program: impl AsRef<OsStr>, timeout: Duration) -> 
         } else {
             format!(", said `{said}`")
         };
-        return Err(Error::VersionProbe {
-            program: name.clone(),
-            message: format!("exited with {status}{printed}{said}"),
-        });
+        return Err(anyhow::anyhow!(
+            "`{name} --version` failed: exited with {status}{printed}{said}"
+        ));
     }
     if stdout.is_empty() {
-        return Err(Error::VersionProbe {
-            program: name,
-            message: if said.is_empty() {
-                "printed nothing on stdout".to_string()
+        return Err(anyhow::anyhow!(
+            "`{name} --version` failed: printed nothing on stdout{}",
+            if said.is_empty() {
+                String::new()
             } else {
-                format!("printed nothing on stdout, said `{said}`")
-            },
-        });
+                format!(", said `{said}`")
+            }
+        ));
     }
     Ok(stdout.to_string())
 }
@@ -174,17 +168,32 @@ fn first_said(stderr: &[u8]) -> String {
 ///
 /// # Errors
 ///
-/// [`Error::VersionMismatch`] when the probe reports a version other than the
-/// pin; whether that is fatal is the caller's decision.
-pub fn check_version(found: impl AsRef<str>) -> Result<()> {
+/// A [`VersionMismatch`] when the probe reports a version other than the pin;
+/// whether that is fatal is the caller's decision.
+pub fn check_version(found: impl AsRef<str>) -> Result<(), VersionMismatch> {
     let found = found.as_ref().trim();
     if found == PI_VERSION || found == UNKNOWN_VERSION {
         return Ok(());
     }
-    Err(Error::VersionMismatch {
+    Err(VersionMismatch {
         expected: PI_VERSION.to_string(),
         found: found.to_string(),
     })
+}
+
+/// The `pi` on a machine is not the release that pie mirrors.
+///
+/// This is the one failure of the layer that a caller still matches on: a
+/// mismatch is not fatal, so [`Host::connect`](super::Host::connect) logs it and
+/// goes on, while every other failure of the probe stops the connect. It is a
+/// type of its own for that one decision, not a category on the wire.
+#[derive(Debug, thiserror::Error)]
+#[error("pi version mismatch: expected {expected}, found {found}")]
+pub struct VersionMismatch {
+    /// Version pie mirrors.
+    pub expected: String,
+    /// Version reported by the probed binary.
+    pub found: String,
 }
 
 /// What a packaged pi reports when its build had no version to bake in: not
@@ -195,15 +204,14 @@ const UNKNOWN_VERSION: &str = "0.0.0";
 ///
 /// This is [`check_version`] on a program that ran on another machine.
 /// Therefore its failures name the endpoint, and the output of a wrapped pi is
-/// the reason to pass on: a `pi` that printed a version pie does not speak is
-/// [`Error::VersionMismatch`], and a probe with no answer is
-/// [`Error::RemoteVersion`].
+/// the reason to pass on: a `pi` that printed a version pie does not speak is a
+/// [`VersionMismatch`], and a probe with no answer is the sentence below.
 ///
 /// # Errors
 ///
-/// [`Error::VersionMismatch`] for a real release that is not the pin, and
-/// [`Error::RemoteVersion`] for a probe that ended without printing one.
-pub(crate) fn check_remote_version(endpoint: &Endpoint, output: ExecOutput) -> Result<()> {
+/// A [`VersionMismatch`] for a real release that is not the pin, and a sentence
+/// for a probe that ended without printing one.
+pub(crate) fn check_remote_version(endpoint: &Endpoint, output: ExecOutput) -> anyhow::Result<()> {
     let printed = String::from_utf8_lossy(&output.stdout);
     let printed = printed.trim();
     if let Termination::Exited { success: true, .. } = output.termination
@@ -225,10 +233,7 @@ pub(crate) fn check_remote_version(endpoint: &Endpoint, output: ExecOutput) -> R
         Termination::Signalled { signal } => format!("was killed by signal {signal}"),
         Termination::Unknown => "ended without a status".to_string(),
     };
-    Err(Error::RemoteVersion {
-        endpoint: endpoint.to_string(),
-        reported: format!("{ended}{said}"),
-    })
+    Err(anyhow::anyhow!("`pi --version` on {endpoint} {ended}{said}"))
 }
 
 #[cfg(test)]
@@ -243,13 +248,9 @@ mod tests {
             "probe output arrives untrimmed"
         );
 
-        match check_version("0.0.1").unwrap_err() {
-            Error::VersionMismatch { expected, found } => {
-                assert_eq!(expected, PI_VERSION);
-                assert_eq!(found, "0.0.1");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let mismatch = check_version("0.0.1").unwrap_err();
+        assert_eq!(mismatch.expected, PI_VERSION);
+        assert_eq!(mismatch.found, "0.0.1");
     }
 
     #[test]
@@ -270,10 +271,11 @@ mod tests {
 
         check_remote_version(&Endpoint::new("pi@host:22"), printed(PI_VERSION.as_bytes())).expect("the pin matches");
 
-        match check_remote_version(&Endpoint::new("pi@host:22"), printed(b"0.84.2")).unwrap_err() {
-            Error::VersionMismatch { found, .. } => assert_eq!(found, "0.84.2"),
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let error = check_remote_version(&Endpoint::new("pi@host:22"), printed(b"0.84.2")).unwrap_err();
+        let mismatch = error
+            .downcast_ref::<VersionMismatch>()
+            .expect("a real release is a mismatch");
+        assert_eq!(mismatch.found, "0.84.2");
     }
 
     #[test]
@@ -287,14 +289,12 @@ mod tests {
             },
         };
 
-        match check_remote_version(&Endpoint::new("pi@host:22"), output).unwrap_err() {
-            Error::RemoteVersion { endpoint, reported } => {
-                assert_eq!(endpoint, "pi@host:22");
-                assert!(reported.contains("exited with 127"), "got `{reported}`");
-                assert!(reported.contains("command not found"), "got `{reported}`");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let message = check_remote_version(&Endpoint::new("pi@host:22"), output)
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("pi@host:22"), "got `{message}`");
+        assert!(message.contains("exited with 127"), "got `{message}`");
+        assert!(message.contains("command not found"), "got `{message}`");
     }
 
     #[tokio::test]
@@ -303,13 +303,9 @@ mod tests {
             .await
             .expect_err("a missing binary cannot report a version");
 
-        match error {
-            Error::VersionProbe { program, message } => {
-                assert_eq!(program, "pie-rpc-no-such-binary");
-                assert!(message.contains("could not be started"), "got `{message}`");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let message = error.to_string();
+        assert!(message.contains("pie-rpc-no-such-binary"), "got `{message}`");
+        assert!(message.contains("could not be started"), "got `{message}`");
     }
 
     #[tokio::test]
@@ -319,13 +315,9 @@ mod tests {
             .await
             .expect_err("a failing command cannot report a version");
 
-        match error {
-            Error::VersionProbe { program, message } => {
-                assert_eq!(program, "false");
-                assert!(message.contains("exited with"), "got `{message}`");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let message = error.to_string();
+        assert!(message.contains("`false --version`"), "got `{message}`");
+        assert!(message.contains("exited with"), "got `{message}`");
     }
 
     /// A command that exits zero without printing a version is a real possibility
@@ -345,12 +337,8 @@ mod tests {
             .await
             .expect_err("a silent command cannot report a version");
 
-        match error {
-            Error::VersionProbe { message, .. } => {
-                assert_eq!(message, "printed nothing on stdout");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let message = error.to_string();
+        assert!(message.contains("printed nothing on stdout"), "got `{message}`");
     }
 
     /// A program that answers `--version` by never answering at all would hold
@@ -373,12 +361,8 @@ mod tests {
             .await
             .expect_err("a program that never prints a version cannot report one");
 
-        match error {
-            Error::VersionProbe { message, .. } => {
-                assert!(message.contains("printed no version within"), "got `{message}`");
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        let message = error.to_string();
+        assert!(message.contains("printed no version within"), "got `{message}`");
     }
 
     /// A program that is being written cannot be executed at all (`ETXTBSY`), which

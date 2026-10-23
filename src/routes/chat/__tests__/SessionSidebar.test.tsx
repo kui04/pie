@@ -431,9 +431,8 @@ describe("SessionSidebar", () => {
 
     it("shows the message Rust sent when the listing failed", async () => {
         bridge.listSessions.mockRejectedValue({
-            type: "session",
+            kind: "not_connected",
             message: "There is no connection.",
-            error: { kind: "not_connected" },
         });
 
         renderSidebar();

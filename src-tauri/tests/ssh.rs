@@ -27,7 +27,7 @@ use pi_rpc::error::ErrorKind;
 use pi_rpc::event::Event;
 use pi_rpc::response::SessionState;
 use pie_lib::channel::{Handle, Termination};
-use pie_lib::host::{Error, HostKey, PI_VERSION, SshAuth, SshSession, SshTarget, Trust};
+use pie_lib::host::{HostKey, PI_VERSION, SshAuth, SshSession, SshTarget, Trust};
 use russh::keys::PublicKeyOrCertificate;
 use russh_sftp::client::SftpSession;
 
@@ -82,21 +82,15 @@ struct Verdict(Option<&'static str>);
 impl HostKey for Verdict {
     fn verify(
         &self,
-        host: &str,
-        port: u16,
+        _host: &str,
+        _port: u16,
         _key: &PublicKeyOrCertificate,
-    ) -> Pin<Box<dyn Future<Output = pie_lib::host::Result<()>> + Send + '_>> {
-        // Owned before the future moves in: the boxed future borrows nothing
-        // that outlives this call.
-        let endpoint = format!("{host}:{port}");
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>> {
         let refusal = self.0;
         Box::pin(async move {
             match refusal {
                 None => Ok(()),
-                Some(reason) => Err(Error::HostKeyRejected {
-                    endpoint,
-                    reason: reason.to_string(),
-                }),
+                Some(reason) => Err(anyhow::anyhow!("{reason}")),
             }
         })
     }
@@ -160,7 +154,7 @@ async fn a_failed_connection_does_not_leave_the_session_running() {
         )
         .await
         .expect_err("a wrong password cannot authenticate");
-        assert!(matches!(error, Error::Auth { .. }), "got {error:?}");
+        assert!(error.to_string().contains("refused the credentials"), "got {error}");
     }
 
     // The disconnects are on their way out; give the host a moment to close.
@@ -514,10 +508,11 @@ async fn reports_refused_credentials() {
     .await
     .expect_err("a wrong password cannot authenticate");
 
-    match error {
-        Error::Auth { endpoint } => assert!(endpoint.contains(&fixture.user), "got `{endpoint}`"),
-        other => panic!("unexpected error: {other:?}"),
-    }
+    let message = error.to_string();
+    assert!(
+        message.contains(&fixture.user),
+        "the sentence names the login: {message}"
+    );
 }
 
 #[tokio::test]
@@ -532,10 +527,7 @@ async fn a_refused_host_key_aborts_the_handshake() {
     .await
     .expect_err("the handshake must not continue");
 
-    match error {
-        Error::HostKeyRejected { reason, .. } => assert_eq!(reason, "the test refuses every key"),
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert_eq!(error.to_string(), "the test refuses every key");
 }
 
 /// A key that cannot be decoded fails as a key, before anything is sent.
@@ -557,7 +549,7 @@ async fn reports_an_undecodable_private_key() {
     .await
     .expect_err("text that is not a key cannot authenticate");
 
-    assert!(matches!(error, Error::SshKey { .. }), "got {error:?}");
+    assert!(error.to_string().contains("reading the private key"), "got {error}");
 }
 
 /// OpenSSH runs the command through the user's shell, so a command that does not

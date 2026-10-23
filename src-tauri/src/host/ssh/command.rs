@@ -61,7 +61,7 @@ impl From<String> for RemoteCommand {
 /// A path that a person selected and a path that pi wrote both go through here:
 /// the machine's shell is what decides where a value ends, and two spellings of
 /// that rule would be one too many.
-pub(crate) fn quote(text: &str) -> String {
+pub(super) fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 #[cfg(test)]

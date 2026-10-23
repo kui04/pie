@@ -23,7 +23,8 @@
 //!   with no window in the way.
 //! - `commands` is the IPC surface. It is the only layer allowed to name Tauri.
 //!
-//! `error` is the aggregation of every layer's failures, so it names them all;
+//! `error` is the boundary's failure type: every layer below it returns
+//! `anyhow`, and the boundary turns that into the object the frontend reads.
 //! `log` must be reachable from anywhere, because a line of it may be written
 //! from anywhere.
 
