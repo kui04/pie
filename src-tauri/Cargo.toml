@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 anyhow = "1"
 base64 = "0.23"
+camino = { version = "1", features = ["serde1"] }
 dirs = "7"
 infer = "0.22"
 memchr = "2"

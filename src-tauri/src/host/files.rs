@@ -1,7 +1,6 @@
 //! Shared file types and path utilities for the machine pie reaches.
 
-use std::path::{Path, PathBuf};
-
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 use typed_path::Utf8TypedPath;
 
@@ -80,15 +79,15 @@ pub(super) fn clean_extension(ext_hint: &str) -> String {
 
 /// Pi expands a leading `~` in session paths (pinned `expandTildePath`). A value
 /// without a `~` stays as it is, with or without a home.
-pub(super) fn expand_home(path: &str, home: Option<&Path>) -> PathBuf {
+pub(super) fn expand_home(path: &str, home: Option<&Utf8Path>) -> Utf8PathBuf {
     match (path, home) {
         ("~", Some(home)) => home.to_path_buf(),
         (_, Some(home)) => path
             .strip_prefix("~/")
             .or_else(|| path.strip_prefix("~\\"))
             .map(|rest| home.join(rest))
-            .unwrap_or_else(|| PathBuf::from(path)),
-        (_, None) => PathBuf::from(path),
+            .unwrap_or_else(|| Utf8PathBuf::from(path)),
+        (_, None) => Utf8PathBuf::from(path),
     }
 }
 
@@ -127,9 +126,9 @@ pub(super) mod tests {
         )
     }
 
-    pub(in crate::host) async fn on_disk(content: &str) -> (tempfile::TempDir, PathBuf) {
+    pub(in crate::host) async fn on_disk(content: &str) -> (tempfile::TempDir, Utf8PathBuf) {
         let directory = tempfile::tempdir().expect("a temp directory");
-        let path = directory.path().join("s.jsonl");
+        let path = Utf8PathBuf::from_path_buf(directory.path().join("s.jsonl")).expect("the utf-8 path");
         std::fs::write(&path, content).expect("the session file");
         (directory, path)
     }

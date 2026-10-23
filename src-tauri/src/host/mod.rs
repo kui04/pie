@@ -26,10 +26,10 @@ pub use version::{PI_VERSION, VersionMismatch, check_version, probe_version};
 
 use std::fmt;
 use std::future::Future;
-use std::path::Path;
 use std::pin::Pin;
 use std::time::SystemTime;
 
+use camino::Utf8Path;
 use serde::Serialize;
 use typed_path::Utf8TypedPath;
 
@@ -78,7 +78,7 @@ pub enum StageSource<'a> {
     ///
     /// [`LocalHost`] reuses this path without copying; [`SshHost`] reads and
     /// uploads the file over SFTP.
-    LocalFile(&'a Path),
+    LocalFile(&'a Utf8Path),
     /// In-memory file bytes.
     Bytes(&'a [u8]),
 }

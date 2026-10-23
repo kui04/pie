@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context as _;
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
@@ -195,7 +196,11 @@ pub async fn connect(
 
 /// Builds the [`Host`] implementation for `spec`.
 fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> anyhow::Result<Arc<dyn Host>> {
-    let home = app.path().home_dir().ok();
+    let home = app
+        .path()
+        .home_dir()
+        .ok()
+        .and_then(|h| Utf8PathBuf::from_path_buf(h).ok());
     match spec {
         ConnectSpec::Local => Ok(Arc::new(LocalHost::new(home))),
         ConnectSpec::Ssh { host, port, user, auth } => {
@@ -206,7 +211,7 @@ fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> 
                 .join("known_hosts");
             let trust = Trust::new(KnownHosts::new(
                 store,
-                home.map(|home| home.join(".ssh").join("known_hosts")),
+                home.map(|home| home.as_std_path().join(".ssh").join("known_hosts")),
                 AskFrontend {
                     app: app.clone(),
                     question: Arc::clone(&state.question),

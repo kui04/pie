@@ -8,9 +8,9 @@
 //! is not small.
 
 use std::io::{BufRead, BufReader, Read};
-use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
+use camino::{Utf8Path, Utf8PathBuf};
 use tokio::task::JoinSet;
 
 use crate::host::SessionFileLines;
@@ -37,7 +37,7 @@ pub(super) async fn read_sessions(
 /// to resolve pi's directory against - has nothing to show, which is an empty
 /// listing and not a failure.
 async fn list_in(
-    root: Option<&Path>,
+    root: Option<&Utf8Path>,
     first_text: fn(&[u8]) -> Option<String>,
     name_in: fn(&[u8]) -> Option<Option<String>>,
 ) -> anyhow::Result<Vec<SessionFileLines>> {
@@ -50,18 +50,19 @@ async fn list_in(
         Ok(projects) => projects,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(results),
         Err(error) => {
-            return Err(error).with_context(|| format!("cannot read {}", root.display()));
+            return Err(error).with_context(|| format!("cannot read {root}"));
         }
     };
-    while let Some(project) = next_entry(&mut projects, &root.display().to_string()).await? {
-        let project_path = project.path();
-        let shown_project = project_path.display().to_string();
+    while let Some(project) = next_entry(&mut projects, root.as_str()).await? {
+        let Ok(project_path) = Utf8PathBuf::from_path_buf(project.path()) else {
+            continue;
+        };
         // The free `metadata` follows links. The `metadata` of a `DirEntry` does
         // not. A project directory behind a link is still a project directory.
         if !match tokio::fs::metadata(&project_path).await {
             Ok(metadata) => metadata.is_dir(),
             Err(error) => {
-                tracing::warn!(path = %shown_project, %error, "skipping a project directory pie cannot read");
+                tracing::warn!(path = %project_path, %error, "skipping a project directory pie cannot read");
                 continue;
             }
         } {
@@ -70,13 +71,15 @@ async fn list_in(
         let mut files = match tokio::fs::read_dir(&project_path).await {
             Ok(files) => files,
             Err(error) => {
-                tracing::warn!(path = %shown_project, %error, "skipping a project directory pie cannot read");
+                tracing::warn!(path = %project_path, %error, "skipping a project directory pie cannot read");
                 continue;
             }
         };
-        while let Some(file) = next_entry(&mut files, &shown_project).await? {
-            let path = file.path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
+        while let Some(file) = next_entry(&mut files, project_path.as_str()).await? {
+            let Ok(path) = Utf8PathBuf::from_path_buf(file.path()) else {
+                continue;
+            };
+            if path.extension() != Some("jsonl") {
                 continue;
             }
             candidates.push(path);
@@ -91,7 +94,7 @@ async fn list_in(
             reads.spawn_blocking(move || match lines_of_file(&path, first_text, name_in) {
                 Ok(lines) => Some(lines),
                 Err(error) => {
-                    tracing::warn!(path = %path.display(), %error, "skipping a session file pie cannot read");
+                    tracing::warn!(path = %path, %error, "skipping a session file pie cannot read");
                     None
                 }
             });
@@ -110,32 +113,33 @@ async fn list_in(
 }
 
 /// The place where pi keeps the sessions that it started on this machine.
-fn sessions_root() -> Option<PathBuf> {
+fn sessions_root() -> Option<Utf8PathBuf> {
+    let home = dirs::home_dir().and_then(|h| Utf8PathBuf::from_path_buf(h).ok());
+
     let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR");
     let agent_dir = agent_dir.as_deref().and_then(|value| value.to_str());
     if let Some(dir) = agent_dir {
-        return Some(expand_home(dir, dirs::home_dir().as_deref()).join("sessions"));
+        return Some(expand_home(dir, home.as_deref()).join("sessions"));
     }
 
     let session_dir = std::env::var_os("PI_CODING_AGENT_SESSION_DIR");
     let session_dir = session_dir.as_deref().and_then(|value| value.to_str());
     if let Some(dir) = session_dir {
-        return Some(expand_home(dir, dirs::home_dir().as_deref()));
+        return Some(expand_home(dir, home.as_deref()));
     }
 
-    dirs::home_dir().map(|home| home.join(".pi").join("agent").join("sessions"))
+    home.map(|home| home.join(".pi").join("agent").join("sessions"))
 }
 
 /// Reads the candidate lines and modification time of one session file on a blocking thread.
 fn lines_of_file(
-    path: &Path,
+    path: &Utf8Path,
     first_text: fn(&[u8]) -> Option<String>,
     name_in: fn(&[u8]) -> Option<Option<String>>,
 ) -> std::io::Result<SessionFileLines> {
-    let shown = path.to_string_lossy().into_owned();
     let modified = std::fs::metadata(path).ok().and_then(|stats| stats.modified().ok());
     let mut lines = read_session_file(std::fs::File::open(path)?, first_text, name_in)?;
-    lines.path = shown;
+    lines.path = path.as_str().to_string();
     lines.modified = modified;
     Ok(lines)
 }
@@ -194,7 +198,7 @@ mod tests {
     use crate::host::files::tests::{HEADER, first_text, name_in, name_line, on_disk, user_line};
     use crate::host::ssh::sessions::{NAME_BLOCK, NAME_SCAN_BYTES};
 
-    async fn summary_lines(path: &Path) -> SessionFileLines {
+    async fn summary_lines(path: &Utf8Path) -> SessionFileLines {
         let opened = std::fs::File::open(path).expect("the file");
         read_session_file(opened, first_text, name_in).expect("the read")
     }
@@ -202,7 +206,7 @@ mod tests {
     #[test]
     fn a_file_that_cannot_be_read_is_a_failure_and_not_a_row() {
         let directory = tempfile::tempdir().expect("a temp directory");
-        let missing = directory.path().join("gone.jsonl");
+        let missing = Utf8PathBuf::from_path_buf(directory.path().join("gone.jsonl")).expect("utf-8");
 
         assert!(
             lines_of_file(&missing, first_text, name_in).is_err(),
@@ -232,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_with_a_bad_byte_still_lists() {
         let directory = tempfile::tempdir().expect("a temp directory");
-        let path = directory.path().join("s.jsonl");
+        let path = Utf8PathBuf::from_path_buf(directory.path().join("s.jsonl")).expect("the utf-8 path");
         let mut content: Vec<u8> = Vec::new();
         content.extend_from_slice(HEADER.as_bytes());
         content.push(b'\n');
@@ -308,7 +312,7 @@ mod tests {
     #[tokio::test]
     async fn the_local_listing_reads_every_project_directory() {
         let directory = tempfile::tempdir().expect("a temp directory");
-        let root = directory.path().join("sessions");
+        let root = Utf8PathBuf::from_path_buf(directory.path().join("sessions")).expect("utf-8");
         let project = root.join("--home-pie--");
         std::fs::create_dir_all(&project).expect("the project directory");
         let file = project.join("20261002_abc.jsonl");
@@ -325,15 +329,16 @@ mod tests {
         let found = list_in(Some(&root), first_text, name_in).await.expect("the listing");
 
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].path, file.to_string_lossy());
+        assert_eq!(found[0].path, file.as_str());
         assert_eq!(found[0].first.as_deref(), Some("hi"));
     }
 
     #[tokio::test]
     async fn a_local_listing_of_nothing_is_not_a_failure() {
         let directory = tempfile::tempdir().expect("a temp directory");
+        let no_such = Utf8PathBuf::from_path_buf(directory.path().join("no-such-dir")).expect("utf-8");
 
-        let found = list_in(Some(&directory.path().join("no-such-dir")), first_text, name_in)
+        let found = list_in(Some(&no_such), first_text, name_in)
             .await
             .expect("a host that has run nothing lists as empty");
 
@@ -362,7 +367,8 @@ mod tests {
             return;
         }
 
-        let found = list_in(Some(root.path()), first_text, name_in)
+        let root_utf8 = Utf8Path::from_path(root.path()).expect("utf-8");
+        let found = list_in(Some(root_utf8), first_text, name_in)
             .await
             .expect("the listing");
 

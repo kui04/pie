@@ -10,10 +10,10 @@
 //! runs (its own documentation, tauri-plugin-dialog 2.8.1; `respond_async_serialized` of
 //! tauri 2.12.1 spawns the body).
 
-use std::path::Path;
 use std::sync::Arc;
 
 use base64::Engine as _;
+use camino::Utf8Path;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -177,7 +177,9 @@ fn image_of(name: String, mime_type: String, bytes: &[u8]) -> PickedImage {
 fn file_path_to_string(fp: &FilePath) -> String {
     match fp {
         FilePath::Url(u) => u.to_string(),
-        FilePath::Path(p) => p.to_string_lossy().to_string(),
+        FilePath::Path(p) => Utf8Path::from_path(p)
+            .map(|path| path.as_str().to_string())
+            .unwrap_or_else(|| p.to_string_lossy().to_string()),
     }
 }
 
@@ -222,14 +224,12 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
         if let Some(path) = file_path.as_path() {
             let metadata = tokio::fs::metadata(path).await?;
             let size = metadata.len();
+            let utf8_path = Utf8Path::from_path(path).ok_or_else(|| PieError::BadArgument {
+                reason: format!("path is not valid utf-8: {}", path.display()),
+            })?;
 
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Attachment")
-                .to_string();
-
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+            let name = utf8_path.file_name().unwrap_or("Attachment").to_string();
+            let ext = utf8_path.extension().unwrap_or_default();
 
             // The type comes from the first bytes. A pipe or a FUSE mount answers with fewer
             // bytes than it was asked for, so the head is gathered until it is whole.
@@ -247,7 +247,7 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
                     name,
                     size,
                     mime_type: mime,
-                    local_path: Some(path.to_string_lossy().to_string()),
+                    local_path: Some(utf8_path.as_str().to_string()),
                 });
             }
         } else {
@@ -260,10 +260,7 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
                     .to_string(),
                 _ => "Attachment".to_string(),
             };
-            let ext_hint = Path::new(&name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or_default();
+            let ext_hint = Utf8Path::new(&name).extension().unwrap_or_default();
             let (mime, ext) = detect_mime(&bytes, ext_hint);
 
             if is_supported_image_mime(&mime) {
@@ -373,10 +370,7 @@ pub async fn prepare_attachment(
 ) -> Result<PreparedAttachment, PieError> {
     use tauri::Emitter as _;
 
-    let ext_hint = Path::new(&name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default();
+    let ext_hint = Utf8Path::new(&name).extension().unwrap_or_default();
 
     let sessions = state.sessions.lock().await.clone();
     let fallback: Arc<dyn Host> = Arc::new(LocalHost::new(None));
@@ -406,7 +400,7 @@ pub async fn prepare_attachment(
     }
 
     if let Some(ref lp) = local_path {
-        let path = Path::new(lp);
+        let path = Utf8Path::new(lp);
         let metadata = tokio::fs::metadata(path).await?;
         let size = metadata.len();
         // Bounded, not assumed: a read that comes short is a fact of a FUSE mount.

@@ -8,7 +8,7 @@
 mod files;
 mod sessions;
 
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use crate::channel::{Channel, Program};
 
@@ -37,7 +37,7 @@ pub struct LocalHost {
     /// The home directory of this machine: the start of a session when the
     /// frontend names no directory. `None` leaves pi in the directory of the
     /// app, which is the result on a platform without a home directory.
-    home: Option<PathBuf>,
+    home: Option<Utf8PathBuf>,
 }
 
 impl std::fmt::Debug for LocalHost {
@@ -48,7 +48,7 @@ impl std::fmt::Debug for LocalHost {
 
 impl LocalHost {
     /// The machine the app itself runs on, with the home the app resolved.
-    pub fn new(home: Option<PathBuf>) -> Self {
+    pub fn new(home: Option<Utf8PathBuf>) -> Self {
         Self { home }
     }
 }
@@ -74,8 +74,8 @@ impl Host for LocalHost {
         Box::pin(async move {
             let conversation = conversation.map(checked_host_path).transpose()?;
             let cwd = cwd.map(checked_host_path).transpose()?;
-            let dir = cwd.map(PathBuf::from).or_else(|| self.home.clone());
-            let label = dir.as_ref().map(|path| path.to_string_lossy().into_owned());
+            let dir = cwd.map(Utf8PathBuf::from).or_else(|| self.home.clone());
+            let label = dir.as_ref().map(|path| path.as_str().to_string());
             let program = match dir {
                 Some(dir) => Program::new("pi").args(pi_args(conversation)).cwd(dir),
                 None => Program::new("pi").args(pi_args(conversation)),
@@ -128,7 +128,7 @@ impl Host for LocalHost {
                     let metadata = tokio::fs::metadata(path).await?;
                     let size = metadata.len();
                     on_progress(size, size);
-                    Ok(path.to_string_lossy().into_owned())
+                    Ok(path.as_str().to_string())
                 }
                 StageSource::Bytes(bytes) => {
                     let staged = files::stage(name, ext, bytes).await?;

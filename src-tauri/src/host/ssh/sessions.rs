@@ -12,9 +12,9 @@
 
 use std::collections::HashMap;
 use std::io::SeekFrom;
-use std::path::Path;
 
 use anyhow::Context as _;
+use camino::Utf8Path;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
@@ -181,7 +181,7 @@ async fn sessions_root(host: &SshHost) -> Option<String> {
             let printed = lines.next()?.trim();
             if !printed.is_empty() {
                 let home = lines.next().map(str::trim).filter(|home| !home.is_empty());
-                return Some(expand_home(printed, home.map(Path::new)).to_string_lossy().into_owned());
+                return Some(expand_home(printed, home.map(Utf8Path::new)).into_string());
             }
         }
     }

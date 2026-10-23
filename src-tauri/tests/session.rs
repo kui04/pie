@@ -18,6 +18,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use camino::Utf8Path;
 use tempfile::TempDir;
 
 use pie_lib::host::{AskHostKey, Host, KnownHosts, LocalHost, PresentedKey, SshAuth, SshHost, SshTarget, Trust};
@@ -153,7 +154,7 @@ async fn attached(id: &str, host: Arc<dyn Host>, number: u64) -> anyhow::Result<
 
 /// A session of this machine, with pi started in `home`.
 async fn local(name: &str, home: &Path, number: u64) -> anyhow::Result<SessionManager> {
-    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Some(home.to_path_buf())));
+    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Utf8Path::from_path(home).map(Utf8Path::to_path_buf)));
     attached(name, host, number).await
 }
 
@@ -210,7 +211,9 @@ impl Drop for StopsPi {
 #[tokio::test]
 async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
     let home = TempDir::new().expect("a temp directory");
-    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Some(home.path().to_path_buf())));
+    let host: Arc<dyn Host> = Arc::new(LocalHost::new(
+        Utf8Path::from_path(home.path()).map(Utf8Path::to_path_buf),
+    ));
 
     // The reach is the machine. It is complete before any pi runs on it, and the
     // listing of the conversations needs no pi at all.
@@ -309,7 +312,9 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
 async fn a_new_session_starts_in_the_directory_it_was_given() {
     let home = TempDir::new().expect("a temp directory");
     let project = TempDir::new().expect("a temp directory");
-    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Some(home.path().to_path_buf())));
+    let host: Arc<dyn Host> = Arc::new(LocalHost::new(
+        Utf8Path::from_path(home.path()).map(Utf8Path::to_path_buf),
+    ));
 
     let connection = connected("start-dir", host).await.expect("pi is on PATH");
     let connection = Arc::new(connection);

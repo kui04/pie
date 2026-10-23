@@ -1,8 +1,7 @@
 //! Local filesystem operations for [`LocalHost`](super::LocalHost).
 
-use std::path::{Path, PathBuf};
-
 use anyhow::Context as _;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::host::checked_host_path;
 use crate::host::files::{DirEntry, Listing, clean_extension, clean_stem, not_absolute, sort_dirs_first};
@@ -17,9 +16,9 @@ use crate::host::files::{DirEntry, Listing, clean_extension, clean_stem, not_abs
 ///
 /// A sentence when `path` is `None` and this machine has no home directory, when
 /// the path is relative, and when the directory cannot be read.
-pub(super) async fn dirs(home: Option<&Path>, path: Option<&str>) -> anyhow::Result<Listing> {
+pub(super) async fn dirs(home: Option<&Utf8Path>, path: Option<&str>) -> anyhow::Result<Listing> {
     let path = start(home, path)?;
-    let shown = path.display().to_string();
+    let shown = path.as_str().to_string();
     let mut entries = tokio::fs::read_dir(&path)
         .await
         .with_context(|| format!("cannot read {shown}"))?;
@@ -44,9 +43,12 @@ pub(super) async fn dirs(home: Option<&Path>, path: Option<&str>) -> anyhow::Res
                 false
             }
         };
+        let row_path = Utf8PathBuf::from_path_buf(entry.path())
+            .map(|p| p.into_string())
+            .unwrap_or_else(|p| p.to_string_lossy().into_owned());
         rows.push(DirEntry {
             name,
-            path: entry.path().to_string_lossy().into_owned(),
+            path: row_path,
             is_dir,
         });
     }
@@ -65,7 +67,7 @@ pub(super) async fn dirs(home: Option<&Path>, path: Option<&str>) -> anyhow::Res
 ///
 /// A sentence when the path is relative, and one when the answer cannot be told.
 pub(super) async fn dir_exists(path: &str) -> anyhow::Result<bool> {
-    if !Path::new(path).is_absolute() {
+    if !Utf8Path::new(path).is_absolute() {
         return Err(not_absolute(path));
     }
     match tokio::fs::metadata(path).await {
@@ -85,7 +87,7 @@ pub(super) async fn dir_exists(path: &str) -> anyhow::Result<bool> {
 /// A sentence when the path is relative, and one when the directory cannot be
 /// made.
 pub(super) async fn create_dir(path: &str) -> anyhow::Result<()> {
-    if !Path::new(path).is_absolute() {
+    if !Utf8Path::new(path).is_absolute() {
         return Err(not_absolute(path));
     }
     tokio::fs::create_dir_all(path)
@@ -144,16 +146,18 @@ pub(super) async fn stage(stem_hint: &str, ext_hint: &str, bytes: &[u8]) -> anyh
     file.flush()
         .await
         .with_context(|| format!("cannot write {}", path.display()))?;
-    Ok(path.to_string_lossy().into_owned())
+    let path = Utf8PathBuf::from_path_buf(path)
+        .map_err(|path| anyhow::anyhow!("temporary path is not valid utf-8: {}", path.display()))?;
+    Ok(path.into_string())
 }
 
 /// The directory of this machine that a read was asked about: `None` is the home.
-fn start(home: Option<&Path>, path: Option<&str>) -> anyhow::Result<PathBuf> {
+fn start(home: Option<&Utf8Path>, path: Option<&str>) -> anyhow::Result<Utf8PathBuf> {
     match path {
         None => home
-            .map(Path::to_path_buf)
+            .map(Utf8Path::to_path_buf)
             .context("there is no home directory on this machine to browse"),
-        Some(path) if Path::new(path).is_absolute() => Ok(PathBuf::from(path)),
+        Some(path) if Utf8Path::new(path).is_absolute() => Ok(Utf8PathBuf::from(path)),
         Some(path) => Err(not_absolute(path)),
     }
 }
@@ -180,7 +184,7 @@ mod tests {
         assert_eq!(rows.iter().filter(|row| row.is_dir).count(), 2);
         for row in &rows {
             assert!(
-                Path::new(&row.path).is_absolute(),
+                Utf8Path::new(&row.path).is_absolute(),
                 "rows carry whole paths: {}",
                 row.path
             );
@@ -305,10 +309,10 @@ mod tests {
     async fn a_staged_file_holds_the_bytes_under_a_pie_name() {
         let path = stage("report.pdf", "pdf", b"%PDF-1.4").await.expect("the write");
 
-        let staged = Path::new(&path);
-        let name = staged.file_name().expect("a name").to_string_lossy().into_owned();
+        let staged = Utf8Path::new(&path);
+        let name = staged.file_name().expect("a name");
         assert!(name.starts_with("pie-report-"), "a name of pie's own: {name}");
-        assert_eq!(staged.extension().and_then(|ext| ext.to_str()), Some("pdf"));
+        assert_eq!(staged.extension(), Some("pdf"));
         assert_eq!(
             tokio::fs::read(staged).await.expect("the bytes"),
             b"%PDF-1.4",
