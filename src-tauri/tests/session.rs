@@ -21,7 +21,8 @@ use std::time::Duration;
 use camino::Utf8Path;
 use tempfile::TempDir;
 
-use pie_lib::host::{AskHostKey, Host, KnownHosts, LocalHost, PresentedKey, SshAuth, SshHost, SshTarget, Trust};
+use pie_lib::host::{AskHostKey, Host, KnownHosts, PresentedKey, SshAuth, SshTarget, Trust};
+use pie_lib::runtime::HostRuntime;
 use pie_lib::session::{Id, Session, SessionManager, SessionSummary};
 
 use ::pi_rpc::command::Command;
@@ -29,6 +30,35 @@ use ::pi_rpc::entry::Entry;
 use ::pi_rpc::message::Message;
 use ::pi_rpc::response::{EntryList, SessionState};
 use ::pi_rpc::types::ThinkingLevel;
+
+/// A connected host for a test: the runtime, with the session manager's methods
+/// in reach.
+#[derive(Debug, Clone)]
+struct TestConnection {
+    runtime: Arc<HostRuntime>,
+}
+
+impl TestConnection {
+    fn new(runtime: Arc<HostRuntime>) -> Self {
+        Self { runtime }
+    }
+
+    fn host(&self) -> &Arc<Host> {
+        self.runtime.host()
+    }
+
+    async fn close(&self) {
+        self.runtime.close().await;
+    }
+}
+
+impl std::ops::Deref for TestConnection {
+    type Target = SessionManager;
+
+    fn deref(&self) -> &Self::Target {
+        self.runtime.sessions()
+    }
+}
 
 /// An asker for tests. It answers with a fixed verdict. It panics if pie asks it
 /// when a store must answer.
@@ -105,16 +135,16 @@ impl Fixture {
         }
     }
 
-    /// Build an `SshHost` with a host-key policy over `store`, asking `asker`.
+    /// Build a `Host` over SSH with a host-key policy over `store`, asking `asker`.
     fn host(
         &self,
         auth: SshAuth,
         store: &Path,
         borrowed: Option<PathBuf>,
         asker: impl AskHostKey + 'static,
-    ) -> Arc<dyn Host> {
+    ) -> Arc<Host> {
         let trust = Trust::new(KnownHosts::new(store, borrowed, asker));
-        Arc::new(SshHost::new(self.target(), auth, trust))
+        Arc::new(Host::ssh(self.target(), auth, trust))
     }
 
     /// Reaches the host with a host-key policy over `store`, asking `asker`.
@@ -123,7 +153,7 @@ impl Fixture {
         store: &Path,
         borrowed: Option<PathBuf>,
         asker: impl AskHostKey + 'static,
-    ) -> anyhow::Result<SessionManager> {
+    ) -> anyhow::Result<TestConnection> {
         self.connect_with(self.password_auth(), store, borrowed, asker).await
     }
 
@@ -134,28 +164,35 @@ impl Fixture {
         store: &Path,
         borrowed: Option<PathBuf>,
         asker: impl AskHostKey + 'static,
-    ) -> anyhow::Result<SessionManager> {
+    ) -> anyhow::Result<TestConnection> {
         let host = self.host(auth, store, borrowed, asker);
         attached("test", host, 1).await
     }
 }
 
 /// Reaches `host`. No pi starts here: a test that speaks calls [`attached`].
-async fn connected(id: &str, host: Arc<dyn Host>) -> anyhow::Result<SessionManager> {
-    SessionManager::connect(Id::new(id).expect("a usable name"), host).await
+async fn connected(id: &str, host: Arc<Host>) -> anyhow::Result<TestConnection> {
+    let runtime = Arc::new(HostRuntime::new(Id::new(id).expect("a usable name"), host));
+    runtime.connect().await?;
+    Ok(TestConnection::new(runtime))
 }
 
 /// Reaches `host` and starts a pi on it.
-async fn attached(id: &str, host: Arc<dyn Host>, number: u64) -> anyhow::Result<SessionManager> {
+async fn attached(id: &str, host: Arc<Host>, number: u64) -> anyhow::Result<TestConnection> {
     let sessions = connected(id, host).await?;
-    let home = sessions.host().home_dir().await?.unwrap_or_else(|| "/tmp".to_string());
+    let home = sessions
+        .host()
+        .files()
+        .home_dir()
+        .await?
+        .unwrap_or_else(|| "/tmp".to_string());
     sessions.attach(number, None, Some(&home)).await?;
     Ok(sessions)
 }
 
 /// A session of this machine, with pi started in `home`.
-async fn local(name: &str, home: &Path, number: u64) -> anyhow::Result<SessionManager> {
-    let host: Arc<dyn Host> = Arc::new(LocalHost::new(Utf8Path::from_path(home).map(Utf8Path::to_path_buf)));
+async fn local(name: &str, home: &Path, number: u64) -> anyhow::Result<TestConnection> {
+    let host: Arc<Host> = Arc::new(Host::local(Utf8Path::from_path(home).map(Utf8Path::to_path_buf)));
     attached(name, host, number).await
 }
 
@@ -166,7 +203,7 @@ async fn local(name: &str, home: &Path, number: u64) -> anyhow::Result<SessionMa
 /// response.
 async fn wait_for_the_listing(sessions: &SessionManager, id: &str) -> SessionSummary {
     for _ in 0..50 {
-        let listed = sessions.summaries().await.expect("the listing");
+        let listed = sessions.list_sessions().await.expect("the listing");
         if let Some(summary) = listed.into_iter().find(|summary| summary.id == id) {
             return summary;
         }
@@ -183,7 +220,7 @@ async fn wait_for_the_listing(sessions: &SessionManager, id: &str) -> SessionSum
 /// here after that message.
 async fn wait_for_a_branch(sessions: &SessionManager, parent: &str) -> SessionSummary {
     for _ in 0..50 {
-        let listed = sessions.summaries().await.expect("the listing");
+        let listed = sessions.list_sessions().await.expect("the listing");
         if let Some(summary) = listed
             .into_iter()
             .find(|summary| summary.parent_session_path.as_deref() == Some(parent))
@@ -199,12 +236,12 @@ async fn wait_for_a_branch(sessions: &SessionManager, parent: &str) -> SessionSu
 ///
 /// A runtime that shuts down first cancels the task; then pi sees its stdin close
 /// with this process, which is its own way out.
-struct StopsPi(Arc<SessionManager>);
+struct StopsPi(Arc<TestConnection>);
 
 impl Drop for StopsPi {
     fn drop(&mut self) {
-        let sessions = Arc::clone(&self.0);
-        tokio::spawn(async move { sessions.close().await });
+        let connection = Arc::clone(&self.0);
+        tokio::spawn(async move { connection.close().await });
     }
 }
 
@@ -212,9 +249,7 @@ impl Drop for StopsPi {
 #[tokio::test]
 async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
     let home = TempDir::new().expect("a temp directory");
-    let host: Arc<dyn Host> = Arc::new(LocalHost::new(
-        Utf8Path::from_path(home.path()).map(Utf8Path::to_path_buf),
-    ));
+    let host: Arc<Host> = Arc::new(Host::local(Utf8Path::from_path(home.path()).map(Utf8Path::to_path_buf)));
 
     // The reach is the machine. It is complete before any pi runs on it, and the
     // listing of the conversations needs no pi at all.
@@ -222,10 +257,11 @@ async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
     assert!(connection.sessions().is_empty(), "a connect starts no pi");
     assert!(!connection.is_alive(), "and nothing of it is running");
     assert_eq!(connection.host().endpoint().to_string(), "local");
-    connection.summaries().await.expect("the listing of the machine");
+    connection.list_sessions().await.expect("the listing of the machine");
 
     let home = connection
         .host()
+        .files()
         .home_dir()
         .await
         .expect("home_dir succeeds")
@@ -246,6 +282,7 @@ async fn a_detach_ends_one_pi_and_leaves_the_machine() {
     let connection = local("detach-test", home.path(), 1).await.expect("pi is on PATH");
     let home_dir = connection
         .host()
+        .files()
         .home_dir()
         .await
         .expect("home_dir succeeds")
@@ -267,7 +304,7 @@ async fn a_detach_ends_one_pi_and_leaves_the_machine() {
     assert!(second.handle().is_alive(), "the session that was not detached runs on");
     // The machine stayed: its conversations are still readable, and the one that
     // is left still answers.
-    connection.summaries().await.expect("the listing of the machine");
+    connection.list_sessions().await.expect("the listing of the machine");
     second.client().get_state().await.expect("the session that stayed");
 
     assert!(
@@ -328,13 +365,11 @@ async fn a_local_session_starts_in_the_home_it_was_given_and_stops_when_it_ends(
 async fn a_new_session_starts_in_the_directory_it_was_given() {
     let home = TempDir::new().expect("a temp directory");
     let project = TempDir::new().expect("a temp directory");
-    let host: Arc<dyn Host> = Arc::new(LocalHost::new(
-        Utf8Path::from_path(home.path()).map(Utf8Path::to_path_buf),
-    ));
+    let host: Arc<Host> = Arc::new(Host::local(Utf8Path::from_path(home.path()).map(Utf8Path::to_path_buf)));
 
     let connection = connected("start-dir", host).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
 
     let dir = project.path().to_string_lossy().into_owned();
     let session = connection
@@ -562,13 +597,14 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
 
     let home_path = connection
         .host()
+        .files()
         .home_dir()
         .await
         .expect("home_dir succeeds")
         .expect("the host has a home directory");
     let home = connection
         .host()
-        .dirs(&home_path)
+        .list_dirs(&home_path)
         .await
         .expect("the home directory lists");
     assert!(
@@ -592,7 +628,7 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
     let sessions = format!("{}/agent/sessions", pi_root.path);
     let projects = connection
         .host()
-        .dirs(&sessions)
+        .list_dirs(&sessions)
         .await
         .expect("the sessions directory lists");
     assert!(
@@ -602,7 +638,7 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
 
     let error = connection
         .host()
-        .dirs(".pi/agent/sessions")
+        .list_dirs(".pi/agent/sessions")
         .await
         .expect_err("a relative path is not a path pie resolves");
     assert!(error.to_string().contains("is not absolute"), "got {error}");
@@ -622,43 +658,61 @@ async fn the_directory_picker_makes_a_missing_folder_over_sftp() {
 
     let home_path = connection
         .host()
+        .files()
         .home_dir()
         .await
         .expect("home_dir succeeds")
         .expect("the host has a home directory");
     let home = connection
         .host()
-        .dirs(&home_path)
+        .list_dirs(&home_path)
         .await
         .expect("the home directory lists");
     let fresh = format!("{}/pie-probe/sub", home.directory);
     assert!(
-        !connection.host().dir_exists(&fresh).await.expect("the probe answers"),
+        !connection
+            .host()
+            .files()
+            .is_dir(&fresh)
+            .await
+            .expect("the probe answers"),
         "the folder is missing before it is made"
     );
     connection
         .host()
-        .create_dir(&fresh)
+        .files()
+        .create_dir_all(&fresh)
         .await
         .expect("the missing folder is made with its parent");
     assert!(
-        connection.host().dir_exists(&fresh).await.expect("the probe answers"),
+        connection
+            .host()
+            .files()
+            .is_dir(&fresh)
+            .await
+            .expect("the probe answers"),
         "the folder stands after it is made"
     );
 
     let probe_dir = format!("{}/pie-probe", home.directory);
-    let read = connection.host().dirs(&probe_dir).await.expect("the made folder lists");
+    let read = connection
+        .host()
+        .list_dirs(&probe_dir)
+        .await
+        .expect("the made folder lists");
     assert!(read.entries.iter().any(|row| row.name == "sub" && row.is_dir));
 
     connection
         .host()
-        .create_dir(&fresh)
+        .files()
+        .create_dir_all(&fresh)
         .await
         .expect("making what stands is fine");
 
     let error = connection
         .host()
-        .create_dir(".pi/agent/sessions")
+        .files()
+        .create_dir_all(".pi/agent/sessions")
         .await
         .expect_err("a relative path is not a path pie resolves");
     assert!(error.to_string().contains("is not absolute"), "got {error}");
@@ -763,7 +817,7 @@ async fn an_attach_on_a_conversation_starts_pi_holding_that_file() {
 
     let connection = local("attach-file", home.path(), 1).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
 
     // A conversation for the second process: the first one writes the file.
     let session = &connection.sessions()[0];
@@ -805,7 +859,7 @@ async fn a_fork_branches_a_conversation_into_a_new_file() {
 
     let connection = local("fork", home.path(), 1).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
 
     let session = connection.sessions()[0].clone();
     let before = session.state().await.expect("the state of a fresh session");
@@ -869,7 +923,7 @@ async fn a_clone_copies_the_branch_into_a_new_file() {
 
     let connection = local("clone", home.path(), 1).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
 
     let session = connection.sessions()[0].clone();
     let before = session.state().await.expect("the state of a fresh session");
@@ -910,7 +964,7 @@ async fn a_deleted_conversation_leaves_the_listing() {
 
     let connection = local("delete", home.path(), 1).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
 
     let session = connection.sessions()[0].clone();
     let state = session.state().await.expect("the state of a fresh session");
@@ -925,7 +979,7 @@ async fn a_deleted_conversation_leaves_the_listing() {
 
     assert!(
         !connection
-            .summaries()
+            .list_sessions()
             .await
             .expect("the listing")
             .iter()
@@ -964,7 +1018,7 @@ async fn a_conversation_deleted_over_sftp_leaves_the_host_listing() {
 
     assert!(
         !connection
-            .summaries()
+            .list_sessions()
             .await
             .expect("the host listing")
             .iter()
@@ -1013,7 +1067,7 @@ async fn the_queue_holds_what_was_queued_and_clear_queue_answers_it() {
 
     let connection = local("queue-test", home.path(), 1).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
     let session = &connection.sessions()[0];
 
     session
@@ -1072,7 +1126,7 @@ async fn the_composer_reads_answer_and_a_shell_command_enters_the_transcript() {
 
     let connection = local("composer-test", home.path(), 1).await.expect("pi is on PATH");
     let connection = Arc::new(connection);
-    let _stops_pi = StopsPi(Arc::clone(&connection));
+    let _stops_pi = StopsPi(connection.clone());
     let session = &connection.sessions()[0];
 
     // A host may have no provider configured, so the lists may be empty. What this

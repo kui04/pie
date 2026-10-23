@@ -5,26 +5,11 @@
 //! starts, and where its files and sessions are read on this machine's
 //! filesystem.
 
-use super::files::{DirEntry, FileEntry, Listing, SeekableReader, clean_extension, clean_stem, sort_dirs_first};
-use super::{Endpoint, Host, ProgressFn, StageSource, check_version, checked_host_path, is_absolute_path};
+use super::files::{AsyncReadSeek, FileEntry, clean_extension, clean_stem};
+use super::{CommandSpec, Connection, Endpoint, Exec, ExecOutput, Files, ProgressFn, StageSource, is_absolute_path};
 use crate::channel::{Channel, Program};
 use anyhow::Context as _;
 use camino::Utf8PathBuf;
-use std::path::Path;
-
-/// The arguments of the `pi` of this machine: the RPC mode, and the conversation
-/// to load at the start when one is named.
-///
-/// Pi reads the conversation path itself, on the machine where it runs, so the
-/// path travels as the host wrote it.
-fn pi_args(conversation: Option<&str>) -> Vec<String> {
-    let mut args = vec!["--mode".to_string(), "rpc".to_string()];
-    if let Some(path) = conversation {
-        args.push("--session".to_string());
-        args.push(path.to_string());
-    }
-    args
-}
 
 /// Writes `bytes` into the temporary directory of this machine, and answers where.
 async fn stage_bytes(stem_hint: &str, ext_hint: &str, bytes: &[u8]) -> anyhow::Result<String> {
@@ -74,12 +59,8 @@ impl LocalHost {
 }
 
 #[async_trait::async_trait]
-impl Host for LocalHost {
+impl Connection for LocalHost {
     async fn connect(&self) -> anyhow::Result<()> {
-        let version = self.pi_version().await?;
-        if let Err(mismatch) = check_version(&version) {
-            tracing::warn!(%mismatch, "the pi of this machine is not the release pie speaks; going on");
-        }
         Ok(())
     }
 
@@ -91,72 +72,46 @@ impl Host for LocalHost {
         Endpoint::local()
     }
 
-    async fn open_pi(&self, cwd: &str, conversation: Option<&str>) -> anyhow::Result<(Channel, Option<String>)> {
-        let conversation = conversation.map(checked_host_path).transpose()?;
-        let cwd = checked_host_path(cwd)?;
-        let program = Program::new("pi").args(pi_args(conversation)).cwd(cwd);
-        Ok((program.spawn()?, Some(cwd.to_string())))
+    async fn close(&self) {}
+}
+
+#[async_trait::async_trait]
+impl Exec for LocalHost {
+    async fn spawn(&self, command: CommandSpec) -> anyhow::Result<Channel> {
+        let mut program = Program::new(command.program).args(command.args);
+        if let Some(dir) = command.current_dir {
+            program = program.current_dir(dir);
+        }
+        program.spawn()
     }
 
-    async fn pi_version(&self) -> anyhow::Result<String> {
-        let output = tokio::process::Command::new("pi")
-            .arg("--version")
-            .output()
-            .await
-            .context("`pi --version` failed: could not be started")?;
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if output.status.success() && !stdout.is_empty() {
-            return Ok(stdout);
+    async fn output(&self, command: CommandSpec) -> anyhow::Result<ExecOutput> {
+        let mut process = tokio::process::Command::new(&command.program);
+        process.args(&command.args).kill_on_drop(true);
+        if let Some(dir) = &command.current_dir {
+            process.current_dir(dir);
         }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let said = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        if said.is_empty() {
-            anyhow::bail!("`pi --version` failed with {}", output.status);
-        } else {
-            anyhow::bail!("`pi --version` failed: {said}");
-        }
-    }
-
-    async fn dirs(&self, path: &str) -> anyhow::Result<Listing> {
-        let path = checked_host_path(path)?;
-        let shown = path.to_string();
-        let mut entries = tokio::fs::read_dir(path)
+        let output = tokio::time::timeout(crate::host::exec::OUTPUT_TIMEOUT, process.output())
             .await
-            .with_context(|| format!("cannot read {shown}"))?;
-        let mut rows = Vec::new();
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .with_context(|| format!("cannot read {shown}"))?
-        {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name == "." || name == ".." {
-                continue;
-            }
-            let is_dir = match tokio::fs::metadata(entry.path()).await {
-                Ok(target) => target.is_dir(),
-                Err(error) => {
-                    tracing::warn!(path = %entry.path().display(), %error, "an entry pie cannot follow");
-                    false
-                }
-            };
-            let row_path = Utf8PathBuf::from_path_buf(entry.path())
-                .map(|p| p.into_string())
-                .unwrap_or_else(|p| p.to_string_lossy().into_owned());
-            rows.push(DirEntry {
-                name,
-                path: row_path,
-                is_dir,
-            });
-        }
-        sort_dirs_first(&mut rows);
-        Ok(Listing {
-            directory: shown,
-            entries: rows,
+            .map_err(|_elapsed| {
+                anyhow::anyhow!(
+                    "`{}` did not answer within {:?}",
+                    command.program,
+                    crate::host::exec::OUTPUT_TIMEOUT
+                )
+            })?
+            .with_context(|| format!("failed to start `{}`", command.program))?;
+        Ok(ExecOutput {
+            stdout: output.stdout,
+            stderr: output.stderr,
+            termination: crate::channel::Termination::from(output.status),
         })
     }
+}
 
-    async fn dir_exists(&self, path: &str) -> anyhow::Result<bool> {
+#[async_trait::async_trait]
+impl Files for LocalHost {
+    async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
         let path = is_absolute_path(path)?;
         match tokio::fs::metadata(path).await {
             Ok(target) => Ok(target.is_dir()),
@@ -165,7 +120,7 @@ impl Host for LocalHost {
         }
     }
 
-    async fn create_dir(&self, path: &str) -> anyhow::Result<()> {
+    async fn create_dir_all(&self, path: &str) -> anyhow::Result<()> {
         let path = is_absolute_path(path)?;
         tokio::fs::create_dir_all(path)
             .await
@@ -192,7 +147,13 @@ impl Host for LocalHost {
             if name == "." || name == ".." {
                 continue;
             }
-            let meta = tokio::fs::metadata(entry.path()).await.ok();
+            let meta = match tokio::fs::metadata(entry.path()).await {
+                Ok(meta) => Some(meta),
+                Err(error) => {
+                    tracing::warn!(path = %entry.path().display(), %error, "an entry pie cannot follow");
+                    None
+                }
+            };
             let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
             let size = meta.as_ref().map(|m| m.len());
             let modified = meta.as_ref().and_then(|m| m.modified().ok());
@@ -210,12 +171,12 @@ impl Host for LocalHost {
         Ok(entries)
     }
 
-    async fn open_file(&self, path: &str) -> anyhow::Result<Box<dyn SeekableReader>> {
+    async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
         let path = is_absolute_path(path)?;
         let file = tokio::fs::File::open(path)
             .await
             .with_context(|| format!("cannot open {path}"))?;
-        Ok(Box::new(file) as Box<dyn SeekableReader>)
+        Ok(Box::new(file) as Box<dyn AsyncReadSeek>)
     }
 
     async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
@@ -223,25 +184,6 @@ impl Host for LocalHost {
         tokio::fs::remove_file(path)
             .await
             .with_context(|| format!("cannot remove {path}"))
-    }
-
-    async fn metadata(&self, path: &str) -> anyhow::Result<FileEntry> {
-        let path = is_absolute_path(path)?;
-        let meta = tokio::fs::metadata(path)
-            .await
-            .with_context(|| format!("cannot read metadata for {path}"))?;
-        let name = Path::new(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-        Ok(FileEntry {
-            name,
-            path: path.to_string(),
-            is_dir: meta.is_dir(),
-            size: Some(meta.len()),
-            modified: meta.modified().ok(),
-        })
     }
 
     async fn stage_file(
@@ -266,22 +208,18 @@ impl Host for LocalHost {
             }
         }
     }
-
-    async fn close(&self) {}
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::Host;
     use camino::Utf8Path;
 
     #[test]
-    fn a_conversation_is_passed_as_a_session_argument() {
-        assert_eq!(pi_args(None), ["--mode", "rpc"]);
-        assert_eq!(
-            pi_args(Some("/tmp/sessions/one.jsonl")),
-            ["--mode", "rpc", "--session", "/tmp/sessions/one.jsonl"]
-        );
+    fn the_local_machine_is_open_before_any_work() {
+        let host = Host::local(None);
+        assert!(host.is_open());
     }
 
     #[tokio::test]
@@ -291,9 +229,9 @@ mod tests {
         std::fs::create_dir(directory.path().join("a-dir")).expect("the directory");
         std::fs::write(directory.path().join("z-file"), "").expect("the file");
 
-        let host = LocalHost::new(None);
+        let host = Host::local(None);
         let listing = host
-            .dirs(directory.path().to_str().expect("utf-8"))
+            .list_dirs(directory.path().to_str().expect("utf-8"))
             .await
             .expect("the listing");
         assert_eq!(listing.directory, directory.path().display().to_string());
@@ -319,9 +257,9 @@ mod tests {
         std::fs::create_dir(&target).expect("the target");
         std::os::unix::fs::symlink(&target, directory.path().join("a-link")).expect("the link");
 
-        let host = LocalHost::new(None);
+        let host = Host::local(None);
         let rows = host
-            .dirs(directory.path().to_str().expect("utf-8"))
+            .list_dirs(directory.path().to_str().expect("utf-8"))
             .await
             .expect("the listing")
             .entries;
@@ -340,9 +278,9 @@ mod tests {
         std::os::unix::fs::symlink(directory.path().join("nowhere"), directory.path().join("stale")).expect("the link");
         std::fs::write(directory.path().join("z-file"), "").expect("the file");
 
-        let host = LocalHost::new(None);
+        let host = Host::local(None);
         let rows = host
-            .dirs(directory.path().to_str().expect("utf-8"))
+            .list_dirs(directory.path().to_str().expect("utf-8"))
             .await
             .expect("the listing")
             .entries;
@@ -353,9 +291,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_picker_takes_no_relative_path() {
-        let host = LocalHost::new(None);
+        let host = Host::local(None);
         for path in [".", "..", "sessions", "./sessions"] {
-            let error = host.dirs(path).await.expect_err("`{path}` is relative");
+            let error = host.list_dirs(path).await.expect_err("`{path}` is relative");
             assert!(error.to_string().contains("is not absolute"), "got {error}");
         }
     }
@@ -366,8 +304,8 @@ mod tests {
         let nested = directory.path().join("a/b");
         let missing = nested.to_str().expect("utf-8");
 
-        let host = LocalHost::new(None);
-        host.create_dir(missing).await.expect("the making");
+        let host = Host::local(None);
+        host.files().create_dir_all(missing).await.expect("the making");
 
         assert!(nested.is_dir(), "the nested directory stands");
     }
@@ -377,14 +315,21 @@ mod tests {
         let directory = tempfile::tempdir().expect("a temp directory");
         let start = directory.path().to_str().expect("utf-8");
 
-        let host = LocalHost::new(None);
-        host.create_dir(start).await.expect("making what stands is fine");
+        let host = Host::local(None);
+        host.files()
+            .create_dir_all(start)
+            .await
+            .expect("making what stands is fine");
     }
 
     #[tokio::test]
     async fn the_local_make_takes_no_relative_path() {
-        let host = LocalHost::new(None);
-        let error = host.create_dir("sessions/new").await.expect_err("a relative path");
+        let host = Host::local(None);
+        let error = host
+            .files()
+            .create_dir_all("sessions/new")
+            .await
+            .expect_err("a relative path");
 
         assert!(error.to_string().contains("is not absolute"), "got {error}");
     }
@@ -395,11 +340,11 @@ mod tests {
         let start = directory.path().to_str().expect("utf-8");
         let missing = directory.path().join("gone").to_str().expect("utf-8").to_string();
 
-        let host = LocalHost::new(None);
-        assert!(host.dir_exists(start).await.expect("a directory stands"));
-        assert!(!host.dir_exists(&missing).await.expect("a missing name does not"));
+        let host = Host::local(None);
+        assert!(host.files().is_dir(start).await.expect("a directory stands"));
+        assert!(!host.files().is_dir(&missing).await.expect("a missing name does not"));
 
-        let error = host.dir_exists("sessions").await.expect_err("a relative path");
+        let error = host.files().is_dir("sessions").await.expect_err("a relative path");
         assert!(error.to_string().contains("is not absolute"), "got {error}");
     }
 
@@ -409,8 +354,9 @@ mod tests {
         let file = directory.path().join("one.jsonl");
         std::fs::write(&file, "{}\n").expect("a file");
 
-        let host = LocalHost::new(None);
-        host.remove_file(file.to_str().expect("utf-8"))
+        let host = Host::local(None);
+        host.files()
+            .remove_file(file.to_str().expect("utf-8"))
             .await
             .expect("the removal");
 
@@ -422,8 +368,9 @@ mod tests {
         let directory = tempfile::tempdir().expect("a temp directory");
         let missing = directory.path().join("gone.jsonl");
 
-        let host = LocalHost::new(None);
+        let host = Host::local(None);
         let error = host
+            .files()
             .remove_file(missing.to_str().expect("utf-8"))
             .await
             .expect_err("a file that is not there cannot be removed");
@@ -479,7 +426,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_dir_and_open_file_and_metadata_operate_on_local_filesystem() {
+    async fn read_dir_and_open_operate_on_local_filesystem() {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
         let directory = tempfile::tempdir().expect("temp dir");
@@ -487,24 +434,18 @@ mod tests {
         let file_path = directory.path().join("test.txt");
         tokio::fs::write(&file_path, b"hello world").await.expect("write");
 
-        let host = LocalHost::new(None);
-        let entries = host.read_dir(dir_path).await.expect("read_dir");
+        let host = Host::local(None);
+        let entries = host.files().read_dir(dir_path).await.expect("read_dir");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "test.txt");
         assert!(!entries[0].is_dir);
         assert_eq!(entries[0].size, Some(11));
 
-        let meta = host
-            .metadata(file_path.to_str().expect("utf-8"))
-            .await
-            .expect("metadata");
-        assert_eq!(meta.name, "test.txt");
-        assert_eq!(meta.size, Some(11));
-
         let mut reader = host
-            .open_file(file_path.to_str().expect("utf-8"))
+            .files()
+            .open(file_path.to_str().expect("utf-8"))
             .await
-            .expect("open_file");
+            .expect("open");
         let mut buf = vec![0u8; 5];
         reader.read_exact(&mut buf).await.expect("read_exact");
         assert_eq!(&buf, b"hello");

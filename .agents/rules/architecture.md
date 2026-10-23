@@ -13,14 +13,18 @@ src/                     React: UI + UI state only, and the IPC surface it calls
 src-tauri/src/channel/   One started program: its bytes, and its life
 src-tauri/src/host/      A machine: the reach to it, what runs on it, its files
 src-tauri/src/session/   The sessions of that machine, and their conversations
-src-tauri/src/commands/  The IPC surface: one file per command area (app, files,
-                         host, log, session), mirrored 1:1 by src/lib/bridge/,
-                         plus pipe.rs to forward session events
+src-tauri/src/runtime/   The connected machines: one runtime per connection,
+                         and the registry of the active one
+src-tauri/src/commands/  The IPC surface: one file per command area (app,
+                         attachment, files, host, log, session), mirrored 1:1
+                         by src/lib/bridge/, plus pipe.rs to forward session
+                         events
 pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
 ```
 
-The dependency direction is `commands -> session -> host -> channel -> pi_rpc`,
-and `tests/layering.rs` is what holds it.
+The dependency direction is
+`commands -> runtime -> session -> host -> channel -> pi_rpc`;
+`tests/boundaries.rs` checks the `channel` and `host` edges.
 
 ## Hard boundaries
 
@@ -31,7 +35,7 @@ and `tests/layering.rs` is what holds it.
   the machine through permissions the capability file grants, and the frontend
   reaching one directly puts a second, unpoliced way out beside the command
   boundary. The Rust side registers the plugin it wants and exports a command
-  (`commands::files::{pick_paths, read_text_file}` over `tauri-plugin-dialog` +
+  (`commands::files::{select_paths, read_text}` over `tauri-plugin-dialog` +
   `tauri-plugin-fs`, or `commands::app::open_url` over `tauri-plugin-opener`);
   drop the npm package with it; `src-tauri/capabilities/default.json` grants no
   plugin permission, because the frontend reaches no plugin directly.
@@ -40,6 +44,9 @@ and `tests/layering.rs` is what holds it.
 - Rust (`src-tauri`) owns ALL logic: process supervision, the reach to a
   machine, retries and backoff, host-key verification, protocol normalization,
   error mapping.
+- The reach and the pi processes have separate owners: `runtime::HostRuntime`
+  connects, reconnects and closes the reach, while `session::SessionManager`
+  starts and supervises pi sessions and never calls connect or close.
 - The `pi_rpc` crate MUST stay protocol-only: it knows JSONL, types, framing and
   a client, and it owns no socket, process or TLS — a caller hands it a
   `Transport`. It has no `tauri` dependency and no connection policy. The

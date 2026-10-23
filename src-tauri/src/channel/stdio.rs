@@ -49,8 +49,8 @@ impl Program {
         self
     }
 
-    /// Sets the working directory the program starts in.
-    pub fn cwd(mut self, dir: impl Into<PathBuf>) -> Self {
+    /// Sets the current directory the program starts in.
+    pub fn current_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.command.current_dir(dir.into());
         self
     }

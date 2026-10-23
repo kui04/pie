@@ -18,8 +18,8 @@ logic and drives `pi --mode rpc` (JSONL over stdio) locally or over SSH.
   `transcript/`) and `rpc-protocol.ts` (type aliases over
   `@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai`).
 - `src-tauri/src/`: layered Rust backend
-  (`commands -> session -> host -> channel -> pi_rpc`), plus `error.rs`,
-  `log.rs`, and `state.rs`.
+  (`commands -> runtime -> session -> host -> channel -> pi_rpc`), plus
+  `error.rs`, `log.rs`, and `state.rs`.
 - `src-tauri/gen/android/`: committed Android Gradle project (`gen/schemas` is
   ignored).
 - `.codegraph/.references/pi`: untracked Pi source checkout at

@@ -1,12 +1,11 @@
 /**
- * File dialog picking, path importing, attachment staging, and temporary file management.
+ * File dialog selection and path inspection.
  *
  * The mirror of `src-tauri/src/commands/files.rs`.
  */
 
-import { listen } from "@tauri-apps/api/event";
 import type { ImageContent } from "@/lib/rpc-protocol";
-import { call, type Unsubscribe } from "./invoke";
+import { call } from "./invoke";
 
 /**
  * Filter for file extensions in system dialogs.
@@ -19,28 +18,28 @@ export interface DialogFilter {
 }
 
 /**
- * Target type for the system picker dialog.
+ * Target type for the system selection dialog.
  */
-export type PickTarget = "file" | "folder";
+export type SelectTarget = "file" | "folder";
 
 /**
- * Configuration options for opening a native file or folder picker dialog.
+ * Configuration options for opening a native file or folder selection dialog.
  */
-export interface PickOptions {
+export interface SelectOptions {
     /** Window title of the dialog. */
     title?: string;
     /** Whether multiple items can be chosen. */
     multiple?: boolean;
     /** Target item type: file or folder. */
-    target?: PickTarget;
+    target?: SelectTarget;
     /** File extension filters. */
     filters?: DialogFilter[];
 }
 
 /**
- * One image that a person picked or pasted, with the name of the file it came from.
+ * One image that a person selected or pasted, with the name of the file it came from.
  */
-export interface PickedImage {
+export interface ImageAttachment {
     name: string;
     image: ImageContent;
 }
@@ -58,72 +57,30 @@ export interface AttachmentFile {
 /**
  * Combined list of image and non-image attachments.
  */
-export interface PickedAttachments {
-    images: PickedImage[];
+export interface AttachmentCandidates {
+    images: ImageAttachment[];
     files: AttachmentFile[];
 }
 
 /**
- * The result of staging a file attachment.
- */
-export interface PreparedAttachment {
-    path: string;
-    size: number;
-    mimeType: string;
-}
-
-/**
- * Progress event emitted while uploading a file to a remote host.
- */
-export type UploadEvent = {
-    type: "progress";
-    transferred: number;
-    total: number;
-};
-
-/**
- * Opens a native system dialog to pick files or folders.
+ * Opens a native system dialog to select files or folders.
  *
  * Returns an array of paths or URIs selected by the person, or null if cancelled.
  */
-export async function pickPaths(options?: PickOptions): Promise<string[] | null> {
-    return call<string[] | null>("pick_paths", { options });
+export async function selectPaths(options?: SelectOptions): Promise<string[] | null> {
+    return call<string[] | null>("select_paths", { options });
 }
 
 /**
  * Reads the text contents of a file or Android content URI directly.
  */
-export async function readTextFile(path: string): Promise<string> {
-    return call<string>("read_text_file", { path });
+export async function readText(path: string): Promise<string> {
+    return call<string>("read_text", { path });
 }
 
 /**
- * Imports given file paths or URIs into image attachments or file references.
+ * Inspects given file paths or URIs and classifies them as images or file references.
  */
-export async function importPaths(paths: string[]): Promise<PickedAttachments> {
-    return call<PickedAttachments>("import_paths", { paths });
-}
-
-/**
- * Prepares a file attachment for the active host (local path or remote SFTP upload).
- */
-export async function prepareAttachment(
-    uploadId: string,
-    name: string,
-    localPath?: string,
-    bytesBase64?: string,
-): Promise<PreparedAttachment> {
-    return call<PreparedAttachment>("prepare_attachment", {
-        uploadId,
-        name,
-        localPath,
-        bytesBase64,
-    });
-}
-
-/**
- * Listens to upload progress events on `pi://upload/{uploadId}`.
- */
-export function onUploadProgress(uploadId: string, onProgress: (event: UploadEvent) => void): Promise<Unsubscribe> {
-    return listen<UploadEvent>(`pi://upload/${uploadId}`, (event) => onProgress(event.payload));
+export async function inspectPaths(paths: string[]): Promise<AttachmentCandidates> {
+    return call<AttachmentCandidates>("inspect_paths", { paths });
 }

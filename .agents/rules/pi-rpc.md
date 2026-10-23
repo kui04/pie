@@ -44,11 +44,11 @@ Pi's fields, or "improve" wire shapes.
 - Lifecycle: closing stdin is the graceful shutdown path; handle SIGTERM and
   channel EOF; the SSH case follows the same rules over the russh channel.
 - Check `pi --version` against the pin (`host::check_version` and
-  `host::probe_version`); a mismatch is a `host::VersionMismatch`, which the
+  `Host::pi_version`); a mismatch is a `host::VersionMismatch`, which the
   connect logs and goes on from - never a silent continue.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is ours to implement (TOFU + known_hosts); private keys
   cross the connection boundary as text, never as a path to a file — pie copies
   no secret material into its own storage. When a key file is picked (a path on
-  desktop or a `content://` URI on Android), `commands::files::read_text_file`
-  reads its text into the form before `connect` is called.
+  desktop or a `content://` URI on Android), `commands::files::read_text` reads
+  its text into the form before `connect` is called.

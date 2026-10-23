@@ -1,32 +1,19 @@
-//! The layers of `src-tauri/src`, checked by a machine.
+//! The hard boundaries between the layers of `src-tauri/src`, checked by a machine.
 //!
 //! The compiler holds the boundary at the crate edge, but inside this crate one
-//! module can reach any other: Rust has no visibility that says "the bytes must
-//! not know which machine they run on". What a reader would otherwise keep in
-//! their head, this test keeps instead. It reads the sources, as
+//! module can reach any other. The full order is
+//! `commands -> runtime -> session -> host -> channel -> pi_rpc`; this test keeps
+//! the edges that no type system keeps for us. It reads the sources, as
 //! `manifest.rs` reads the sources it checks.
-//!
-//! The rule is the dependency direction of the app:
-//!
-//! ```text
-//! commands -> session -> host -> channel -> pi_rpc
-//!     |
-//!     +--> everything, and Tauri
-//! ```
 //!
 //! - `channel` is bytes and a life. It does not know which machine it is on,
 //!   which session owns it, or that Tauri exists.
 //! - `host` reaches a machine and works on it. It does not know about sessions,
-//!   and it does not know that Tauri exists.
-//! - `session` runs pi sessions on that machine. It does not know that Tauri
-//!   exists, which is what lets the whole reach be tested against a real machine
-//!   with no window in the way.
-//! - `commands` is the IPC surface. It is the only layer allowed to name Tauri.
+//!   runtimes, or Tauri.
 //!
-//! `error` is the boundary's failure type: every layer below it returns
-//! `anyhow`, and the boundary turns that into the object the frontend reads.
-//! `log` must be reachable from anywhere, because a line of it may be written
-//! from anywhere.
+//! A comment may name what the code may not: a doc comment that says "this lives
+//! in `crate::host`" is how a reader learns the direction. What is checked is the
+//! code.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,22 +26,23 @@ struct Layer {
     forbidden: &'static [&'static str],
 }
 
-const LAYERS: [Layer; 3] = [
+const LAYERS: [Layer; 2] = [
     Layer {
         dir: "src/channel",
         // The bytes of a program know nothing about the machine they run on, the
         // session that owns them, or the app that shows them.
-        forbidden: &["crate::host", "crate::session", "crate::commands", "tauri"],
+        forbidden: &[
+            "crate::host",
+            "crate::session",
+            "crate::runtime",
+            "crate::commands",
+            "tauri",
+        ],
     },
     Layer {
         dir: "src/host",
         // The reach to a machine knows nothing about the sessions that run on it.
-        forbidden: &["crate::session", "crate::commands", "tauri"],
-    },
-    Layer {
-        dir: "src/session",
-        // A session is driven by the IPC layer; it does not know it.
-        forbidden: &["crate::commands", "tauri"],
+        forbidden: &["crate::session", "crate::runtime", "crate::commands", "tauri"],
     },
 ];
 
@@ -81,11 +69,6 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// The lines of `text` that name `forbidden`, with their line numbers.
-///
-/// A comment may name what the code may not: a doc comment that says "this lives
-/// in `crate::host`" is how a reader learns the direction, and refusing it would
-/// make the sources harder to read than the rule is worth. What is checked is
-/// the code.
 fn mentions(text: &str, forbidden: &str) -> Vec<usize> {
     text.lines()
         .enumerate()

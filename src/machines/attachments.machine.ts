@@ -19,8 +19,8 @@ import {
     asPieError,
     type AttachmentFile,
     type PieError,
-    type PickedImage,
-    type PreparedAttachment,
+    type ImageAttachment,
+    type StagedAttachment as StagedAttachmentResult,
     type Unsubscribe,
 } from "@/lib/bridge";
 import type { ImageContent } from "@/lib/rpc-protocol";
@@ -54,8 +54,8 @@ export interface StagedFileAttachment {
 
 export type StagedAttachment = StagedImageAttachment | StagedFileAttachment;
 
-/** The file that [`AttachmentDeps.prepare`] is asked to stage. */
-export interface PrepareRequest {
+/** The file that [`AttachmentDeps.stage`] is asked to stage. */
+export interface StageRequest {
     /** Names the progress events of this upload. */
     uploadId: string;
     name: string;
@@ -68,7 +68,7 @@ export interface AttachmentDeps {
     /** Reads the progress of one upload, and answers the way to stop reading it. */
     progress: (uploadId: string, onProgress: (transferred: number, total: number) => void) => Promise<Unsubscribe>;
     /** Stages one file on the machine that runs pi, and answers where its copy lies. */
-    prepare: (request: PrepareRequest) => Promise<PreparedAttachment>;
+    stage: (request: StageRequest) => Promise<StagedAttachmentResult>;
     /** Says that one file did not reach the machine. Its card goes. */
     notify: (failure: PieError) => void;
 }
@@ -76,11 +76,11 @@ export interface AttachmentDeps {
 /** What the child of one upload says to the chart. */
 type CopyEvent =
     | { type: "PROGRESS"; id: string; transferred: number; total: number }
-    | { type: "READY"; id: string; prepared: PreparedAttachment }
+    | { type: "READY"; id: string; staged: StagedAttachmentResult }
     | { type: "FAILED"; id: string; failure: PieError };
 
 type AttachmentEvent =
-    | { type: "STAGE_IMAGES"; images: readonly PickedImage[] }
+    | { type: "STAGE_IMAGES"; images: readonly ImageAttachment[] }
     | { type: "STAGE_FILES"; files: readonly StagedFileInput[] }
     /** The attachments of a message whose send pi refused come back, already staged. */
     | { type: "RESTORE"; items: readonly StagedAttachment[] }
@@ -109,7 +109,7 @@ interface AttachmentContext {
 }
 
 /** One staged file, on its way to the machine that runs pi. */
-const stageFile = fromCallback<CopyEvent, { id: string; request: PrepareRequest; deps: AttachmentDeps }>(
+const stageFile = fromCallback<CopyEvent, { id: string; request: StageRequest; deps: AttachmentDeps }>(
     ({ input, sendBack }) => {
         let alive = true;
         let off: Unsubscribe | undefined;
@@ -130,8 +130,8 @@ const stageFile = fromCallback<CopyEvent, { id: string; request: PrepareRequest;
             }
         })();
 
-        void input.deps.prepare(input.request).then(
-            (prepared) => tell({ type: "READY", id: input.id, prepared }),
+        void input.deps.stage(input.request).then(
+            (staged) => tell({ type: "READY", id: input.id, staged }),
             (thrown: unknown) => tell({ type: "FAILED", id: input.id, failure: asPieError(thrown) }),
         );
 
@@ -219,14 +219,14 @@ export const attachmentsMachine = setup({
         /** One copy landed: the card says where pi reads it from now on. */
         uploaded: assign({
             items: ({ context, event }) => {
-                const { id, prepared } = event as ReadyEvent;
+                const { id, staged } = event as ReadyEvent;
                 return context.items.map((item) =>
                     item.id === id && item.type === "file"
                         ? {
                               ...item,
-                              path: prepared.path,
-                              size: prepared.size,
-                              mimeType: prepared.mimeType,
+                              path: staged.path,
+                              size: staged.size,
+                              mimeType: staged.mimeType,
                               uploading: false,
                               progress: 1,
                           }

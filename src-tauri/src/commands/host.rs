@@ -23,12 +23,13 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
 
+use std::sync::PoisonError;
+
 use crate::error::PieError;
-use crate::host::{
-    AskHostKey, ConnectionState, Host, KnownHosts, Listing, LocalHost, PresentedKey, SshAuth, SshHost, SshTarget, Trust,
-};
-use crate::session::{Id, SessionManager};
-use crate::state::{AppState, HOST_KEY_PATIENCE, HostKeyQuestion};
+use crate::host::{AskHostKey, ConnectionState, Host, KnownHosts, Listing, PresentedKey, SshAuth, SshTarget, Trust};
+use crate::runtime::{ConnectionInfo, HostKeyQuestion, HostRuntime};
+use crate::session::Id;
+use crate::state::{AppState, HOST_KEY_PATIENCE};
 
 /// How to reach a machine, as the connect screen sends it.
 #[derive(Debug, Clone, Deserialize)]
@@ -169,40 +170,65 @@ pub async fn connect(
     state: State<'_, AppState>,
     id: String,
     spec: ConnectSpec,
-) -> Result<crate::session::ConnectionInfo, PieError> {
+) -> Result<ConnectionInfo, PieError> {
     let id = Id::new(&id)?;
-    let mut slot = state.sessions.lock().await;
-    if let Some(existing) = slot.take() {
-        if existing.is_alive() {
-            let endpoint = existing.host().endpoint().to_string();
-            *slot = Some(existing);
-            return Err(PieError::AlreadyConnected { endpoint });
+    let host = build_host(&app, &state, &id, spec)?;
+    let runtime = Arc::new(HostRuntime::new(id.clone(), host));
+
+    let replaced = {
+        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(existing) = hosts.get(&id)
+            && existing.sessions().is_alive()
+        {
+            return Err(PieError::AlreadyConnected {
+                endpoint: existing.endpoint().to_string(),
+            });
         }
+        hosts.insert(id.clone(), Arc::clone(&runtime))
+    };
+    if let Some(previous) = replaced {
         // No pi of this connection runs, so nothing speaks through it. The
-        // connection ended with no observer, and the slot must not keep the
+        // connection ended with no observer, and the registry must not keep the
         // machine it reached. A machine that was connected and never spoken to is
         // this case too: only a session makes a connection live.
-        tracing::info!(connection = %existing.id(), "dropping a connection with no live session");
-        existing.close().await;
+        tracing::info!(connection = %id, "dropping a connection with no live session");
+        previous.close().await;
     }
 
-    let host = build_host(&app, &state, &id, spec)?;
-    let sessions = SessionManager::connect(id.clone(), host).await?;
-    let info = sessions.info();
-    *slot = Some(sessions.clone());
-    watching(&app, sessions, id);
+    if let Err(error) = runtime.connect().await {
+        {
+            let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+            hosts.remove_if_current(&runtime);
+        }
+        runtime.close().await;
+        return Err(error.into());
+    }
+
+    let active = {
+        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        hosts.set_active_if_current(&runtime)
+    };
+    if !active {
+        runtime.close().await;
+        return Err(PieError::NotConnected {
+            doing: "connecting".to_string(),
+        });
+    }
+
+    let info = runtime.info();
+    watching(&app, runtime, id);
     Ok(info)
 }
 
-/// Builds the [`Host`] implementation for `spec`.
-fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> anyhow::Result<Arc<dyn Host>> {
+/// Builds the [`Host`] for `spec`.
+fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> anyhow::Result<Arc<Host>> {
     let home = app
         .path()
         .home_dir()
         .ok()
         .and_then(|h| Utf8PathBuf::from_path_buf(h).ok());
     match spec {
-        ConnectSpec::Local => Ok(Arc::new(LocalHost::new(home))),
+        ConnectSpec::Local => Ok(Arc::new(Host::local(home))),
         ConnectSpec::Ssh { host, port, user, auth } => {
             let store = app
                 .path()
@@ -222,7 +248,7 @@ fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> 
             if let Some(port) = port {
                 target = target.port(port);
             }
-            Ok(Arc::new(SshHost::new(target, auth.into(), trust)))
+            Ok(Arc::new(Host::ssh(target, auth.into(), trust)))
         }
     }
 }
@@ -240,17 +266,17 @@ fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> 
 /// # Errors
 ///
 /// The result is the shape of the boundary (`architecture.md`). It is not a claim
-/// about today's code. A read of the slot has nothing to fail on yet.
+/// about today's code. A read of the registry has nothing to fail on yet.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn get_connection(state: State<'_, AppState>) -> Result<Option<crate::session::ConnectionInfo>, PieError> {
-    Ok(current_connection(&state).await)
+pub async fn get_connection(state: State<'_, AppState>) -> Result<Option<ConnectionInfo>, PieError> {
+    Ok(current_connection(&state))
 }
 
 /// What the frontend is told about the one connection, if there is one.
-async fn current_connection(state: &AppState) -> Option<crate::session::ConnectionInfo> {
-    let slot = state.sessions.lock().await;
-    slot.as_ref().map(|sessions| sessions.info())
+fn current_connection(state: &AppState) -> Option<ConnectionInfo> {
+    let runtime = state.hosts.lock().unwrap_or_else(PoisonError::into_inner).active();
+    runtime.map(|runtime| runtime.info())
 }
 
 /// Ends the connection. Every session stops. The files of the sessions stay.
@@ -258,10 +284,9 @@ async fn current_connection(state: &AppState) -> Option<crate::session::Connecti
 /// A disconnect with no connection does nothing. Therefore a click that races the
 /// end of the connection is not an error.
 ///
-/// A `connect` in progress holds the connection slot. Therefore this command
-/// waits behind it: the version probe, the full connect to the machine, and a
-/// host-key question, up to `HOST_KEY_PATIENCE`. The frontend can make the wait
-/// shorter. It answers the question on screen.
+/// A `connect` in progress is not the active runtime until its reach succeeds.
+/// A disconnect during that time removes the runtime, and the pending connect
+/// closes it and reports `NotConnected`.
 ///
 /// # Errors
 ///
@@ -270,16 +295,15 @@ async fn current_connection(state: &AppState) -> Option<crate::session::Connecti
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
-    // The guard is dropped at the end of this block. Therefore the slot is free
-    // before the sessions stop, and the shutdown below does not hold it. The order
-    // of a new `connect` against this stop is the task of the frontend, not of a
-    // lock.
-    let sessions = {
-        let mut slot = state.sessions.lock().await;
-        slot.take()
+    // The lock is dropped at the end of this block, before the sessions stop. The
+    // order of a new `connect` against this stop is the task of the frontend, not
+    // of a lock.
+    let runtimes = {
+        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        hosts.remove_all()
     };
-    if let Some(sessions) = sessions {
-        sessions.close().await;
+    for runtime in runtimes {
+        runtime.close().await;
     }
     Ok(())
 }
@@ -298,84 +322,67 @@ pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
 /// that raced the end of a connection finds - and everything a `connect` reports.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn reconnect(app: AppHandle, state: State<'_, AppState>) -> Result<crate::session::ConnectionInfo, PieError> {
-    let mut slot = state.sessions.lock().await;
-    let Some(previous) = slot.as_ref() else {
+pub async fn reconnect(state: State<'_, AppState>) -> Result<ConnectionInfo, PieError> {
+    let previous = {
+        let hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        hosts.active()
+    };
+    let Some(previous) = previous else {
         return Err(PieError::NotConnected {
             doing: "bringing the connection back".to_string(),
         });
     };
 
     let id = previous.id().clone();
-    tracing::info!(connection = %id, endpoint = %previous.host().endpoint(), "dialling the same machine again");
+    tracing::info!(connection = %id, endpoint = %previous.endpoint(), "dialling the same machine again");
 
-    let sessions = match previous.reconnect().await {
-        Ok(sessions) => sessions,
-        Err(error) => {
-            tracing::warn!(connection = %id, %error, "the connection could not be brought back");
-            return Err(error.into());
-        }
+    if let Err(error) = previous.reconnect().await {
+        tracing::warn!(connection = %id, %error, "the connection could not be brought back");
+        return Err(error.into());
+    }
+    let active = {
+        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        hosts.set_active_if_current(&previous)
     };
-    let info = sessions.info();
-    *slot = Some(sessions.clone());
-    watching(&app, sessions, id);
-    Ok(info)
-}
-
-/// Closes the reach to the machine, as a network that goes away does.
-///
-/// # Errors
-///
-/// [`PieError::NotConnected`] when there is no connection whose reach could be closed.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn close_the_reach(state: State<'_, AppState>) -> Result<(), PieError> {
-    #[cfg(debug_assertions)]
-    {
-        let slot = state.sessions.lock().await;
-        let Some(connection) = slot.as_ref() else {
-            return Err(PieError::NotConnected {
-                doing: "closing a reach".to_string(),
-            });
-        };
-        tracing::info!("a debug build closed the reach to the machine");
-        connection.close_the_reach().await;
-        return Ok(());
+    if !active {
+        previous.close().await;
+        return Err(PieError::NotConnected {
+            doing: "bringing the connection back".to_string(),
+        });
     }
-
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = state;
-        tracing::warn!("a release build was asked to close a reach, and has no way to");
-        Ok(())
-    }
+    Ok(previous.info())
 }
 
 /// How often the watch of a reach asks whether it is still open.
 const WATCH_EVERY: Duration = Duration::from_millis(500);
 
 /// Watches the reach to the machine, and says so when it ends.
-fn watching(app: &AppHandle, connection: SessionManager, id: Id) {
+fn watching(app: &AppHandle, runtime: Arc<HostRuntime>, id: Id) {
     let app = app.clone();
     tokio::spawn(async move {
+        let mut announced = false;
         loop {
             tokio::time::sleep(WATCH_EVERY).await;
             let held = {
                 let state = app.state::<AppState>();
-                let slot = state.sessions.lock().await;
-                slot.as_ref().is_some_and(|current| current.is_same(&connection))
+                let hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+                hosts.is_current(&runtime)
             };
             if !held {
                 return;
             }
-            if connection.is_open() {
+            if runtime.is_open() {
+                announced = false;
+                continue;
+            }
+            if announced {
                 continue;
             }
             tracing::info!(connection = %id, "the reach to the machine ended");
             if let Err(error) = app.emit(&state_event(&id), ConnectionState::Ended) {
                 tracing::warn!(connection = %id, %error, "the end of a reach was not announced");
             }
-            return;
+            announced = true;
         }
     });
 }
@@ -391,32 +398,32 @@ pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: b
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn home_dir(state: State<'_, AppState>) -> Result<Option<String>, PieError> {
-    let sessions = super::connected(&state, "reading its home directory").await?;
-    Ok(sessions.host().home_dir().await?)
+    let runtime = super::connected_runtime(&state, "reading its home directory")?;
+    Ok(runtime.host().files().home_dir().await?)
 }
 
 /// One directory level on the connected machine, for the directory picker.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn list_dirs(state: State<'_, AppState>, path: String) -> Result<Listing, PieError> {
-    let sessions = super::connected(&state, "browsing its directories").await?;
-    Ok(sessions.host().dirs(&path).await?)
+    let runtime = super::connected_runtime(&state, "browsing its directories")?;
+    Ok(runtime.host().list_dirs(&path).await?)
 }
 
 /// Whether a path names a directory on the connected machine.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn dir_exists(state: State<'_, AppState>, path: String) -> Result<bool, PieError> {
-    let sessions = super::connected(&state, "reading its directories").await?;
-    Ok(sessions.host().dir_exists(&path).await?)
+    let runtime = super::connected_runtime(&state, "reading its directories")?;
+    Ok(runtime.host().files().is_dir(&path).await?)
 }
 
 /// Makes a directory on the connected machine, with parents as needed.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn create_dir(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
-    let sessions = super::connected(&state, "making a directory").await?;
-    Ok(sessions.host().create_dir(&path).await?)
+    let runtime = super::connected_runtime(&state, "making a directory")?;
+    Ok(runtime.host().files().create_dir_all(&path).await?)
 }
 
 #[cfg(test)]
@@ -428,7 +435,7 @@ mod tests {
         let state = AppState::default();
 
         assert!(
-            current_connection(&state).await.is_none(),
+            current_connection(&state).is_none(),
             "no connection is a state, not a failure"
         );
     }

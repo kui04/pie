@@ -11,22 +11,27 @@
 //! implementations live in `local` and `ssh`. A caller outside this module
 //! never asks which machine it has.
 
+mod connection;
+mod exec;
 pub(crate) mod files;
 mod local;
+mod path;
 mod ssh;
 
-pub use files::{DirEntry, FileEntry, Listing, SeekableReader};
+pub use connection::Connection;
+pub use exec::{CommandSpec, Exec, ExecOutput};
+pub use files::{AsyncReadSeek, DirEntry, FileEntry, Files, Listing, ProgressFn, StageSource};
 pub use local::LocalHost;
+use path::{is_absolute_path, is_posix_absolute};
 pub use ssh::{
-    AskHostKey, ExecOutput, HostKey, KnownHosts, PresentedKey, RemoteCommand, SshAuth, SshHost, SshSession, SshTarget,
-    SubsystemStream, Trust,
+    AskHostKey, HostKey, KnownHosts, PresentedKey, SshAuth, SshHost, SshSession, SshTarget, SubsystemStream, Trust,
 };
 
 use crate::channel::Channel;
-use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use serde::Serialize;
 use std::fmt;
-use typed_path::Utf8TypedPath;
+use std::sync::Arc;
 
 /// The Pi release this crate mirrors.
 pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -88,92 +93,164 @@ impl fmt::Display for Endpoint {
     }
 }
 
-/// Source data for staging an attachment on a [`Host`].
-pub enum StageSource<'a> {
-    /// A file that already exists on the local filesystem.
-    ///
-    /// [`LocalHost`] reuses this path without copying; [`SshHost`] reads and
-    /// uploads the file over SFTP.
-    LocalFile(&'a Utf8Path),
-    /// In-memory file bytes.
-    Bytes(&'a [u8]),
-}
-
-/// Progress callback `(transferred, total)` for file staging.
-pub type ProgressFn<'a> = Box<dyn FnMut(u64, u64) + Send + 'a>;
-
 /// A machine pie reaches, and the pi that runs on it.
 ///
-/// Callers hold `Arc<dyn Host>` and interact with the machine exclusively through
-/// this trait without knowing whether it is local or remote.
-#[async_trait::async_trait]
-pub trait Host: fmt::Debug + Send + Sync + 'static {
-    /// Establishes or re-establishes the reach to the machine and verifies that
-    /// `pi` can run on it.
-    async fn connect(&self) -> anyhow::Result<()>;
-
-    /// Whether the reach to the machine is still open.
-    fn is_open(&self) -> bool;
-
-    /// The label of this machine: `local`, or `user@host:port`.
-    fn endpoint(&self) -> Endpoint;
-
-    /// Starts `pi --mode rpc` on this machine in `cwd`, returning the channel and the
-    /// starting working directory label (if known).
-    async fn open_pi(&self, cwd: &str, conversation: Option<&str>) -> anyhow::Result<(Channel, Option<String>)>;
-
-    /// Returns the version string reported by `pi --version` on this machine.
-    async fn pi_version(&self) -> anyhow::Result<String>;
-
-    /// Lists one directory level of this machine for the directory picker.
-    async fn dirs(&self, path: &str) -> anyhow::Result<Listing>;
-
-    /// Checks whether an absolute path names a directory on the machine.
-    async fn dir_exists(&self, path: &str) -> anyhow::Result<bool>;
-
-    /// Creates a directory on the machine, with parents as needed.
-    async fn create_dir(&self, path: &str) -> anyhow::Result<()>;
-
-    /// Returns the login home directory of this machine, if known.
-    async fn home_dir(&self) -> anyhow::Result<Option<String>>;
-
-    /// Reads directory entries of a directory on the machine.
-    async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>>;
-
-    /// Opens a file for seekable asynchronous reading.
-    async fn open_file(&self, path: &str) -> anyhow::Result<Box<dyn SeekableReader>>;
-
-    /// Removes a file on the machine.
-    async fn remove_file(&self, path: &str) -> anyhow::Result<()>;
-
-    /// Reads metadata for a path on the machine.
-    async fn metadata(&self, path: &str) -> anyhow::Result<FileEntry>;
-
-    /// Stages a file where `pi` on this machine can read it, reporting progress
-    /// through `on_progress`.
-    async fn stage_file(
-        &self,
-        name: &str,
-        ext: &str,
-        source: StageSource<'_>,
-        on_progress: ProgressFn<'_>,
-    ) -> anyhow::Result<String>;
-
-    /// Ends the reach to the machine.
-    async fn close(&self);
+/// A host composes the three capabilities of one machine: its reach
+/// ([`Connection`]), its files ([`Files`]), and its programs ([`Exec`]).
+/// Callers hold `Arc<Host>` and never ask which machine they have.
+#[derive(Debug, Clone)]
+pub struct Host {
+    connection: Arc<dyn Connection>,
+    files: Arc<dyn Files>,
+    exec: Arc<dyn Exec>,
+    path_style: path::PathStyle,
 }
 
-/// Validates that a host path is absolute (POSIX or Windows) before any channel
-/// or process is touched.
-pub(crate) fn checked_host_path(path: &str) -> anyhow::Result<&str> {
-    if Utf8TypedPath::derive(path).is_absolute() {
-        Ok(path)
-    } else {
-        Err(files::not_absolute(path))
+impl Host {
+    /// Assembles a host from its three capabilities.
+    ///
+    /// The three must belong to the same machine: `connect` opens the reach and
+    /// then probes `pi` through `exec`.
+    pub(crate) fn new(
+        connection: Arc<dyn Connection>,
+        files: Arc<dyn Files>,
+        exec: Arc<dyn Exec>,
+        path_style: path::PathStyle,
+    ) -> Self {
+        Self {
+            connection,
+            files,
+            exec,
+            path_style,
+        }
+    }
+
+    /// The machine the app itself runs on, with the home the app resolved.
+    pub fn local(home: Option<Utf8PathBuf>) -> Self {
+        let local = Arc::new(LocalHost::new(home));
+        let connection: Arc<dyn Connection> = local.clone();
+        let files: Arc<dyn Files> = local.clone();
+        let exec: Arc<dyn Exec> = local;
+        Self::new(connection, files, exec, path::PathStyle::Native)
+    }
+
+    /// A machine reached over SSH.
+    pub fn ssh(target: SshTarget, auth: SshAuth, trust: Trust) -> Self {
+        let remote = Arc::new(SshHost::new(target, auth, trust));
+        let connection: Arc<dyn Connection> = remote.clone();
+        let files: Arc<dyn Files> = remote.clone();
+        let exec: Arc<dyn Exec> = remote;
+        Self::new(connection, files, exec, path::PathStyle::Posix)
+    }
+
+    /// Establishes or re-establishes the reach and verifies that `pi` runs on it.
+    pub async fn connect(&self) -> anyhow::Result<()> {
+        self.connection.connect().await?;
+        match self.pi_version().await {
+            Ok(version) => {
+                if let Err(mismatch) = check_version(&version) {
+                    tracing::warn!(%mismatch, "the pi of this machine is not the release pie speaks; going on");
+                }
+                Ok(())
+            }
+            Err(error) => {
+                self.connection.close().await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Whether the reach to the machine is still open.
+    pub fn is_open(&self) -> bool {
+        self.connection.is_open()
+    }
+
+    /// The label of this machine: `local`, or `user@host:port`.
+    pub fn endpoint(&self) -> Endpoint {
+        self.connection.endpoint()
+    }
+
+    /// Ends the reach to the machine.
+    pub async fn close(&self) {
+        self.connection.close().await;
+    }
+
+    /// The file operations of this machine.
+    pub fn files(&self) -> &dyn Files {
+        self.files.as_ref()
+    }
+
+    /// Another hand on the file operations, for a task that must own them.
+    pub fn files_arc(&self) -> Arc<dyn Files> {
+        Arc::clone(&self.files)
+    }
+
+    /// The program operations of this machine.
+    pub fn exec(&self) -> &dyn Exec {
+        self.exec.as_ref()
+    }
+
+    /// Starts `pi --mode rpc` on this machine in `current_dir`, returning the
+    /// channel and the starting working directory label.
+    pub async fn spawn_pi(
+        &self,
+        current_dir: &str,
+        session_file: Option<&str>,
+    ) -> anyhow::Result<(Channel, Option<String>)> {
+        let current_dir = path::checked(current_dir, self.path_style)?;
+        let session_file = session_file
+            .map(|path| path::checked(path, self.path_style))
+            .transpose()?;
+        let mut command = CommandSpec::new("pi").args(["--mode", "rpc"]).current_dir(current_dir);
+        if let Some(session_file) = session_file {
+            command = command.args(["--session", session_file]);
+        }
+        let channel = self.exec.spawn(command).await?;
+        Ok((channel, Some(current_dir.to_string())))
+    }
+
+    /// Returns the version string reported by `pi --version` on this machine.
+    pub async fn pi_version(&self) -> anyhow::Result<String> {
+        let output = self.exec.output(CommandSpec::new("pi").arg("--version")).await?;
+        version_of(&output, &self.endpoint())
+    }
+
+    /// Lists one directory level of this machine for the directory picker.
+    pub async fn list_dirs(&self, path: &str) -> anyhow::Result<Listing> {
+        let mut entries: Vec<DirEntry> = self
+            .files
+            .read_dir(path)
+            .await?
+            .into_iter()
+            .map(|entry| DirEntry {
+                name: entry.name,
+                path: entry.path,
+                is_dir: entry.is_dir,
+            })
+            .collect();
+        files::sort_dirs_first(&mut entries);
+        Ok(Listing {
+            directory: path.to_string(),
+            entries,
+        })
     }
 }
 
-pub(crate) use checked_host_path as is_absolute_path;
+/// Reads the version that a `pi --version` capture reported.
+pub(crate) fn version_of(output: &ExecOutput, endpoint: &Endpoint) -> anyhow::Result<String> {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let crate::channel::Termination::Exited { success: true, .. } = output.termination
+        && !stdout.is_empty()
+    {
+        return Ok(stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let said = stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+    if said.is_empty() {
+        anyhow::bail!("`pi --version` on {endpoint} failed with {:?}", output.termination);
+    }
+    anyhow::bail!("`pi --version` on {endpoint} failed: {said}");
+}
 
 /// What the frontend hears about a connection during the handshake.
 #[derive(Debug, Clone, Serialize)]
@@ -212,7 +289,7 @@ mod tests {
 
     #[test]
     fn the_local_machine_is_always_open() {
-        let host: Box<dyn Host> = Box::new(LocalHost::new(None));
+        let host = Host::local(None);
         assert!(host.is_open());
         assert_eq!(host.endpoint().as_str(), "local");
     }
@@ -226,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_host_path_accepts_posix_and_windows_roots_and_rejects_relative_paths() {
+    fn the_native_path_style_accepts_posix_and_windows_roots_and_rejects_relative_paths() {
         for path in [
             "/",
             "/home/u/.pi/agent/sessions/one.jsonl",

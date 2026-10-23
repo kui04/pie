@@ -10,12 +10,14 @@
 //! caller that wants the effect of a change watches the events of the session,
 //! not the answers of these commands: `pipe.rs` forwards them.
 //!
-//! A read runs on a shared hand, not on the connection slot. The slot must stay
-//! free for `disconnect`.
+//! A read takes the registry only long enough to find the session, never across
+//! a session read. A disconnect does not wait behind it.
 //!
 //! A command fails with the sentence that the step which failed wrote: no
 //! connection and no such session have sentences of their own, and everything
 //! below is the protocol layer's own error. Neither is wrapped here.
+
+use std::sync::PoisonError;
 
 use tauri::{AppHandle, State};
 
@@ -43,10 +45,18 @@ use crate::state::AppState;
 /// [`PieError::NotConnected`] when there is no connection, and a sentence when
 /// the id belongs to no session of this connection.
 async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<Session, PieError> {
-    super::connected(state, doing)
-        .await?
-        .session(session)
-        .ok_or_else(|| PieError::failed(format!("this connection has no session `{session}`")))
+    let session = {
+        let hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        if hosts.is_empty() {
+            return Err(PieError::NotConnected {
+                doing: doing.to_string(),
+            });
+        }
+        hosts
+            .find_session(session)
+            .ok_or_else(|| PieError::failed(format!("this connection has no session `{session}`")))?
+    };
+    Ok(session)
 }
 
 /// Every conversation that pi wrote on the connected machine.
@@ -62,7 +72,7 @@ async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<S
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, PieError> {
-    let sessions = super::connected(&state, "listing its sessions").await?;
+    let sessions = super::connected(&state, "listing its sessions")?;
     Ok(sessions.list_sessions().await?)
 }
 
@@ -81,23 +91,25 @@ pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSumm
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
 pub async fn delete_session(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
-    let sessions = super::connected(&state, "deleting a conversation").await?;
+    let sessions = super::connected(&state, "deleting a conversation")?;
     Ok(sessions.delete_conversation(&path).await?)
 }
 
 /// Starts a pi on the connected machine and hands its records to the frontend.
 ///
 /// The one body behind `attach_session` and `start_session`: the two differ in
-/// what pi is asked to start on - a conversation file, or a directory for a new
-/// conversation - and in nothing that follows.
+/// what pi is asked to start on - a session file, or a directory for a new
+/// session file - and in nothing that follows.
 async fn begin(
     app: AppHandle,
     state: &AppState,
-    conversation: Option<&str>,
-    cwd: Option<&str>,
+    session_file: Option<&str>,
+    current_dir: Option<&str>,
 ) -> Result<SessionInfo, PieError> {
-    let sessions = super::connected(state, "starting pi").await?;
-    let session = sessions.attach(state.next_session_number(), conversation, cwd).await?;
+    let sessions = super::connected(state, "starting pi")?;
+    let session = sessions
+        .attach(state.next_session_number(), session_file, current_dir)
+        .await?;
     // The subscription happens before the task starts, not inside it, so the pipe
     // itself misses nothing that pi writes after this line.
     //
@@ -168,7 +180,7 @@ pub async fn start_session(state: State<'_, AppState>, app: AppHandle, cwd: Stri
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err, fields(session = %session))]
 pub async fn detach_session(state: State<'_, AppState>, session: String) -> Result<(), PieError> {
-    let sessions = super::connected(&state, "ending the session").await?;
+    let sessions = super::connected(&state, "ending the session")?;
     Ok(sessions.detach(&session).await?)
 }
 
@@ -227,7 +239,7 @@ pub async fn get_session_stats(state: State<'_, AppState>, session: String) -> R
 /// Therefore a caller does not have to be right about the stream: it names the key
 /// that the person pressed.
 ///
-/// `images` are the pictures of the message, as [`super::files::PickedImage`]
+/// `images` are the pictures of the message, as [`super::files::ImageAttachment`]
 /// carries them; pi processes them itself.
 ///
 /// The answer says what happened: `started`, `queued`, or `handled` for a message

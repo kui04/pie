@@ -1,14 +1,48 @@
 //! Shared file types and path utilities for the machine pie reaches.
 
+use std::fmt;
 use std::time::SystemTime;
 
+use camino::Utf8Path;
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncSeek};
 use typed_path::Utf8TypedPath;
 
 /// A seekable, readable stream backed by a local file or remote SFTP channel.
-pub trait SeekableReader: AsyncRead + AsyncSeek + Send + Unpin + 'static {}
-impl<T: AsyncRead + AsyncSeek + Send + Unpin + 'static> SeekableReader for T {}
+pub trait AsyncReadSeek: AsyncRead + AsyncSeek + Send + Unpin + 'static {}
+impl<T: AsyncRead + AsyncSeek + Send + Unpin + 'static> AsyncReadSeek for T {}
+
+/// The file operations of one machine.
+#[async_trait::async_trait]
+pub trait Files: fmt::Debug + Send + Sync + 'static {
+    /// Returns the login home directory of this machine, if known.
+    async fn home_dir(&self) -> anyhow::Result<Option<String>>;
+
+    /// Reads directory entries of a directory on the machine.
+    async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>>;
+
+    /// Opens a file for seekable asynchronous reading.
+    async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>>;
+
+    /// Removes a file on the machine.
+    async fn remove_file(&self, path: &str) -> anyhow::Result<()>;
+
+    /// Checks whether an absolute path names a directory on the machine.
+    async fn is_dir(&self, path: &str) -> anyhow::Result<bool>;
+
+    /// Creates a directory on the machine, with parents as needed.
+    async fn create_dir_all(&self, path: &str) -> anyhow::Result<()>;
+
+    /// Stages a file where `pi` on this machine can read it, reporting progress
+    /// through `on_progress`.
+    async fn stage_file(
+        &self,
+        name: &str,
+        ext: &str,
+        source: StageSource<'_>,
+        on_progress: ProgressFn<'_>,
+    ) -> anyhow::Result<String>;
+}
 
 /// One entry of a directory read on a host.
 #[derive(Debug, Clone, Serialize)]
@@ -40,9 +74,8 @@ pub struct DirEntry {
 
 /// One directory level of a machine, with the directory it is.
 ///
-/// The directory comes back with the rows because the picker cannot name the home
-/// directory of a machine by itself: it asks for `None` and the machine answers with
-/// its own. Every other level is named by the row the picker walked into.
+/// The directory comes back with the rows so the picker always knows the full
+/// host path of the level it is showing.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Listing {
@@ -51,6 +84,20 @@ pub struct Listing {
     /// Its rows, directories first.
     pub entries: Vec<DirEntry>,
 }
+
+/// Source data for staging an attachment on a [`Host`](super::Host).
+pub enum StageSource<'a> {
+    /// A file that already exists on the local filesystem.
+    ///
+    /// [`LocalHost`](super::LocalHost) reuses this path without copying;
+    /// [`SshHost`](super::SshHost) reads and uploads the file over SFTP.
+    LocalFile(&'a Utf8Path),
+    /// In-memory file bytes.
+    Bytes(&'a [u8]),
+}
+
+/// Progress callback `(transferred, total)` for file staging.
+pub type ProgressFn<'a> = Box<dyn FnMut(u64, u64) + Send + 'a>;
 
 /// Directories first, then by name. The order of the picker, on both machines.
 pub(super) fn sort_dirs_first(rows: &mut [DirEntry]) {

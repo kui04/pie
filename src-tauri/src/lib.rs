@@ -2,9 +2,10 @@
 //! bridge to the React frontend.
 //!
 //! The `pi_rpc` crate mirrors the `pi --mode rpc` protocol of Pi and stays free of
-//! app concerns. Below it, three layers of this app: [`channel`] is one started
+//! app concerns. Below it, four layers of this app: [`channel`] is one started
 //! program's bytes and life, [`host`] is the machine pie reaches and what runs on
-//! it, and [`session`] is the pi sessions of that machine. [`commands`] is the
+//! it, [`session`] is the pi sessions of that machine, and [`runtime`] holds the
+//! connected machines and the active one. [`commands`] is the
 //! boundary the frontend talks to, [`error`] is what it hears when something
 //! fails, [`log`] is where every line of the app goes, and [`state`] is what
 //! the commands of one run share.
@@ -14,6 +15,7 @@ pub mod commands;
 pub mod error;
 pub mod host;
 pub mod log;
+pub mod runtime;
 pub mod session;
 pub mod state;
 
@@ -31,15 +33,14 @@ pub fn run() {
             commands::app::open_url,
             commands::app::platform,
             commands::app::provider_logo,
-            commands::files::import_paths,
-            commands::files::pick_paths,
-            commands::files::prepare_attachment,
-            commands::files::read_text_file,
+            commands::attachment::stage_attachment,
+            commands::files::inspect_paths,
+            commands::files::read_text,
+            commands::files::select_paths,
             commands::host::connect,
             commands::host::disconnect,
             commands::host::get_connection,
             commands::host::reconnect,
-            commands::host::close_the_reach,
             commands::host::create_dir,
             commands::host::dir_exists,
             commands::host::home_dir,

@@ -172,8 +172,8 @@ const REAL_DEPS: ConnectScreenDeps = {
     connect: bridge.connect,
     trustHostKey: bridge.trustHostKey,
     onConnectionState: bridge.onConnectionState,
-    pickPaths: bridge.pickPaths,
-    readTextFile: bridge.readTextFile,
+    selectPaths: bridge.selectPaths,
+    readText: bridge.readText,
     notify: (failure) => toast.error(failure.message),
     onHostKey: () => undefined,
 };
@@ -185,8 +185,8 @@ const REAL_DEPS: ConnectScreenDeps = {
  * replace a call that the machine never makes.
  */
 export type ConnectScreenDeps = ConnectionDeps & {
-    pickPaths: typeof bridge.pickPaths;
-    readTextFile: typeof bridge.readTextFile;
+    selectPaths: typeof bridge.selectPaths;
+    readText: typeof bridge.readText;
 };
 
 export interface ConnectScreenProps {
@@ -195,7 +195,7 @@ export interface ConnectScreenProps {
 }
 
 export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
-    const { pickPaths, readTextFile } = deps;
+    const { selectPaths, readText } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
     // The host of the last connection, as the card opens on it. Read once, for
@@ -233,20 +233,20 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
      */
     const pickKey = useCallback(async () => {
         try {
-            const paths = await pickPaths({
+            const paths = await selectPaths({
                 title: "Choose Private Key",
                 multiple: false,
                 target: "file",
             });
             if (paths && paths.length > 0) {
-                const key = await readTextFile(paths[0]);
+                const key = await readText(paths[0]);
                 setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
             }
         } catch (thrown) {
             const failure = bridge.asPieError(thrown);
             toast.error(failure.message);
         }
-    }, [pickPaths, readTextFile]);
+    }, [selectPaths, readText]);
 
     return (
         <main id="window" className="flex min-h-0 w-full flex-1 overflow-hidden bg-surface font-sans text-foreground">

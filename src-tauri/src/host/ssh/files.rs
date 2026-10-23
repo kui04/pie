@@ -7,7 +7,7 @@ use russh_sftp::client::SftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use typed_path::Utf8TypedPath;
 
-use crate::host::files::{DirEntry, FileEntry, Listing, SeekableReader, not_absolute, sort_dirs_first};
+use crate::host::files::{AsyncReadSeek, FileEntry};
 
 use super::SshHost;
 
@@ -18,46 +18,12 @@ const REPORT_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 /// How much of a file may be written before a report, when the clock does not ask for one.
 const REPORT_SHARE: u64 = 20;
 
-/// One directory level over an sftp channel. `None` asks for the login home,
-/// which is the start of an sftp session.
-///
-/// # Errors
-///
-/// A sentence when the path is relative, and one when the directory cannot be
-/// read.
-pub(super) async fn dirs(sftp: &SftpSession, path: &str) -> anyhow::Result<Listing> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
-    let entries = sftp
-        .read_dir(path)
-        .await
-        .with_context(|| format!("cannot read {path}"))?;
-    let mut rows = Vec::new();
-    for entry in entries {
-        let name = entry.file_name();
-        if name == "." || name == ".." {
-            continue;
-        }
-        rows.push(DirEntry {
-            is_dir: is_dir(sftp, &entry).await,
-            name,
-            path: entry.path(),
-        });
-    }
-    sort_dirs_first(&mut rows);
-    Ok(Listing {
-        directory: path.to_string(),
-        entries: rows,
-    })
-}
-
 /// Whether an sftp entry is a directory that a picker can walk, with links.
 ///
 /// sftp reports what the link is, not where it points. The picker needs the
 /// target. Therefore pie asks about a link on its own: one round trip for the
 /// links, and no round trip for everything else.
-pub(super) async fn is_dir(sftp: &SftpSession, entry: &russh_sftp::client::fs::DirEntry) -> bool {
+pub(super) async fn entry_is_dir(sftp: &SftpSession, entry: &russh_sftp::client::fs::DirEntry) -> bool {
     if !entry.file_type().is_symlink() {
         return entry.file_type().is_dir();
     }
@@ -74,11 +40,8 @@ pub(super) async fn is_dir(sftp: &SftpSession, entry: &russh_sftp::client::fs::D
 ///
 /// # Errors
 ///
-/// A sentence when the path is relative, and one when the answer cannot be told.
-pub(super) async fn dir_exists(sftp: &SftpSession, path: &str) -> anyhow::Result<bool> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
+/// A sentence when the answer cannot be told.
+pub(super) async fn is_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<bool> {
     match sftp.metadata(path).await {
         Ok(target) => Ok(target.is_dir()),
         Err(error) if is_no_such_file(&error) => Ok(false),
@@ -93,11 +56,8 @@ pub(super) async fn dir_exists(sftp: &SftpSession, path: &str) -> anyhow::Result
 ///
 /// # Errors
 ///
-/// A sentence when the path is relative, and one when a level cannot be made.
-pub(super) async fn create_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<()> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
+/// A sentence when a level cannot be made.
+pub(super) async fn create_dir_all(sftp: &SftpSession, path: &str) -> anyhow::Result<()> {
     for level in levels_of(path) {
         match sftp.metadata(&level).await {
             Ok(_) => {}
@@ -114,9 +74,6 @@ pub(super) async fn create_dir(sftp: &SftpSession, path: &str) -> anyhow::Result
 
 /// Removes one file over an sftp channel.
 pub(super) async fn remove_file(sftp: &SftpSession, path: &str) -> anyhow::Result<()> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
     sftp.remove_file(path)
         .await
         .with_context(|| format!("cannot remove {path}"))
@@ -124,9 +81,6 @@ pub(super) async fn remove_file(sftp: &SftpSession, path: &str) -> anyhow::Resul
 
 /// Reads directory entries of a directory over an sftp channel.
 pub(super) async fn read_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<Vec<FileEntry>> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
     let items = sftp
         .read_dir(path)
         .await
@@ -138,13 +92,13 @@ pub(super) async fn read_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<V
             continue;
         }
         let meta = item.metadata();
-        let is_dir = item.file_type().is_dir();
+        let is_directory = entry_is_dir(sftp, &item).await;
         let size = meta.size;
         let modified = meta.modified().ok();
         entries.push(FileEntry {
             name,
             path: item.path(),
-            is_dir,
+            is_dir: is_directory,
             size,
             modified,
         });
@@ -153,34 +107,12 @@ pub(super) async fn read_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<V
 }
 
 /// Opens a file over an sftp channel for seekable asynchronous reading.
-pub(super) async fn open_file(sftp: &SftpSession, path: &str) -> anyhow::Result<Box<dyn SeekableReader>> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
+pub(super) async fn open(sftp: &SftpSession, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
     let file = sftp
         .open_with_flags(path, russh_sftp::protocol::OpenFlags::READ)
         .await
         .with_context(|| format!("cannot open {path}"))?;
     Ok(Box::new(file))
-}
-
-/// Reads metadata for a path over an sftp channel.
-pub(super) async fn metadata(sftp: &SftpSession, path: &str) -> anyhow::Result<FileEntry> {
-    if !Utf8TypedPath::derive(path).is_absolute() {
-        return Err(not_absolute(path));
-    }
-    let meta = sftp
-        .metadata(path)
-        .await
-        .with_context(|| format!("cannot read metadata for {path}"))?;
-    let name = Utf8TypedPath::derive(path).file_name().unwrap_or("").to_string();
-    Ok(FileEntry {
-        name,
-        path: path.to_string(),
-        is_dir: meta.is_dir(),
-        size: meta.size,
-        modified: meta.modified().ok(),
-    })
 }
 
 /// Writes a binary payload to a file via SFTP, reporting progress while it goes.
@@ -258,10 +190,10 @@ fn levels_of(path: &str) -> Vec<String> {
 /// A sentence when the host refuses the subsystem, and one when the handshake
 /// over it goes quiet.
 pub(super) async fn sftp(host: &SshHost) -> anyhow::Result<Arc<SftpSession>> {
-    if let Some(sftp) = host.cached_sftp() {
+    let session = host.active_session()?;
+    if let Some(sftp) = host.cached_sftp(&session) {
         return Ok(sftp);
     }
-    let session = host.active_session()?;
     let stream = session.subsystem("sftp").await?;
     let opened = SftpSession::new(stream)
         .await
@@ -269,7 +201,7 @@ pub(super) async fn sftp(host: &SshHost) -> anyhow::Result<Arc<SftpSession>> {
     let opened = Arc::new(opened);
     // A failed open leaves the slot empty. Therefore the next listing tries
     // again. A host can also serve no sftp yet.
-    host.keep_sftp(&opened);
+    host.keep_sftp(&session, &opened);
     Ok(opened)
 }
 

@@ -104,8 +104,8 @@ export function Composer({
         () => ({
             progress: (uploadId, notify) =>
                 bridge.onUploadProgress(uploadId, (event) => notify(event.transferred, event.total)),
-            prepare: (request) =>
-                bridge.prepareAttachment(request.uploadId, request.name, request.localPath, request.bytesBase64),
+            stage: (request) =>
+                bridge.stageAttachment(request.uploadId, request.name, request.localPath, request.bytesBase64),
             notify: (failure) => toast.error(failure.message),
         }),
         [],
@@ -348,7 +348,7 @@ export function Composer({
     async function stagePaths(paths: string[]) {
         if (paths.length === 0) return;
         try {
-            const picked = await bridge.importPaths(paths);
+            const picked = await bridge.inspectPaths(paths);
             if (picked.images.length > 0) stage({ type: "STAGE_IMAGES", images: picked.images });
             if (picked.files.length > 0) stage({ type: "STAGE_FILES", files: picked.files });
         } catch (thrown: unknown) {
@@ -359,7 +359,7 @@ export function Composer({
     /** Asks the person for attachments and stages what they chose. */
     function attach() {
         void bridge
-            .pickPaths({ multiple: true })
+            .selectPaths({ multiple: true })
             .then(async (paths) => {
                 if (paths && paths.length > 0) await stagePaths(paths);
             })

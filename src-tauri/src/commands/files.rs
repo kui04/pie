@@ -1,8 +1,8 @@
-//! File dialog picking, path inspection, attachment staging, and temporary file management.
+//! File dialog selection, path inspection, and local attachment classification.
 //!
 //! What a person selects with system dialogs, pastes from file managers, or attaches
-//! to prompts. All file staging (instant local path reuse, or streaming upload over
-//! SFTP to remote host temp directories) lives here.
+//! to prompts, as far as the files of this device are concerned. Staging a file on a
+//! host, local or reached over SSH, belongs to [`super::attachment`].
 //!
 //! Both picker and reader commands are `async`, and that is what makes them safe here:
 //! the body of an async command runs on the async runtime, and the blocking `blocking_*`
@@ -10,24 +10,21 @@
 //! runs (its own documentation, tauri-plugin-dialog 2.8.1; `respond_async_serialized` of
 //! tauri 2.12.1 spawns the body).
 
-use std::sync::Arc;
-
 use base64::Engine as _;
 use camino::Utf8Path;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::{FilePath, FsExt};
 use tokio::io::AsyncReadExt as _;
 use typed_path::Utf8TypedPath;
 
 use crate::error::PieError;
-use crate::host::{Host, LocalHost, StageSource};
-use crate::state::AppState;
+use crate::host::{Files, LocalHost, StageSource};
 
 use pi_rpc::types::{ImageContent, ImageKind};
 
-/// What a person can pick with a file dialog.
+/// What a person can select with a file dialog.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DialogFilter {
@@ -37,10 +34,10 @@ pub struct DialogFilter {
     pub extensions: Vec<String>,
 }
 
-/// The target of the picker dialog.
+/// The target of the selection dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub enum PickTarget {
+pub enum SelectTarget {
     #[default]
     File,
     Folder,
@@ -49,7 +46,7 @@ pub enum PickTarget {
 /// Options configuring the native file dialog.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct PickOptions {
+pub struct SelectOptions {
     /// Dialog title.
     pub title: Option<String>,
     /// Whether multiple items can be chosen.
@@ -57,17 +54,17 @@ pub struct PickOptions {
     pub multiple: bool,
     /// Target type: file or folder.
     #[serde(default)]
-    pub target: PickTarget,
+    pub target: SelectTarget,
     /// File extension filters.
     #[serde(default)]
     pub filters: Vec<DialogFilter>,
 }
 
-/// One image that a person picked or pasted, with the name of the file it came from.
+/// One image that a person selected or pasted, with the name of the file it came from.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PickedImage {
-    /// The name of the file, or `Image` when the picker gave none.
+pub struct ImageAttachment {
+    /// The name of the file, or `Image` when the dialog gave none.
     pub name: String,
     /// The picture, as the `images` of a prompt take it.
     pub image: ImageContent,
@@ -90,36 +87,11 @@ pub struct AttachmentFile {
 /// Combined list of image and non-image attachments.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PickedAttachments {
+pub struct AttachmentCandidates {
     /// Pictures ready for the `images` array of a Pi prompt.
-    pub images: Vec<PickedImage>,
+    pub images: Vec<ImageAttachment>,
     /// Non-image files ready for staging/uploading to the target host.
     pub files: Vec<AttachmentFile>,
-}
-
-/// The result of staging a file attachment.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreparedAttachment {
-    /// The path on the target host (local path or remote `/tmp/...`).
-    pub path: String,
-    /// Final byte size.
-    pub size: u64,
-    /// Final MIME type.
-    pub mime_type: String,
-}
-
-/// Progress event emitted while uploading a file to a remote host.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum UploadEvent {
-    /// Byte transfer progress.
-    Progress {
-        /// Number of bytes transferred so far.
-        transferred: u64,
-        /// Total file size in bytes.
-        total: u64,
-    },
 }
 
 /// How much of a file pie reads to name its type. A picture carries its signature in the
@@ -128,7 +100,7 @@ const HEAD_BYTES: usize = 8192;
 
 /// The first bytes of a reader, up to [`HEAD_BYTES`].
 ///
-async fn read_head<R>(reader: &mut R) -> std::io::Result<Vec<u8>>
+pub(crate) async fn read_head<R>(reader: &mut R) -> std::io::Result<Vec<u8>>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -162,8 +134,8 @@ pub fn is_supported_image_mime(mime: &str) -> bool {
 }
 
 /// One picture, in the shape that a prompt takes it.
-fn image_of(name: String, mime_type: String, bytes: &[u8]) -> PickedImage {
-    PickedImage {
+fn image_of(name: String, mime_type: String, bytes: &[u8]) -> ImageAttachment {
+    ImageAttachment {
         name,
         image: ImageContent {
             kind: ImageKind::Image,
@@ -209,8 +181,8 @@ pub fn parse_uri_or_path(raw: &str) -> Option<FilePath> {
     }
 }
 
-/// Internal helper to import a list of file paths or URIs.
-pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Result<PickedAttachments, PieError> {
+/// Internal helper to inspect a list of file paths or URIs.
+pub async fn inspect_paths_internal(app: &AppHandle, paths: Vec<String>) -> Result<AttachmentCandidates, PieError> {
     let mut images = Vec::new();
     let mut files = Vec::new();
 
@@ -281,13 +253,13 @@ pub async fn import_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resul
         }
     }
 
-    Ok(PickedAttachments { images, files })
+    Ok(AttachmentCandidates { images, files })
 }
 
-/// Opens a native system dialog to pick files or folders.
+/// Opens a native system dialog to select files or folders.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn pick_paths(app: AppHandle, options: Option<PickOptions>) -> Result<Option<Vec<String>>, PieError> {
+pub async fn select_paths(app: AppHandle, options: Option<SelectOptions>) -> Result<Option<Vec<String>>, PieError> {
     let opts = options.unwrap_or_default();
     let mut builder = app.dialog().file();
 
@@ -301,7 +273,7 @@ pub async fn pick_paths(app: AppHandle, options: Option<PickOptions>) -> Result<
     }
 
     match opts.target {
-        PickTarget::File => {
+        SelectTarget::File => {
             if opts.multiple {
                 let chosen = builder.blocking_pick_files();
                 Ok(chosen.map(|list| list.iter().map(file_path_to_string).collect()))
@@ -310,7 +282,7 @@ pub async fn pick_paths(app: AppHandle, options: Option<PickOptions>) -> Result<
                 Ok(chosen.map(|fp| vec![file_path_to_string(&fp)]))
             }
         }
-        PickTarget::Folder => {
+        SelectTarget::Folder => {
             #[cfg(desktop)]
             {
                 if opts.multiple {
@@ -334,7 +306,7 @@ pub async fn pick_paths(app: AppHandle, options: Option<PickOptions>) -> Result<
 /// Reads the entire contents of a file or content URI as a string.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn read_text_file(app: AppHandle, path: String) -> Result<String, PieError> {
+pub async fn read_text(app: AppHandle, path: String) -> Result<String, PieError> {
     let Some(file_path) = parse_uri_or_path(&path) else {
         return Err(PieError::BadArgument {
             reason: format!("path must be absolute or a content URI: {path}"),
@@ -347,79 +319,11 @@ pub async fn read_text_file(app: AppHandle, path: String) -> Result<String, PieE
     }
 }
 
-/// Imports given file paths or URIs into image attachments or file path strings.
+/// Inspects given file paths or URIs and classifies them as images or file attachments.
 #[tauri::command]
 #[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn import_paths(app: AppHandle, paths: Vec<String>) -> Result<PickedAttachments, PieError> {
-    import_paths_internal(&app, paths).await
-}
-
-/// Prepares a file attachment for the active host:
-/// - On a local session with an existing file, retains the original path without copying.
-/// - On a local session with an in-memory blob, writes to local temp.
-/// - On a remote session (SSH), streams upload to the remote host temp directory via SFTP with progress events emitted to `pi://upload/{upload_id}`.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip(app, state, bytes_base64), err)]
-pub async fn prepare_attachment(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    upload_id: String,
-    name: String,
-    local_path: Option<String>,
-    bytes_base64: Option<String>,
-) -> Result<PreparedAttachment, PieError> {
-    use tauri::Emitter as _;
-
-    let ext_hint = Utf8Path::new(&name).extension().unwrap_or_default();
-
-    let sessions = state.sessions.lock().await.clone();
-    let fallback: Arc<dyn Host> = Arc::new(LocalHost::new(None));
-    let host: &dyn Host = match sessions.as_ref() {
-        Some(sessions) => sessions.host().as_ref(),
-        None => fallback.as_ref(),
-    };
-
-    let upload_event_name = format!("pi://upload/{upload_id}");
-    let app_clone = app.clone();
-    let progress = Box::new(move |transferred, total| {
-        let _ = app_clone.emit(&upload_event_name, UploadEvent::Progress { transferred, total });
-    });
-
-    if let Some(b64) = bytes_base64 {
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&b64)
-            .map_err(|e| PieError::BadArgument {
-                reason: format!("invalid base64 payload: {e}"),
-            })?;
-        let (mime_type, ext) = detect_mime(&bytes, ext_hint);
-        let size = bytes.len() as u64;
-        let path = host
-            .stage_file(&name, &ext, StageSource::Bytes(&bytes), progress)
-            .await?;
-        return Ok(PreparedAttachment { path, size, mime_type });
-    }
-
-    if let Some(ref lp) = local_path {
-        let path = Utf8Path::new(lp);
-        let metadata = tokio::fs::metadata(path).await?;
-        let size = metadata.len();
-        // Bounded, not assumed: a read that comes short is a fact of a FUSE mount.
-        let mut file = tokio::fs::File::open(path).await?;
-        let head = read_head(&mut file).await?;
-        let (mime_type, ext) = detect_mime(&head, ext_hint);
-        let staged = host
-            .stage_file(&name, &ext, StageSource::LocalFile(path), progress)
-            .await?;
-        return Ok(PreparedAttachment {
-            path: staged,
-            size,
-            mime_type,
-        });
-    }
-
-    Err(PieError::BadArgument {
-        reason: "attachment has neither local path nor binary content".to_string(),
-    })
+pub async fn inspect_paths(app: AppHandle, paths: Vec<String>) -> Result<AttachmentCandidates, PieError> {
+    inspect_paths_internal(&app, paths).await
 }
 
 #[cfg(test)]

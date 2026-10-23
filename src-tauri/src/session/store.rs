@@ -6,9 +6,9 @@
 //! [`SessionSummary`] is that summary, and the parsers of the lines behind it live
 //! here, because the format is pi's wherever the bytes come from.
 //!
-//! How the files are read from a machine is [`Host::read_session_files`]'s
-//! business; this module knows only the JSONL format that pi writes and how to
-//! turn each file's lines into a [`SessionSummary`].
+//! How the files are read from a machine is [`Files`]'s business; this module
+//! knows only the JSONL format that pi writes and how to turn each file's lines
+//! into a [`SessionSummary`].
 
 use std::io::SeekFrom;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::task::JoinSet;
 
-use crate::host::{Host, SeekableReader};
+use crate::host::{AsyncReadSeek, Files};
 
 use pi_rpc::entry::Entry;
 use pi_rpc::message::{Message, UserBlock, UserContent};
@@ -58,6 +58,12 @@ impl SessionCatalog {
         self.last_scanned = Some(std::time::Instant::now());
     }
 
+    /// Drops every entry and the scan time, so the next read scans again.
+    pub fn clear(&mut self) {
+        self.sessions.clear();
+        self.last_scanned = None;
+    }
+
     /// Whether the catalog has not been populated yet.
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty() && self.last_scanned.is_none()
@@ -70,14 +76,14 @@ const NAME_SCAN_BYTES: u64 = 1024 * 1024;
 const NAME_BLOCK: usize = 16 * 1024;
 
 /// Reads the working directory recorded in the header of a session file.
-pub(crate) async fn read_session_cwd(reader: &mut (dyn SeekableReader + '_)) -> anyhow::Result<Option<String>> {
+pub(crate) async fn read_session_cwd(reader: &mut (dyn AsyncReadSeek + '_)) -> anyhow::Result<Option<String>> {
     let (header, _) = scan_head(reader).await?;
     Ok(header.map(|h| h.cwd))
 }
 
 /// Scans the summary lines of one session file using seekable asynchronous stream reads.
 pub async fn read_summary(
-    reader: &mut (dyn SeekableReader + '_),
+    reader: &mut (dyn AsyncReadSeek + '_),
     path: String,
     size: Option<u64>,
     modified: Option<SystemTime>,
@@ -124,7 +130,7 @@ fn first_turn_is_whole(head: &[u8], scan: &mut HeadScan) -> bool {
 }
 
 async fn scan_head(
-    reader: &mut (dyn SeekableReader + '_),
+    reader: &mut (dyn AsyncReadSeek + '_),
 ) -> anyhow::Result<(Option<SessionFileHeader>, Option<String>)> {
     reader.seek(SeekFrom::Start(0)).await?;
     let mut head = Vec::new();
@@ -171,7 +177,7 @@ async fn scan_head(
 }
 
 async fn scan_tail_backwards(
-    reader: &mut (dyn SeekableReader + '_),
+    reader: &mut (dyn AsyncReadSeek + '_),
     size: Option<u64>,
 ) -> anyhow::Result<Option<String>> {
     let size = match size {
@@ -226,12 +232,12 @@ fn sessions_root(home: Option<&str>) -> Option<Utf8PathBuf> {
 /// # Errors
 ///
 /// A sentence when the files cannot be read, with the path at fault in it.
-pub(crate) async fn summaries(host: &Arc<dyn Host>) -> anyhow::Result<Vec<SessionSummary>> {
-    let home = host.home_dir().await?;
+pub(crate) async fn summaries(files: Arc<dyn Files>) -> anyhow::Result<Vec<SessionSummary>> {
+    let home = files.home_dir().await?;
     let Some(root) = sessions_root(home.as_deref()) else {
         return Ok(Vec::new());
     };
-    let projects = match host.read_dir(root.as_str()).await {
+    let projects = match files.read_dir(root.as_str()).await {
         Ok(entries) => entries,
         Err(_) => return Ok(Vec::new()),
     };
@@ -241,10 +247,10 @@ pub(crate) async fn summaries(host: &Arc<dyn Host>) -> anyhow::Result<Vec<Sessio
         if !project.is_dir {
             continue;
         }
-        let Ok(files) = host.read_dir(&project.path).await else {
+        let Ok(entries) = files.read_dir(&project.path).await else {
             continue;
         };
-        for file in files {
+        for file in entries {
             if file.name.ends_with(".jsonl") {
                 candidates.push(file);
             }
@@ -259,9 +265,9 @@ pub(crate) async fn summaries(host: &Arc<dyn Host>) -> anyhow::Result<Vec<Sessio
     loop {
         while set.len() < MAX_CONCURRENT_LOADS {
             let Some(candidate) = pending.next() else { break };
-            let host = Arc::clone(host);
+            let files = Arc::clone(&files);
             set.spawn(async move {
-                let mut reader = host.open_file(&candidate.path).await.ok()?;
+                let mut reader = files.open(&candidate.path).await.ok()?;
                 read_summary(&mut *reader, candidate.path, candidate.size, candidate.modified)
                     .await
                     .ok()
@@ -447,15 +453,6 @@ fn newest_first(summaries: &mut [SessionSummary]) {
     summaries.sort_by(|a, b| b.modified.cmp(&a.modified));
 }
 
-/// The path of a session file, or the mistake of a caller that handed in another.
-///
-/// # Errors
-///
-/// A sentence when the path is relative.
-pub(crate) fn checked_session_path(path: &str) -> anyhow::Result<&str> {
-    crate::host::is_absolute_path(path)
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -555,26 +552,6 @@ mod tests {
         let line = r#"{"type":"message","id":"m1","parentId":null,"timestamp":"2026-10-02T13:45:13.000Z","message":{"role":"user","content":[{"type":"text","text":"one"},{"type":"image","data":"AAAA","mimeType":"image/png"},{"type":"text","text":"two"}],"timestamp":1790948713000}}"#;
 
         assert_eq!(first_text(line.as_bytes()).as_deref(), Some("one two"));
-    }
-
-    #[test]
-    fn a_session_file_is_named_absolutely() {
-        assert_eq!(
-            checked_session_path("/home/u/.pi/agent/sessions/x/one.jsonl").expect("absolute"),
-            "/home/u/.pi/agent/sessions/x/one.jsonl"
-        );
-        assert!(
-            checked_session_path("sessions/one.jsonl")
-                .unwrap_err()
-                .to_string()
-                .contains("is not absolute")
-        );
-        assert!(
-            checked_session_path("")
-                .unwrap_err()
-                .to_string()
-                .contains("is not absolute")
-        );
     }
 
     #[test]

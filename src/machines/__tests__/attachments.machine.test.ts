@@ -1,12 +1,12 @@
 import { createActor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
-import type { PieError, PreparedAttachment } from "@/lib/bridge";
+import type { PieError, StagedAttachment as StagedAttachmentResult } from "@/lib/bridge";
 import {
     attachmentsMachine,
     itemsOf,
     uploadingOf,
     type AttachmentDeps,
-    type PrepareRequest,
+    type StageRequest,
     type StagedAttachment,
 } from "@/machines/attachments.machine";
 
@@ -26,7 +26,7 @@ const picture = { type: "image" as const, data: "aGk=", mimeType: "image/png" };
 function harness() {
     const pending = new Map<
         string,
-        { land: (prepared: PreparedAttachment) => void; fail: (failure: PieError) => void }
+        { land: (staged: StagedAttachmentResult) => void; fail: (failure: PieError) => void }
     >();
     const reporters = new Map<string, (transferred: number, total: number) => void>();
     const stopped: string[] = [];
@@ -40,9 +40,9 @@ function harness() {
                 stopped.push(uploadId);
             };
         },
-        prepare: (request: PrepareRequest) => {
+        stage: (request: StageRequest) => {
             started += 1;
-            return new Promise<PreparedAttachment>((land, fail) => {
+            return new Promise<StagedAttachmentResult>((land, fail) => {
                 pending.set(request.uploadId, { land, fail });
             });
         },

@@ -24,11 +24,10 @@ use russh::{Channel, ChannelMsg, Disconnect};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 
+use crate::channel::Exec;
 use crate::channel::ssh::EarlyOutput;
-use crate::channel::{Exec, Termination};
+use crate::host::exec::{ExecOutput, OUTPUT_TIMEOUT};
 use crate::host::{Endpoint, HostKey, SshAuth, SshTarget, Trust};
-
-use super::command::RemoteCommand;
 
 /// How long the TCP connection to the host may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -51,13 +50,6 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// that finishes the key exchange and then says nothing would otherwise hang
 /// `open` with no way out: there is no lifecycle handle yet to terminate.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// How long a one-shot command has to finish.
-///
-/// The commands pie captures whole are small checks - a version probe, a
-/// directory listing - where half a minute is generous. The bound is the promise
-/// that the call returns whatever the command does.
-const OUTPUT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How much of one stream a one-shot capture takes at most.
 ///
@@ -163,9 +155,8 @@ impl SshSession {
     ///
     /// A sentence when the host refuses to run the command, and one when it does
     /// not say whether it can.
-    pub async fn exec(&self, command: impl Into<RemoteCommand>) -> Result<Exec> {
-        let command = command.into();
-        let command_line = command.command_line();
+    pub async fn exec(&self, command: impl Into<String>) -> Result<Exec> {
+        let command_line = command.into();
         let mut channel = self.handle.channel_open_session().await?;
         channel.exec(true, command_line.clone()).await?;
         let early = await_exec_reply(&mut channel, &self.endpoint, &command_line).await?;
@@ -190,10 +181,9 @@ impl SshSession {
     /// no signal request leaves the command running; nothing else pie can do
     /// about that without closing the channel, which is the one move here that
     /// never kills anything.
-    pub async fn output(&self, command: impl Into<RemoteCommand>) -> Result<ExecOutput> {
-        let command = command.into();
-        let command_line = command.command_line();
-        let exec = self.exec(command).await?;
+    pub async fn output(&self, command: impl Into<String>) -> Result<ExecOutput> {
+        let command_line = command.into();
+        let exec = self.exec(command_line.clone()).await?;
         let (
             crate::channel::ssh::Pipes {
                 stdout: mut reader,
@@ -326,17 +316,6 @@ impl SshSession {
             tracing::debug!(endpoint = %self.endpoint, %error, "the session was already gone");
         }
     }
-}
-
-/// What a command printed and how it ended ([`SshSession::output`]).
-#[derive(Debug, Clone)]
-pub struct ExecOutput {
-    /// The command's standard output, truncated at `OUTPUT_BYTES`.
-    pub stdout: Vec<u8>,
-    /// The command's standard error, truncated at `OUTPUT_BYTES`.
-    pub stderr: Vec<u8>,
-    /// How the command ended.
-    pub termination: Termination,
 }
 
 /// A subsystem channel's byte streams ([`SshSession::subsystem`]).

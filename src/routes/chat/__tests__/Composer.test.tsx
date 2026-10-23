@@ -21,9 +21,9 @@ const bridge = vi.hoisted(() => ({
     getAvailableThinkingLevels: vi.fn<Call>(),
     setModel: vi.fn<Call>(),
     setThinkingLevel: vi.fn<Call>(),
-    pickPaths: vi.fn<Call>(),
-    importPaths: vi.fn<Call>(),
-    prepareAttachment: vi.fn<Call>(),
+    selectPaths: vi.fn<Call>(),
+    inspectPaths: vi.fn<Call>(),
+    stageAttachment: vi.fn<Call>(),
     onUploadProgress: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
@@ -112,7 +112,7 @@ beforeEach(() => {
     bridge.abortBash.mockResolvedValue(undefined);
     bridge.setModel.mockResolvedValue({});
     bridge.setThinkingLevel.mockResolvedValue(undefined);
-    bridge.pickPaths.mockResolvedValue(null);
+    bridge.selectPaths.mockResolvedValue(null);
     bridge.onUploadProgress.mockResolvedValue(() => undefined);
 });
 
@@ -404,8 +404,8 @@ describe("the attachments of a message", () => {
     const staged = { name: "workspace.png", image: picture };
 
     it("stages what the picker answered, and sends it with the words", async () => {
-        bridge.pickPaths.mockResolvedValue(["/tmp/workspace.png"]);
-        bridge.importPaths.mockResolvedValue({ images: [staged], files: [] });
+        bridge.selectPaths.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.inspectPaths.mockResolvedValue({ images: [staged], files: [] });
         renderComposer();
 
         fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
@@ -418,8 +418,8 @@ describe("the attachments of a message", () => {
     });
 
     it("stages files chosen through the file picker and appends paths on submit", async () => {
-        bridge.pickPaths.mockResolvedValue(["/tmp/report.pdf"]);
-        bridge.importPaths.mockResolvedValue({
+        bridge.selectPaths.mockResolvedValue(["/tmp/report.pdf"]);
+        bridge.inspectPaths.mockResolvedValue({
             images: [],
             files: [
                 {
@@ -430,7 +430,7 @@ describe("the attachments of a message", () => {
                 },
             ],
         });
-        bridge.prepareAttachment.mockResolvedValue({
+        bridge.stageAttachment.mockResolvedValue({
             path: "/tmp/pie-report.pdf",
             size: 2048,
             mimeType: "application/pdf",
@@ -452,8 +452,8 @@ describe("the attachments of a message", () => {
     });
 
     it("removes one of the staged pictures again", async () => {
-        bridge.pickPaths.mockResolvedValue(["/tmp/workspace.png"]);
-        bridge.importPaths.mockResolvedValue({ images: [staged], files: [] });
+        bridge.selectPaths.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.inspectPaths.mockResolvedValue({ images: [staged], files: [] });
         renderComposer();
         fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
         await screen.findByText("workspace.png");
@@ -464,8 +464,8 @@ describe("the attachments of a message", () => {
     });
 
     it("stays on screen when pi refuses the message", async () => {
-        bridge.pickPaths.mockResolvedValue(["/tmp/workspace.png"]);
-        bridge.importPaths.mockResolvedValue({ images: [staged], files: [] });
+        bridge.selectPaths.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.inspectPaths.mockResolvedValue({ images: [staged], files: [] });
         bridge.prompt.mockRejectedValue(refusal("pi rejected `prompt`: image too large"));
         renderComposer();
         fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
@@ -527,7 +527,7 @@ describe("the attachments of a message", () => {
     });
 
     it("stages non-image files as attachment cards and appends their paths on send", async () => {
-        bridge.prepareAttachment.mockResolvedValue({
+        bridge.stageAttachment.mockResolvedValue({
             path: "/tmp/pie-document.pdf",
             size: 1024,
             mimeType: "application/pdf",
@@ -562,13 +562,13 @@ describe("the attachments of a message", () => {
     });
 
     it("imports file URIs when pasting from file managers and appends path", async () => {
-        bridge.importPaths.mockResolvedValue({
+        bridge.inspectPaths.mockResolvedValue({
             images: [],
             files: [
                 { name: "document.pdf", size: 1024, mimeType: "application/pdf", localPath: "/home/user/document.pdf" },
             ],
         });
-        bridge.prepareAttachment.mockResolvedValue({
+        bridge.stageAttachment.mockResolvedValue({
             path: "/home/user/document.pdf",
             size: 1024,
             mimeType: "application/pdf",

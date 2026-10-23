@@ -61,6 +61,12 @@ impl Display for Id {
     }
 }
 
+impl std::borrow::Borrow<str> for Id {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
