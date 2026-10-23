@@ -148,7 +148,8 @@ async fn connected(id: &str, host: Arc<dyn Host>) -> anyhow::Result<SessionManag
 /// Reaches `host` and starts a pi on it.
 async fn attached(id: &str, host: Arc<dyn Host>, number: u64) -> anyhow::Result<SessionManager> {
     let sessions = connected(id, host).await?;
-    sessions.attach(number, None, None).await?;
+    let home = sessions.host().home_dir().await?.unwrap_or_else(|| "/tmp".to_string());
+    sessions.attach(number, None, Some(&home)).await?;
     Ok(sessions)
 }
 
@@ -223,7 +224,13 @@ async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
     assert_eq!(connection.host().endpoint().to_string(), "local");
     connection.summaries().await.expect("the listing of the machine");
 
-    let session = connection.attach(1, None, None).await.expect("pi is on PATH");
+    let home = connection
+        .host()
+        .home_dir()
+        .await
+        .expect("home_dir succeeds")
+        .unwrap_or_else(|| "/tmp".to_string());
+    let session = connection.attach(1, None, Some(&home)).await.expect("pi is on PATH");
     assert_eq!(session.id().as_str(), "no-pi:1");
     assert!(session.handle().is_alive());
     assert_eq!(connection.sessions().len(), 1);
@@ -237,7 +244,16 @@ async fn a_connect_starts_no_pi_and_an_attach_starts_one() {
 async fn a_detach_ends_one_pi_and_leaves_the_machine() {
     let home = TempDir::new().expect("a temp directory");
     let connection = local("detach-test", home.path(), 1).await.expect("pi is on PATH");
-    let second = connection.attach(2, None, None).await.expect("pi is on PATH");
+    let home_dir = connection
+        .host()
+        .home_dir()
+        .await
+        .expect("home_dir succeeds")
+        .unwrap_or_else(|| "/tmp".to_string());
+    let second = connection
+        .attach(2, None, Some(&home_dir))
+        .await
+        .expect("pi is on PATH");
     assert_eq!(connection.sessions().len(), 2, "two pis, one machine");
 
     connection.detach("detach-test:1").await.expect("the first session");
@@ -544,7 +560,17 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
         .await
         .expect("the host is reached");
 
-    let home = connection.host().dirs(None).await.expect("the home directory lists");
+    let home_path = connection
+        .host()
+        .home_dir()
+        .await
+        .expect("home_dir succeeds")
+        .expect("the host has a home directory");
+    let home = connection
+        .host()
+        .dirs(&home_path)
+        .await
+        .expect("the home directory lists");
     assert!(
         home.directory.starts_with('/'),
         "the home names itself: {}",
@@ -566,7 +592,7 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
     let sessions = format!("{}/agent/sessions", pi_root.path);
     let projects = connection
         .host()
-        .dirs(Some(&sessions))
+        .dirs(&sessions)
         .await
         .expect("the sessions directory lists");
     assert!(
@@ -576,7 +602,7 @@ async fn the_directory_picker_walks_the_host_over_sftp() {
 
     let error = connection
         .host()
-        .dirs(Some(".pi/agent/sessions"))
+        .dirs(".pi/agent/sessions")
         .await
         .expect_err("a relative path is not a path pie resolves");
     assert!(error.to_string().contains("is not absolute"), "got {error}");
@@ -594,7 +620,17 @@ async fn the_directory_picker_makes_a_missing_folder_over_sftp() {
         .await
         .expect("the host is reached");
 
-    let home = connection.host().dirs(None).await.expect("the home directory lists");
+    let home_path = connection
+        .host()
+        .home_dir()
+        .await
+        .expect("home_dir succeeds")
+        .expect("the host has a home directory");
+    let home = connection
+        .host()
+        .dirs(&home_path)
+        .await
+        .expect("the home directory lists");
     let fresh = format!("{}/pie-probe/sub", home.directory);
     assert!(
         !connection.host().dir_exists(&fresh).await.expect("the probe answers"),
@@ -611,11 +647,7 @@ async fn the_directory_picker_makes_a_missing_folder_over_sftp() {
     );
 
     let probe_dir = format!("{}/pie-probe", home.directory);
-    let read = connection
-        .host()
-        .dirs(Some(&probe_dir))
-        .await
-        .expect("the made folder lists");
+    let read = connection.host().dirs(&probe_dir).await.expect("the made folder lists");
     assert!(read.entries.iter().any(|row| row.name == "sub" && row.is_dir));
 
     connection

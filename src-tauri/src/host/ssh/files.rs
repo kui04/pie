@@ -7,7 +7,7 @@ use russh_sftp::client::SftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use typed_path::Utf8TypedPath;
 
-use crate::host::files::{DirEntry, Listing, not_absolute, sort_dirs_first};
+use crate::host::files::{DirEntry, FileEntry, Listing, SeekableReader, not_absolute, sort_dirs_first};
 
 use super::SshHost;
 
@@ -25,12 +25,14 @@ const REPORT_SHARE: u64 = 20;
 ///
 /// A sentence when the path is relative, and one when the directory cannot be
 /// read.
-pub(super) async fn dirs(sftp: &SftpSession, path: Option<&str>) -> anyhow::Result<Listing> {
-    let base = start(sftp, path).await?;
+pub(super) async fn dirs(sftp: &SftpSession, path: &str) -> anyhow::Result<Listing> {
+    if !Utf8TypedPath::derive(path).is_absolute() {
+        return Err(not_absolute(path));
+    }
     let entries = sftp
-        .read_dir(&base)
+        .read_dir(path)
         .await
-        .with_context(|| format!("cannot read {base}"))?;
+        .with_context(|| format!("cannot read {path}"))?;
     let mut rows = Vec::new();
     for entry in entries {
         let name = entry.file_name();
@@ -45,7 +47,7 @@ pub(super) async fn dirs(sftp: &SftpSession, path: Option<&str>) -> anyhow::Resu
     }
     sort_dirs_first(&mut rows);
     Ok(Listing {
-        directory: base,
+        directory: path.to_string(),
         entries: rows,
     })
 }
@@ -120,6 +122,67 @@ pub(super) async fn remove_file(sftp: &SftpSession, path: &str) -> anyhow::Resul
         .with_context(|| format!("cannot remove {path}"))
 }
 
+/// Reads directory entries of a directory over an sftp channel.
+pub(super) async fn read_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<Vec<FileEntry>> {
+    if !Utf8TypedPath::derive(path).is_absolute() {
+        return Err(not_absolute(path));
+    }
+    let items = sftp
+        .read_dir(path)
+        .await
+        .with_context(|| format!("cannot read {path}"))?;
+    let mut entries = Vec::new();
+    for item in items {
+        let name = item.file_name();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let meta = item.metadata();
+        let is_dir = item.file_type().is_dir();
+        let size = meta.size;
+        let modified = meta.modified().ok();
+        entries.push(FileEntry {
+            name,
+            path: item.path(),
+            is_dir,
+            size,
+            modified,
+        });
+    }
+    Ok(entries)
+}
+
+/// Opens a file over an sftp channel for seekable asynchronous reading.
+pub(super) async fn open_file(sftp: &SftpSession, path: &str) -> anyhow::Result<Box<dyn SeekableReader>> {
+    if !Utf8TypedPath::derive(path).is_absolute() {
+        return Err(not_absolute(path));
+    }
+    let file = sftp
+        .open_with_flags(path, russh_sftp::protocol::OpenFlags::READ)
+        .await
+        .with_context(|| format!("cannot open {path}"))?;
+    Ok(Box::new(file))
+}
+
+/// Reads metadata for a path over an sftp channel.
+pub(super) async fn metadata(sftp: &SftpSession, path: &str) -> anyhow::Result<FileEntry> {
+    if !Utf8TypedPath::derive(path).is_absolute() {
+        return Err(not_absolute(path));
+    }
+    let meta = sftp
+        .metadata(path)
+        .await
+        .with_context(|| format!("cannot read metadata for {path}"))?;
+    let name = Utf8TypedPath::derive(path).file_name().unwrap_or("").to_string();
+    Ok(FileEntry {
+        name,
+        path: path.to_string(),
+        is_dir: meta.is_dir(),
+        size: meta.size,
+        modified: meta.modified().ok(),
+    })
+}
+
 /// Writes a binary payload to a file via SFTP, reporting progress while it goes.
 ///
 /// A report is an IPC message and a render of the strip, so one per chunk is not a reason.
@@ -183,22 +246,6 @@ fn levels_of(path: &str) -> Vec<String> {
         .collect();
     levels.reverse();
     levels
-}
-
-/// The directory over sftp that a read was asked about: `None` is the login home of the session.
-async fn start(sftp: &SftpSession, path: Option<&str>) -> anyhow::Result<String> {
-    match path {
-        None => sftp
-            .canonicalize(".")
-            .await
-            .with_context(|| "cannot read the login home"),
-        Some(path) => {
-            if !Utf8TypedPath::derive(path).is_absolute() {
-                return Err(not_absolute(path));
-            }
-            Ok(path.to_string())
-        }
-    }
 }
 
 /// The file channel of a host pie reaches over SSH.

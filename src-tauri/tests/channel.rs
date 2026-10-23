@@ -13,7 +13,7 @@ use pi_rpc::command::{Command, Common};
 use pi_rpc::error::ErrorKind;
 use pi_rpc::response::{BashResult, SessionState};
 use pie_lib::channel::{Channel, Handle, Program, Termination};
-use pie_lib::host::{PI_VERSION, check_version, probe_version};
+use pie_lib::host::{Host, LocalHost, PI_VERSION, check_version};
 
 /// Absolute path of a script under `tests/scripts`.
 fn script(name: &str) -> PathBuf {
@@ -130,7 +130,8 @@ async fn a_refused_command_comes_back_as_the_response_pi_wrote() {
 #[tokio::test]
 #[ignore = "requires pi on PATH"]
 async fn drives_real_pi() {
-    let version = probe_version("pi").await.expect("`pi --version` runs");
+    let host = LocalHost::new(None);
+    let version = host.pi_version().await.expect("`pi --version` runs");
     check_version(&version).expect("pi matches the pinned protocol version");
     assert_eq!(version, PI_VERSION, "the probe reports the pinned release");
 

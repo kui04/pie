@@ -12,6 +12,7 @@ type Call = () => Promise<unknown>;
 const bridge = vi.hoisted(() => ({
     listSessions: vi.fn<Call>(),
     listDirs: vi.fn<Call>(),
+    homeDir: vi.fn<Call>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -95,6 +96,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     bridge.listSessions.mockResolvedValue([]);
     bridge.listDirs.mockResolvedValue({ directory: "/home/user", entries: [] });
+    bridge.homeDir.mockResolvedValue("/home/user");
 });
 
 describe("SessionSidebar", () => {
@@ -305,7 +307,7 @@ describe("SessionSidebar", () => {
     });
 
     it("simplifies the home directory with ~ using pathe", async () => {
-        bridge.listDirs.mockResolvedValue({ directory: "/home/user", entries: [] });
+        bridge.homeDir.mockResolvedValue("/home/user");
         bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/home/user/pie", name: "Pie work" })]);
 
         renderSidebar();

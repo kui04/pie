@@ -16,46 +16,10 @@
 //! the SSH implementation of [`Host`], which is what the rest of the
 //! crate holds.
 //!
-//! ```no_run
-//! use pie_lib::host::{SshAuth, SshSession, SshTarget, Trust};
-//!
-//! # async fn example() -> anyhow::Result<()> {
-//! struct Always; // an app's policy, told what the host presented
-//!
-//! impl pie_lib::host::HostKey for Always {
-//!     fn verify(
-//!         &self,
-//!         _host: &str,
-//!         _port: u16,
-//!         key: &russh::keys::PublicKeyOrCertificate,
-//!     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + '_>> {
-//!         let certified = key.certificate().is_some();
-//!         Box::pin(async move {
-//!             println!("certified: {certified}");
-//!             Ok(())
-//!         })
-//!     }
-//! }
-//!
-//! let session = SshSession::open(
-//!     SshTarget::new("example.com", "pi"),
-//!     SshAuth::Password("hunter2".to_string()),
-//!     Trust::new(Always),
-//! )
-//! .await?;
-//! // pi runs in an exec channel; the very same session also answers for files.
-//! let exec = session.exec("pi --mode rpc").await?;
-//! let sftp = session.subsystem("sftp").await?;
-//! # let _ = (exec, sftp);
-//! # Ok(())
-//! # }
-//! ```
-
 mod command;
 mod files;
 mod known_hosts;
 mod session;
-pub(super) mod sessions;
 mod trust;
 
 pub use command::RemoteCommand;
@@ -71,8 +35,8 @@ use russh_sftp::client::SftpSession;
 use crate::channel::Channel;
 
 use super::{
-    BoxFuture, Endpoint, Host, Listing, ProgressFn, SessionFileLines, StageSource, accept_version_mismatch,
-    checked_host_path, files as host_files, version,
+    Endpoint, FileEntry, Host, Listing, ProgressFn, SeekableReader, StageSource, check_version, checked_host_path,
+    files as host_files, is_absolute_path,
 };
 
 /// How to identify at the SSH server.
@@ -236,24 +200,26 @@ impl SshHost {
     }
 }
 
+#[async_trait::async_trait]
 impl Host for SshHost {
-    fn connect(&self) -> BoxFuture<'_, anyhow::Result<()>> {
-        Box::pin(async move {
-            let session = SshSession::open(self.target.clone(), self.auth.clone(), self.trust.clone()).await?;
-            let output = session.output(RemoteCommand::new("pi --version")).await?;
-            accept_version_mismatch(version::check_remote_version(&self.target.endpoint(), output))?;
+    async fn connect(&self) -> anyhow::Result<()> {
+        let session = SshSession::open(self.target.clone(), self.auth.clone(), self.trust.clone()).await?;
+        let output = session.output(RemoteCommand::new("pi --version")).await?;
+        let version = parse_remote_version(&output, &self.target.endpoint())?;
+        if let Err(mismatch) = check_version(&version) {
+            tracing::warn!(%mismatch, "the pi of this machine is not the release pie speaks; going on");
+        }
 
-            self.clear_sftp();
-            let previous = self
-                .session
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .replace(Arc::new(session));
-            if let Some(previous) = previous {
-                previous.close().await;
-            }
-            Ok(())
-        })
+        self.clear_sftp();
+        let previous = self
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replace(Arc::new(session));
+        if let Some(previous) = previous {
+            previous.close().await;
+        }
+        Ok(())
     }
 
     fn is_open(&self) -> bool {
@@ -264,106 +230,92 @@ impl Host for SshHost {
         self.target.endpoint()
     }
 
-    fn open_pi<'a>(
-        &'a self,
-        cwd: Option<&'a str>,
-        conversation: Option<&'a str>,
-    ) -> BoxFuture<'a, anyhow::Result<(Channel, Option<String>)>> {
-        Box::pin(async move {
-            let conversation = conversation.map(checked_host_path).transpose()?;
-            let cwd = cwd.map(checked_host_path).transpose()?;
-            let command = RemoteCommand::new(pi_line(conversation));
-            let command = match cwd {
-                Some(dir) => command.cwd(dir),
-                None => command,
-            };
-            let session = self.active_session()?;
-            let channel = session.exec(command).await?.into_channel();
-            Ok((channel, cwd.map(str::to_string)))
-        })
+    async fn open_pi(&self, cwd: &str, conversation: Option<&str>) -> anyhow::Result<(Channel, Option<String>)> {
+        let conversation = conversation.map(checked_host_path).transpose()?;
+        let cwd = checked_host_path(cwd)?;
+        let command = RemoteCommand::new(pi_line(conversation)).cwd(cwd);
+        let session = self.active_session()?;
+        let channel = session.exec(command).await?.into_channel();
+        Ok((channel, Some(cwd.to_string())))
     }
 
-    fn check_pi(&self) -> BoxFuture<'_, anyhow::Result<()>> {
-        Box::pin(async move {
-            let session = self.active_session()?;
-            let output = session.output(RemoteCommand::new("pi --version")).await?;
-            version::check_remote_version(&self.target.endpoint(), output)
-        })
+    async fn pi_version(&self) -> anyhow::Result<String> {
+        let session = self.active_session()?;
+        let output = session.output(RemoteCommand::new("pi --version")).await?;
+        parse_remote_version(&output, &self.endpoint())
     }
 
-    fn dirs<'a>(&'a self, path: Option<&'a str>) -> BoxFuture<'a, anyhow::Result<Listing>> {
-        Box::pin(async move {
-            if let Some(path) = path {
-                checked_host_path(path)?;
-            }
-            self.with_sftp(async |sftp| files::dirs(sftp, path).await).await
-        })
+    async fn dirs(&self, path: &str) -> anyhow::Result<Listing> {
+        checked_host_path(path)?;
+        self.with_sftp(async |sftp| files::dirs(sftp, path).await).await
     }
 
-    fn dir_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>> {
-        Box::pin(async move {
-            checked_host_path(path)?;
-            self.with_sftp(async |sftp| files::dir_exists(sftp, path).await).await
-        })
+    async fn dir_exists(&self, path: &str) -> anyhow::Result<bool> {
+        is_absolute_path(path)?;
+        self.with_sftp(async |sftp| files::dir_exists(sftp, path).await).await
     }
 
-    fn create_dir<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
-        Box::pin(async move {
-            checked_host_path(path)?;
-            self.with_sftp(async |sftp| files::create_dir(sftp, path).await).await
-        })
+    async fn create_dir(&self, path: &str) -> anyhow::Result<()> {
+        is_absolute_path(path)?;
+        self.with_sftp(async |sftp| files::create_dir(sftp, path).await).await
     }
 
-    fn remove_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<()>> {
-        Box::pin(async move {
-            checked_host_path(path)?;
-            self.with_sftp(async |sftp| files::remove_file(sftp, path).await).await
-        })
+    async fn home_dir(&self) -> anyhow::Result<Option<String>> {
+        let home = self
+            .with_sftp(async |sftp| sftp.canonicalize(".").await.map_err(|e| anyhow::anyhow!(e)))
+            .await
+            .ok();
+        Ok(home)
     }
 
-    fn read_session_files(
+    async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
+        is_absolute_path(path)?;
+        self.with_sftp(async |sftp| files::read_dir(sftp, path).await).await
+    }
+
+    async fn open_file(&self, path: &str) -> anyhow::Result<Box<dyn SeekableReader>> {
+        is_absolute_path(path)?;
+        self.with_sftp(async |sftp| files::open_file(sftp, path).await).await
+    }
+
+    async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
+        is_absolute_path(path)?;
+        self.with_sftp(async |sftp| files::remove_file(sftp, path).await).await
+    }
+
+    async fn metadata(&self, path: &str) -> anyhow::Result<FileEntry> {
+        is_absolute_path(path)?;
+        self.with_sftp(async |sftp| files::metadata(sftp, path).await).await
+    }
+
+    async fn stage_file(
         &self,
-        first_text: fn(&[u8]) -> Option<String>,
-        name_in: fn(&[u8]) -> Option<Option<String>>,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<SessionFileLines>>> {
-        Box::pin(async move {
-            self.with_sftp(async |sftp| sessions::read_sessions(self, sftp, first_text, name_in).await)
-                .await
-        })
-    }
-
-    fn stage_file<'a>(
-        &'a self,
-        name: &'a str,
-        ext: &'a str,
-        source: StageSource<'a>,
-        mut on_progress: ProgressFn<'a>,
-    ) -> BoxFuture<'a, anyhow::Result<String>> {
-        Box::pin(async move {
-            let owned;
-            let bytes: &[u8] = match source {
-                StageSource::Bytes(bytes) => bytes,
-                StageSource::LocalFile(path) => {
-                    owned = tokio::fs::read(path).await?;
-                    &owned
-                }
-            };
-            let path = format!("/tmp/{}", host_files::temp_file_name(name, ext));
-            self.with_sftp(async |sftp| files::write_file(sftp, &path, bytes, &mut *on_progress).await)
-                .await?;
-            Ok(path)
-        })
-    }
-
-    fn close(&self) -> BoxFuture<'_, ()> {
-        Box::pin(async move {
-            self.clear_sftp();
-            let session = self.session.lock().unwrap_or_else(PoisonError::into_inner).take();
-            if let Some(session) = session {
-                session.close().await;
-                tracing::info!(endpoint = %self.endpoint(), "disconnected");
+        name: &str,
+        ext: &str,
+        source: StageSource<'_>,
+        mut on_progress: ProgressFn<'_>,
+    ) -> anyhow::Result<String> {
+        let owned;
+        let bytes: &[u8] = match source {
+            StageSource::Bytes(bytes) => bytes,
+            StageSource::LocalFile(path) => {
+                owned = tokio::fs::read(path).await?;
+                &owned
             }
-        })
+        };
+        let path = format!("/tmp/{}", host_files::temp_file_name(name, ext));
+        self.with_sftp(async |sftp| files::write_file(sftp, &path, bytes, &mut *on_progress).await)
+            .await?;
+        Ok(path)
+    }
+
+    async fn close(&self) {
+        self.clear_sftp();
+        let session = self.session.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(session) = session {
+            session.close().await;
+            tracing::info!(endpoint = %self.endpoint(), "disconnected");
+        }
     }
 }
 
@@ -375,6 +327,23 @@ fn pi_line(conversation: Option<&str>) -> String {
     match conversation {
         Some(path) => format!("pi --mode rpc --session {}", quote(path)),
         None => "pi --mode rpc".to_string(),
+    }
+}
+
+/// Parses the output of `pi --version` executed remotely.
+fn parse_remote_version(output: &ExecOutput, endpoint: &Endpoint) -> anyhow::Result<String> {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let crate::channel::Termination::Exited { success: true, .. } = output.termination
+        && !stdout.is_empty()
+    {
+        return Ok(stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let said = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    if said.is_empty() {
+        anyhow::bail!("`pi --version` on {endpoint} failed with {:?}", output.termination);
+    } else {
+        anyhow::bail!("`pi --version` on {endpoint} failed: {said}");
     }
 }
 

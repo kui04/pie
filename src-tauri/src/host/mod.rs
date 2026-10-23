@@ -14,32 +14,48 @@
 pub(crate) mod files;
 mod local;
 mod ssh;
-mod version;
 
-pub use files::{DirEntry, Listing};
+pub use files::{DirEntry, FileEntry, Listing, SeekableReader};
 pub use local::LocalHost;
 pub use ssh::{
     AskHostKey, ExecOutput, HostKey, KnownHosts, PresentedKey, RemoteCommand, SshAuth, SshHost, SshSession, SshTarget,
     SubsystemStream, Trust,
 };
-pub use version::{PI_VERSION, VersionMismatch, check_version, probe_version};
-
-use std::fmt;
-use std::future::Future;
-use std::pin::Pin;
-use std::time::SystemTime;
-
-use camino::Utf8Path;
-use serde::Serialize;
-use typed_path::Utf8TypedPath;
 
 use crate::channel::Channel;
+use camino::Utf8Path;
+use serde::Serialize;
+use std::fmt;
+use typed_path::Utf8TypedPath;
 
-/// A boxed, sendable future returned by [`Host`] trait methods.
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+/// The Pi release this crate mirrors.
+pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Progress callback `(transferred, total)` for file staging.
-pub type ProgressFn<'a> = Box<dyn FnMut(u64, u64) + Send + 'a>;
+/// What a packaged pi reports when its build had no version to bake in: "cannot tell".
+pub const UNKNOWN_VERSION: &str = "0.0.0";
+
+/// Compares a reported version against [`PI_VERSION`].
+pub fn check_version(found: &str) -> Result<(), VersionMismatch> {
+    let found = found.trim();
+    if found == PI_VERSION || found == UNKNOWN_VERSION {
+        Ok(())
+    } else {
+        Err(VersionMismatch {
+            expected: PI_VERSION.to_string(),
+            found: found.to_string(),
+        })
+    }
+}
+
+/// The `pi` on a machine is not the release that pie mirrors.
+#[derive(Debug, thiserror::Error)]
+#[error("pi version mismatch: expected {expected}, found {found}")]
+pub struct VersionMismatch {
+    /// Version pie mirrors.
+    pub expected: String,
+    /// Version reported by the probed binary.
+    pub found: String,
+}
 
 /// The label of a machine: `local`, or `user@host:port`.
 ///
@@ -83,29 +99,18 @@ pub enum StageSource<'a> {
     Bytes(&'a [u8]),
 }
 
-/// The raw lines and file metadata of one session file on a [`Host`].
-#[derive(Debug, Default, Clone)]
-pub struct SessionFileLines {
-    /// Full path of the session file on the host.
-    pub path: String,
-    /// Last modification time of the file, if reported by the host.
-    pub modified: Option<SystemTime>,
-    /// First line of the file (the session header JSON).
-    pub header: Option<String>,
-    /// First user text extracted from the file.
-    pub first: Option<String>,
-    /// Latest display name extracted from the file (`None` when cleared or absent).
-    pub name: Option<String>,
-}
+/// Progress callback `(transferred, total)` for file staging.
+pub type ProgressFn<'a> = Box<dyn FnMut(u64, u64) + Send + 'a>;
 
 /// A machine pie reaches, and the pi that runs on it.
 ///
 /// Callers hold `Arc<dyn Host>` and interact with the machine exclusively through
 /// this trait without knowing whether it is local or remote.
+#[async_trait::async_trait]
 pub trait Host: fmt::Debug + Send + Sync + 'static {
     /// Establishes or re-establishes the reach to the machine and verifies that
     /// `pi` can run on it.
-    fn connect(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    async fn connect(&self) -> anyhow::Result<()>;
 
     /// Whether the reach to the machine is still open.
     fn is_open(&self) -> bool;
@@ -113,61 +118,49 @@ pub trait Host: fmt::Debug + Send + Sync + 'static {
     /// The label of this machine: `local`, or `user@host:port`.
     fn endpoint(&self) -> Endpoint;
 
-    /// Starts `pi --mode rpc` on this machine, returning the channel and the
+    /// Starts `pi --mode rpc` on this machine in `cwd`, returning the channel and the
     /// starting working directory label (if known).
-    fn open_pi<'a>(
-        &'a self,
-        cwd: Option<&'a str>,
-        conversation: Option<&'a str>,
-    ) -> BoxFuture<'a, anyhow::Result<(Channel, Option<String>)>>;
+    async fn open_pi(&self, cwd: &str, conversation: Option<&str>) -> anyhow::Result<(Channel, Option<String>)>;
 
-    /// Checks that the `pi` on this machine matches [`PI_VERSION`].
-    fn check_pi(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    /// Returns the version string reported by `pi --version` on this machine.
+    async fn pi_version(&self) -> anyhow::Result<String>;
 
     /// Lists one directory level of this machine for the directory picker.
-    fn dirs<'a>(&'a self, path: Option<&'a str>) -> BoxFuture<'a, anyhow::Result<Listing>>;
+    async fn dirs(&self, path: &str) -> anyhow::Result<Listing>;
 
     /// Checks whether an absolute path names a directory on the machine.
-    fn dir_exists<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<bool>>;
+    async fn dir_exists(&self, path: &str) -> anyhow::Result<bool>;
 
     /// Creates a directory on the machine, with parents as needed.
-    fn create_dir<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<()>>;
+    async fn create_dir(&self, path: &str) -> anyhow::Result<()>;
+
+    /// Returns the login home directory of this machine, if known.
+    async fn home_dir(&self) -> anyhow::Result<Option<String>>;
+
+    /// Reads directory entries of a directory on the machine.
+    async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>>;
+
+    /// Opens a file for seekable asynchronous reading.
+    async fn open_file(&self, path: &str) -> anyhow::Result<Box<dyn SeekableReader>>;
 
     /// Removes a file on the machine.
-    fn remove_file<'a>(&'a self, path: &'a str) -> BoxFuture<'a, anyhow::Result<()>>;
+    async fn remove_file(&self, path: &str) -> anyhow::Result<()>;
 
-    /// Scans the conversation files of `pi` on this machine and extracts the
-    /// summary lines of each file.
-    fn read_session_files(
-        &self,
-        first_text: fn(&[u8]) -> Option<String>,
-        name_in: fn(&[u8]) -> Option<Option<String>>,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<SessionFileLines>>>;
+    /// Reads metadata for a path on the machine.
+    async fn metadata(&self, path: &str) -> anyhow::Result<FileEntry>;
 
     /// Stages a file where `pi` on this machine can read it, reporting progress
     /// through `on_progress`.
-    fn stage_file<'a>(
-        &'a self,
-        name: &'a str,
-        ext: &'a str,
-        source: StageSource<'a>,
-        on_progress: ProgressFn<'a>,
-    ) -> BoxFuture<'a, anyhow::Result<String>>;
+    async fn stage_file(
+        &self,
+        name: &str,
+        ext: &str,
+        source: StageSource<'_>,
+        on_progress: ProgressFn<'_>,
+    ) -> anyhow::Result<String>;
 
     /// Ends the reach to the machine.
-    fn close(&self) -> BoxFuture<'_, ()>;
-}
-
-/// Logs a [`VersionMismatch`] as a warning and lets the connection proceed.
-pub(super) fn accept_version_mismatch(result: anyhow::Result<()>) -> anyhow::Result<()> {
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) if error.downcast_ref::<VersionMismatch>().is_some() => {
-            tracing::warn!(%error, "the pi of this machine is not the release pie speaks; going on");
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
+    async fn close(&self);
 }
 
 /// Validates that a host path is absolute (POSIX or Windows) before any channel
@@ -179,6 +172,8 @@ pub(crate) fn checked_host_path(path: &str) -> anyhow::Result<&str> {
         Err(files::not_absolute(path))
     }
 }
+
+pub(crate) use checked_host_path as is_absolute_path;
 
 /// What the frontend hears about a connection during the handshake.
 #[derive(Debug, Clone, Serialize)]
@@ -205,6 +200,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn check_version_accepts_the_pin_and_unknown() {
+        assert!(check_version(PI_VERSION).is_ok());
+        assert!(check_version(format!(" {PI_VERSION}\n").as_str()).is_ok());
+        assert!(check_version(UNKNOWN_VERSION).is_ok());
+
+        let mismatch = check_version("0.0.1").unwrap_err();
+        assert_eq!(mismatch.expected, PI_VERSION);
+        assert_eq!(mismatch.found, "0.0.1");
+    }
+
+    #[test]
     fn the_local_machine_is_always_open() {
         let host: Box<dyn Host> = Box::new(LocalHost::new(None));
         assert!(host.is_open());
@@ -229,7 +235,7 @@ mod tests {
             "\\\\server\\share\\sessions\\one.jsonl",
         ] {
             assert_eq!(
-                checked_host_path(path).expect("absolute path"),
+                is_absolute_path(path).expect("absolute path"),
                 path,
                 "`{path}` is absolute"
             );
@@ -246,7 +252,7 @@ mod tests {
             "\\Users\\u\\one.jsonl",
         ] {
             assert!(
-                checked_host_path(path).is_err(),
+                is_absolute_path(path).is_err(),
                 "`{path}` is relative and must not pass as absolute"
             );
         }

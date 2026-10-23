@@ -126,8 +126,8 @@ function SessionListPanel({
     const { stage } = useMotion();
     const client = useQueryClient();
     const sessions = useQuery(sessionsQueries.list(endpoint));
-    const dirs = useQuery(directoryQueries.list(endpoint));
-    const homePath = dirs.data?.directory ?? "";
+    const home = useQuery(directoryQueries.home(endpoint));
+    const homePath = home.data ?? "";
 
     const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
     const now = useMinutes();

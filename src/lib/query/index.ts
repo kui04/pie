@@ -160,9 +160,10 @@ export const sessionsQueries = {
  * first. An absent path is the home directory of the machine.
  */
 export const directoryQueries = {
+    /** The login home directory of the connected machine. */
+    home: (endpoint: string) => noRetry(["dirs", endpoint, "home"] as const, () => bridge.homeDir()),
     /** One level of the directories of the connected machine. */
-    list: (endpoint: string, path?: string) =>
-        noRetry(["dirs", endpoint, path ?? ""] as const, () => bridge.listDirs(path)),
+    list: (endpoint: string, path: string) => noRetry(["dirs", endpoint, path] as const, () => bridge.listDirs(path)),
 };
 
 /**

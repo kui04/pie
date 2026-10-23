@@ -20,8 +20,8 @@ import { asPieError, type PieError, type SessionInfo } from "@/lib/bridge";
 export interface ChatDeps {
     /** Starts a pi on the conversation in `path`. */
     attach: (path: string) => Promise<SessionInfo>;
-    /** Starts a pi in `cwd` for a new conversation; `null` is the home of the host. */
-    start: (cwd: string | null) => Promise<SessionInfo>;
+    /** Starts a pi in `cwd` for a new conversation. */
+    start: (cwd: string) => Promise<SessionInfo>;
     /** Ends one pi. The conversation file stays. */
     detach: (session: string) => Promise<void>;
 }
@@ -35,15 +35,15 @@ export interface ChatContext {
     session: string | null;
     /** What the attempt on its way is for: the file to load, or `null` for a new conversation. */
     path: string | null;
-    /** The directory of a new conversation, or `null` for the home of the host. */
+    /** The directory of a new conversation, or `null` when loading an existing conversation. */
     cwd: string | null;
     /** Why the last attempt failed, while the page says so. */
     error: PieError | null;
 }
 
 export type ChatEvent =
-    /** A new conversation, in `cwd` when one is named. */
-    | { type: "ATTACH"; cwd: string | null }
+    /** A new conversation, in `cwd`. */
+    | { type: "ATTACH"; cwd: string }
     /** A conversation file was chosen: a session of its own, or one that already holds it. */
     | { type: "FOCUS"; path: string }
     /** A session that already speaks was chosen. */
@@ -65,7 +65,7 @@ export const chatMachine = setup({
     },
     actors: {
         begin: fromPromise<SessionInfo, { deps: ChatDeps; path: string | null; cwd: string | null }>(
-            async ({ input }) => (input.path === null ? input.deps.start(input.cwd) : input.deps.attach(input.path)),
+            async ({ input }) => (input.path === null ? input.deps.start(input.cwd!) : input.deps.attach(input.path)),
         ),
     },
     actions: {

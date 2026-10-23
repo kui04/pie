@@ -36,6 +36,7 @@ const bridge = vi.hoisted(() => ({
     attachSession: vi.fn<Call>(),
     startSession: vi.fn<Call>(),
     detachSession: vi.fn<Call>(),
+    homeDir: vi.fn<Call>(),
     listDirs: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getEntries: vi.fn<Call>(),
@@ -196,6 +197,7 @@ beforeEach(() => {
         held.push({ id, cwd: cwd ?? null });
         return { id, cwd: cwd ?? null };
     });
+    bridge.homeDir.mockResolvedValue("/home/kui");
     bridge.listDirs.mockResolvedValue({
         directory: "/home/kui",
         entries: [{ name: "Projects", path: "/home/kui/Projects", isDir: true }],

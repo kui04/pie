@@ -387,12 +387,20 @@ pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: b
     Ok(state.question.answer(&connection, trusted))
 }
 
+/// Returns the login home directory of the connected machine, if known.
+#[tauri::command]
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub async fn home_dir(state: State<'_, AppState>) -> Result<Option<String>, PieError> {
+    let sessions = super::connected(&state, "reading its home directory").await?;
+    Ok(sessions.host().home_dir().await?)
+}
+
 /// One directory level on the connected machine, for the directory picker.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(path = ?path))]
-pub async fn list_dirs(state: State<'_, AppState>, path: Option<String>) -> Result<Listing, PieError> {
+#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
+pub async fn list_dirs(state: State<'_, AppState>, path: String) -> Result<Listing, PieError> {
     let sessions = super::connected(&state, "browsing its directories").await?;
-    Ok(sessions.host().dirs(path.as_deref()).await?)
+    Ok(sessions.host().dirs(&path).await?)
 }
 
 /// Whether a path names a directory on the connected machine.

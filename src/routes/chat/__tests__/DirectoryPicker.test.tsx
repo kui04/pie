@@ -22,7 +22,8 @@ import { DirectoryPicker, type DirectoryPickerProps } from "@/routes/chat/picker
 import { sessionSummary } from "@/preview/fixtures";
 
 const bridge = vi.hoisted(() => ({
-    listDirs: vi.fn<(path?: string) => Promise<Listing>>(),
+    listDirs: vi.fn<(path: string) => Promise<Listing>>(),
+    homeDir: vi.fn<() => Promise<string | null>>(),
     listSessions: vi.fn<() => Promise<SessionSummary[]>>(),
     dirExists: vi.fn<(path: string) => Promise<boolean>>(),
     createDir: vi.fn<(path: string) => Promise<void>>(),
@@ -106,10 +107,10 @@ const settled = (paths: string[]) => waitFor(() => expect(labels()).toEqual(path
 
 describe("the directory picker", () => {
     beforeEach(() => {
+        bridge.homeDir.mockReset();
+        bridge.homeDir.mockResolvedValue("/home/kui");
         bridge.listDirs.mockReset();
-        bridge.listDirs.mockImplementation(
-            async (path?: string) => HOST[path ?? ""] ?? { directory: path ?? "", entries: [] },
-        );
+        bridge.listDirs.mockImplementation(async (path: string) => HOST[path] ?? { directory: path, entries: [] });
         bridge.listSessions.mockReset();
         bridge.listSessions.mockResolvedValue(SESSIONS);
         bridge.dirExists.mockReset();
@@ -131,8 +132,8 @@ describe("the directory picker", () => {
             "/home/kui/pictures",
             "/home/kui/projects",
         ]);
-        // The first read asks for the home: no path at all.
-        expect(bridge.listDirs).toHaveBeenCalledWith(undefined);
+        // The first read asks for the home directory.
+        expect(bridge.listDirs).toHaveBeenCalledWith("/home/kui");
         expect(screen.queryByRole("option", { name: "/opt/tools" })).not.toBeInTheDocument();
         // A file is not a folder: the picker does not offer one.
         expect(screen.queryByRole("option", { name: "/home/kui/notes.txt" })).not.toBeInTheDocument();
@@ -145,13 +146,13 @@ describe("the directory picker", () => {
         expect(input.selectionEnd).toBe(input.value.length);
     });
 
-    it("answers with the home directory of the host as no path at all", async () => {
+    it("answers with the home directory of the host", async () => {
         const { onPick } = renderPicker();
 
         await option("/home/kui/projects");
         fireEvent.keyDown(field(), { key: "Enter" });
 
-        expect(onPick).toHaveBeenCalledWith(null);
+        expect(onPick).toHaveBeenCalledWith("/home/kui");
     });
 
     it("walks into the folder on a press", async () => {
@@ -328,9 +329,9 @@ describe("the directory picker", () => {
         // A listing that answers only when this test says so.
         const held: Array<() => void> = [];
         bridge.listDirs.mockImplementation(
-            (path?: string) =>
+            (path: string) =>
                 new Promise((resolve) => {
-                    held.push(() => resolve(HOST[path ?? ""] ?? { directory: path ?? "", entries: [] }));
+                    held.push(() => resolve(HOST[path] ?? { directory: path, entries: [] }));
                 }),
         );
         renderPicker();
@@ -339,6 +340,7 @@ describe("the directory picker", () => {
         const status = await screen.findByRole("status", { name: "Reading the folders" });
         expect(status.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(1);
 
+        await waitFor(() => expect(held.length).toBeGreaterThan(0));
         for (const release of held) release();
         expect(await option("/home/kui/projects")).toBeInTheDocument();
     });
@@ -347,9 +349,9 @@ describe("the directory picker", () => {
         // A listing that answers only when this test says so.
         const held: Array<() => void> = [];
         bridge.listDirs.mockImplementation(
-            (path?: string) =>
+            (path: string) =>
                 new Promise((resolve) => {
-                    held.push(() => resolve(HOST[path ?? ""] ?? { directory: path ?? "", entries: [] }));
+                    held.push(() => resolve(HOST[path] ?? { directory: path, entries: [] }));
                 }),
         );
         renderPicker();
@@ -358,6 +360,7 @@ describe("the directory picker", () => {
         expect(open).toBeDisabled();
         expect(within(open).getByRole("status", { name: "Loading" })).toBeInTheDocument();
 
+        await waitFor(() => expect(held.length).toBeGreaterThan(0));
         for (const release of held) release();
         expect(await option("/home/kui/projects")).toBeInTheDocument();
     });

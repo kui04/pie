@@ -63,7 +63,7 @@ async fn named_session(state: &AppState, session: &str, doing: &str) -> Result<S
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, PieError> {
     let sessions = super::connected(&state, "listing its sessions").await?;
-    Ok(sessions.summaries().await?)
+    Ok(sessions.list_sessions().await?)
 }
 
 /// Deletes one conversation of the connected machine.
@@ -130,13 +130,9 @@ async fn begin(
 /// [`PieError::NotConnected`] if there is no machine to start pi on, and a
 /// sentence when pi cannot be started.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn attach_session(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    path: Option<String>,
-) -> Result<SessionInfo, PieError> {
-    begin(app, &state, path.as_deref(), None).await
+#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
+pub async fn attach_session(state: State<'_, AppState>, app: AppHandle, path: String) -> Result<SessionInfo, PieError> {
+    begin(app, &state, Some(&path), None).await
 }
 
 /// Starts a pi on the connected machine in a directory, and answers with the
@@ -144,8 +140,7 @@ pub async fn attach_session(
 ///
 /// The frontend asks for this on "New session": a new conversation, with no file
 /// yet. `cwd` is a directory of the machine, as the directory picker wrote it.
-/// Without one pi starts in the home of this machine, or in the directory of the
-/// login shell on a host. The directory is where the new conversation is recorded
+/// The directory is where the new conversation is recorded
 /// (pi writes it into the header of the session file) and where the tools of that
 /// session run, so the choice is the one fact that decides what the conversation
 /// is about.
@@ -155,13 +150,9 @@ pub async fn attach_session(
 /// [`PieError::NotConnected`] if there is no machine to start pi on, and a
 /// sentence when pi cannot be started in that directory.
 #[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(cwd = ?cwd))]
-pub async fn start_session(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    cwd: Option<String>,
-) -> Result<SessionInfo, PieError> {
-    begin(app, &state, None, cwd.as_deref()).await
+#[tracing::instrument(level = "debug", skip_all, err, fields(cwd = %cwd))]
+pub async fn start_session(state: State<'_, AppState>, app: AppHandle, cwd: String) -> Result<SessionInfo, PieError> {
+    begin(app, &state, None, Some(&cwd)).await
 }
 
 /// Ends one pi. The machine stays reached, and the conversation file stays.

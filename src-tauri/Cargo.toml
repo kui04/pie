@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 # place, and two people adding the same dependency land in the same spot.
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 base64 = "0.23"
 camino = { version = "1", features = ["serde1"] }
 dirs = "7"

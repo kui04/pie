@@ -108,20 +108,26 @@ export function listSessions(): Promise<SessionSummary[]> {
  * starts a new conversation. The path is a path of the host, as the listing
  * wrote it; pi reads the file itself.
  */
-export function attachSession(path?: string): Promise<SessionInfo> {
+/**
+ * Starts a pi on the connected machine, on a conversation file, and answers
+ * with the session it speaks through.
+ *
+ * `path` names the conversation file of pi to load at the start. The path is a
+ * path of the host, as the listing wrote it; pi reads the file itself.
+ */
+export function attachSession(path: string): Promise<SessionInfo> {
     return call<SessionInfo>("attach_session", { path });
 }
 
 /**
  * Starts a pi in a directory of the host, for a new conversation.
  *
- * `cwd` is a directory as `listDirs` wrote it; without one pi starts in the home
- * of the machine, or in the directory of the login shell on a host. The directory
- * is where the conversation is recorded and where the tools of that session run,
- * so the choice decides what the conversation is about. The conversation has no
- * file yet: pi writes one at the first message.
+ * `cwd` is a directory as `listDirs` wrote it. The directory is where the
+ * conversation is recorded and where the tools of that session run, so the
+ * choice decides what the conversation is about. The conversation has no file
+ * yet: pi writes one at the first message.
  */
-export function startSession(cwd?: string): Promise<SessionInfo> {
+export function startSession(cwd: string): Promise<SessionInfo> {
     return call<SessionInfo>("start_session", { cwd });
 }
 

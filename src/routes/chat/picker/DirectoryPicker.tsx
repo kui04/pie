@@ -60,8 +60,8 @@ export interface DirectoryPickerProps {
     endpoint: string;
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /** The directory that was confirmed; `null` is the home directory of the host. */
-    onPick: (cwd: string | null) => void;
+    /** The directory that was confirmed. */
+    onPick: (cwd: string) => void;
     /** Pins which shape to draw, for previews and tests. */
     isMobile?: boolean;
 }
@@ -74,8 +74,8 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
     const client = useQueryClient();
 
     // The home of the host is read once: it names the level of an empty field.
-    const home = useQuery({ ...directoryQueries.list(endpoint), enabled: open });
-    const homePath = home.data?.directory ?? null;
+    const home = useQuery({ ...directoryQueries.home(endpoint), enabled: open });
+    const homePath = home.data ?? null;
 
     // The text of the field: the answer, as typed or as selected. Defaults to
     // the home of the machine.
@@ -134,7 +134,11 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         return () => clearTimeout(timer);
     }, [live.parent]);
 
-    const level = useQuery({ ...directoryQueries.list(endpoint, requestedParent ?? undefined), enabled: open });
+    const parentPath = requestedParent ?? homePath;
+    const level = useQuery({
+        ...directoryQueries.list(endpoint, parentPath ?? ""),
+        enabled: open && Boolean(parentPath),
+    });
     // Host order is random, so the level reads A-Z, case flat.
     const folders =
         level.data?.entries
@@ -164,7 +168,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         ...folderRows.map((row): Offer => ({ path: row.path, kind: "folder" })),
     ];
 
-    const levelStale = (live.parent ?? "") !== (requestedParent ?? "");
+    const levelStale = (live.parent ?? homePath ?? "") !== (requestedParent ?? homePath ?? "");
     // A query that never ran stays pending: only a fetch in flight reads.
     const reading = home.isPending || level.isFetching || levelStale;
     const failure = level.error;
@@ -215,8 +219,8 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         filledRef.current = Boolean(homePath);
     };
 
-    /** The field answers: empty is the home of the machine. */
-    const pick = (cwd: string | null) => {
+    /** The field answers. */
+    const pick = (cwd: string) => {
         wipe();
         onPick(cwd);
     };
@@ -226,7 +230,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         if (reading || failure !== null || making !== null || creating) return;
         const raw = text.trim();
         if (raw === "") {
-            pick(null);
+            if (homePath !== null) pick(homePath);
             return;
         }
         const expanded = expandTilde(raw, homePath);
@@ -239,9 +243,9 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         const base = homePath !== null ? trimPath(homePath) : "";
         const resolved = isAbsolutePath(expanded) ? expanded : base !== "" ? join(base, expanded) : expanded;
         const value = trimPath(resolved);
-        // The home of the machine is no path of pie's.
+        // The home of the machine is confirmed.
         if (homePath !== null && value === trimPath(homePath)) {
-            pick(null);
+            pick(homePath);
             return;
         }
         // A row in view already names a folder the host has: no probe is needed.

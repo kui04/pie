@@ -13,7 +13,7 @@ import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from 
 
 function started(overrides: Partial<ChatDeps> = {}) {
     const attached: string[] = [];
-    const startedIn: (string | null)[] = [];
+    const startedIn: string[] = [];
     const detached: string[] = [];
     let made = 0;
     const actor = createActor(chatMachine, {
@@ -47,16 +47,15 @@ describe("the chat's stages", () => {
         expect(sessionOf(actor.getSnapshot())).toBeNull();
     });
 
-    it("starts a new conversation in the home of the host, and views the session that answers", async () => {
+    it("starts a new conversation in a directory, and views the session that answers", async () => {
         const { actor, attached, startedIn } = started();
 
-        actor.send({ type: "ATTACH", cwd: null });
+        actor.send({ type: "ATTACH", cwd: "/home/kui" });
 
         expect(stageOf(actor.getSnapshot())).toBe("attaching");
         expect(pathOf(actor.getSnapshot())).toBeNull();
         await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
-        // No path and no directory: pi starts in the home of the machine.
-        expect(startedIn).toEqual([null]);
+        expect(startedIn).toEqual(["/home/kui"]);
         expect(attached).toEqual([]);
         expect(sessionOf(actor.getSnapshot())).toBe("made:1");
     });
@@ -131,7 +130,7 @@ describe("the chat's stages", () => {
 
     it("does not open another conversation while one is on its way", () => {
         const { actor } = started();
-        actor.send({ type: "ATTACH", cwd: null });
+        actor.send({ type: "ATTACH", cwd: "/home/kui" });
 
         actor.send({ type: "OPEN", session: "main:2" });
 

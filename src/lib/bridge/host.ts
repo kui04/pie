@@ -159,14 +159,19 @@ export function trustHostKey(connection: string, trusted: boolean): Promise<bool
     return call<boolean>("trust_host_key", { connection, trusted });
 }
 
+/** Returns the login home directory of the connected machine, if known. */
+export function homeDir(): Promise<string | null> {
+    return call<string | null>("home_dir");
+}
+
 /**
  * One directory level on the connected machine, for the directory picker.
  *
- * `path` is the home directory if absent. If present, `path` is an absolute path
- * on that machine: pie resolves no relative path against its own directory, and
- * the rows carry their whole paths, so the picker never builds one.
+ * `path` is an absolute path on that machine: pie resolves no relative path
+ * against its own directory, and the rows carry their whole paths, so the
+ * picker never builds one.
  */
-export function listDirs(path?: string): Promise<Listing> {
+export function listDirs(path: string): Promise<Listing> {
     return call<Listing>("list_dirs", { path });
 }
 

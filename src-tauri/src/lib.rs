@@ -42,6 +42,7 @@ pub fn run() {
             commands::host::close_the_reach,
             commands::host::create_dir,
             commands::host::dir_exists,
+            commands::host::home_dir,
             commands::host::list_dirs,
             commands::host::trust_host_key,
             commands::log::log,

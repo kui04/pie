@@ -40,7 +40,7 @@ export function ChatScreen() {
                 return info;
             },
             start: async (cwd) => {
-                const info = await bridge.startSession(cwd ?? undefined);
+                const info = await bridge.startSession(cwd);
                 await client.invalidateQueries({ queryKey: ["connection"] });
                 return info;
             },

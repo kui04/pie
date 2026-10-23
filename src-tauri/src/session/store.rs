@@ -10,24 +10,272 @@
 //! business; this module knows only the JSONL format that pi writes and how to
 //! turn each file's lines into a [`SessionSummary`].
 
+use std::io::SeekFrom;
+use std::sync::Arc;
 use std::time::SystemTime;
 
+use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::task::JoinSet;
 
-use crate::host::{Host, SessionFileLines};
+use crate::host::{Host, SeekableReader};
 
 use pi_rpc::entry::Entry;
 use pi_rpc::message::{Message, UserBlock, UserContent};
+
+/// The in-memory catalog of all session summaries of one machine.
+#[derive(Debug, Default, Clone)]
+pub struct SessionCatalog {
+    sessions: Vec<SessionSummary>,
+    last_scanned: Option<std::time::Instant>,
+}
+
+impl SessionCatalog {
+    /// All session summaries in the catalog.
+    pub fn all(&self) -> Vec<SessionSummary> {
+        self.sessions.clone()
+    }
+
+    /// Looks up a session by its Pi ID.
+    pub fn get(&self, id: &str) -> Option<&SessionSummary> {
+        self.sessions.iter().find(|s| s.id == id)
+    }
+
+    /// Looks up a session by its file path.
+    pub fn get_by_path(&self, path: &str) -> Option<&SessionSummary> {
+        self.sessions.iter().find(|s| s.path == path)
+    }
+
+    /// Removes a session from the catalog by its file path.
+    pub fn remove_by_path(&mut self, path: &str) {
+        self.sessions.retain(|s| s.path != path);
+    }
+
+    /// Updates the catalog with a new list of session summaries.
+    pub fn set(&mut self, sessions: Vec<SessionSummary>) {
+        self.sessions = sessions;
+        self.last_scanned = Some(std::time::Instant::now());
+    }
+
+    /// Whether the catalog has not been populated yet.
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty() && self.last_scanned.is_none()
+    }
+}
+
+const HEAD_BYTES: usize = 1024 * 1024;
+const READ_CHUNK: usize = 8 * 1024;
+const NAME_SCAN_BYTES: u64 = 1024 * 1024;
+const NAME_BLOCK: usize = 16 * 1024;
+
+/// Reads the working directory recorded in the header of a session file.
+pub(crate) async fn read_session_cwd(reader: &mut (dyn SeekableReader + '_)) -> anyhow::Result<Option<String>> {
+    let (header, _) = scan_head(reader).await?;
+    Ok(header.map(|h| h.cwd))
+}
+
+/// Scans the summary lines of one session file using seekable asynchronous stream reads.
+pub async fn read_summary(
+    reader: &mut (dyn SeekableReader + '_),
+    path: String,
+    size: Option<u64>,
+    modified: Option<SystemTime>,
+) -> anyhow::Result<Option<SessionSummary>> {
+    let (header, first) = scan_head(reader).await?;
+    let Some(header) = header else {
+        return Ok(None);
+    };
+
+    let name = scan_tail_backwards(reader, size).await?;
+    let modified_str = modified.and_then(rfc3339).unwrap_or_else(|| header.timestamp.clone());
+
+    Ok(Some(SessionSummary {
+        path,
+        id: header.id,
+        cwd: header.cwd,
+        name,
+        parent_session_path: header.parent_session,
+        modified: modified_str,
+        created: header.timestamp,
+        first_message: first,
+    }))
+}
+
+struct HeadScan {
+    searched: usize,
+    line_start: usize,
+}
+
+fn first_turn_is_whole(head: &[u8], scan: &mut HeadScan) -> bool {
+    let mut found = false;
+    while !found {
+        let fresh = &head[scan.searched..];
+        let Some(at) = memchr::memchr(b'\n', fresh) else {
+            scan.searched = head.len();
+            break;
+        };
+        let line_end = scan.searched + at;
+        found = String::from_utf8_lossy(&head[scan.line_start..line_end]).contains("\"role\":\"user\"");
+        scan.line_start = line_end + 1;
+        scan.searched = scan.line_start;
+    }
+    found
+}
+
+async fn scan_head(
+    reader: &mut (dyn SeekableReader + '_),
+) -> anyhow::Result<(Option<SessionFileHeader>, Option<String>)> {
+    reader.seek(SeekFrom::Start(0)).await?;
+    let mut head = Vec::new();
+    let mut scan = HeadScan {
+        searched: 0,
+        line_start: 0,
+    };
+    let mut chunk = [0u8; READ_CHUNK];
+
+    while head.len() < HEAD_BYTES {
+        let room = (HEAD_BYTES - head.len()).min(READ_CHUNK);
+        let read = reader.read(&mut chunk[..room]).await?;
+        if read == 0 {
+            break;
+        }
+        head.extend_from_slice(&chunk[..read]);
+        if first_turn_is_whole(&head, &mut scan) {
+            break;
+        }
+    }
+
+    let lossy = String::from_utf8_lossy(&head);
+    let mut lines = lossy.lines();
+    let Some(header_line) = lines.next() else {
+        return Ok((None, None));
+    };
+
+    let Ok(header) = serde_json::from_str::<SessionFileHeader>(header_line) else {
+        return Ok((None, None));
+    };
+    if header.kind != "session" {
+        return Ok((None, None));
+    }
+
+    let mut first = None;
+    for line in lines {
+        if let Some(text) = first_text(line.as_bytes()) {
+            first = Some(text);
+            break;
+        }
+    }
+
+    Ok((Some(header), first))
+}
+
+async fn scan_tail_backwards(
+    reader: &mut (dyn SeekableReader + '_),
+    size: Option<u64>,
+) -> anyhow::Result<Option<String>> {
+    let size = match size {
+        Some(size) => size,
+        None => reader.seek(SeekFrom::End(0)).await?,
+    };
+    let budget = size.min(NAME_SCAN_BYTES);
+    let mut position = size;
+    let mut scanned = 0u64;
+    let mut carry: Vec<u8> = Vec::new();
+
+    while scanned < budget {
+        let block = NAME_BLOCK.min((budget - scanned) as usize);
+        position -= block as u64;
+        reader.seek(SeekFrom::Start(position)).await?;
+
+        let mut suffix = vec![0u8; block];
+        let mut filled = 0;
+        while filled < block {
+            let read = reader.read(&mut suffix[filled..]).await?;
+            if read == 0 {
+                break;
+            }
+            filled += read;
+        }
+        suffix.truncate(filled);
+        suffix.extend_from_slice(&carry);
+        scanned += block as u64;
+
+        let mut end = suffix.len();
+        loop {
+            let Some(line_end) = memchr::memrchr(b'\n', &suffix[..end]) else {
+                carry = suffix[..end].to_vec();
+                break;
+            };
+            let line = &suffix[line_end + 1..end];
+            end = line_end;
+            if let Some(name) = name_in(line) {
+                return Ok(name);
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn sessions_root(home: Option<&str>) -> Option<Utf8PathBuf> {
+    home.map(|h| Utf8PathBuf::from(h).join(".pi").join("agent").join("sessions"))
+}
 
 /// Every conversation that pi wrote on `host`, the newest first.
 ///
 /// # Errors
 ///
-/// A sentence when the files cannot be read, with the path at fault in it,
-/// and the failure of the reach over SSH.
-pub(crate) async fn summaries(host: &dyn Host) -> anyhow::Result<Vec<SessionSummary>> {
-    let files = host.read_session_files(first_text, name_in).await?;
-    let mut list: Vec<SessionSummary> = files.into_iter().filter_map(SessionSummary::of).collect();
+/// A sentence when the files cannot be read, with the path at fault in it.
+pub(crate) async fn summaries(host: &Arc<dyn Host>) -> anyhow::Result<Vec<SessionSummary>> {
+    let home = host.home_dir().await?;
+    let Some(root) = sessions_root(home.as_deref()) else {
+        return Ok(Vec::new());
+    };
+    let projects = match host.read_dir(root.as_str()).await {
+        Ok(entries) => entries,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let mut candidates = Vec::new();
+    for project in projects {
+        if !project.is_dir {
+            continue;
+        }
+        let Ok(files) = host.read_dir(&project.path).await else {
+            continue;
+        };
+        for file in files {
+            if file.name.ends_with(".jsonl") {
+                candidates.push(file);
+            }
+        }
+    }
+
+    let mut set = JoinSet::new();
+    let mut pending = candidates.into_iter();
+    let mut list = Vec::new();
+    const MAX_CONCURRENT_LOADS: usize = 10;
+
+    loop {
+        while set.len() < MAX_CONCURRENT_LOADS {
+            let Some(candidate) = pending.next() else { break };
+            let host = Arc::clone(host);
+            set.spawn(async move {
+                let mut reader = host.open_file(&candidate.path).await.ok()?;
+                read_summary(&mut *reader, candidate.path, candidate.size, candidate.modified)
+                    .await
+                    .ok()
+                    .flatten()
+            });
+        }
+        if set.is_empty() {
+            break;
+        }
+        if let Some(Ok(Some(summary))) = set.join_next().await {
+            list.push(summary);
+        }
+    }
+
     newest_first(&mut list);
     Ok(list)
 }
@@ -67,11 +315,8 @@ pub struct SessionSummary {
 }
 
 impl SessionSummary {
-    /// Builds a summary from the lines of one file.
-    ///
-    /// `None` when the file is not a session of pi: its first line is not a
-    /// header, or the header names another kind.
-    fn of(lines: SessionFileLines) -> Option<SessionSummary> {
+    #[cfg(test)]
+    fn of(lines: tests::TestLines) -> Option<SessionSummary> {
         let header: SessionFileHeader = serde_json::from_str(lines.header.as_deref()?).ok()?;
         if header.kind != "session" {
             return None;
@@ -208,7 +453,7 @@ fn newest_first(summaries: &mut [SessionSummary]) {
 ///
 /// A sentence when the path is relative.
 pub(crate) fn checked_session_path(path: &str) -> anyhow::Result<&str> {
-    crate::host::checked_host_path(path)
+    crate::host::is_absolute_path(path)
 }
 
 #[cfg(test)]
@@ -220,6 +465,15 @@ mod tests {
     const HEADER: &str =
         r#"{"type":"session","version":3,"id":"s1","timestamp":"2026-10-02T13:45:12.345Z","cwd":"/home/pie"}"#;
 
+    #[derive(Debug, Default)]
+    pub(super) struct TestLines {
+        pub path: String,
+        pub modified: Option<SystemTime>,
+        pub header: Option<String>,
+        pub first: Option<String>,
+        pub name: Option<String>,
+    }
+
     fn user_line(id: &str, timestamp: &str, millis: i64, text: &str) -> String {
         format!(
             r#"{{"type":"message","id":"{id}","parentId":null,"timestamp":"{timestamp}","message":{{"role":"user","content":"{text}","timestamp":{millis}}}}}"#
@@ -229,7 +483,7 @@ mod tests {
     #[test]
     fn a_summary_reads_its_header_and_first_message() {
         let modified = std::time::UNIX_EPOCH + Duration::from_millis(1_790_948_720_000);
-        let lines = SessionFileLines {
+        let lines = TestLines {
             path: "/x/s.jsonl".to_string(),
             modified: Some(modified),
             header: Some(HEADER.to_string()),
@@ -249,10 +503,10 @@ mod tests {
 
     #[test]
     fn the_file_time_is_what_modified_falls_back_to() {
-        let lines = SessionFileLines {
+        let lines = TestLines {
             path: "/x/s.jsonl".to_string(),
             header: Some(HEADER.to_string()),
-            ..SessionFileLines::default()
+            ..TestLines::default()
         };
 
         let summary = SessionSummary::of(lines).expect("a session file");
@@ -265,16 +519,35 @@ mod tests {
 
     #[test]
     fn a_file_without_a_session_header_is_not_a_session() {
-        let lines = SessionFileLines {
+        let lines = TestLines {
             path: "/x/s.jsonl".to_string(),
             header: Some(user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "hi")),
-            ..SessionFileLines::default()
+            ..TestLines::default()
         };
 
         assert!(
             SessionSummary::of(lines).is_none(),
             "pi's own scan drops files whose first entry is not a header"
         );
+    }
+
+    #[tokio::test]
+    async fn read_summary_stream_extracts_header_and_first_turn_and_backward_rename() {
+        let content = format!(
+            "{HEADER}\n{}\n{}\n",
+            user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "hello stream"),
+            r#"{"type":"session_info","id":"s1","parentId":null,"timestamp":"2026-10-02T13:50:00.000Z","name":"Stream Session"}"#
+        );
+        let mut cursor = std::io::Cursor::new(content.into_bytes());
+        let summary = read_summary(&mut cursor, "/path/s.jsonl".to_string(), None, None)
+            .await
+            .expect("read_summary")
+            .expect("summary present");
+
+        assert_eq!(summary.id, "s1");
+        assert_eq!(summary.cwd, "/home/pie");
+        assert_eq!(summary.name.as_deref(), Some("Stream Session"));
+        assert_eq!(summary.first_message.as_deref(), Some("hello stream"));
     }
 
     #[test]

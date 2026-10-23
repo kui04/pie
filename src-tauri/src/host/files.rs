@@ -1,11 +1,30 @@
 //! Shared file types and path utilities for the machine pie reaches.
 
-use camino::{Utf8Path, Utf8PathBuf};
+use std::time::SystemTime;
+
 use serde::Serialize;
+use tokio::io::{AsyncRead, AsyncSeek};
 use typed_path::Utf8TypedPath;
 
-/// One read chunk of a session file head scan.
-pub(super) const READ_CHUNK: usize = 8 * 1024;
+/// A seekable, readable stream backed by a local file or remote SFTP channel.
+pub trait SeekableReader: AsyncRead + AsyncSeek + Send + Unpin + 'static {}
+impl<T: AsyncRead + AsyncSeek + Send + Unpin + 'static> SeekableReader for T {}
+
+/// One entry of a directory read on a host.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEntry {
+    /// File or directory name.
+    pub name: String,
+    /// Absolute path on the host.
+    pub path: String,
+    /// Whether this entry is a directory.
+    pub is_dir: bool,
+    /// File size in bytes, if known.
+    pub size: Option<u64>,
+    /// Last modification time, if known.
+    pub modified: Option<SystemTime>,
+}
 
 /// One row of a directory listing, for the directory picker.
 #[derive(Debug, Clone, Serialize)]
@@ -77,20 +96,6 @@ pub(super) fn clean_extension(ext_hint: &str) -> String {
     ext_hint.trim_start_matches('.').to_string()
 }
 
-/// Pi expands a leading `~` in session paths (pinned `expandTildePath`). A value
-/// without a `~` stays as it is, with or without a home.
-pub(super) fn expand_home(path: &str, home: Option<&Utf8Path>) -> Utf8PathBuf {
-    match (path, home) {
-        ("~", Some(home)) => home.to_path_buf(),
-        (_, Some(home)) => path
-            .strip_prefix("~/")
-            .or_else(|| path.strip_prefix("~\\"))
-            .map(|rest| home.join(rest))
-            .unwrap_or_else(|| Utf8PathBuf::from(path)),
-        (_, None) => Utf8PathBuf::from(path),
-    }
-}
-
 /// A relative path is a mistake of the frontend, not a failure of the host.
 ///
 /// The function has a name so that a caller can reject such a path before the
@@ -100,72 +105,8 @@ pub(crate) fn not_absolute(path: &str) -> anyhow::Error {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use super::*;
-    use pi_rpc::entry::Entry;
-    use pi_rpc::message::{Message, UserBlock, UserContent};
-
-    pub(in crate::host) const HEADER: &str =
-        r#"{"type":"session","version":3,"id":"s1","timestamp":"2026-10-02T13:45:12.345Z","cwd":"/home/pie"}"#;
-
-    pub(in crate::host) fn user_line(id: &str, timestamp: &str, millis: i64, text: &str) -> String {
-        format!(
-            r#"{{"type":"message","id":"{id}","parentId":null,"timestamp":"{timestamp}","message":{{"role":"user","content":"{text}","timestamp":{millis}}}}}"#
-        )
-    }
-
-    pub(in crate::host) fn name_line(id: &str, name: &str) -> String {
-        format!(
-            r#"{{"type":"session_info","id":"{id}","parentId":null,"timestamp":"2026-10-02T13:50:00.000Z","name":"{name}"}}"#
-        )
-    }
-
-    pub(in crate::host) fn system_line(fill: &str) -> String {
-        format!(
-            r#"{{"type":"message","id":"sys","parentId":null,"timestamp":"2026-10-02T13:45:12.900Z","message":{{"role":"system","content":"","sections":{{"tools":"{fill}"}},"timestamp":1790948712900}}}}"#
-        )
-    }
-
-    pub(in crate::host) async fn on_disk(content: &str) -> (tempfile::TempDir, Utf8PathBuf) {
-        let directory = tempfile::tempdir().expect("a temp directory");
-        let path = Utf8PathBuf::from_path_buf(directory.path().join("s.jsonl")).expect("the utf-8 path");
-        std::fs::write(&path, content).expect("the session file");
-        (directory, path)
-    }
-
-    pub(in crate::host) fn name_in(line: &[u8]) -> Option<Option<String>> {
-        let Entry::SessionInfo(info) = serde_json::from_slice::<Entry>(line).ok()? else {
-            return None;
-        };
-        Some(
-            info.name
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
-        )
-    }
-
-    pub(in crate::host) fn first_text(line: &[u8]) -> Option<String> {
-        let Entry::Message(message) = serde_json::from_slice::<Entry>(line).ok()? else {
-            return None;
-        };
-        let Message::User(user) = message.message else {
-            return None;
-        };
-        let text = match &user.content {
-            UserContent::Text(text) => text.clone(),
-            UserContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|block| match block {
-                    UserBlock::Text(text) => Some(text.text.as_str()),
-                    UserBlock::Image(_) | UserBlock::Other(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-        };
-        (!text.trim().is_empty()).then_some(text)
-    }
 
     #[test]
     fn a_relative_path_names_itself_in_the_refusal() {

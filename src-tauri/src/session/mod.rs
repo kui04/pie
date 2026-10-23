@@ -35,13 +35,14 @@ pub use extension::{
 };
 pub use id::Id;
 pub use process::Session;
-pub use store::SessionSummary;
+pub use store::{SessionCatalog, SessionSummary};
 pub use wire::{
     AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData, QueuedInputData,
 };
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use anyhow::Context as _;
 use serde::Serialize;
 
 use crate::host::Host;
@@ -69,6 +70,8 @@ struct Inner {
     /// short and never waits, which is why the lock is a plain one: it is held
     /// to move a value in or out of the list, never across an await.
     live: Mutex<Vec<Session>>,
+    /// In-memory catalog of all session summaries on this machine.
+    catalog: Mutex<SessionCatalog>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -109,6 +112,7 @@ impl SessionManager {
                 id,
                 host,
                 live: Mutex::new(Vec::new()),
+                catalog: Mutex::new(SessionCatalog::default()),
             }),
         })
     }
@@ -133,6 +137,7 @@ impl SessionManager {
                 id: self.inner.id.clone(),
                 host: Arc::clone(&self.inner.host),
                 live: Mutex::new(Vec::new()),
+                catalog: Mutex::new(SessionCatalog::default()),
             }),
         })
     }
@@ -165,8 +170,32 @@ impl SessionManager {
     /// cannot be started, and one when the channel it runs in cannot be opened.
     pub async fn attach(&self, number: u64, conversation: Option<&str>, cwd: Option<&str>) -> anyhow::Result<Session> {
         let conversation = conversation.map(checked_session_path).transpose()?;
-        let cwd = cwd.map(crate::host::checked_host_path).transpose()?;
-        let (channel, label) = self.inner.host.open_pi(cwd, conversation).await?;
+        let cwd = match cwd {
+            Some(dir) => crate::host::is_absolute_path(dir)?.to_string(),
+            None => {
+                if let Some(path) = conversation {
+                    let from_catalog = self
+                        .inner
+                        .catalog
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .get_by_path(path)
+                        .map(|s| s.cwd.clone());
+                    match from_catalog {
+                        Some(dir) => dir,
+                        None => {
+                            let mut reader = self.inner.host.open_file(path).await?;
+                            store::read_session_cwd(&mut *reader)
+                                .await?
+                                .context("session file missing cwd header")?
+                        }
+                    }
+                } else {
+                    anyhow::bail!("missing cwd for session");
+                }
+            }
+        };
+        let (channel, label) = self.inner.host.open_pi(&cwd, conversation).await?;
         let (client, handle) = speaking(channel);
         let session = Session::new(self.inner.id.for_session(number), label, client, handle);
         session.extension().install(session.client()).await;
@@ -288,6 +317,29 @@ impl SessionManager {
         }
     }
 
+    /// Returns all session summaries of this machine. If the catalog is empty,
+    /// scans the host filesystem and populates it.
+    pub async fn list_sessions(&self) -> anyhow::Result<Vec<SessionSummary>> {
+        let is_empty = {
+            let cat = self.inner.catalog.lock().unwrap_or_else(PoisonError::into_inner);
+            cat.is_empty()
+        };
+        if is_empty {
+            self.refresh_sessions().await
+        } else {
+            let cat = self.inner.catalog.lock().unwrap_or_else(PoisonError::into_inner);
+            Ok(cat.all())
+        }
+    }
+
+    /// Scans the machine for session files and refreshes the in-memory catalog.
+    pub async fn refresh_sessions(&self) -> anyhow::Result<Vec<SessionSummary>> {
+        let list = store::summaries(&self.inner.host).await?;
+        let mut cat = self.inner.catalog.lock().unwrap_or_else(PoisonError::into_inner);
+        cat.set(list.clone());
+        Ok(list)
+    }
+
     /// Every conversation that pi wrote on this machine, in all project
     /// directories.
     ///
@@ -299,10 +351,10 @@ impl SessionManager {
     ///
     /// A sentence when the files cannot be read, with the path at fault in it.
     pub async fn summaries(&self) -> anyhow::Result<Vec<SessionSummary>> {
-        store::summaries(self.inner.host.as_ref()).await
+        self.list_sessions().await
     }
 
-    /// Deletes one conversation file of this machine.
+    /// Deletes one conversation file of this machine and removes it from the catalog.
     ///
     /// The file belongs to pi, and the process that holds it must be gone first:
     /// a pi that keeps writing to a removed file writes into a name nobody can open
@@ -315,7 +367,10 @@ impl SessionManager {
     /// one against its own directory - and one when the file cannot be removed.
     pub async fn delete_conversation(&self, path: &str) -> anyhow::Result<()> {
         let path = checked_session_path(path)?;
-        self.inner.host.remove_file(path).await
+        self.inner.host.remove_file(path).await?;
+        let mut cat = self.inner.catalog.lock().unwrap_or_else(PoisonError::into_inner);
+        cat.remove_by_path(path);
+        Ok(())
     }
 
     /// Ends every session of this machine, and then the reach to it.
