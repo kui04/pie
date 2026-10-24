@@ -9,13 +9,6 @@ use typed_path::Utf8TypedPath;
 use super::SshHost;
 use crate::host::files::{AsyncReadSeek, FileEntry};
 
-/// How long a progress report may be held back. One report in a hundred milliseconds is
-/// as smooth as a bar can be read.
-const REPORT_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
-
-/// How much of a file may be written before a report, when the clock does not ask for one.
-const REPORT_SHARE: u64 = 20;
-
 /// Whether an sftp entry is a directory that a picker can walk, with links.
 ///
 /// sftp reports what the link is, not where it points. The picker needs the
@@ -60,9 +53,13 @@ pub(super) async fn create_dir_all(sftp: &SftpSession, path: &str) -> anyhow::Re
         match sftp.metadata(&level).await {
             Ok(_) => {}
             Err(error) if is_no_such_file(&error) => {
-                sftp.create_dir(&level)
-                    .await
-                    .with_context(|| format!("cannot make {path}"))?;
+                if let Err(err) = sftp.create_dir(&level).await {
+                    if sftp.metadata(&level).await.is_ok() {
+                        tracing::debug!(level = %level, "directory level concurrently created by another task");
+                    } else {
+                        return Err(err).with_context(|| format!("cannot make {path}"));
+                    }
+                }
             }
             Err(error) => return Err(error).with_context(|| format!("cannot read {level}")),
         }
@@ -113,58 +110,6 @@ pub(super) async fn open(sftp: &SftpSession, path: &str) -> anyhow::Result<Box<d
     Ok(Box::new(file))
 }
 
-/// Writes a binary payload to a file via SFTP, reporting progress while it goes.
-///
-/// A report is an IPC message and a render of the strip, so one per chunk is not a reason.
-/// The two bounds answer two different problems: the clock holds the rate to ten a second,
-/// and the share holds a fast write to one report in twenty. The last byte always closes the
-/// bar. A write of 50 MB in 64 KB chunks is 800 chunks and, when the link keeps up, about 20
-/// reports instead of 800.
-///
-/// # Errors
-///
-/// A sentence when opening or writing the file fails.
-pub(super) async fn write_file(
-    sftp: &SftpSession,
-    path: &str,
-    data: &[u8],
-    on_progress: &mut (dyn FnMut(u64, u64) + Send),
-) -> anyhow::Result<()> {
-    use russh_sftp::protocol::OpenFlags;
-    use tokio::io::AsyncWriteExt;
-
-    let mut file = sftp
-        .open_with_flags(path, OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::TRUNCATE)
-        .await
-        .with_context(|| format!("cannot make {path}"))?;
-
-    let chunk_size = 65536;
-    let total = data.len() as u64;
-    let share = (total / REPORT_SHARE).max(1);
-    let mut transferred = 0u64;
-    let mut reported = 0u64;
-    let mut reported_at = std::time::Instant::now();
-
-    // The bar starts at zero, and then hears only what it can show.
-    on_progress(0, total);
-
-    for chunk in data.chunks(chunk_size) {
-        file.write_all(chunk)
-            .await
-            .with_context(|| format!("cannot write {path}"))?;
-        transferred += chunk.len() as u64;
-        if transferred == total || reported_at.elapsed() >= REPORT_EVERY || transferred - reported >= share {
-            on_progress(transferred, total);
-            reported = transferred;
-            reported_at = std::time::Instant::now();
-        }
-    }
-
-    file.flush().await.with_context(|| format!("cannot write {path}"))?;
-
-    Ok(())
-}
-
 /// Every level of a host path from the top down, in the spelling the host uses.
 ///
 /// The root keeps its own shape: `/`, `C:\`, or `\\host\share`.
@@ -189,6 +134,10 @@ fn levels_of(path: &str) -> Vec<String> {
 /// over it goes quiet.
 pub(super) async fn sftp(host: &SshHost) -> anyhow::Result<Arc<SftpSession>> {
     let session = host.active_session()?;
+    if let Some(sftp) = host.cached_sftp(&session) {
+        return Ok(sftp);
+    }
+    let _guard = host.sftp_lock.lock().await;
     if let Some(sftp) = host.cached_sftp(&session) {
         return Ok(sftp);
     }

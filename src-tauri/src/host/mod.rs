@@ -22,8 +22,10 @@ use std::{fmt, sync::Arc};
 use camino::Utf8PathBuf;
 pub use connection::Connection;
 pub use exec::{CommandSpec, Exec, ExecOutput};
-pub use files::{AsyncReadSeek, DirEntry, FileEntry, Files, Listing, ProgressFn, StageSource};
-pub use local::LocalHost;
+pub use files::{
+    AsyncReadSeek, DirEntry, FileEntry, Files, Listing, ProgressFn, digest_bytes, digest_file, staged_name,
+};
+pub use local::{LocalHost, spool};
 use serde::Serialize;
 pub use ssh::{
     AskHostKey, HostKey, KnownHosts, PresentedKey, SshAuth, SshHost, SshSession, SshTarget, SubsystemStream, Trust,
@@ -118,7 +120,12 @@ impl Host {
 
     /// The machine the app itself runs on, with the home the app resolved.
     pub fn local(home: Option<Utf8PathBuf>) -> Self {
-        let local = Arc::new(LocalHost::new(home));
+        Self::local_with_cache(home, None)
+    }
+
+    /// The machine the app itself runs on, with home and cache directories resolved.
+    pub fn local_with_cache(home: Option<Utf8PathBuf>, cache: Option<Utf8PathBuf>) -> Self {
+        let local = Arc::new(LocalHost::with_cache(home, cache));
         let connection: Arc<dyn Connection> = local.clone();
         let files: Arc<dyn Files> = local.clone();
         let exec: Arc<dyn Exec> = local;

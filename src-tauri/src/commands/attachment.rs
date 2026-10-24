@@ -3,16 +3,31 @@
 use std::sync::PoisonError;
 
 use base64::Engine as _;
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager as _, State};
 
 use crate::{
     commands::files::{detect_mime, read_head},
     error::PieError,
-    host::{Files, Host, StageSource},
+    host::{Files, Host, spool},
     state::AppState,
 };
+
+/// Resolves the local cache directory for staging attachment files.
+pub fn attachment_cache(app: &AppHandle) -> Result<Utf8PathBuf, PieError> {
+    let base = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| PieError::Failed(anyhow::anyhow!("cannot resolve app cache directory: {e}")))?;
+    let utf8_base = Utf8PathBuf::from_path_buf(base).map_err(|p| {
+        PieError::Failed(anyhow::anyhow!(
+            "app cache directory is not valid UTF-8: {}",
+            p.display()
+        ))
+    })?;
+    Ok(utf8_base.join("attachments"))
+}
 
 /// The result of staging a file attachment.
 #[derive(Debug, Clone, Serialize)]
@@ -61,7 +76,12 @@ pub async fn stage_attachment(
     let files: &dyn Files = match runtime.as_ref() {
         Some(runtime) => runtime.host().files(),
         None => {
-            fallback = Host::local(None);
+            let cache = app
+                .path()
+                .app_cache_dir()
+                .ok()
+                .and_then(|c| Utf8PathBuf::from_path_buf(c).ok());
+            fallback = Host::local_with_cache(None, cache);
             fallback.files()
         }
     };
@@ -80,9 +100,10 @@ pub async fn stage_attachment(
             })?;
         let (mime_type, ext) = detect_mime(&bytes, ext_hint);
         let size = bytes.len() as u64;
-        let path = files
-            .stage_file(&name, &ext, StageSource::Bytes(&bytes), progress)
-            .await?;
+        let cache_dir = attachment_cache(&app)?;
+        let spooled = spool(&cache_dir, &name, &ext, &bytes).await?;
+        let path = files.stage_file(&name, &ext, &spooled, progress).await?;
+        tracing::info!(upload_id = %upload_id, name = %name, size, mime_type = %mime_type, staged_path = %path, "attachment staged from in-memory payload");
         return Ok(StagedAttachment { path, size, mime_type });
     }
 
@@ -94,9 +115,8 @@ pub async fn stage_attachment(
         let mut file = tokio::fs::File::open(path).await?;
         let head = read_head(&mut file).await?;
         let (mime_type, ext) = detect_mime(&head, ext_hint);
-        let staged = files
-            .stage_file(&name, &ext, StageSource::LocalFile(path), progress)
-            .await?;
+        let staged = files.stage_file(&name, &ext, path, progress).await?;
+        tracing::info!(upload_id = %upload_id, name = %name, size, mime_type = %mime_type, staged_path = %staged, "attachment staged from local file");
         return Ok(StagedAttachment {
             path: staged,
             size,

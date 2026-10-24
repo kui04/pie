@@ -18,6 +18,7 @@ mod files;
 mod known_hosts;
 mod session;
 mod trust;
+mod upload;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -27,7 +28,7 @@ pub use session::{SshSession, SubsystemStream};
 pub use trust::{AskHostKey, HostKey, PresentedKey, Trust};
 
 use super::{
-    AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn, StageSource,
+    AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn,
     files as host_files,
 };
 use crate::channel::Channel;
@@ -113,6 +114,9 @@ pub struct SshHost {
     auth: SshAuth,
     trust: Trust,
     state: Mutex<Option<Connected>>,
+    cache_dir: tokio::sync::OnceCell<String>,
+    pub(super) sftp_lock: tokio::sync::Mutex<()>,
+    pub(super) in_flight: upload::InFlightMap,
 }
 
 impl std::fmt::Debug for SshHost {
@@ -137,6 +141,9 @@ impl SshHost {
             auth,
             trust,
             state: Mutex::new(None),
+            cache_dir: tokio::sync::OnceCell::new(),
+            sftp_lock: tokio::sync::Mutex::new(()),
+            in_flight: upload::new_in_flight(),
         }
     }
 
@@ -286,6 +293,38 @@ impl Files for SshHost {
         Ok(Some(home))
     }
 
+    async fn cache_dir(&self) -> anyhow::Result<String> {
+        let dir = self
+            .cache_dir
+            .get_or_try_init(|| async {
+                let probed = self
+                    .output(CommandSpec::new("sh").args(["-c", "printf %s \"${XDG_CACHE_HOME:-$HOME/.cache}\""]))
+                    .await;
+                let base = match probed {
+                    Ok(out)
+                        if matches!(
+                            out.termination,
+                            crate::channel::Termination::Exited { success: true, .. }
+                        ) =>
+                    {
+                        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        if text.is_empty() { None } else { Some(text) }
+                    }
+                    _ => None,
+                };
+                let base = match base {
+                    Some(b) => b,
+                    None => {
+                        let home = self.home_dir().await?.unwrap_or_else(|| "/tmp".to_string());
+                        format!("{home}/.cache")
+                    }
+                };
+                Ok::<_, anyhow::Error>(format!("{base}/pie/attachments"))
+            })
+            .await?;
+        Ok(dir.clone())
+    }
+
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
         host_files::check_absolute(path)?;
         self.with_sftp(async |sftp| files::read_dir(sftp, path).await).await
@@ -305,21 +344,12 @@ impl Files for SshHost {
         &self,
         name: &str,
         ext: &str,
-        source: StageSource<'_>,
+        source: &camino::Utf8Path,
         mut on_progress: ProgressFn<'_>,
     ) -> anyhow::Result<String> {
-        let owned;
-        let bytes: &[u8] = match source {
-            StageSource::Bytes(bytes) => bytes,
-            StageSource::LocalFile(path) => {
-                owned = tokio::fs::read(path).await?;
-                &owned
-            }
-        };
-        let path = format!("/tmp/{}", host_files::temp_file_name(name, ext));
-        self.with_sftp(async |sftp| files::write_file(sftp, &path, bytes, &mut *on_progress).await)
-            .await?;
-        Ok(path)
+        let target_dir = self.cache_dir().await?;
+        self.with_sftp(async |sftp| upload::upload(self, sftp, &target_dir, source, name, ext, &mut *on_progress).await)
+            .await
     }
 }
 

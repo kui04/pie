@@ -229,8 +229,13 @@ fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> 
         .home_dir()
         .ok()
         .and_then(|h| Utf8PathBuf::from_path_buf(h).ok());
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .ok()
+        .and_then(|c| Utf8PathBuf::from_path_buf(c).ok());
     match spec {
-        ConnectSpec::Local => Ok(Arc::new(Host::local(home))),
+        ConnectSpec::Local => Ok(Arc::new(Host::local_with_cache(home, cache))),
         ConnectSpec::Ssh { host, port, user, auth } => {
             let store = app
                 .path()

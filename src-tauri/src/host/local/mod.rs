@@ -5,47 +5,19 @@
 //! starts, and where its files and sessions are read on this machine's
 //! filesystem.
 
+mod spool;
+
 use anyhow::Context as _;
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
+pub use spool::spool;
 
 use crate::{
     channel::{Channel, Program, Termination},
     host::{
-        AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn, StageSource,
+        AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn,
         exec::OUTPUT_TIMEOUT, files,
     },
 };
-
-/// Writes `bytes` into the temporary directory of this machine, and answers where.
-async fn stage_bytes(stem_hint: &str, ext_hint: &str, bytes: &[u8]) -> anyhow::Result<String> {
-    use tokio::io::AsyncWriteExt as _;
-
-    let directory = std::env::temp_dir();
-    let prefix = format!("pie-{}-", files::clean_stem(stem_hint));
-    let mut builder = tempfile::Builder::new();
-    builder.prefix(&prefix);
-    let extension = files::clean_extension(ext_hint);
-    let suffix = format!(".{extension}");
-    if !extension.is_empty() {
-        builder.suffix(&suffix);
-    }
-    let claimed = builder
-        .tempfile_in(&directory)
-        .with_context(|| format!("cannot make {}", directory.display()))?;
-    let (file, path) = claimed
-        .keep()
-        .with_context(|| format!("cannot make {}", directory.display()))?;
-    let mut file = tokio::fs::File::from_std(file);
-    file.write_all(bytes)
-        .await
-        .with_context(|| format!("cannot write {}", path.display()))?;
-    file.flush()
-        .await
-        .with_context(|| format!("cannot write {}", path.display()))?;
-    let path = Utf8PathBuf::from_path_buf(path)
-        .map_err(|path| anyhow::anyhow!("temporary path is not valid utf-8: {}", path.display()))?;
-    Ok(path.into_string())
-}
 
 /// This machine, as a machine that runs pi.
 #[derive(Debug)]
@@ -54,12 +26,19 @@ pub struct LocalHost {
     /// frontend names no directory. `None` leaves pi in the directory of the
     /// app, which is the result on a platform without a home directory.
     home: Option<Utf8PathBuf>,
+    /// The directory where staged and cached attachments are stored.
+    cache: Option<Utf8PathBuf>,
 }
 
 impl LocalHost {
     /// The machine the app itself runs on, with the home the app resolved.
     pub fn new(home: Option<Utf8PathBuf>) -> Self {
-        Self { home }
+        Self::with_cache(home, None)
+    }
+
+    /// The machine the app itself runs on, with home and cache directories resolved.
+    pub fn with_cache(home: Option<Utf8PathBuf>, cache: Option<Utf8PathBuf>) -> Self {
+        Self { home, cache }
     }
 }
 
@@ -131,8 +110,22 @@ impl Files for LocalHost {
             .home
             .as_ref()
             .map(|p| p.as_str().to_string())
-            .or_else(|| dirs::home_dir().and_then(|h| Utf8PathBuf::from_path_buf(h).ok().map(|p| p.into_string())));
+            .or_else(|| std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok());
         Ok(home)
+    }
+
+    async fn cache_dir(&self) -> anyhow::Result<String> {
+        if let Some(ref cache) = self.cache {
+            if cache.as_str().ends_with("attachments") {
+                return Ok(cache.as_str().to_string());
+            }
+            return Ok(cache.join("attachments").into_string());
+        }
+        let fallback = std::env::var("XDG_CACHE_HOME")
+            .map(Utf8PathBuf::from)
+            .or_else(|_| std::env::var("HOME").map(|h| Utf8PathBuf::from(h).join(".cache").join("me.kui04.pie")))
+            .unwrap_or_else(|_| Utf8PathBuf::from("/tmp/pie"));
+        Ok(fallback.join("attachments").into_string())
     }
 
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
@@ -187,25 +180,16 @@ impl Files for LocalHost {
 
     async fn stage_file(
         &self,
-        name: &str,
-        ext: &str,
-        source: StageSource<'_>,
+        _name: &str,
+        _ext: &str,
+        source: &Utf8Path,
         mut on_progress: ProgressFn<'_>,
     ) -> anyhow::Result<String> {
-        match source {
-            StageSource::LocalFile(path) => {
-                let metadata = tokio::fs::metadata(path).await?;
-                let size = metadata.len();
-                on_progress(size, size);
-                Ok(path.as_str().to_string())
-            }
-            StageSource::Bytes(bytes) => {
-                let staged = stage_bytes(name, ext, bytes).await?;
-                let size = bytes.len() as u64;
-                on_progress(size, size);
-                Ok(staged)
-            }
-        }
+        let metadata = tokio::fs::metadata(source).await?;
+        let size = metadata.len();
+        tracing::debug!(path = %source, size, "attaching local file directly");
+        on_progress(size, size);
+        Ok(source.as_str().to_string())
     }
 }
 
@@ -387,42 +371,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_staged_file_holds_the_bytes_under_a_pie_name() {
-        let path = stage_bytes("report.pdf", "pdf", b"%PDF-1.4").await.expect("the write");
+    async fn stage_file_returns_original_path_and_reports_size() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let file = temp.path().join("sample.txt");
+        std::fs::write(&file, b"sample content").expect("write");
+        let utf8_file = Utf8Path::from_path(&file).expect("utf8");
 
-        let staged = Utf8Path::new(&path);
-        let name = staged.file_name().expect("a name");
-        assert!(name.starts_with("pie-report-"), "a name of pie's own: {name}");
-        assert_eq!(staged.extension(), Some("pdf"));
+        let host = LocalHost::new(None);
+        let mut reported = (0, 0);
+        let staged = host
+            .stage_file(
+                "sample",
+                "txt",
+                utf8_file,
+                Box::new(|transferred, total| {
+                    reported = (transferred, total);
+                }),
+            )
+            .await
+            .expect("stage");
+
+        assert_eq!(staged, utf8_file.as_str());
+        assert_eq!(reported, (14, 14));
+    }
+
+    #[tokio::test]
+    async fn local_cache_dir_resolves_injected_or_default() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let custom = Utf8Path::from_path(temp.path()).expect("utf8").to_path_buf();
+        let host = LocalHost::with_cache(None, Some(custom.clone()));
         assert_eq!(
-            tokio::fs::read(staged).await.expect("the bytes"),
-            b"%PDF-1.4",
-            "the file holds what was handed to it"
+            host.cache_dir().await.expect("cache dir"),
+            custom.join("attachments").as_str()
         );
 
-        tokio::fs::remove_file(staged).await.expect("the cleanup");
-    }
-
-    #[tokio::test]
-    async fn two_staged_files_of_one_name_do_not_meet() {
-        let first = stage_bytes("notes.txt", "txt", b"one").await.expect("the first");
-        let second = stage_bytes("notes.txt", "txt", b"two").await.expect("the second");
-
-        assert_ne!(first, second, "the second write may not land on the first");
-        assert_eq!(tokio::fs::read(&first).await.expect("the first"), b"one");
-        assert_eq!(tokio::fs::read(&second).await.expect("the second"), b"two");
-
-        tokio::fs::remove_file(&first).await.expect("the cleanup");
-        tokio::fs::remove_file(&second).await.expect("the cleanup");
-    }
-
-    #[tokio::test]
-    async fn a_staged_file_without_an_extension_ends_on_no_dot() {
-        let path = stage_bytes("LICENSE", "", b"text").await.expect("the write");
-
-        assert!(!path.ends_with('.'), "a trailing dot names no file: {path}");
-
-        tokio::fs::remove_file(&path).await.expect("the cleanup");
+        let default_host = LocalHost::new(None);
+        let default_cache = default_host.cache_dir().await.expect("default cache dir");
+        assert!(default_cache.ends_with("attachments"));
     }
 
     #[tokio::test]

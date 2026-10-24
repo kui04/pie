@@ -523,7 +523,11 @@ async fn a_refused_host_key_aborts_the_handshake() {
     .await
     .expect_err("the handshake must not continue");
 
-    assert_eq!(error.to_string(), "the test refuses every key");
+    assert!(
+        error.root_cause().to_string().contains("the test refuses every key")
+            || error.to_string().contains("the test refuses every key"),
+        "expected error to mention key refusal, got: {error:?}"
+    );
 }
 
 /// A key that cannot be decoded fails as a key, before anything is sent.

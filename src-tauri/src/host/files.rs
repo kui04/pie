@@ -2,8 +2,10 @@
 
 use std::{fmt, time::SystemTime};
 
+use anyhow::Context as _;
 use camino::Utf8Path;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncSeek};
 use typed_path::Utf8TypedPath;
 
@@ -16,6 +18,9 @@ impl<T: AsyncRead + AsyncSeek + Send + Unpin + 'static> AsyncReadSeek for T {}
 pub trait Files: fmt::Debug + Send + Sync + 'static {
     /// Returns the login home directory of this machine, if known.
     async fn home_dir(&self) -> anyhow::Result<Option<String>>;
+
+    /// Returns the directory used for staged files on this machine.
+    async fn cache_dir(&self) -> anyhow::Result<String>;
 
     /// Reads directory entries of a directory on the machine.
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>>;
@@ -32,13 +37,13 @@ pub trait Files: fmt::Debug + Send + Sync + 'static {
     /// Creates a directory on the machine, with parents as needed.
     async fn create_dir_all(&self, path: &str) -> anyhow::Result<()>;
 
-    /// Stages a file where `pi` on this machine can read it, reporting progress
-    /// through `on_progress`.
+    /// Stages a file of this device where `pi` on this machine can read it,
+    /// reporting progress through `on_progress`.
     async fn stage_file(
         &self,
         name: &str,
         ext: &str,
-        source: StageSource<'_>,
+        source: &Utf8Path,
         on_progress: ProgressFn<'_>,
     ) -> anyhow::Result<String>;
 }
@@ -84,17 +89,6 @@ pub struct Listing {
     pub entries: Vec<DirEntry>,
 }
 
-/// Source data for staging an attachment on a [`Host`](super::Host).
-pub enum StageSource<'a> {
-    /// A file that already exists on the local filesystem.
-    ///
-    /// [`LocalHost`](super::LocalHost) reuses this path without copying;
-    /// [`SshHost`](super::SshHost) reads and uploads the file over SFTP.
-    LocalFile(&'a Utf8Path),
-    /// In-memory file bytes.
-    Bytes(&'a [u8]),
-}
-
 /// Progress callback `(transferred, total)` for file staging.
 pub type ProgressFn<'a> = Box<dyn FnMut(u64, u64) + Send + 'a>;
 
@@ -103,19 +97,51 @@ pub(super) fn sort_dirs_first(rows: &mut [DirEntry]) {
     rows.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
 }
 
-/// The name of the temporary copy that a machine keeps for one attachment.
-///
-/// This names a file on a host that pie cannot create one on itself: the upload
-/// writes under this name. A file on this machine is named by `tempfile`
-/// instead, which chooses the part that must not collide.
-pub fn temp_file_name(stem_hint: &str, ext_hint: &str) -> String {
-    let id = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
+/// How many hex digits of the SHA-256 digest a staged name keeps.
+pub const DIGEST_HEX: usize = 16;
+
+/// Returns the truncated hex SHA-256 digest of bytes.
+pub fn digest_bytes(bytes: &[u8]) -> String {
+    let hash = Sha256::digest(bytes);
+    let hex = format!("{hash:x}");
+    hex[..DIGEST_HEX].to_string()
+}
+
+/// Returns the truncated hex SHA-256 digest and byte size of a local file.
+pub async fn digest_file(path: &Utf8Path) -> anyhow::Result<(String, u64)> {
+    let std_path = path.to_path_buf().into_std_path_buf();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<(String, u64)> {
+        use std::io::Read as _;
+        let mut file = std::fs::File::open(&std_path).with_context(|| format!("cannot read {}", std_path.display()))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 65536];
+        let mut total = 0u64;
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .with_context(|| format!("cannot read {}", std_path.display()))?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            total += read as u64;
+        }
+        let hex = format!("{:x}", hasher.finalize());
+        Ok((hex[..DIGEST_HEX].to_string(), total))
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("digest worker failed: {e}"))?
+}
+
+/// The name of a staged copy: the same bytes under the same name get the same
+/// name, so a copy that already landed is not written again.
+pub fn staged_name(digest: &str, stem_hint: &str, ext_hint: &str) -> String {
     let stem = clean_stem(stem_hint);
     let extension = clean_extension(ext_hint);
     if extension.is_empty() {
-        format!("pie-{stem}-{id}")
+        format!("{digest}-{stem}")
     } else {
-        format!("pie-{stem}-{id}.{extension}")
+        format!("{digest}-{stem}.{extension}")
     }
 }
 
@@ -191,22 +217,32 @@ mod tests {
     }
 
     #[test]
-    fn temp_file_name_avoids_trailing_dot_and_sanitizes() {
-        let with_ext = temp_file_name("sample.pdf", "pdf");
-        assert!(with_ext.starts_with("pie-sample-"));
-        assert!(with_ext.ends_with(".pdf"));
+    fn staged_name_formats_cleanly_without_trailing_dot() {
+        let with_ext = staged_name("0123456789abcdef", "sample.pdf", "pdf");
+        assert_eq!(with_ext, "0123456789abcdef-sample.pdf");
 
-        let without_ext = temp_file_name("noext", "");
-        assert!(without_ext.starts_with("pie-noext-"));
-        assert!(!without_ext.ends_with('.'));
-        assert!(!without_ext.contains('.'));
+        let without_ext = staged_name("0123456789abcdef", "noext", "");
+        assert_eq!(without_ext, "0123456789abcdef-noext");
 
-        let with_dot_ext = temp_file_name("photo", ".png");
-        assert!(with_dot_ext.ends_with(".png"));
-        assert!(!with_dot_ext.ends_with("..png"));
+        let with_dot_ext = staged_name("0123456789abcdef", "photo", ".png");
+        assert_eq!(with_dot_ext, "0123456789abcdef-photo.png");
 
-        let spaces = temp_file_name("my file (1)", "txt");
-        assert!(spaces.starts_with("pie-my_file__1_-"));
-        assert!(spaces.ends_with(".txt"));
+        let spaces = staged_name("0123456789abcdef", "my file (1)", "txt");
+        assert_eq!(spaces, "0123456789abcdef-my_file__1_.txt");
+    }
+
+    #[tokio::test]
+    async fn digest_file_matches_digest_bytes() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("test.bin");
+        let content = b"hello world from pie attachments";
+        std::fs::write(&path, content).expect("write file");
+
+        let utf8_path = camino::Utf8Path::from_path(&path).expect("utf8 path");
+        let (file_digest, size) = digest_file(utf8_path).await.expect("digest file");
+        let bytes_digest = digest_bytes(content);
+
+        assert_eq!(file_digest, bytes_digest);
+        assert_eq!(size, content.len() as u64);
     }
 }

@@ -54,12 +54,14 @@ start() {
     [ -f "$key.pub" ] || ssh-keygen -y -f "$key" > "$key.pub"
     [ -f "$auth_json" ] || die "no credentials at $auth_json; pi cannot start a session without them"
 
-    docker build \
-        --build-arg "PI_HOST_USER=$user" \
-        --build-arg "PI_HOST_PASSWORD=$password" \
-        --tag "$image" \
-        --quiet \
-        "$context" >&2
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+        docker build \
+            --build-arg "PI_HOST_USER=$user" \
+            --build-arg "PI_HOST_PASSWORD=$password" \
+            --tag "$image" \
+            --quiet \
+            "$context" >&2
+    fi
 
     docker rm -f "$container" >/dev/null 2>&1 || true
 

@@ -20,10 +20,7 @@ use tauri_plugin_fs::{FilePath, FsExt};
 use tokio::io::AsyncReadExt as _;
 use typed_path::Utf8TypedPath;
 
-use crate::{
-    error::PieError,
-    host::{Files, LocalHost, StageSource},
-};
+use crate::{commands::attachment::attachment_cache, error::PieError, host::spool};
 
 /// What a person can select with a file dialog.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -240,15 +237,13 @@ pub async fn inspect_paths_internal(app: &AppHandle, paths: Vec<String>) -> Resu
                 images.push(image_of(name, mime, &bytes));
             } else {
                 let size = bytes.len() as u64;
-                let local_host = LocalHost::new(None);
-                let path = local_host
-                    .stage_file(&name, &ext, StageSource::Bytes(&bytes), Box::new(|_, _| {}))
-                    .await?;
+                let cache_dir = attachment_cache(app)?;
+                let spooled = spool(&cache_dir, &name, &ext, &bytes).await?;
                 files.push(AttachmentFile {
                     name,
                     size,
                     mime_type: mime,
-                    local_path: Some(path),
+                    local_path: Some(spooled.into_string()),
                 });
             }
         }
