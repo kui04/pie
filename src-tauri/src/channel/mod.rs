@@ -21,7 +21,7 @@
 //!   is the one place that knows which machine it reached, and the one place
 //!   that knows how a channel is opened over SSH.
 
-pub(crate) mod ssh;
+mod ssh;
 mod stdio;
 
 use std::{collections::VecDeque, io::ErrorKind};
@@ -30,8 +30,6 @@ use pi_rpc::{
     frame::Decoder,
     transport::{Transport, TransportRecv, TransportSend},
 };
-pub use ssh::Exec;
-pub use stdio::Program;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, watch},
@@ -81,6 +79,25 @@ pub struct Channel {
 }
 
 impl Channel {
+    /// Assembles a channel by spawning a local Tokio command.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if spawning the process or taking its stdio pipes fails.
+    pub fn from_command(command: tokio::process::Command) -> anyhow::Result<Self> {
+        stdio::spawn(command)
+    }
+
+    /// Assembles a channel from a started SSH exec channel.
+    pub(crate) fn from_ssh(
+        channel: russh::Channel<russh::client::Msg>,
+        endpoint: String,
+        early_stdout: Vec<u8>,
+        early_stderr: Vec<u8>,
+    ) -> Self {
+        ssh::from_channel(channel, endpoint, early_stdout, early_stderr)
+    }
+
     /// Assembles a channel from its I/O streams and lifecycle controller.
     ///
     /// Spawns background tasks to drain `stderr` and monitor `lifecycle`.
@@ -92,7 +109,7 @@ impl Channel {
         reader: impl AsyncRead + Unpin + Send + 'static,
         writer: impl AsyncWrite + Unpin + Send + 'static,
         stderr: impl AsyncRead + Unpin + Send + 'static,
-        lifecycle: Lifecycle,
+        lifecycle: Box<dyn Lifecycle>,
     ) -> Self {
         tokio::spawn(drain_stderr(Box::new(stderr)));
         Self {
@@ -242,32 +259,17 @@ impl TransportRecv for Receiver {
     }
 }
 
-/// The two halves of a program's lifecycle, behind one enum so a caller that does
-/// not care where it runs can handle either.
+/// The lifecycle operations of a running program.
 ///
 /// Contract: once [`Lifecycle::wait`] resolves, the program's bytes reached their end
 /// too, so a reader has already seen everything it wrote.
-#[derive(Debug)]
-pub(crate) enum Lifecycle {
-    Stdio(stdio::Control),
-    Ssh(ssh::Control),
-}
+#[async_trait::async_trait]
+pub(crate) trait Lifecycle: std::fmt::Debug + Send + 'static {
+    /// Ends the program.
+    async fn terminate(&mut self);
 
-impl Lifecycle {
-    /// Ends the program. For a process: kill and reap.
-    async fn terminate(&mut self) {
-        match self {
-            Self::Stdio(control) => control.terminate().await,
-            Self::Ssh(control) => control.terminate().await,
-        }
-    }
-
-    async fn wait(&mut self) -> Termination {
-        match self {
-            Self::Stdio(control) => control.wait().await,
-            Self::Ssh(control) => control.wait().await,
-        }
-    }
+    /// Waits for the program to end and reports how it ended.
+    async fn wait(&mut self) -> Termination;
 }
 
 /// One hand on a program's life: whether it still runs, how to end it, and how to
@@ -284,7 +286,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    fn spawn(mut lifecycle: Lifecycle) -> Self {
+    fn spawn(mut lifecycle: Box<dyn Lifecycle>) -> Self {
         let (term_tx, mut term_rx) = mpsc::channel(1);
         let (ended_tx, ended_rx) = watch::channel(None);
 

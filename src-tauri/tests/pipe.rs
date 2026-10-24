@@ -13,7 +13,7 @@ use std::{
 
 use pi_rpc::client::{BashReq, Client, Config};
 use pie_lib::{
-    channel::{Channel, Handle, Program, Termination},
+    channel::{Channel, Handle, Termination},
     commands::pipe::{SessionLifecycle, Sink, forward_loop},
 };
 use serde::Serialize;
@@ -25,20 +25,18 @@ fn script(name: &str) -> PathBuf {
 
 /// A client over the scripted program, and the watch of that program.
 fn fake_pi() -> (Client, Handle) {
-    let channel: Channel = Program::new("bash")
-        .arg(script("fake-pi.sh"))
-        .spawn()
-        .expect("the scripted pi starts");
+    let mut command = tokio::process::Command::new("bash");
+    command.arg(script("fake-pi.sh"));
+    let channel: Channel = Channel::from_command(command).expect("the scripted pi starts");
     let handle = channel.handle();
     (Client::new(channel), handle)
 }
 
 /// The same, with the client tuned: the buffer of the subscription is what a test sets.
 fn tuned_pi(config: Config) -> (Client, Handle) {
-    let channel: Channel = Program::new("bash")
-        .arg(script("fake-pi.sh"))
-        .spawn()
-        .expect("the scripted pi starts");
+    let mut command = tokio::process::Command::new("bash");
+    command.arg(script("fake-pi.sh"));
+    let channel: Channel = Channel::from_command(command).expect("the scripted pi starts");
     let handle = channel.handle();
     (Client::with_config(channel, config), handle)
 }

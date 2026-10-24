@@ -106,12 +106,10 @@ async fn begin(
     app: AppHandle,
     state: &AppState,
     session_file: Option<&str>,
-    current_dir: Option<&str>,
+    cwd: Option<&str>,
 ) -> Result<SessionInfo, PieError> {
     let sessions = super::connected(state, "starting pi")?;
-    let session = sessions
-        .attach(state.next_session_number(), session_file, current_dir)
-        .await?;
+    let session = sessions.attach(state.next_session_number(), session_file, cwd).await?;
     // The subscription happens before the task starts, not inside it, so the pipe
     // itself misses nothing that pi writes after this line.
     //

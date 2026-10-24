@@ -21,7 +21,7 @@ use std::{fmt, sync::Arc};
 
 use camino::Utf8PathBuf;
 pub use connection::Connection;
-pub use exec::{CommandSpec, Exec, ExecOutput};
+pub use exec::{Command, Exec, Output};
 pub use files::{
     AsyncReadSeek, DirEntry, FileEntry, Files, Listing, ProgressFn, digest_bytes, digest_file, staged_name,
 };
@@ -188,26 +188,22 @@ impl Host {
         self.exec.as_ref()
     }
 
-    /// Starts `pi --mode rpc` on this machine in `current_dir`, returning the
+    /// Starts `pi --mode rpc` on this machine in `cwd`, returning the
     /// channel and the starting working directory label.
-    pub async fn spawn_pi(
-        &self,
-        current_dir: &str,
-        session_file: Option<&str>,
-    ) -> anyhow::Result<(Channel, Option<String>)> {
-        let current_dir = files::check_absolute(current_dir)?;
+    pub async fn spawn_pi(&self, cwd: &str, session_file: Option<&str>) -> anyhow::Result<(Channel, Option<String>)> {
+        let cwd = files::check_absolute(cwd)?;
         let session_file = session_file.map(files::check_absolute).transpose()?;
-        let mut command = CommandSpec::new("pi").args(["--mode", "rpc"]).current_dir(current_dir);
+        let mut command = Command::new("pi").args(["--mode", "rpc"]).cwd(cwd);
         if let Some(session_file) = session_file {
             command = command.args(["--session", session_file]);
         }
         let channel = self.exec.spawn(command).await?;
-        Ok((channel, Some(current_dir.to_string())))
+        Ok((channel, Some(cwd.to_string())))
     }
 
     /// Returns the version string reported by `pi --version` on this machine.
     pub async fn pi_version(&self) -> anyhow::Result<String> {
-        let output = self.exec.output(CommandSpec::new("pi").arg("--version")).await?;
+        let output = self.exec.output(Command::new("pi").arg("--version")).await?;
         version_of(&output, &self.endpoint())
     }
 
@@ -233,7 +229,7 @@ impl Host {
 }
 
 /// Reads the version that a `pi --version` capture reported.
-pub(crate) fn version_of(output: &ExecOutput, endpoint: &Endpoint) -> anyhow::Result<String> {
+pub(crate) fn version_of(output: &Output, endpoint: &Endpoint) -> anyhow::Result<String> {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if let crate::channel::Termination::Exited { success: true, .. } = output.termination
         && !stdout.is_empty()

@@ -12,10 +12,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 pub use spool::spool;
 
 use crate::{
-    channel::{Channel, Program, Termination},
+    channel::{Channel, Termination},
     host::{
-        AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn,
-        exec::OUTPUT_TIMEOUT, files,
+        AsyncReadSeek, Command, Connection, Endpoint, Exec, FileEntry, Files, Output, ProgressFn, exec::OUTPUT_TIMEOUT,
+        files,
     },
 };
 
@@ -61,25 +61,26 @@ impl Connection for LocalHost {
 
 #[async_trait::async_trait]
 impl Exec for LocalHost {
-    async fn spawn(&self, command: CommandSpec) -> anyhow::Result<Channel> {
-        let mut program = Program::new(command.program).args(command.args);
-        if let Some(dir) = command.current_dir {
-            program = program.current_dir(dir);
+    async fn spawn(&self, command: Command) -> anyhow::Result<Channel> {
+        let mut process = tokio::process::Command::new(&command.program);
+        process.args(&command.args);
+        if let Some(dir) = command.cwd {
+            process.current_dir(dir);
         }
-        program.spawn()
+        Channel::from_command(process)
     }
 
-    async fn output(&self, command: CommandSpec) -> anyhow::Result<ExecOutput> {
+    async fn output(&self, command: Command) -> anyhow::Result<Output> {
         let mut process = tokio::process::Command::new(&command.program);
         process.args(&command.args).kill_on_drop(true);
-        if let Some(dir) = &command.current_dir {
+        if let Some(dir) = &command.cwd {
             process.current_dir(dir);
         }
         let output = tokio::time::timeout(OUTPUT_TIMEOUT, process.output())
             .await
             .map_err(|_elapsed| anyhow::anyhow!("`{}` did not answer within {:?}", command.program, OUTPUT_TIMEOUT))?
             .with_context(|| format!("failed to start `{}`", command.program))?;
-        Ok(ExecOutput {
+        Ok(Output {
             stdout: output.stdout,
             stderr: output.stderr,
             termination: Termination::from(output.status),

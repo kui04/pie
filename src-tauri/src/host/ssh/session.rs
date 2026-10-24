@@ -21,22 +21,29 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use russh::{
-    Channel, ChannelMsg, Disconnect,
+    Channel as SshChannel, ChannelMsg, Disconnect,
     client::{self, Config, Handle, Msg},
     keys::{PrivateKeyWithHashAlg, decode_secret_key},
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
+    io::{AsyncRead, AsyncWrite, ReadBuf},
     net::TcpStream,
 };
 
 use crate::{
-    channel::{Exec, ssh::EarlyOutput},
+    channel::{Channel, Termination},
     host::{
         Endpoint, HostKey, SshAuth, SshTarget, Trust,
-        exec::{ExecOutput, OUTPUT_TIMEOUT},
+        exec::{OUTPUT_TIMEOUT, Output},
     },
 };
+
+/// Bytes that arrived with (or before) the server's reply to the exec request.
+#[derive(Debug, Default)]
+struct EarlyOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
 
 /// How long the TCP connection to the host may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -164,14 +171,19 @@ impl SshSession {
     ///
     /// A sentence when the host refuses to run the command, and one when it does
     /// not say whether it can.
-    pub async fn exec(&self, command: impl Into<String>) -> Result<Exec> {
+    pub async fn exec(&self, command: impl Into<String>) -> Result<Channel> {
         let command_line = command.into();
         let mut channel = self.handle.channel_open_session().await?;
         channel.exec(true, command_line.clone()).await?;
         let early = await_exec_reply(&mut channel, &self.endpoint, &command_line).await?;
 
         tracing::debug!(endpoint = %self.endpoint, command = %command_line, "ssh exec channel started");
-        Ok(Exec::new(channel, self.endpoint.to_string(), command_line, early))
+        Ok(Channel::from_ssh(
+            channel,
+            self.endpoint.to_string(),
+            early.stdout,
+            early.stderr,
+        ))
     }
 
     /// Runs `command` to completion and captures what it printed.
@@ -190,98 +202,117 @@ impl SshSession {
     /// no signal request leaves the command running; nothing else pie can do
     /// about that without closing the channel, which is the one move here that
     /// never kills anything.
-    pub async fn output(&self, command: impl Into<String>) -> Result<ExecOutput> {
+    pub async fn output(&self, command: impl Into<String>) -> Result<Output> {
         let command_line = command.into();
-        let exec = self.exec(command_line.clone()).await?;
-        let (
-            crate::channel::ssh::Pipes {
-                stdout: mut reader,
-                stdin: mut writer,
-                stderr,
-            },
-            mut control,
-        ) = exec.into_pipes();
-        // Held as an option so the cap below can drop it: a stream nobody reads
-        // is a stream the command blocks on writing.
-        let mut diagnostics = Some(stderr);
+        let mut channel = self.handle.channel_open_session().await?;
+        channel.exec(true, command_line.clone()).await?;
+        let early = await_exec_reply(&mut channel, &self.endpoint, &command_line).await?;
 
-        // The command is not reading anything pie has to say; its standard input
-        // ends now, so a command that waits for input fails fast instead of
-        // holding the bound below.
-        let _ = writer.shutdown().await;
+        let (mut read_half, write_half) = channel.split();
+        let _ = write_half.eof().await;
 
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
+        let mut stdout = early.stdout;
+        let mut stderr = early.stderr;
+        let mut over_cap = stdout.len() as u64 > OUTPUT_BYTES || stderr.len() as u64 > OUTPUT_BYTES;
+        if stdout.len() as u64 > OUTPUT_BYTES {
+            stdout.truncate(OUTPUT_BYTES as usize);
+        }
+        if stderr.len() as u64 > OUTPUT_BYTES {
+            stderr.truncate(OUTPUT_BYTES as usize);
+        }
+
+        let mut termination = Termination::Unknown;
+        let mut killed = false;
         let started = std::time::Instant::now();
-        // A read that stops at exactly the cap cannot tell "all of it" from
-        // "the rest of it", so each stream is read one byte past the cap.
-        let captured = tokio::time::timeout(OUTPUT_TIMEOUT, async {
-            let out = (&mut reader).take(OUTPUT_BYTES + 1).read_to_end(&mut stdout).await;
-            let mut over_cap = stdout.len() as u64 > OUTPUT_BYTES;
-            if over_cap {
-                // The command is still writing into a capture that has stopped
-                // reading: this copy of the stream is stuck on a pipe that will
-                // never move again, so waiting for the other stream below would
-                // wait on that stuck copy until the whole bound is gone - taking
-                // the bytes already read down with it. Dropping both readers is
-                // what `head` does: the copies fail, the pump exits, and this
-                // stream's prefix is what pie has. The other stream goes unread,
-                // for the reason above.
-                stdout.truncate(OUTPUT_BYTES as usize);
-                drop(reader);
-                diagnostics = None;
-                tracing::debug!(endpoint = %self.endpoint, "the command printed past the capture cap; its output was cut there");
-            }
-            let err = async {
-                if let Some(diagnostics) = diagnostics.as_mut() {
-                    diagnostics.take(OUTPUT_BYTES + 1).read_to_end(&mut stderr).await?;
-                }
-                std::io::Result::Ok(0)
-            }
-            .await;
-            over_cap |= stderr.len() as u64 > OUTPUT_BYTES;
-            if over_cap {
-                stderr.truncate(OUTPUT_BYTES as usize);
-            }
-            (out, err, over_cap)
-        })
-        .await;
 
-        let (out, err, over_cap) = match captured {
-            Ok(captured) => captured,
-            Err(_elapsed) => {
-                control.terminate().await;
-                return Err(anyhow::anyhow!(
-                    "{} did not answer within {OUTPUT_TIMEOUT:?} whether it can run `{command_line}`",
-                    self.endpoint
-                ));
+        let run = async {
+            while let Some(message) = read_half.wait().await {
+                match message {
+                    ChannelMsg::Data { data } => {
+                        let available = (OUTPUT_BYTES.saturating_sub(stdout.len() as u64)) as usize;
+                        if data.len() > available {
+                            stdout.extend_from_slice(&data[..available]);
+                            if !over_cap {
+                                over_cap = true;
+                                tracing::debug!(endpoint = %self.endpoint, "the command printed past the capture cap; its output was cut there");
+                                let _ = write_half.signal(russh::Sig::KILL).await;
+                                killed = true;
+                            }
+                        } else if !over_cap {
+                            stdout.extend_from_slice(&data);
+                        }
+                    }
+                    ChannelMsg::ExtendedData { data, ext } if ext == STDERR => {
+                        let available = (OUTPUT_BYTES.saturating_sub(stderr.len() as u64)) as usize;
+                        if data.len() > available {
+                            stderr.extend_from_slice(&data[..available]);
+                            if !over_cap {
+                                over_cap = true;
+                                tracing::debug!(endpoint = %self.endpoint, "the command printed past the capture cap; its output was cut there");
+                                let _ = write_half.signal(russh::Sig::KILL).await;
+                                killed = true;
+                            }
+                        } else if !over_cap {
+                            stderr.extend_from_slice(&data);
+                        }
+                    }
+                    ChannelMsg::ExitStatus { exit_status } => {
+                        termination = Termination::Exited {
+                            code: exit_status as i32,
+                            success: exit_status == 0,
+                        };
+                    }
+                    ChannelMsg::ExitSignal { signal_name, .. } => {
+                        termination = Termination::from(signal_name);
+                    }
+                    ChannelMsg::Eof | ChannelMsg::Close => break,
+                    _ => {}
+                }
             }
         };
-        // The capture is what it got, not what it was promised: a stream that
-        // broke mid-command is the caller's reason to distrust the bytes, so it
-        // is reported rather than swallowed.
-        for (what, result) in [("stdout", out), ("stderr", err)] {
-            if let Err(error) = result {
-                tracing::warn!(endpoint = %self.endpoint, %error, what, "could not read the command's output to its end");
-            }
+
+        if tokio::time::timeout(OUTPUT_TIMEOUT, run).await.is_err() {
+            let _ = write_half.signal(russh::Sig::KILL).await;
+            return Err(anyhow::anyhow!(
+                "{} did not answer within {OUTPUT_TIMEOUT:?} whether it can run `{command_line}`",
+                self.endpoint
+            ));
         }
-        // A capped command is still running: end it the way `head` ends a
-        // reader, so `wait` has a status to report about what pie did to it.
-        if over_cap {
-            let _ = control.terminate().await;
+
+        if over_cap && !killed {
+            let _ = write_half.signal(russh::Sig::KILL).await;
+            killed = true;
+        }
+
+        if matches!(termination, Termination::Unknown) && killed {
+            termination = Termination::from(russh::Sig::KILL);
         }
 
         let left = OUTPUT_TIMEOUT.saturating_sub(started.elapsed());
-        let termination = match tokio::time::timeout(left, control.wait()).await {
-            Ok(termination) => termination,
-            Err(_elapsed) => {
-                return Err(anyhow::anyhow!(
-                    "{} did not answer within {OUTPUT_TIMEOUT:?} whether it can run `{command_line}`",
-                    self.endpoint
-                ));
-            }
-        };
-        Ok(ExecOutput {
+        if matches!(termination, Termination::Unknown) && !left.is_zero() {
+            let _ = tokio::time::timeout(left, async {
+                while let Some(msg) = read_half.wait().await {
+                    match msg {
+                        ChannelMsg::ExitStatus { exit_status } => {
+                            termination = Termination::Exited {
+                                code: exit_status as i32,
+                                success: exit_status == 0,
+                            };
+                            break;
+                        }
+                        ChannelMsg::ExitSignal { signal_name, .. } => {
+                            termination = Termination::from(signal_name);
+                            break;
+                        }
+                        ChannelMsg::Close => break,
+                        _ => {}
+                    }
+                }
+            })
+            .await;
+        }
+
+        Ok(Output {
             stdout,
             stderr,
             termination,
@@ -426,7 +457,7 @@ async fn authenticate(
 /// Bounded, unlike the handshake before it: nothing is waiting on a person here,
 /// and the channel has no lifecycle handle yet, so a host that accepts the
 /// connection and then says nothing could not be torn down from outside.
-async fn await_exec_reply(channel: &mut Channel<Msg>, endpoint: &Endpoint, command: &str) -> Result<EarlyOutput> {
+async fn await_exec_reply(channel: &mut SshChannel<Msg>, endpoint: &Endpoint, command: &str) -> Result<EarlyOutput> {
     let mut early = EarlyOutput::default();
 
     loop {
@@ -459,7 +490,7 @@ async fn await_exec_reply(channel: &mut Channel<Msg>, endpoint: &Endpoint, comma
 /// `Subsystem` line - so it keeps its own sentence rather than being folded into
 /// the exec failures. Early data is collected for the same reason as
 /// there: a subsystem that answers before being asked is already speaking.
-async fn await_subsystem_reply(channel: &mut Channel<Msg>, endpoint: &Endpoint, name: &str) -> Result<Vec<u8>> {
+async fn await_subsystem_reply(channel: &mut SshChannel<Msg>, endpoint: &Endpoint, name: &str) -> Result<Vec<u8>> {
     let mut early = Vec::new();
 
     loop {

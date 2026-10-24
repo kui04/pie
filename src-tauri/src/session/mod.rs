@@ -105,7 +105,7 @@ impl SessionManager {
     /// pie: the id of the session is this connection and that number
     /// (`main:1`). One connection can start several, one after the other.
     ///
-    /// `current_dir` is the directory pi starts in, when pie selected one. `None`
+    /// `cwd` is the directory pi starts in, when pie selected one. `None`
     /// leaves the choice to the machine: the home directory here, or the
     /// directory of the login shell on a host. [`SessionInfo::cwd`] reports
     /// which of the two happened - the selected directory, or the home of this
@@ -114,7 +114,7 @@ impl SessionManager {
     /// `session_file` names the file of pi to load at the start (`--session`), a
     /// host path that pi reads itself. `None` starts a new session file; pi
     /// creates the file at the first message. Pi takes the working directory of
-    /// a loaded session file from the file itself, so `current_dir` is for a new
+    /// a loaded session file from the file itself, so `cwd` is for a new
     /// session file alone; the two are separate entry points of the IPC surface
     /// (`attach_session` and `start_session`), and neither can be given both.
     ///
@@ -124,13 +124,8 @@ impl SessionManager {
     /// would resolve a relative one against its own directory and quietly open
     /// another session file or another directory there. A sentence when pi
     /// cannot be started, and one when the channel it runs in cannot be opened.
-    pub async fn attach(
-        &self,
-        number: u64,
-        session_file: Option<&str>,
-        current_dir: Option<&str>,
-    ) -> anyhow::Result<Session> {
-        let current_dir = match current_dir {
+    pub async fn attach(&self, number: u64, session_file: Option<&str>, cwd: Option<&str>) -> anyhow::Result<Session> {
+        let cwd = match cwd {
             Some(dir) => dir.to_string(),
             None => {
                 if let Some(path) = session_file {
@@ -155,7 +150,7 @@ impl SessionManager {
                 }
             }
         };
-        let (channel, label) = self.inner.host.spawn_pi(&current_dir, session_file).await?;
+        let (channel, label) = self.inner.host.spawn_pi(&cwd, session_file).await?;
         let (client, handle) = speaking(channel);
         let session = Session::new(self.inner.id.for_session(number), label, client, handle);
         session.extension().install(session.client()).await;

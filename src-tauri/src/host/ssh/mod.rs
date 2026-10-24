@@ -28,8 +28,7 @@ pub use session::{SshSession, SubsystemStream};
 pub use trust::{AskHostKey, HostKey, PresentedKey, Trust};
 
 use super::{
-    AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn,
-    files as host_files,
+    AsyncReadSeek, Command, Connection, Endpoint, Exec, FileEntry, Files, Output, ProgressFn, files as host_files,
 };
 use crate::channel::Channel;
 
@@ -254,17 +253,17 @@ impl Connection for SshHost {
 
 #[async_trait::async_trait]
 impl Exec for SshHost {
-    async fn spawn(&self, command: CommandSpec) -> anyhow::Result<Channel> {
-        if let Some(dir) = &command.current_dir {
+    async fn spawn(&self, command: Command) -> anyhow::Result<Channel> {
+        if let Some(dir) = &command.cwd {
             host_files::check_absolute(dir)?;
         }
         let line = command_line(&command)?;
         let session = self.active_session()?;
-        Ok(session.exec(line).await?.into_channel())
+        session.exec(line).await
     }
 
-    async fn output(&self, command: CommandSpec) -> anyhow::Result<ExecOutput> {
-        if let Some(dir) = &command.current_dir {
+    async fn output(&self, command: Command) -> anyhow::Result<Output> {
+        if let Some(dir) = &command.cwd {
             host_files::check_absolute(dir)?;
         }
         let line = command_line(&command)?;
@@ -298,7 +297,7 @@ impl Files for SshHost {
             .cache_dir
             .get_or_try_init(|| async {
                 let probed = self
-                    .output(CommandSpec::new("sh").args(["-c", "printf %s \"${XDG_CACHE_HOME:-$HOME/.cache}\""]))
+                    .output(Command::new("sh").args(["-c", "printf %s \"${XDG_CACHE_HOME:-$HOME/.cache}\""]))
                     .await;
                 let base = match probed {
                     Ok(out)
@@ -354,13 +353,13 @@ impl Files for SshHost {
 }
 
 /// The shell line that runs one command on a remote machine.
-fn command_line(command: &CommandSpec) -> anyhow::Result<String> {
+fn command_line(command: &Command) -> anyhow::Result<String> {
     let mut words = Vec::with_capacity(command.args.len() + 1);
     words.push(command.program.as_str());
     words.extend(command.args.iter().map(String::as_str));
     let invocation = shlex::try_join(words).map_err(|error| anyhow::anyhow!("invalid command argument: {error}"))?;
 
-    if let Some(dir) = &command.current_dir {
+    if let Some(dir) = &command.cwd {
         let quoted_dir =
             shlex::try_quote(dir).map_err(|error| anyhow::anyhow!("invalid working directory `{dir}`: {error}"))?;
         Ok(format!("cd -- {quoted_dir} && {invocation}"))
@@ -405,7 +404,7 @@ mod tests {
 
     #[test]
     fn a_remote_pi_loads_a_session_file_through_a_quoted_path() {
-        let command = CommandSpec::new("pi")
+        let command = Command::new("pi")
             .args(["--mode", "rpc"])
             .args(["--session", "/home/o'brien/sessions/one.jsonl"]);
         assert_eq!(
@@ -416,8 +415,8 @@ mod tests {
 
     #[test]
     fn command_line_quotes_directory_and_arguments() {
-        let command = CommandSpec::new("pi")
-            .current_dir("/var/my projects")
+        let command = Command::new("pi")
+            .cwd("/var/my projects")
             .args(["--mode", "rpc"])
             .args(["--session", "/home/o'brien/sessions/one.jsonl"]);
         assert_eq!(
@@ -428,7 +427,7 @@ mod tests {
 
     #[test]
     fn command_line_rejects_nul_bytes() {
-        let command = CommandSpec::new("pi").args(["bad\0arg"]);
+        let command = Command::new("pi").args(["bad\0arg"]);
         assert!(command_line(&command).is_err());
     }
 }

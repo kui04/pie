@@ -1,4 +1,4 @@
-//! A started program as an exec channel of a Shell session.
+//! A started program as an exec channel of an SSH session.
 //!
 //! The SSH layer reaches a machine in [`host::ssh`](crate::host::ssh); this
 //! module owns what happens after a command is running in a channel of that
@@ -23,7 +23,7 @@ use tokio::{
     sync::{Notify, watch},
 };
 
-use super::{BoxedWriter, Channel, Lifecycle, Termination};
+use super::{Channel, Lifecycle, Termination};
 
 /// Bytes a direction may buffer between the SSH channel and the client.
 ///
@@ -34,112 +34,44 @@ const PIPE_CAPACITY: usize = 64 * 1024;
 /// SSH's extended-data code for a command's standard error.
 const STDERR: u32 = 1;
 
-/// Bytes that arrived with (or before) the server's reply to the exec request.
-#[derive(Debug, Default)]
-pub(crate) struct EarlyOutput {
-    /// Bytes of standard output that preceded the reply.
-    pub(crate) stdout: Vec<u8>,
-    /// Bytes of standard error that preceded the reply.
-    pub(crate) stderr: Vec<u8>,
-}
-
-/// An SSH exec channel with its command running in it.
-pub struct Exec {
+/// Assembles a protocol channel from an SSH exec channel.
+pub(super) fn from_channel(
     channel: SshChannel<russh::client::Msg>,
     endpoint: String,
-    command: String,
-    early: EarlyOutput,
-}
-impl std::fmt::Debug for Exec {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Exec")
-            .field("endpoint", &self.endpoint)
-            .field("command", &self.command)
-            .finish_non_exhaustive()
-    }
-}
+    early_stdout: Vec<u8>,
+    early_stderr: Vec<u8>,
+) -> Channel {
+    let (read_half, write_half) = channel.split();
 
-/// The copying pipes of an SSH exec channel.
-///
-/// Named rather than a tuple so the reading side of a one-shot capture and the
-/// record side of [`Exec::into_channel`] take them the same way.
-pub(crate) struct Pipes {
-    /// The command's standard output, copied out of the channel.
-    pub(crate) stdout: DuplexStream,
-    /// The command's standard input: `russh`'s opaque writer, whose
-    /// `poll_shutdown` sends the channel EOF.
-    pub(crate) stdin: BoxedWriter,
-    /// The command's standard error, copied out of the channel.
-    pub(crate) stderr: DuplexStream,
-}
+    let (stdout_tx, stdout_rx) = tokio::io::duplex(PIPE_CAPACITY);
+    let (stderr_tx, stderr_rx) = tokio::io::duplex(PIPE_CAPACITY);
+    let (exit_tx, exit_rx) = watch::channel(None);
+    let stop = Arc::new(Notify::new());
 
-impl Exec {
-    /// The exec channel a session opened, with its command running.
-    pub(crate) fn new(
-        channel: SshChannel<russh::client::Msg>,
-        endpoint: String,
-        command: String,
-        early: EarlyOutput,
-    ) -> Self {
-        Self {
-            channel,
-            endpoint,
-            command,
-            early,
-        }
-    }
+    tokio::spawn(pump(
+        read_half,
+        stdout_tx,
+        stderr_tx,
+        early_stdout,
+        early_stderr,
+        exit_tx,
+        Arc::clone(&stop),
+    ));
 
-    /// Converts the exec channel into a protocol [`Channel`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if called outside of a Tokio runtime.
-    pub fn into_channel(self) -> Channel {
-        let (pipes, control) = self.into_pipes();
-        Channel::new(pipes.stdout, pipes.stdin, pipes.stderr, Lifecycle::Ssh(control))
-    }
+    let stdin = Box::new(write_half.make_writer());
+    let remote = Remote {
+        endpoint,
+        write_half,
+        exit_rx,
+        stop,
+        killed: false,
+    };
 
-    /// Splits the channel into its I/O pipes and lifecycle controller.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called outside of a Tokio runtime.
-    pub(crate) fn into_pipes(self) -> (Pipes, Control) {
-        let Self {
-            channel,
-            endpoint,
-            command: _,
-            early,
-        } = self;
-        let (read_half, write_half) = channel.split();
-
-        let (stdout_tx, stdout_rx) = tokio::io::duplex(PIPE_CAPACITY);
-        let (stderr_tx, stderr_rx) = tokio::io::duplex(PIPE_CAPACITY);
-        let (exit_tx, exit_rx) = watch::channel(None);
-        let stop = Arc::new(Notify::new());
-
-        tokio::spawn(pump(read_half, stdout_tx, stderr_tx, early, exit_tx, Arc::clone(&stop)));
-
-        (
-            Pipes {
-                stdout: stdout_rx,
-                stdin: Box::new(write_half.make_writer()),
-                stderr: stderr_rx,
-            },
-            Control {
-                endpoint,
-                write_half,
-                exit_rx,
-                stop,
-                killed: false,
-            },
-        )
-    }
+    Channel::new(stdout_rx, stdin, stderr_rx, Box::new(remote))
 }
 
-/// The running command behind an [`Exec`].
-pub(crate) struct Control {
+/// The running command behind an SSH channel.
+struct Remote {
     endpoint: String,
     write_half: ChannelWriteHalf<russh::client::Msg>,
     exit_rx: watch::Receiver<Option<Termination>>,
@@ -151,16 +83,17 @@ pub(crate) struct Control {
     killed: bool,
 }
 
-impl std::fmt::Debug for Control {
+impl std::fmt::Debug for Remote {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("Control")
+            .debug_struct("Remote")
             .field("endpoint", &self.endpoint)
             .finish_non_exhaustive()
     }
 }
 
-impl Control {
+#[async_trait::async_trait]
+impl Lifecycle for Remote {
     /// Asks the machine to end the command, with the signal request sshd turns
     /// into a kill of the process group, and EOF alongside it.
     ///
@@ -172,7 +105,7 @@ impl Control {
     /// nothing. EOF keeps the entry; stopping the pump does the rest. The rest
     /// of the session - other sessions' pi and the app's sftp scans - rides on
     /// untouched.
-    pub(crate) async fn terminate(&mut self) {
+    async fn terminate(&mut self) {
         tracing::debug!(endpoint = %self.endpoint, "killing the remote command");
         if let Err(error) = self.write_half.signal(Sig::KILL).await {
             tracing::debug!(endpoint = %self.endpoint, %error, "the host took no signal request");
@@ -183,7 +116,7 @@ impl Control {
     }
 
     /// Waits for the command to end and reports how it ended.
-    pub(crate) async fn wait(&mut self) -> Termination {
+    async fn wait(&mut self) -> Termination {
         let termination = match self.exit_rx.wait_for(Option::is_some).await {
             Ok(guard) => guard.unwrap_or(Termination::Unknown),
             Err(_) => {
@@ -196,7 +129,9 @@ impl Control {
         };
         self.resolve_termination(termination)
     }
+}
 
+impl Remote {
     /// What the command ending reports after this control asked it to die.
     fn resolve_termination(&self, termination: Termination) -> Termination {
         match termination {
@@ -208,13 +143,14 @@ impl Control {
 
 /// Moves the channel's messages into the byte streams the client reads.
 ///
-/// The channel's exit status is the only source for [`Control::wait`], which is
+/// The channel's exit status is the only source for [`Remote::wait`], which is
 /// why it is collected here.
 async fn pump(
     mut channel: russh::ChannelReadHalf,
     mut stdout: DuplexStream,
     mut stderr: DuplexStream,
-    early: EarlyOutput,
+    early_stdout: Vec<u8>,
+    early_stderr: Vec<u8>,
     exit_tx: watch::Sender<Option<Termination>>,
     stop: Arc<Notify>,
 ) {
@@ -222,10 +158,10 @@ async fn pump(
     let mut dropped_stderr = 0usize;
 
     let copy_loop = async {
-        if !early.stdout.is_empty() && stdout.write_all(&early.stdout).await.is_err() {
+        if !early_stdout.is_empty() && stdout.write_all(&early_stdout).await.is_err() {
             return;
         }
-        dropped_stderr += early.stderr.len() - write_now(&mut stderr, &early.stderr);
+        dropped_stderr += early_stderr.len() - write_now(&mut stderr, &early_stderr);
 
         while let Some(message) = channel.wait().await {
             match message {
@@ -252,7 +188,7 @@ async fn pump(
     };
 
     // Preempts both `channel.wait()` and a blocked `stdout.write_all()` when
-    // `Control::terminate` notifies `stop`.
+    // `Remote::terminate` notifies `stop`.
     tokio::select! {
         () = copy_loop => {}
         () = stop.notified() => {}

@@ -13,22 +13,22 @@ pub(crate) const OUTPUT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How to start one program on a machine.
 #[derive(Debug, Clone)]
-pub struct CommandSpec {
+pub struct Command {
     /// The program to run.
     pub program: String,
     /// Its arguments, in order.
     pub args: Vec<String>,
-    /// The directory it starts in, as the machine writes it.
-    pub current_dir: Option<String>,
+    /// The working directory it starts in, as the machine writes it.
+    pub cwd: Option<String>,
 }
 
-impl CommandSpec {
+impl Command {
     /// Prepares to run `program`.
     pub fn new(program: impl Into<String>) -> Self {
         Self {
             program: program.into(),
             args: Vec::new(),
-            current_dir: None,
+            cwd: None,
         }
     }
 
@@ -48,16 +48,16 @@ impl CommandSpec {
         self
     }
 
-    /// Sets the directory the program starts in.
-    pub fn current_dir(mut self, dir: impl Into<String>) -> Self {
-        self.current_dir = Some(dir.into());
+    /// Sets the working directory the program starts in.
+    pub fn cwd(mut self, dir: impl Into<String>) -> Self {
+        self.cwd = Some(dir.into());
         self
     }
 }
 
 /// What a command printed and how it ended.
 #[derive(Debug, Clone)]
-pub struct ExecOutput {
+pub struct Output {
     /// The command's standard output.
     pub stdout: Vec<u8>,
     /// The command's standard error.
@@ -70,8 +70,8 @@ pub struct ExecOutput {
 #[async_trait::async_trait]
 pub trait Exec: fmt::Debug + Send + Sync + 'static {
     /// Starts `command` and returns the channel that carries its life and bytes.
-    async fn spawn(&self, command: CommandSpec) -> anyhow::Result<Channel>;
+    async fn spawn(&self, command: Command) -> anyhow::Result<Channel>;
 
     /// Runs `command` to completion and captures what it printed.
-    async fn output(&self, command: CommandSpec) -> anyhow::Result<ExecOutput>;
+    async fn output(&self, command: Command) -> anyhow::Result<Output>;
 }

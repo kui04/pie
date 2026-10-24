@@ -15,7 +15,7 @@ use pi_rpc::{
     response::{BashResult, SessionState},
 };
 use pie_lib::{
-    channel::{Channel, Handle, Program, Termination},
+    channel::{Channel, Handle, Termination},
     host::{Host, PI_VERSION, check_version},
 };
 
@@ -26,10 +26,9 @@ fn script(name: &str) -> PathBuf {
 
 /// The scripted pi, as a channel of the app.
 fn fake_pi() -> Channel {
-    Program::new("bash")
-        .arg(script("fake-pi.sh"))
-        .spawn()
-        .expect("the scripted pi starts")
+    let mut command = tokio::process::Command::new("bash");
+    command.arg(script("fake-pi.sh"));
+    Channel::from_command(command).expect("the scripted pi starts")
 }
 
 /// A client over one channel, and the handle on the process behind it.
@@ -66,10 +65,9 @@ async fn drives_a_local_process() {
 #[tokio::test]
 async fn ends_a_child_that_never_reads_its_stdin() {
     // `sleep` ignores both stdin and the polite request to stop.
-    let channel = Program::new("bash")
-        .args(["-c", "exec sleep 60"])
-        .spawn()
-        .expect("the child starts");
+    let mut command = tokio::process::Command::new("bash");
+    command.args(["-c", "exec sleep 60"]);
+    let channel = Channel::from_command(command).expect("the child starts");
     let handle = channel.handle();
     let _client = Client::new(channel);
 
@@ -139,12 +137,9 @@ async fn drives_real_pi() {
     check_version(&version).expect("pi matches the pinned protocol version");
     assert_eq!(version, PI_VERSION, "the probe reports the pinned release");
 
-    let (client, handle) = start(
-        Program::new("pi")
-            .args(["--mode", "rpc", "--no-session"])
-            .spawn()
-            .expect("pi starts"),
-    );
+    let mut command = tokio::process::Command::new("pi");
+    command.args(["--mode", "rpc", "--no-session"]);
+    let (client, handle) = start(Channel::from_command(command).expect("pi starts"));
 
     let state: SessionState = client.get_state().await.expect("the state arrives");
     assert!(!state.session_id.is_empty(), "a real session has an id");
@@ -186,10 +181,9 @@ async fn drives_real_pi() {
 async fn closing_the_write_half_is_the_orderly_shutdown() {
     use pi_rpc::transport::{Transport, TransportRecv, TransportSend};
 
-    let channel = Program::new("pi")
-        .args(["--mode", "rpc", "--no-session"])
-        .spawn()
-        .expect("pi starts");
+    let mut command = tokio::process::Command::new("pi");
+    command.args(["--mode", "rpc", "--no-session"]);
+    let channel = Channel::from_command(command).expect("pi starts");
     let handle = channel.handle();
     let (mut tx, mut rx) = channel.split();
     tx.send(r#"{"id":"1","type":"get_state"}"#.to_string())

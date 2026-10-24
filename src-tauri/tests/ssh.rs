@@ -93,8 +93,7 @@ impl HostKey for Verdict {
 }
 
 /// One exec channel of the fixture, as the app takes a channel apart.
-fn start(exec: pie_lib::channel::Exec) -> (Client, Handle) {
-    let channel = exec.into_channel();
+fn start(channel: pie_lib::channel::Channel) -> (Client, Handle) {
     let handle = channel.handle();
     (Client::new(channel), handle)
 }
@@ -301,11 +300,10 @@ async fn a_flood_of_stderr_does_not_stall_stdout_or_the_exit_status() {
     let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
-    let transport = session
+    let channel = session
         .exec("sh -c 'head -c 2000000 /dev/zero 1>&2; echo done; exit 3'")
         .await
         .expect("the command starts");
-    let channel = transport.into_channel();
     let handle = channel.handle();
     let (tx, mut rx) = channel.split();
     drop(tx);
@@ -342,11 +340,10 @@ async fn carries_stdout_and_the_exit_status_of_a_one_shot_command() {
     let session = SshSession::open(fixture.target(), fixture.key_auth(), Trust::new(Verdict(None)))
         .await
         .expect("the session opens");
-    let transport = session
+    let channel = session
         .exec("sh -c 'echo out; echo err >&2; exit 7'")
         .await
         .expect("the command starts");
-    let channel = transport.into_channel();
     let handle = channel.handle();
     let (tx, mut rx) = channel.split();
     drop(tx);

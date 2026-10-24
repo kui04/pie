@@ -251,7 +251,7 @@ async fn sftp_resumable_upload_from_interrupted_part() {
         let cmd = format!("cp -- '{}' '{}'", half_staged, part_path);
         host_ssh
             .exec()
-            .output(pie_lib::host::CommandSpec::new("sh").args(["-c", &cmd]))
+            .output(pie_lib::host::Command::new("sh").args(["-c", &cmd]))
             .await
             .expect("copy part");
         host_ssh.close().await;
