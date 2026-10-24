@@ -142,12 +142,13 @@ pub(super) fn clean_extension(ext_hint: &str) -> String {
     ext_hint.trim_start_matches('.').to_string()
 }
 
-/// A relative path is a mistake of the frontend, not a failure of the host.
-///
-/// The function has a name so that a caller can reject such a path before the
-/// handshake of a channel, and so that the sentence is written once.
-pub(crate) fn not_absolute(path: &str) -> anyhow::Error {
-    anyhow::anyhow!("`{path}` is not absolute; pie resolves no path against its own directory")
+/// Validates that a host path is absolute.
+pub(crate) fn check_absolute(path: &str) -> anyhow::Result<&str> {
+    if Utf8TypedPath::derive(path).is_absolute() {
+        Ok(path)
+    } else {
+        anyhow::bail!("`{path}` is not absolute; pie resolves no path against its own directory")
+    }
 }
 
 #[cfg(test)]
@@ -155,8 +156,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn check_absolute_accepts_posix_and_windows_roots_and_rejects_relative_paths() {
+        for path in ["/", "/home/u", "C:\\Users\\u", "c:/Users/u", "\\\\server\\share"] {
+            assert!(check_absolute(path).is_ok(), "`{path}` is absolute");
+        }
+        for path in ["", ".", "sessions/one", "C:relative", "\\Users\\u"] {
+            assert!(check_absolute(path).is_err(), "`{path}` is relative");
+        }
+    }
+
+    #[test]
     fn a_relative_path_names_itself_in_the_refusal() {
-        let error = not_absolute(".pi/agent/sessions");
+        let error = check_absolute(".pi/agent/sessions").unwrap_err();
 
         assert_eq!(
             error.to_string(),

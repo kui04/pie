@@ -15,7 +15,6 @@ mod connection;
 mod exec;
 pub(crate) mod files;
 mod local;
-mod path;
 mod ssh;
 
 use std::{fmt, sync::Arc};
@@ -102,7 +101,6 @@ pub struct Host {
     connection: Arc<dyn Connection>,
     files: Arc<dyn Files>,
     exec: Arc<dyn Exec>,
-    path_style: path::PathStyle,
 }
 
 impl Host {
@@ -110,17 +108,11 @@ impl Host {
     ///
     /// The three must belong to the same machine: `connect` opens the reach and
     /// then probes `pi` through `exec`.
-    pub(crate) fn new(
-        connection: Arc<dyn Connection>,
-        files: Arc<dyn Files>,
-        exec: Arc<dyn Exec>,
-        path_style: path::PathStyle,
-    ) -> Self {
+    pub(crate) fn new(connection: Arc<dyn Connection>, files: Arc<dyn Files>, exec: Arc<dyn Exec>) -> Self {
         Self {
             connection,
             files,
             exec,
-            path_style,
         }
     }
 
@@ -130,7 +122,7 @@ impl Host {
         let connection: Arc<dyn Connection> = local.clone();
         let files: Arc<dyn Files> = local.clone();
         let exec: Arc<dyn Exec> = local;
-        Self::new(connection, files, exec, path::PathStyle::Native)
+        Self::new(connection, files, exec)
     }
 
     /// A machine reached over SSH.
@@ -139,7 +131,7 @@ impl Host {
         let connection: Arc<dyn Connection> = remote.clone();
         let files: Arc<dyn Files> = remote.clone();
         let exec: Arc<dyn Exec> = remote;
-        Self::new(connection, files, exec, path::PathStyle::Posix)
+        Self::new(connection, files, exec)
     }
 
     /// Establishes or re-establishes the reach and verifies that `pi` runs on it.
@@ -196,10 +188,8 @@ impl Host {
         current_dir: &str,
         session_file: Option<&str>,
     ) -> anyhow::Result<(Channel, Option<String>)> {
-        let current_dir = path::checked(current_dir, self.path_style)?;
-        let session_file = session_file
-            .map(|path| path::checked(path, self.path_style))
-            .transpose()?;
+        let current_dir = files::check_absolute(current_dir)?;
+        let session_file = session_file.map(files::check_absolute).transpose()?;
         let mut command = CommandSpec::new("pi").args(["--mode", "rpc"]).current_dir(current_dir);
         if let Some(session_file) = session_file {
             command = command.args(["--session", session_file]);
@@ -311,7 +301,7 @@ mod tests {
             "\\\\server\\share\\sessions\\one.jsonl",
         ] {
             assert_eq!(
-                path::is_absolute_path(path).expect("absolute path"),
+                files::check_absolute(path).expect("absolute path"),
                 path,
                 "`{path}` is absolute"
             );
@@ -328,7 +318,7 @@ mod tests {
             "\\Users\\u\\one.jsonl",
         ] {
             assert!(
-                path::is_absolute_path(path).is_err(),
+                files::check_absolute(path).is_err(),
                 "`{path}` is relative and must not pass as absolute"
             );
         }

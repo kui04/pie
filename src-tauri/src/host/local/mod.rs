@@ -12,7 +12,7 @@ use crate::{
     channel::{Channel, Program, Termination},
     host::{
         AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn, StageSource,
-        exec::OUTPUT_TIMEOUT, files, path,
+        exec::OUTPUT_TIMEOUT, files,
     },
 };
 
@@ -111,7 +111,7 @@ impl Exec for LocalHost {
 #[async_trait::async_trait]
 impl Files for LocalHost {
     async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
-        let path = path::is_absolute_path(path)?;
+        let path = files::check_absolute(path)?;
         match tokio::fs::metadata(path).await {
             Ok(target) => Ok(target.is_dir()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -120,7 +120,7 @@ impl Files for LocalHost {
     }
 
     async fn create_dir_all(&self, path: &str) -> anyhow::Result<()> {
-        let path = path::is_absolute_path(path)?;
+        let path = files::check_absolute(path)?;
         tokio::fs::create_dir_all(path)
             .await
             .with_context(|| format!("cannot make {path}"))
@@ -136,7 +136,7 @@ impl Files for LocalHost {
     }
 
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
-        let path = path::is_absolute_path(path)?;
+        let path = files::check_absolute(path)?;
         let mut dir = tokio::fs::read_dir(path)
             .await
             .with_context(|| format!("cannot read {path}"))?;
@@ -171,7 +171,7 @@ impl Files for LocalHost {
     }
 
     async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
-        let path = path::is_absolute_path(path)?;
+        let path = files::check_absolute(path)?;
         let file = tokio::fs::File::open(path)
             .await
             .with_context(|| format!("cannot open {path}"))?;
@@ -179,7 +179,7 @@ impl Files for LocalHost {
     }
 
     async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
-        let path = path::is_absolute_path(path)?;
+        let path = files::check_absolute(path)?;
         tokio::fs::remove_file(path)
             .await
             .with_context(|| format!("cannot remove {path}"))

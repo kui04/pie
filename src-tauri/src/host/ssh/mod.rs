@@ -30,7 +30,7 @@ use super::{
     AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn, StageSource,
     files as host_files,
 };
-use crate::{channel::Channel, host::path};
+use crate::channel::Channel;
 
 /// How to identify at the SSH server.
 #[derive(Clone)]
@@ -249,7 +249,7 @@ impl Connection for SshHost {
 impl Exec for SshHost {
     async fn spawn(&self, command: CommandSpec) -> anyhow::Result<Channel> {
         if let Some(dir) = &command.current_dir {
-            path::is_posix_absolute(dir)?;
+            host_files::check_absolute(dir)?;
         }
         let line = command_line(&command)?;
         let session = self.active_session()?;
@@ -258,7 +258,7 @@ impl Exec for SshHost {
 
     async fn output(&self, command: CommandSpec) -> anyhow::Result<ExecOutput> {
         if let Some(dir) = &command.current_dir {
-            path::is_posix_absolute(dir)?;
+            host_files::check_absolute(dir)?;
         }
         let line = command_line(&command)?;
         let session = self.active_session()?;
@@ -269,12 +269,12 @@ impl Exec for SshHost {
 #[async_trait::async_trait]
 impl Files for SshHost {
     async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
-        path::is_posix_absolute(path)?;
+        host_files::check_absolute(path)?;
         self.with_sftp(async |sftp| files::is_dir(sftp, path).await).await
     }
 
     async fn create_dir_all(&self, path: &str) -> anyhow::Result<()> {
-        path::is_posix_absolute(path)?;
+        host_files::check_absolute(path)?;
         self.with_sftp(async |sftp| files::create_dir_all(sftp, path).await)
             .await
     }
@@ -287,17 +287,17 @@ impl Files for SshHost {
     }
 
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
-        path::is_posix_absolute(path)?;
+        host_files::check_absolute(path)?;
         self.with_sftp(async |sftp| files::read_dir(sftp, path).await).await
     }
 
     async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
-        path::is_posix_absolute(path)?;
+        host_files::check_absolute(path)?;
         self.with_sftp(async |sftp| files::open(sftp, path).await).await
     }
 
     async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
-        path::is_posix_absolute(path)?;
+        host_files::check_absolute(path)?;
         self.with_sftp(async |sftp| files::remove_file(sftp, path).await).await
     }
 
