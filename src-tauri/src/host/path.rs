@@ -1,7 +1,8 @@
 //! Absolute-path checks for a machine's paths.
 
-use super::files;
 use typed_path::Utf8TypedPath;
+
+use super::files;
 
 /// How a machine spells an absolute path.
 #[derive(Debug, Clone, Copy)]

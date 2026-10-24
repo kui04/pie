@@ -36,16 +36,17 @@
 //! pie verifies. A host its owner revocated there is therefore treated as a
 //! first contact rather than refused, which is weaker than `ssh`.
 
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
+};
 
 use anyhow::{Context as _, Result};
-use russh::keys::HashAlg;
-use russh::keys::PublicKeyOrCertificate;
-use russh::keys::known_hosts::learn_known_hosts_path;
-use russh::keys::ssh_key::PublicKey as HostPublicKey;
+use russh::keys::{
+    HashAlg, PublicKeyOrCertificate, known_hosts::learn_known_hosts_path, ssh_key::PublicKey as HostPublicKey,
+};
 
 use super::trust::{AskHostKey, HostKey, PresentedKey};
 
@@ -234,11 +235,9 @@ fn refusal(verdict: &Verdict, path: &Path, endpoint: &str) -> Option<anyhow::Err
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-    use std::sync::Mutex;
+    use std::{os::unix::fs::PermissionsExt, sync::Mutex};
 
-    use russh::keys::PublicKey;
-    use russh::keys::parse_public_key_base64;
+    use russh::keys::{PublicKey, parse_public_key_base64};
     use tempfile::TempDir;
 
     use super::*;

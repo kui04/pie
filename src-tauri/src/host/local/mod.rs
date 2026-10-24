@@ -5,21 +5,26 @@
 //! starts, and where its files and sessions are read on this machine's
 //! filesystem.
 
-use super::files::{AsyncReadSeek, FileEntry, clean_extension, clean_stem};
-use super::{CommandSpec, Connection, Endpoint, Exec, ExecOutput, Files, ProgressFn, StageSource, is_absolute_path};
-use crate::channel::{Channel, Program};
 use anyhow::Context as _;
 use camino::Utf8PathBuf;
+
+use crate::{
+    channel::{Channel, Program, Termination},
+    host::{
+        AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn, StageSource,
+        exec::OUTPUT_TIMEOUT, files, path,
+    },
+};
 
 /// Writes `bytes` into the temporary directory of this machine, and answers where.
 async fn stage_bytes(stem_hint: &str, ext_hint: &str, bytes: &[u8]) -> anyhow::Result<String> {
     use tokio::io::AsyncWriteExt as _;
 
     let directory = std::env::temp_dir();
-    let prefix = format!("pie-{}-", clean_stem(stem_hint));
+    let prefix = format!("pie-{}-", files::clean_stem(stem_hint));
     let mut builder = tempfile::Builder::new();
     builder.prefix(&prefix);
-    let extension = clean_extension(ext_hint);
+    let extension = files::clean_extension(ext_hint);
     let suffix = format!(".{extension}");
     if !extension.is_empty() {
         builder.suffix(&suffix);
@@ -91,20 +96,14 @@ impl Exec for LocalHost {
         if let Some(dir) = &command.current_dir {
             process.current_dir(dir);
         }
-        let output = tokio::time::timeout(crate::host::exec::OUTPUT_TIMEOUT, process.output())
+        let output = tokio::time::timeout(OUTPUT_TIMEOUT, process.output())
             .await
-            .map_err(|_elapsed| {
-                anyhow::anyhow!(
-                    "`{}` did not answer within {:?}",
-                    command.program,
-                    crate::host::exec::OUTPUT_TIMEOUT
-                )
-            })?
+            .map_err(|_elapsed| anyhow::anyhow!("`{}` did not answer within {:?}", command.program, OUTPUT_TIMEOUT))?
             .with_context(|| format!("failed to start `{}`", command.program))?;
         Ok(ExecOutput {
             stdout: output.stdout,
             stderr: output.stderr,
-            termination: crate::channel::Termination::from(output.status),
+            termination: Termination::from(output.status),
         })
     }
 }
@@ -112,7 +111,7 @@ impl Exec for LocalHost {
 #[async_trait::async_trait]
 impl Files for LocalHost {
     async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
-        let path = is_absolute_path(path)?;
+        let path = path::is_absolute_path(path)?;
         match tokio::fs::metadata(path).await {
             Ok(target) => Ok(target.is_dir()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -121,7 +120,7 @@ impl Files for LocalHost {
     }
 
     async fn create_dir_all(&self, path: &str) -> anyhow::Result<()> {
-        let path = is_absolute_path(path)?;
+        let path = path::is_absolute_path(path)?;
         tokio::fs::create_dir_all(path)
             .await
             .with_context(|| format!("cannot make {path}"))
@@ -137,7 +136,7 @@ impl Files for LocalHost {
     }
 
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
-        let path = is_absolute_path(path)?;
+        let path = path::is_absolute_path(path)?;
         let mut dir = tokio::fs::read_dir(path)
             .await
             .with_context(|| format!("cannot read {path}"))?;
@@ -172,7 +171,7 @@ impl Files for LocalHost {
     }
 
     async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
-        let path = is_absolute_path(path)?;
+        let path = path::is_absolute_path(path)?;
         let file = tokio::fs::File::open(path)
             .await
             .with_context(|| format!("cannot open {path}"))?;
@@ -180,7 +179,7 @@ impl Files for LocalHost {
     }
 
     async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
-        let path = is_absolute_path(path)?;
+        let path = path::is_absolute_path(path)?;
         tokio::fs::remove_file(path)
             .await
             .with_context(|| format!("cannot remove {path}"))
@@ -212,9 +211,10 @@ impl Files for LocalHost {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
+
     use super::*;
     use crate::host::Host;
-    use camino::Utf8Path;
 
     #[test]
     fn the_local_machine_is_open_before_any_work() {

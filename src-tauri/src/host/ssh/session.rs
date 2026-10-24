@@ -11,23 +11,32 @@
 //! handshake's own step has none on purpose: a person may be comparing a
 //! fingerprint.
 
-use std::io::Cursor;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::Duration;
+use std::{
+    io::Cursor,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use anyhow::{Context as _, Result};
-use russh::client::{self, Config, Handle, Msg};
-use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key};
-use russh::{Channel, ChannelMsg, Disconnect};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::TcpStream;
+use russh::{
+    Channel, ChannelMsg, Disconnect,
+    client::{self, Config, Handle, Msg},
+    keys::{PrivateKeyWithHashAlg, decode_secret_key},
+};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
+    net::TcpStream,
+};
 
-use crate::channel::Exec;
-use crate::channel::ssh::EarlyOutput;
-use crate::host::exec::{ExecOutput, OUTPUT_TIMEOUT};
-use crate::host::{Endpoint, HostKey, SshAuth, SshTarget, Trust};
+use crate::{
+    channel::{Exec, ssh::EarlyOutput},
+    host::{
+        Endpoint, HostKey, SshAuth, SshTarget, Trust,
+        exec::{ExecOutput, OUTPUT_TIMEOUT},
+    },
+};
 
 /// How long the TCP connection to the host may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);

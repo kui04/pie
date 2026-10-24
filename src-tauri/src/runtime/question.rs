@@ -1,9 +1,13 @@
 //! The host-key questions that wait for a person, one per connection.
 
-use crate::session::Id;
-use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, PoisonError},
+};
+
 use tokio::sync::oneshot;
+
+use crate::session::Id;
 
 /// The host-key questions that a person is asked now.
 #[derive(Debug, Default)]

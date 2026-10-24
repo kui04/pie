@@ -1,8 +1,8 @@
 //! Starting programs on a machine, and capturing one-shot output.
 
+use std::{fmt, time::Duration};
+
 use crate::channel::{Channel, Termination};
-use std::fmt;
-use std::time::Duration;
 
 /// How long a one-shot command has to finish.
 ///

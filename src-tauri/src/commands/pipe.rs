@@ -33,15 +33,18 @@
 
 use std::future::Future;
 
+use pi_rpc::{
+    client::EventStream,
+    error::ErrorKind,
+    event::{Event, encode_event_value},
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::channel::Termination;
-use crate::session::{ExtensionEvent, Session};
-
-use pi_rpc::client::EventStream;
-use pi_rpc::error::ErrorKind;
-use pi_rpc::event::{Event, encode_event_value};
+use crate::{
+    channel::Termination,
+    session::{ExtensionEvent, Session},
+};
 
 /// What the frontend hears about the life of a session.
 ///

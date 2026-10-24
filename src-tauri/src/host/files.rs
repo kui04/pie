@@ -1,7 +1,6 @@
 //! Shared file types and path utilities for the machine pie reaches.
 
-use std::fmt;
-use std::time::SystemTime;
+use std::{fmt, time::SystemTime};
 
 use camino::Utf8Path;
 use serde::Serialize;

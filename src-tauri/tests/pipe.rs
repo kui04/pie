@@ -6,12 +6,16 @@
 //! peer behind it is `fake-pi.sh`, which answers like pi and exits on its own
 //! when its stdin ends.
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use pi_rpc::client::{BashReq, Client, Config};
-use pie_lib::channel::{Channel, Handle, Program, Termination};
-use pie_lib::commands::pipe::{SessionLifecycle, Sink, forward_loop};
+use pie_lib::{
+    channel::{Channel, Handle, Program, Termination},
+    commands::pipe::{SessionLifecycle, Sink, forward_loop},
+};
 use serde::Serialize;
 
 /// Absolute path of a script under `tests/scripts`.

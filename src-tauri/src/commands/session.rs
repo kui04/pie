@@ -19,22 +19,24 @@
 
 use std::sync::PoisonError;
 
+use pi_rpc::{
+    response::{
+        BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
+        SessionSwitch,
+    },
+    types::{ImageContent, Model, StreamingBehavior, ThinkingLevel},
+};
 use tauri::{AppHandle, State};
 
-use crate::error::PieError;
-use crate::session::{
-    self, CommandsData, ExtensionAnswer, ExtensionState, LastAssistantTextData, PromptData, Session, SessionInfo,
-    SessionSummary,
-};
-
-use pi_rpc::response::{
-    BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
-    SessionSwitch,
-};
-use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
-
 use super::pipe;
-use crate::state::AppState;
+use crate::{
+    error::PieError,
+    session::{
+        self, CommandsData, ExtensionAnswer, ExtensionState, LastAssistantTextData, PromptData, Session, SessionInfo,
+        SessionSummary,
+    },
+    state::AppState,
+};
 
 /// The session that a command names.
 ///

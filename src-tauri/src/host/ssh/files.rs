@@ -3,13 +3,11 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use russh_sftp::client::SftpSession;
-use russh_sftp::client::error::Error as SftpError;
+use russh_sftp::client::{SftpSession, error::Error as SftpError};
 use typed_path::Utf8TypedPath;
 
-use crate::host::files::{AsyncReadSeek, FileEntry};
-
 use super::SshHost;
+use crate::host::files::{AsyncReadSeek, FileEntry};
 
 /// How long a progress report may be held back. One report in a hundred milliseconds is
 /// as smooth as a bar can be read.

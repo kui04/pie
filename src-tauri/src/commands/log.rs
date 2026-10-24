@@ -196,9 +196,10 @@ fn cut(text: &str, limit: usize) -> Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
     use crate::log::test_sink::capture;
-    use serde_json::json;
 
     fn line(level: LogLevel, message: &str, fields: Map<String, Value>) -> String {
         capture("trace", || {

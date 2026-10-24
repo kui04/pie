@@ -6,15 +6,16 @@
 //! compiled into this build; all three are the app's own business, which is why
 //! they share a file.
 
-use std::sync::PoisonError;
-use std::time::{Duration, Instant};
+use std::{
+    sync::PoisonError,
+    time::{Duration, Instant},
+};
 
 use base64::Engine as _;
 use tauri::{AppHandle, State, Url};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::error::PieError;
-use crate::state::AppState;
+use crate::{error::PieError, state::AppState};
 
 /// Which kind of machine this is.
 ///

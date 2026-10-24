@@ -12,8 +12,7 @@
 //! reads, and the fields of the named variants travel beside them. The frontend
 //! shows the sentence and matches the name when it must.
 
-use serde::Serialize;
-use serde::ser::SerializeMap;
+use serde::{Serialize, ser::SerializeMap};
 
 /// A failure that the frontend must handle.
 #[derive(Debug, thiserror::Error)]

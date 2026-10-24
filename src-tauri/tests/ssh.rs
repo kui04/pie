@@ -17,17 +17,13 @@
 //! it runs when the host does not, and fails when the image would run a release
 //! other than the one pie pins.
 
-use std::future::Future;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::time::Duration;
+use std::{future::Future, path::PathBuf, pin::Pin, time::Duration};
 
-use pi_rpc::client::Client;
-use pi_rpc::error::ErrorKind;
-use pi_rpc::event::Event;
-use pi_rpc::response::SessionState;
-use pie_lib::channel::{Handle, Termination};
-use pie_lib::host::{HostKey, PI_VERSION, SshAuth, SshSession, SshTarget, Trust};
+use pi_rpc::{client::Client, error::ErrorKind, event::Event, response::SessionState};
+use pie_lib::{
+    channel::{Handle, Termination},
+    host::{HostKey, PI_VERSION, SshAuth, SshSession, SshTarget, Trust},
+};
 use russh::keys::PublicKeyOrCertificate;
 use russh_sftp::client::SftpSession;
 

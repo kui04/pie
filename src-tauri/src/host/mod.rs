@@ -18,20 +18,19 @@ mod local;
 mod path;
 mod ssh;
 
+use std::{fmt, sync::Arc};
+
+use camino::Utf8PathBuf;
 pub use connection::Connection;
 pub use exec::{CommandSpec, Exec, ExecOutput};
 pub use files::{AsyncReadSeek, DirEntry, FileEntry, Files, Listing, ProgressFn, StageSource};
 pub use local::LocalHost;
-use path::{is_absolute_path, is_posix_absolute};
+use serde::Serialize;
 pub use ssh::{
     AskHostKey, HostKey, KnownHosts, PresentedKey, SshAuth, SshHost, SshSession, SshTarget, SubsystemStream, Trust,
 };
 
 use crate::channel::Channel;
-use camino::Utf8PathBuf;
-use serde::Serialize;
-use std::fmt;
-use std::sync::Arc;
 
 /// The Pi release this crate mirrors.
 pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -312,7 +311,7 @@ mod tests {
             "\\\\server\\share\\sessions\\one.jsonl",
         ] {
             assert_eq!(
-                is_absolute_path(path).expect("absolute path"),
+                path::is_absolute_path(path).expect("absolute path"),
                 path,
                 "`{path}` is absolute"
             );
@@ -329,7 +328,7 @@ mod tests {
             "\\Users\\u\\one.jsonl",
         ] {
             assert!(
-                is_absolute_path(path).is_err(),
+                path::is_absolute_path(path).is_err(),
                 "`{path}` is relative and must not pass as absolute"
             );
         }

@@ -11,13 +11,17 @@
 //! pump is also the only source of the exit status: SSH reports it as a channel
 //! message, not as a return value.
 
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll, Waker},
+};
 
 use russh::{Channel as SshChannel, ChannelMsg, ChannelWriteHalf, Sig};
-use tokio::io::{AsyncWrite, AsyncWriteExt, DuplexStream};
-use tokio::sync::{Notify, watch};
+use tokio::{
+    io::{AsyncWrite, AsyncWriteExt, DuplexStream},
+    sync::{Notify, watch},
+};
 
 use super::{BoxedWriter, Channel, Lifecycle, Termination};
 

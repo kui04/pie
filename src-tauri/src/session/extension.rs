@@ -11,14 +11,20 @@
 //! latency of the next read. A dialog that pi timed out is removed with its
 //! handler future, so a late answer cannot resolve a request that is gone.
 
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
-use pi_rpc::client::Client;
-use pi_rpc::extui::{
-    self, ConfirmDialog, EditorDialog, EditorText, InputDialog, Notice, SelectDialog, StatusEntry, UiAnswer, UiHandler,
-    UiOutcome, UiRequest, WindowTitle,
+use pi_rpc::{
+    client::Client,
+    extui::{
+        self, ConfirmDialog, EditorDialog, EditorText, InputDialog, Notice, SelectDialog, StatusEntry, UiAnswer,
+        UiHandler, UiOutcome, UiRequest, WindowTitle,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};

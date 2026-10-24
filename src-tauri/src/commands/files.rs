@@ -12,6 +12,7 @@
 
 use base64::Engine as _;
 use camino::Utf8Path;
+use pi_rpc::types::{ImageContent, ImageKind};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -19,10 +20,10 @@ use tauri_plugin_fs::{FilePath, FsExt};
 use tokio::io::AsyncReadExt as _;
 use typed_path::Utf8TypedPath;
 
-use crate::error::PieError;
-use crate::host::{Files, LocalHost, StageSource};
-
-use pi_rpc::types::{ImageContent, ImageKind};
+use crate::{
+    error::PieError,
+    host::{Files, LocalHost, StageSource},
+};
 
 /// What a person can select with a file dialog.
 #[derive(Debug, Clone, Deserialize, Default)]

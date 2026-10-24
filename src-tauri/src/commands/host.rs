@@ -11,11 +11,13 @@
 //! session: the picker asks the connected machine, and the session that starts
 //! there reads the answer.
 
-use std::fmt;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    fmt,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, PoisonError},
+    time::Duration,
+};
 
 use anyhow::Context as _;
 use camino::Utf8PathBuf;
@@ -23,13 +25,13 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::oneshot;
 
-use std::sync::PoisonError;
-
-use crate::error::PieError;
-use crate::host::{AskHostKey, ConnectionState, Host, KnownHosts, Listing, PresentedKey, SshAuth, SshTarget, Trust};
-use crate::runtime::{ConnectionInfo, HostKeyQuestion, HostRuntime};
-use crate::session::Id;
-use crate::state::{AppState, HOST_KEY_PATIENCE};
+use crate::{
+    error::PieError,
+    host::{AskHostKey, ConnectionState, Host, KnownHosts, Listing, PresentedKey, SshAuth, SshTarget, Trust},
+    runtime::{ConnectionInfo, HostKeyQuestion, HostRuntime},
+    session::Id,
+    state::{AppState, HOST_KEY_PATIENCE},
+};
 
 /// How to reach a machine, as the connect screen sends it.
 #[derive(Debug, Clone, Deserialize)]

@@ -10,9 +10,7 @@
 //! another hand on the same policy, and the handshake holds one while a person
 //! reads a fingerprint.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Result;
 use russh::keys::PublicKeyOrCertificate;

@@ -15,8 +15,10 @@
 //! in `crate::host`" is how a reader learns the direction. What is checked is the
 //! code.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// One layer, its directory, and what it may not name.
 struct Layer {

@@ -20,21 +20,19 @@ mod quote;
 mod session;
 mod trust;
 
+use std::sync::{Arc, Mutex, PoisonError};
+
 pub use known_hosts::KnownHosts;
 use quote::quote;
+use russh_sftp::client::SftpSession;
 pub use session::{SshSession, SubsystemStream};
 pub use trust::{AskHostKey, HostKey, PresentedKey, Trust};
 
-use std::sync::{Arc, Mutex, PoisonError};
-
-use russh_sftp::client::SftpSession;
-
-use crate::channel::Channel;
-
 use super::{
     AsyncReadSeek, CommandSpec, Connection, Endpoint, Exec, ExecOutput, FileEntry, Files, ProgressFn, StageSource,
-    files as host_files, is_posix_absolute,
+    files as host_files,
 };
+use crate::{channel::Channel, host::path};
 
 /// How to identify at the SSH server.
 #[derive(Clone)]
@@ -155,6 +153,7 @@ impl SshHost {
             .ok_or_else(|| anyhow::anyhow!("the SSH session to {} is not open", self.target.endpoint()))
     }
 
+    /// The active SSH session, if the host is connected.
     fn current_session(&self) -> Option<Arc<SshSession>> {
         self.state
             .lock()
@@ -252,7 +251,7 @@ impl Connection for SshHost {
 impl Exec for SshHost {
     async fn spawn(&self, command: CommandSpec) -> anyhow::Result<Channel> {
         if let Some(dir) = &command.current_dir {
-            is_posix_absolute(dir)?;
+            path::is_posix_absolute(dir)?;
         }
         let line = command_line(&command);
         let session = self.active_session()?;
@@ -261,7 +260,7 @@ impl Exec for SshHost {
 
     async fn output(&self, command: CommandSpec) -> anyhow::Result<ExecOutput> {
         if let Some(dir) = &command.current_dir {
-            is_posix_absolute(dir)?;
+            path::is_posix_absolute(dir)?;
         }
         let line = command_line(&command);
         let session = self.active_session()?;
@@ -272,12 +271,12 @@ impl Exec for SshHost {
 #[async_trait::async_trait]
 impl Files for SshHost {
     async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
-        is_posix_absolute(path)?;
+        path::is_posix_absolute(path)?;
         self.with_sftp(async |sftp| files::is_dir(sftp, path).await).await
     }
 
     async fn create_dir_all(&self, path: &str) -> anyhow::Result<()> {
-        is_posix_absolute(path)?;
+        path::is_posix_absolute(path)?;
         self.with_sftp(async |sftp| files::create_dir_all(sftp, path).await)
             .await
     }
@@ -290,17 +289,17 @@ impl Files for SshHost {
     }
 
     async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
-        is_posix_absolute(path)?;
+        path::is_posix_absolute(path)?;
         self.with_sftp(async |sftp| files::read_dir(sftp, path).await).await
     }
 
     async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
-        is_posix_absolute(path)?;
+        path::is_posix_absolute(path)?;
         self.with_sftp(async |sftp| files::open(sftp, path).await).await
     }
 
     async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
-        is_posix_absolute(path)?;
+        path::is_posix_absolute(path)?;
         self.with_sftp(async |sftp| files::remove_file(sftp, path).await).await
     }
 

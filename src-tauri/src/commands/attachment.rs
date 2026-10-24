@@ -7,10 +7,12 @@ use camino::Utf8Path;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::commands::files::{detect_mime, read_head};
-use crate::error::PieError;
-use crate::host::{Files, Host, StageSource};
-use crate::state::AppState;
+use crate::{
+    commands::files::{detect_mime, read_head},
+    error::PieError,
+    host::{Files, Host, StageSource},
+    state::AppState,
+};
 
 /// The result of staging a file attachment.
 #[derive(Debug, Clone, Serialize)]

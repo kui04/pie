@@ -8,10 +8,14 @@
 //! move a runtime in or out of the registry, never across an await. A host-key
 //! question has its own lock, so its answer can arrive while that host connects.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use crate::runtime::{HostKeyQuestion, HostManager};
 

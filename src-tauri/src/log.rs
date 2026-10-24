@@ -36,13 +36,10 @@
 //! So `RUST_LOG=info,pi_rpc=debug` keeps the app at `info` while raising one
 //! target, which is the reason a directive replaces the default level.
 
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-
 #[cfg(not(target_os = "android"))]
 use std::io::IsTerminal;
+
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// The spec the app runs under when `RUST_LOG` says nothing.
 ///
@@ -115,11 +112,12 @@ pub fn init() {
 /// Compiled only for tests: nothing of this reaches the binary.
 #[cfg(test)]
 pub(crate) mod test_sink {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
 
-    use tracing_subscriber::fmt::format::FmtSpan;
-    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt};
 
     /// A place for lines to land, readable after the fact.
     #[derive(Clone, Default)]
@@ -173,8 +171,9 @@ pub(crate) mod test_sink {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tracing::Level;
+
+    use super::*;
 
     /// A filter is only observable through a dispatcher, so each case installs
     /// the same stack the app installs, scoped to the test.

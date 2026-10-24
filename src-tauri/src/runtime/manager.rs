@@ -1,9 +1,9 @@
 //! The registry of connected hosts.
 
+use std::{collections::HashMap, sync::Arc};
+
 use super::HostRuntime;
 use crate::session::{Id, Session};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// The connected hosts of one run of pie, and the one the frontend shows.
 #[derive(Debug, Default)]

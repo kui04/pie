@@ -9,13 +9,13 @@
 
 use std::path::PathBuf;
 
-use pi_rpc::entry::Entry;
-use pi_rpc::event::{AssistantUpdate, CompactionReason, Event};
-use pi_rpc::extui::UiRequest;
-use pi_rpc::message::{AssistantBlock, Message, NestedStatus, SystemContent, UserBlock, UserContent};
-use pi_rpc::response::{BashResult, Envelope, Response, SessionState};
-use pi_rpc::types::{
-    CommandSource, ModelInput, QueuedInputDisposition, SourceOrigin, SourceScope, StopReason, ThinkingLevel,
+use pi_rpc::{
+    entry::Entry,
+    event::{AssistantUpdate, CompactionReason, Event},
+    extui::UiRequest,
+    message::{AssistantBlock, Message, NestedStatus, SystemContent, UserBlock, UserContent},
+    response::{BashResult, Envelope, Response, SessionState},
+    types::{CommandSource, ModelInput, QueuedInputDisposition, SourceOrigin, SourceScope, StopReason, ThinkingLevel},
 };
 
 /// Lines of one recorded fixture.

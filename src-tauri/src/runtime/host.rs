@@ -1,10 +1,14 @@
 //! One connected host, and the sessions that run on it.
 
-use crate::host::{Endpoint, Host};
-use crate::session::{Id, Session, SessionInfo, SessionManager};
-use serde::Serialize;
 use std::sync::Arc;
+
+use serde::Serialize;
 use tokio::sync::Mutex as AsyncMutex;
+
+use crate::{
+    host::{Endpoint, Host},
+    session::{Id, Session, SessionInfo, SessionManager},
+};
 
 /// What the frontend receives after a connection is ready.
 #[derive(Debug, Clone, Serialize)]

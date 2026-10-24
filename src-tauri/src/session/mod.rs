@@ -29,25 +29,23 @@ mod process;
 pub(crate) mod store;
 mod wire;
 
+use std::sync::{Arc, Mutex, PoisonError};
+
+use anyhow::Context as _;
 #[doc(inline)]
 pub use extension::{
     EditorTextUpdate, ExtensionAnswer, ExtensionEvent, ExtensionRequest, ExtensionState, ExtensionStatus,
 };
 pub use id::Id;
 pub use process::Session;
+use process::speaking;
+use serde::Serialize;
 pub use store::{SessionCatalog, SessionSummary};
 pub use wire::{
     AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData, QueuedInputData,
 };
 
-use std::sync::{Arc, Mutex, PoisonError};
-
-use anyhow::Context as _;
-use serde::Serialize;
-
 use crate::host::Host;
-
-use process::speaking;
 
 /// The sessions of one machine, and the reach to it.
 #[derive(Clone)]

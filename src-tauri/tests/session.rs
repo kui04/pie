@@ -12,24 +12,28 @@
 //! starts and stops a session, and a host key goes through the full policy. Pie
 //! asks about the key one time, remembers it, and refuses it after a change.
 
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
+use ::pi_rpc::{
+    command::Command,
+    entry::Entry,
+    message::Message,
+    response::{EntryList, SessionState},
+    types::ThinkingLevel,
+};
 use camino::Utf8Path;
+use pie_lib::{
+    host::{AskHostKey, Host, KnownHosts, PresentedKey, SshAuth, SshTarget, Trust},
+    runtime::HostRuntime,
+    session::{Id, Session, SessionManager, SessionSummary},
+};
 use tempfile::TempDir;
-
-use pie_lib::host::{AskHostKey, Host, KnownHosts, PresentedKey, SshAuth, SshTarget, Trust};
-use pie_lib::runtime::HostRuntime;
-use pie_lib::session::{Id, Session, SessionManager, SessionSummary};
-
-use ::pi_rpc::command::Command;
-use ::pi_rpc::entry::Entry;
-use ::pi_rpc::message::Message;
-use ::pi_rpc::response::{EntryList, SessionState};
-use ::pi_rpc::types::ThinkingLevel;
 
 /// A connected host for a test: the runtime, with the session manager's methods
 /// in reach.

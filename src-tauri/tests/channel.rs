@@ -8,12 +8,16 @@
 
 use std::path::PathBuf;
 
-use pi_rpc::client::Client;
-use pi_rpc::command::{Command, Common};
-use pi_rpc::error::ErrorKind;
-use pi_rpc::response::{BashResult, SessionState};
-use pie_lib::channel::{Channel, Handle, Program, Termination};
-use pie_lib::host::{Host, PI_VERSION, check_version};
+use pi_rpc::{
+    client::Client,
+    command::{Command, Common},
+    error::ErrorKind,
+    response::{BashResult, SessionState},
+};
+use pie_lib::{
+    channel::{Channel, Handle, Program, Termination},
+    host::{Host, PI_VERSION, check_version},
+};
 
 /// Absolute path of a script under `tests/scripts`.
 fn script(name: &str) -> PathBuf {

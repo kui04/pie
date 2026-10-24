@@ -10,19 +10,20 @@
 //! knows only the JSONL format that pi writes and how to turn each file's lines
 //! into a [`SessionSummary`].
 
-use std::io::SeekFrom;
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::{io::SeekFrom, sync::Arc, time::SystemTime};
 
 use camino::Utf8PathBuf;
+use pi_rpc::{
+    entry::Entry,
+    message::{Message, UserBlock, UserContent},
+};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::task::JoinSet;
+use tokio::{
+    io::{AsyncReadExt, AsyncSeekExt},
+    task::JoinSet,
+};
 
 use crate::host::{AsyncReadSeek, Files};
-
-use pi_rpc::entry::Entry;
-use pi_rpc::message::{Message, UserBlock, UserContent};
 
 /// The in-memory catalog of all session summaries of one machine.
 #[derive(Debug, Default, Clone)]

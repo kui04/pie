@@ -24,17 +24,18 @@
 pub(crate) mod ssh;
 mod stdio;
 
+use std::{collections::VecDeque, io::ErrorKind};
+
+use pi_rpc::{
+    frame::Decoder,
+    transport::{Transport, TransportRecv, TransportSend},
+};
 pub use ssh::Exec;
 pub use stdio::Program;
-
-use std::collections::VecDeque;
-use std::io::ErrorKind;
-
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{mpsc, watch};
-
-use pi_rpc::frame::Decoder;
-use pi_rpc::transport::{Transport, TransportRecv, TransportSend};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    sync::{mpsc, watch},
+};
 
 /// Bytes read from the program per syscall. Records are assembled across chunks,
 /// so this only tunes throughput.

@@ -12,19 +12,22 @@
 //! [`channel`](crate::channel), and what pi answers is `pi_rpc`'s own error. None
 //! of them is wrapped here.
 
-use pi_rpc::client::{BashReq, Client, Config, PromptReq};
-use pi_rpc::response::{
-    BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
-    SessionSwitch,
+use pi_rpc::{
+    client::{BashReq, Client, Config, PromptReq},
+    response::{
+        BashResult, ClearQueueData, CompactionResult, EntryList, ForkData, ForkMessage, SessionState, SessionStats,
+        SessionSwitch,
+    },
+    types::{ImageContent, Model, StreamingBehavior, ThinkingLevel},
 };
-use pi_rpc::types::{ImageContent, Model, StreamingBehavior, ThinkingLevel};
 
+use super::{
+    SessionInfo,
+    extension::Extension,
+    id::Id,
+    wire::{AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData},
+};
 use crate::channel::{Channel, Handle};
-
-use super::SessionInfo;
-use super::extension::Extension;
-use super::id::Id;
-use super::wire::{AvailableModelsData, AvailableThinkingLevelsData, CommandsData, LastAssistantTextData, PromptData};
 
 /// The time for pi to stop before pie kills it.
 ///

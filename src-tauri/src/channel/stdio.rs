@@ -5,10 +5,12 @@
 //! pipe is taken at [`Program::spawn`], where a missing one can still be
 //! reported: after that a channel is only bytes and a life.
 
-use std::ffi::{OsStr, OsString};
-use std::io::ErrorKind;
-use std::path::PathBuf;
-use std::process::{ExitStatus, Stdio};
+use std::{
+    ffi::{OsStr, OsString},
+    io::ErrorKind,
+    path::PathBuf,
+    process::{ExitStatus, Stdio},
+};
 
 use anyhow::Context as _;
 use tokio::process::Child;

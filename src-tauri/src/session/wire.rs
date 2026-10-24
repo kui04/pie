@@ -13,9 +13,8 @@
 //! the same way, and `tests/conformance.rs` holds each one against the recorded
 //! output of a real pi.
 
-use serde::Serialize;
-
 use pi_rpc::types::{Model, PromptDisposition, QueuedInputDisposition, SlashCommand, ThinkingLevel};
+use serde::Serialize;
 
 /// Payload of `prompt`.
 #[derive(Debug, Clone, Serialize)]

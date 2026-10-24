@@ -5,9 +5,11 @@
 //! Therefore a person finds a dependency by a search, not by the read of the
 //! full table. Also, two people who add the same crate put it in the same place.
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// The crate names under every dependency table in `Cargo.toml`, with the header
 /// of the table as the key.

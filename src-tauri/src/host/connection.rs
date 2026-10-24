@@ -1,7 +1,8 @@
 //! The reach to a machine: opening it, keeping it, and closing it.
 
-use super::Endpoint;
 use std::fmt;
+
+use super::Endpoint;
 
 /// The reach to one machine.
 ///

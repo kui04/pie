@@ -1,9 +1,14 @@
 {
   pkgs,
   config,
+  inputs,
   ...
 }:
 
+let
+  pkgsWithRust = pkgs.extend inputs.rust-overlay.overlays.default;
+  nightlyRustfmt = pkgsWithRust.rust-bin.nightly.latest.rustfmt;
+in
 {
   # Anything in this shell opens the pinned Chromium, not the system default
   # browser — xdg-open prefers $BROWSER, and storybook opens through xdg-open.
@@ -33,6 +38,7 @@
     pkgs.pango
     pkgs.pkg-config
     pkgs.webkitgtk_4_1
+    nightlyRustfmt
   ];
 
   languages.rust = {
@@ -91,7 +97,7 @@
       settings.manifest-path = "src-tauri/Cargo.toml";
       packageOverrides = {
         cargo = config.languages.rust.toolchainPackage;
-        rustfmt = config.languages.rust.toolchainPackage;
+        rustfmt = nightlyRustfmt;
       };
     };
   };
@@ -103,4 +109,11 @@
     '';
     description = "Run the WebKitGTK MiniBrowser";
   };
+
+  scripts.cargo-fmt.exec = ''
+    exec ${nightlyRustfmt}/bin/cargo-fmt "$@"
+  '';
+  scripts.rustfmt.exec = ''
+    exec ${nightlyRustfmt}/bin/rustfmt "$@"
+  '';
 }
