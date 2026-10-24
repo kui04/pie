@@ -16,14 +16,12 @@
 //!
 mod files;
 mod known_hosts;
-mod quote;
 mod session;
 mod trust;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
 pub use known_hosts::KnownHosts;
-use quote::quote;
 use russh_sftp::client::SftpSession;
 pub use session::{SshSession, SubsystemStream};
 pub use trust::{AskHostKey, HostKey, PresentedKey, Trust};
@@ -253,7 +251,7 @@ impl Exec for SshHost {
         if let Some(dir) = &command.current_dir {
             path::is_posix_absolute(dir)?;
         }
-        let line = command_line(&command);
+        let line = command_line(&command)?;
         let session = self.active_session()?;
         Ok(session.exec(line).await?.into_channel())
     }
@@ -262,7 +260,7 @@ impl Exec for SshHost {
         if let Some(dir) = &command.current_dir {
             path::is_posix_absolute(dir)?;
         }
-        let line = command_line(&command);
+        let line = command_line(&command)?;
         let session = self.active_session()?;
         session.output(line).await
     }
@@ -326,22 +324,19 @@ impl Files for SshHost {
 }
 
 /// The shell line that runs one command on a remote machine.
-///
-/// Every part is quoted: the directory and the session file are host paths that
-/// pi wrote or that a person picked, and they must not become shell syntax.
-fn command_line(command: &CommandSpec) -> String {
-    let mut line = String::new();
+fn command_line(command: &CommandSpec) -> anyhow::Result<String> {
+    let mut words = Vec::with_capacity(command.args.len() + 1);
+    words.push(command.program.as_str());
+    words.extend(command.args.iter().map(String::as_str));
+    let invocation = shlex::try_join(words).map_err(|error| anyhow::anyhow!("invalid command argument: {error}"))?;
+
     if let Some(dir) = &command.current_dir {
-        line.push_str("cd -- ");
-        line.push_str(&quote(dir));
-        line.push_str(" && ");
+        let quoted_dir =
+            shlex::try_quote(dir).map_err(|error| anyhow::anyhow!("invalid working directory `{dir}`: {error}"))?;
+        Ok(format!("cd -- {quoted_dir} && {invocation}"))
+    } else {
+        Ok(invocation)
     }
-    line.push_str(&quote(&command.program));
-    for arg in &command.args {
-        line.push(' ');
-        line.push_str(&quote(arg));
-    }
-    line
 }
 
 #[cfg(test)]
@@ -384,8 +379,26 @@ mod tests {
             .args(["--mode", "rpc"])
             .args(["--session", "/home/o'brien/sessions/one.jsonl"]);
         assert_eq!(
-            command_line(&command),
-            r"'pi' '--mode' 'rpc' '--session' '/home/o'\''brien/sessions/one.jsonl'"
+            command_line(&command).unwrap(),
+            r#"pi --mode rpc --session "/home/o'brien/sessions/one.jsonl""#
         );
+    }
+
+    #[test]
+    fn command_line_quotes_directory_and_arguments() {
+        let command = CommandSpec::new("pi")
+            .current_dir("/var/my projects")
+            .args(["--mode", "rpc"])
+            .args(["--session", "/home/o'brien/sessions/one.jsonl"]);
+        assert_eq!(
+            command_line(&command).unwrap(),
+            r#"cd -- '/var/my projects' && pi --mode rpc --session "/home/o'brien/sessions/one.jsonl""#
+        );
+    }
+
+    #[test]
+    fn command_line_rejects_nul_bytes() {
+        let command = CommandSpec::new("pi").args(["bad\0arg"]);
+        assert!(command_line(&command).is_err());
     }
 }
