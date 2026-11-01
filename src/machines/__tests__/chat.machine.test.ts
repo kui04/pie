@@ -1,3 +1,4 @@
+import { sessionSummary } from "@/preview/fixtures";
 import { createActor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
@@ -23,12 +24,12 @@ function started(overrides: Partial<ChatDeps> = {}) {
                 made += 1;
                 // A name that no test writes by hand, so the assertion can tell the session
                 // the attach answered with from one that was already there.
-                return { id: `made:${made}`, cwd: null };
+                return sessionSummary({ path: `made:${made}` });
             },
             start: async (cwd) => {
                 startedIn.push(cwd);
                 made += 1;
-                return { id: `made:${made}`, cwd: null };
+                return sessionSummary({ path: `made:${made}` });
             },
             detach: async (session) => {
                 detached.push(session);
@@ -145,7 +146,7 @@ describe("the chat's stages", () => {
                 attempts += 1;
                 attached.push(path);
                 if (attempts === 1) throw new Error("no pi on PATH");
-                return { id: "main:1", cwd: null };
+                return sessionSummary({ path: "main:1" });
             },
         });
 

@@ -20,9 +20,8 @@
  * `readAuthoritative` is open until a phase record is heard, and `lastReadAt` is the
  * `dataUpdatedAt` of the last applied answer. Only `begin`, `write` and `end` records close
  * it - a delta says nothing about the phase, so it may not. While the authority is open the
- * newest answer applies; it opens again when the listeners open, or when the pipe reports a
- * gap in the records, because the records of a closed listener are gone and only a read
- * covers them.
+ * newest answer applies; it opens again when the listeners open, because the records of a
+ * closed listener are gone and only a read covers them.
  *
  * Everything the chart needs from the world comes through `deps`, so a test drives this
  * graph with a stub feed and needs no Tauri runtime.
@@ -52,7 +51,7 @@ export interface SessionDeps {
     /** Opens the two subscriptions of the session - both, or none. */
     listen: (
         onRecord: (record: SessionRecord) => void,
-        onLifecycle: (life: bridge.SessionLifecycle) => void,
+        onEnded: (ended: bridge.SessionEnded) => void,
     ) => Promise<bridge.Unsubscribe>;
     /** Asks one read of this session again. */
     reRead: (target: ReadTarget) => void;
@@ -86,14 +85,6 @@ export type SessionEvent =
     | { type: "FEED_FAILED"; error: bridge.PieError }
     /** The pi of this session is gone: its reads have to be asked again. */
     | { type: "FEED_STALE" }
-    /** The pipe fell behind: records were dropped, and the reads are the repair. */
-    | { type: "GAP"; at: number }
-    /**
-     * The conversation of this session was replaced in the process: pi forked or cloned,
-     * and the same process now holds another file. Everything of the old conversation
-     * goes, and the reads are asked again.
-     */
-    | { type: "REPLACED" }
     /**
      * One record of the session, as the wire carries it. `at` is the moment this side heard
      * it, on the same clock as a read's `dataUpdatedAt`: it orders a settle against the reads,
@@ -126,9 +117,8 @@ type SnapshotEvent = Extract<SessionEvent, { type: "SNAPSHOT" }>;
 type StatsEvent = Extract<SessionEvent, { type: "STATS_READ" }>;
 type BashEvent = Extract<SessionEvent, { type: "BASH_START" }>;
 
-/** The two events that reset the clock of the reads, for the actions that read it. */
+/** The event that resets the clock of the reads, for the actions that read it. */
 type FeedOpenEvent = Extract<SessionEvent, { type: "FEED_OPEN" }>;
-type GapEvent = Extract<SessionEvent, { type: "GAP" }>;
 
 /** Whether a state answer may set the phase: the authority is open and the answer is newer. */
 function readApplies(context: SessionContext, at: number): boolean {
@@ -173,14 +163,13 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
 
     void (async () => {
         try {
-            const events = await deps.listen(hear, (life) => {
-                // The deltas held for their frame go first: a gap may not overtake a record
-                // that arrived before it, and the order of what this side hears is the order
-                // pi wrote it in.
+            const events = await deps.listen(hear, (ended) => {
+                // The deltas held for their frame go first: a record that arrived before
+                // the end may not be overtaken by it.
                 flush();
-                // The end of the session fails the reads; a gap in its records makes them the
-                // authority again. Either way the feed itself is unchanged: the pipe is alive.
-                sendBack(life.type === "lagged" ? { type: "GAP", at: Date.now() } : { type: "FEED_STALE" });
+                // The end fails the reads. The feed itself is unchanged: the pipe is alive.
+                sendBack({ type: "FEED_STALE" });
+                void ended;
             });
             // The chart left this state before the listeners arrived: drop them rather
             // than feeding a graph that moved on.
@@ -229,32 +218,8 @@ export const sessionMachine = setup({
             lastReadAt: (event as FeedOpenEvent).at,
             queued: noQueue,
         })),
-        /** Asks every read of this session again, after a gap in the records. */
+        /** Asks every read of this session again. */
         reReadWhole: ({ context }) => context.deps.reRead("whole"),
-        /**
-         * The conversation was replaced in the process (a fork or a clone). The session is the
-         * same process, but everything this side holds belongs to the conversation that is gone:
-         * the overlay, the live rows, the queue, the shell card, the usage, and the names of the
-         * rows. The base read goes back to "not yet", and the reads that are asked again fill it
-         * with the new conversation.
-         */
-        replaced: assign(() => ({
-            ...emptyStream(),
-            readAuthoritative: true,
-            lastReadAt: 0,
-            lastSnapshotAt: 0,
-            settledAt: null,
-            summaryAt: null,
-        })),
-        /**
-         * A gap in the records: a read may set the phase again, and the queue goes - it is
-         * written by records alone, and the ones this gap swallowed are gone.
-         */
-        gap: assign(({ event }) => ({
-            readAuthoritative: true,
-            lastReadAt: (event as GapEvent).at,
-            queued: noQueue,
-        })),
         /**
          * The pi of this session is gone: nothing a run left behind may be shown - no settle
          * record is coming for it - and the reads have to say so.
@@ -416,14 +381,6 @@ export const sessionMachine = setup({
                                 at: event.at,
                             })),
                         },
-                        // The pipe of this session fell behind and records were dropped, so
-                        // what a read says outranks what was heard: the authority opens, every
-                        // read is asked again, and the queue goes. The transcript and the run
-                        // stay on screen - the reader is looking at them, and the base read
-                        // supersedes them as its answer lands. A gap reported while the
-                        // listeners are still opening is not lost: the open that follows resets
-                        // the same three things.
-                        GAP: { actions: ["gap", "reReadWhole"] },
                     },
                 },
                 failed: {
@@ -436,12 +393,6 @@ export const sessionMachine = setup({
         },
         transcript: {
             initial: "empty",
-            on: {
-                // The conversation of this session was replaced in the process (a fork or a
-                // clone). The base in hand is the conversation that is gone, so the region goes
-                // back to "not yet", and the reads that are asked again bring the new one.
-                REPLACED: { target: ".empty", actions: ["replaced", "reReadWhole"] },
-            },
             states: {
                 // No base read has answered for this conversation yet.
                 empty: {
@@ -475,7 +426,6 @@ export const sessionMachine = setup({
                 working: {},
             },
             on: {
-                REPLACED: { target: ".idle" },
                 READ: [
                     {
                         guard: ({ context, event }) => readApplies(context, event.at) && event.streaming,

@@ -1,4 +1,5 @@
 export { useConnectionWatch, type ConnectionWatch } from "./useConnectionWatch";
+export { useExtensionSync } from "./useExtensionSync";
 export { useExtensionUi } from "./useExtensionUi";
 export { useLongPress, type LongPressHandlers } from "./useLongPress";
 export { useMotion, type Motion } from "./useMotion";

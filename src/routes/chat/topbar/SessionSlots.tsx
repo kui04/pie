@@ -14,48 +14,47 @@ import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { isListening, isReady, phaseOf } from "@/machines/session.machine";
 import { sessionQueries, sessionsQueries, statsPoll } from "@/lib/query";
-import type { SessionRef } from "@/lib/session";
+import type { SessionTitle } from "@/lib/bridge";
+import type { SessionKey, SessionRef } from "@/lib/session";
 import { withLiveUsage } from "@/routes/chat/topbar/usage";
 import { SessionTopbar } from "@/routes/chat/topbar/SessionTopbar";
 import { UsagePopover } from "@/routes/chat/topbar/UsagePopover";
 
 export interface SessionSlotsProps {
-    session: string;
     machine: SessionRef;
-    endpoint: string;
+    conversation: SessionKey;
     cwd: string | null;
 }
 
-export function SessionSlots({ session, machine, endpoint, cwd }: SessionSlotsProps) {
+export function SessionSlots({ conversation, machine, cwd }: SessionSlotsProps) {
     const open = useSelector(machine, isListening);
     const ready = useSelector(machine, isReady);
 
-    const state = useQuery({ ...sessionQueries.state(session), enabled: open });
-    const extension = useQuery({ ...sessionQueries.extension(session), enabled: open });
-    const entries = useQuery({ ...sessionQueries.entries(session), enabled: open });
+    const state = useQuery({ ...sessionQueries.state(conversation), enabled: open });
+    const entries = useQuery({ ...sessionQueries.entries(conversation), enabled: open });
     // The list row is the same conversation: its words are the fallback the bar
     // needs when pi has no name for this session.
-    const sessions = useQuery({ ...sessionsQueries.list(endpoint), enabled: open });
+    const sessions = useQuery({ ...sessionsQueries.list(conversation.host), enabled: open });
     const summary = sessions.data?.find((item) => item.path === state.data?.sessionFile);
 
     return (
         <SessionTopbar
-            name={state.data?.sessionName ?? summary?.name ?? null}
-            firstMessage={summary?.firstMessage ?? null}
+            name={state.data?.sessionName ?? namedTitle(summary?.title ?? null)}
+            firstMessage={summary?.firstPrompt ?? null}
             cwd={cwd}
-            extensionTitle={extension.data?.title ?? null}
+            extensionTitle={null}
             ready={ready && entries.data !== undefined}
         />
     );
 }
 
 /** The ring in the bar, and the reading behind it. */
-export function SessionUsage({ session, machine }: { session: string; machine: SessionRef }) {
+export function SessionUsage({ conversation, machine }: { conversation: SessionKey; machine: SessionRef }) {
     const open = useSelector(machine, isListening);
     const phase = useSelector(machine, phaseOf);
     const live = useSelector(machine, (snapshot) => snapshot.context.usage);
-    const state = useQuery({ ...sessionQueries.state(session), enabled: open });
-    const stats = useQuery({ ...sessionQueries.stats(session), enabled: open, refetchInterval: statsPoll(phase) });
+    const state = useQuery({ ...sessionQueries.state(conversation), enabled: open });
+    const stats = useQuery({ ...sessionQueries.stats(conversation), enabled: open, refetchInterval: statsPoll(phase) });
 
     return (
         <UsagePopover
@@ -64,4 +63,9 @@ export function SessionUsage({ session, machine }: { session: string; machine: S
             auto={state.data?.autoCompactionEnabled ?? false}
         />
     );
+}
+
+/** The name a person gave a conversation, or `null` when they gave none. */
+function namedTitle(title: SessionTitle | null): string | null {
+    return title?.type === "named" ? title.name : null;
 }

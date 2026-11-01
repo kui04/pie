@@ -5,7 +5,7 @@ import { useIsMobile } from "@/hooks";
 
 import { ConnectionCard, type ConnectionForm } from "@/routes/connect/ConnectionCard";
 import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
-import { connectionMachine, type ConnectionDeps } from "@/machines/connection.machine";
+import { connectionMachine, type ConnectionDeps, type TrustQuestion } from "@/machines/connection.machine";
 import { SafeArea, WindowControls } from "@/components";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
@@ -32,13 +32,15 @@ function formFrom(host: RememberedHost | null): ConnectionForm {
 }
 
 /** The host a request names, as the gate remembers it. */
-function rememberedFrom(spec: bridge.ConnectSpec): RememberedHost {
+function rememberedFrom(spec: bridge.HostTarget): RememberedHost {
     if (spec.transport === "local") return { transport: "local", address: "", auth: "password" };
-    // A literal goes back between brackets: without them the colons of the
-    // address read as the port separator, and the field would not parse again.
-    const host = spec.host.includes(":") ? `[${spec.host}]` : spec.host;
-    const port = spec.port === undefined ? "" : `:${spec.port}`;
-    return { transport: "ssh", address: `${spec.user}@${host}${port}`, auth: spec.auth.type };
+    // A literal goes back between brackets: without them the colons of the address read as
+    // the port separator, and the field would not parse again.
+    const host = "domain" in spec.host.host ? spec.host.host.domain : spec.host.host.ip;
+    const literal = host.includes(":") ? `[${host}]` : host;
+    const port = spec.host.port === null ? "" : `:${spec.host.port}`;
+    const auth = typeof spec.auth === "object" && "Password" in spec.auth ? "password" : "key";
+    return { transport: "ssh", address: `${spec.user}@${literal}${port}`, auth };
 }
 
 /** The largest port number. */
@@ -134,33 +136,32 @@ function missingFor(form: ConnectionForm): string | null {
  * A port that the person did not type stays absent. Rust supplies the default.
  * Rust owns that default.
  */
-function connectSpec(form: ConnectionForm): bridge.ConnectSpec | undefined {
+function connectSpec(form: ConnectionForm): bridge.HostTarget | undefined {
     if (form.transport === "local") return { transport: "local" };
 
     const target = parseSshAddress(form.address);
     if (target === undefined) return undefined;
+    const host: bridge.HostAddress = { host: hostNameOf(target.host), port: target.port ?? null };
+
     if (form.auth === "password") {
         return form.password === ""
             ? undefined
-            : { transport: "ssh", ...target, auth: { type: "password", password: form.password } };
+            : { transport: "ssh", user: target.user, host, auth: { Password: form.password } };
     }
-    const credential: { type: "key"; key: string } = {
-        type: "key",
-        key: form.privateKeyMaterial.trim(),
-    };
-    if (credential.key === "") return undefined;
-    return { transport: "ssh", ...target, auth: keyAuth(credential, form.passphrase) };
+
+    const private_key = form.privateKeyMaterial.trim();
+    if (private_key === "") return undefined;
+    const passphrase = form.passphrase === "" ? null : form.passphrase;
+    return { transport: "ssh", user: target.user, host, auth: { Key: { private_key, passphrase } } };
 }
 
 /**
- * The key credential, with the passphrase if one is present.
- *
- * The passphrase goes with the credential only if the person typed it. An
- * absent field and an empty string are the same to the host. A `""` where
- * nothing is expected is a different request.
+ * The machine of an address, as Rust reads it: an address when the text is one, a domain
+ * otherwise. Rust checks the domain and refuses a bad one with a sentence.
  */
-function keyAuth(credential: { type: "key"; key: string }, passphrase: string): bridge.SshAuthSpec {
-    return passphrase === "" ? credential : { ...credential, passphrase };
+function hostNameOf(text: string): bridge.HostName {
+    const address = text.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(text);
+    return address ? { ip: text } : { domain: text };
 }
 
 /**
@@ -170,10 +171,10 @@ function keyAuth(credential: { type: "key"; key: string }, passphrase: string): 
 const REAL_DEPS: ConnectScreenDeps = {
     connection: bridge.CONNECTION_ID,
     connect: bridge.connect,
-    trustHostKey: bridge.trustHostKey,
-    onConnectionState: bridge.onConnectionState,
-    selectPaths: bridge.selectPaths,
-    readText: bridge.readText,
+    answer: bridge.answer,
+    onTrustAsk: bridge.onTrustAsk,
+    selectFiles: bridge.selectFiles,
+    read: bridge.read,
     notify: (failure) => toast.error(failure.message),
     onHostKey: () => undefined,
 };
@@ -185,8 +186,8 @@ const REAL_DEPS: ConnectScreenDeps = {
  * replace a call that the machine never makes.
  */
 export type ConnectScreenDeps = ConnectionDeps & {
-    selectPaths: typeof bridge.selectPaths;
-    readText: typeof bridge.readText;
+    selectFiles: typeof bridge.selectFiles;
+    read: typeof bridge.read;
 };
 
 export interface ConnectScreenProps {
@@ -195,7 +196,7 @@ export interface ConnectScreenProps {
 }
 
 export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
-    const { selectPaths, readText } = deps;
+    const { selectFiles, read } = deps;
     const navigate = useNavigate();
     const isMobile = useIsMobile();
     // The host of the last connection, as the card opens on it. Read once, for
@@ -203,7 +204,7 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
     const remembered = useHostStore((state) => state.lastHost);
     const remember = useHostStore((state) => state.remember);
     const [form, setForm] = useState<ConnectionForm>(() => formFrom(remembered));
-    const [askedKey, setAskedKey] = useState<bridge.PresentedKey | null>(null);
+    const [askedKey, setAskedKey] = useState<TrustQuestion | null>(null);
     const [state, send] = useMachine(connectionMachine, {
         input: { ...deps, onHostKey: (key) => setAskedKey(key) },
     });
@@ -233,20 +234,16 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
      */
     const pickKey = useCallback(async () => {
         try {
-            const paths = await selectPaths({
-                title: "Choose Private Key",
-                multiple: false,
-                target: "file",
-            });
+            const paths = await selectFiles({ title: "Choose Private Key", multiple: false });
             if (paths && paths.length > 0) {
-                const key = await readText(paths[0]);
-                setForm((previous) => ({ ...previous, privateKeyMaterial: key }));
+                const file = await read(paths[0]);
+                if (file.type !== "text") throw new Error("that file of the key is not text");
+                setForm((previous) => ({ ...previous, privateKeyMaterial: file.content }));
             }
         } catch (thrown) {
-            const failure = bridge.asPieError(thrown);
-            toast.error(failure.message);
+            toast.error(bridge.asPieError(thrown).message);
         }
-    }, [selectPaths, readText]);
+    }, [selectFiles, read]);
 
     return (
         <main id="window" className="flex min-h-0 w-full flex-1 overflow-hidden bg-surface font-sans text-foreground">
@@ -278,8 +275,8 @@ export function ConnectScreen({ deps = REAL_DEPS }: ConnectScreenProps = {}) {
                     />
 
                     <HostKeyPrompt
-                        key={askedKey?.fingerprint}
-                        presentedKey={asking ? askedKey : null}
+                        key={askedKey?.ask.fingerprint}
+                        presentedKey={asking ? (askedKey?.ask ?? null) : null}
                         onAnswer={(trusted) => send({ type: "ANSWER_HOST_KEY", trusted })}
                     />
                 </div>

@@ -1,370 +1,686 @@
-//! The reach to a machine over SSH, and the machine it holds.
-//!
-//! [`SshTarget`] is where to go and [`SshAuth`] is how to prove it is pie. The
-//! reach itself - the socket, the handshake, the host-key question, the
-//! credentials, the channels and what they hand back - is [`SshSession`], in the
-//! [`session`] module. The shell line of one command is composed in this module.
-//!
-//! The key a host presents is the one question pie cannot answer from the wire:
-//! [`HostKey`] is where the reach asks it, [`AskHostKey`] is where the policy
-//! asks a person, and [`KnownHosts`] is the policy pie ships - in [`trust`] and
-//! [`known_hosts`], because a host key of any other kind does not exist here.
-//!
-//! [`SshHost`] is the machine that is left once the reach succeeded: one
-//! connection, and the file channel that is opened on it at the first read. It is
-//! the SSH implementation of [`Connection`], [`Files`], and [`Exec`].
-//!
-mod files;
-mod known_hosts;
-mod session;
-mod trust;
-mod upload;
+//! A machine reached over SSH, its channels, and its SFTP files.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, UNIX_EPOCH};
 
-pub use known_hosts::KnownHosts;
+use anyhow::{Context as _, ensure};
+use bytes::{Bytes, BytesMut};
+use hostaddr::HostAddr;
+use russh::{ChannelMsg, Sig};
 use russh_sftp::client::SftpSession;
-pub use session::{SshSession, SubsystemStream};
-pub use trust::{AskHostKey, HostKey, PresentedKey, Trust};
+use russh_sftp::protocol::OpenFlags;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::sync::watch;
+use tokio_util::either::Either;
+use typed_path::{Utf8TypedPath, Utf8TypedPathBuf};
 
-use super::{
-    AsyncReadSeek, Command, Connection, Endpoint, Exec, FileEntry, Files, Output, ProgressFn, files as host_files,
+use crate::bus::Bus;
+use crate::channel::{Channel, ExitStatus, Process};
+use crate::host::executor::OsFamily;
+use crate::host::fs::{FileOpenOptions, check_type, require_absolute, typed, uploads_dir};
+use crate::host::{
+    Command, CommandOutput, Executor, FileMetadata, FileSystem, HostAuth, HostFile, OUTPUT_TIMEOUT,
 };
-use crate::channel::Channel;
+use crate::state::HostId;
 
-/// How to identify at the SSH server.
-#[derive(Clone)]
-pub enum SshAuth {
-    /// Password authentication.
-    Password(String),
-    /// Public-key authentication with the private key itself.
-    ///
-    /// The key, not a path to it. `load_secret_key` was a file read followed by
-    /// the same decode this does, and on Android a picked file is a `content://`
-    /// URI rather than a path at all - so the text is what crosses the boundary,
-    /// and the frontend is what turns a file into text.
-    Key {
-        /// The private key, in the OpenSSH or PEM form a key file holds.
-        key: String,
-        /// Passphrase, when the key is encrypted.
-        passphrase: Option<String>,
-    },
+pub(crate) mod trust;
+pub mod upload;
+
+/// Maximum bytes `exec` collects across stdout and stderr before killing the command (4 MiB).
+const EXEC_OUTPUT_CAP: usize = 4 * 1024 * 1024;
+
+/// SFTP write chunk size (256 KiB), matching OpenSSH's optimal packet budget.
+pub(crate) const SFTP_COPY_BUFFER: usize = 256 * 1024;
+
+/// Recommended SSH channel initial window size (4 MiB).
+const CHANNEL_WINDOW_SIZE: u32 = 4 * 1024 * 1024;
+
+/// Recommended SSH maximum packet size (260 KiB).
+const MAX_PACKET_SIZE: u32 = 260 * 1024;
+
+/// Default SFTP subsystem operation timeout in seconds.
+const SFTP_TIMEOUT_SECS: u64 = 30;
+
+/// SSH extended-data code for standard error.
+const EXT_STDERR: u32 = 1;
+
+/// SIGKILL under POSIX numbering.
+const SIGKILL: i32 = 9;
+
+/// The russh callback surface. The host-key check belongs here.
+/// The russh callback surface: the server key of every connection is checked here.
+pub struct ClientHandler {
+    /// The trust question of this connection.
+    prompt: trust::TrustPrompt,
 }
 
-impl std::fmt::Debug for SshAuth {
-    /// Redacts secrets: this type reaches logs and error reports.
+impl ClientHandler {
+    pub(crate) fn new(prompt: trust::TrustPrompt) -> Self {
+        Self { prompt }
+    }
+}
+
+impl std::fmt::Debug for ClientHandler {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Password(_) => formatter.write_str("Password(<redacted>)"),
-            Self::Key { key, passphrase } => formatter
-                .debug_struct("Key")
-                .field("bytes", &key.len())
-                .field("passphrase", &passphrase.as_ref().map(|_| "<redacted>"))
-                .finish(),
+        formatter.write_str("ClientHandler")
+    }
+}
+
+impl russh::client::Handler for ClientHandler {
+    type Error = anyhow::Error;
+
+    async fn check_server_key(
+        &mut self,
+        key: &russh::keys::PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        match key {
+            russh::keys::PublicKeyOrCertificate::PublicKey { key, .. } => {
+                self.prompt.decide(key).await
+            }
+            // Nothing pie records describes the signing key of a certificate, so a
+            // certificate cannot be a trusted first use.
+            russh::keys::PublicKeyOrCertificate::Certificate(_) => Ok(false),
         }
     }
 }
 
-/// The host to reach.
-#[derive(Debug, Clone)]
-pub struct SshTarget {
-    host: String,
-    port: u16,
-    user: String,
-}
-
-impl SshTarget {
-    /// Targets `host` as `user` on port 22.
-    pub fn new(host: impl Into<String>, user: impl Into<String>) -> Self {
-        Self {
-            host: host.into(),
-            port: 22,
-            user: user.into(),
-        }
-    }
-
-    /// Uses another port.
-    pub fn port(mut self, port: u16) -> Self {
-        self.port = port;
-        self
-    }
-
-    /// `user@host:port`, the label of this host for a person and for a log line.
-    pub fn endpoint(&self) -> Endpoint {
-        Endpoint::new(format!("{}@{}:{}", self.user, self.host, self.port))
-    }
-}
-
-/// The open SSH session and the lazy SFTP channel bound to it.
-struct Connected {
-    session: Arc<SshSession>,
-    sftp: Option<Arc<SftpSession>>,
-}
-
-/// A machine pie reaches over SSH: the target, credentials, trust policy, live
-/// session, and the file channel over it.
-///
-/// The file channel is opened at the first use and kept for the rest of the
-/// connection; a read that finds it dead drops it, and the next read opens a
-/// fresh one. Both belong to the session because an SSH connection is one object
-/// with many channels on it.
+/// A machine reached over SSH. One connection carries every channel on it.
 pub struct SshHost {
-    target: SshTarget,
-    auth: SshAuth,
-    trust: Trust,
-    state: Mutex<Option<Connected>>,
-    cache_dir: tokio::sync::OnceCell<String>,
-    pub(super) sftp_lock: tokio::sync::Mutex<()>,
-    pub(super) in_flight: upload::InFlightMap,
+    /// The one connection every channel on this machine rides on.
+    handle: Arc<russh::client::Handle<ClientHandler>>,
+    /// The file session, opened on first use and shared after that.
+    sftp: tokio::sync::Mutex<Option<Arc<SftpSession>>>,
+    /// The system this machine runs, read at connect from the home its sftp
+    /// session reports: a drive letter means Windows, a root slash Unix.
+    family: OsFamily,
+    /// The login home directory reported by SFTP `canonicalize(".")`.
+    home: Utf8TypedPathBuf,
+    /// The cache directory of this machine: `~/.cache` on Unix, `~\AppData\Local` on Windows.
+    cache: Utf8TypedPathBuf,
+    /// The target address (`host[:port]`) for logs and error context.
+    host: HostAddr<String>,
+    /// Lazy-initialized deduplicating and resumable file uploader.
+    uploader: OnceLock<upload::Uploader>,
 }
 
 impl std::fmt::Debug for SshHost {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("SshHost")
-            .field("target", &self.target)
-            .field("auth", &self.auth)
-            .field("trust", &self.trust)
-            .finish_non_exhaustive()
+        formatter.debug_tuple("SshHost").field(&self.host).finish()
     }
 }
 
 impl SshHost {
-    /// Creates an SSH host configured with `target`, `auth`, and `trust`.
+    /// Dials `host` as `user`, authenticates with `auth`, and probes the remote OS family and home.
     ///
-    /// Call [`Host::connect`](super::Host::connect) to open the SSH connection
-    /// and verify `pi`.
-    pub fn new(target: SshTarget, auth: SshAuth, trust: Trust) -> Self {
-        Self {
-            target,
-            auth,
-            trust,
-            state: Mutex::new(None),
-            cache_dir: tokio::sync::OnceCell::new(),
-            sftp_lock: tokio::sync::Mutex::new(()),
-            in_flight: upload::new_in_flight(),
-        }
+    /// The server key is checked against `known_hosts` before the dial completes, and an
+    /// unknown key is put to the person through `bus`, under the name `connection`.
+    pub async fn connect(
+        user: &str,
+        connection: HostId,
+        host: HostAddr<String>,
+        auth: &HostAuth,
+        bus: Bus,
+        known_hosts: trust::KnownHosts,
+    ) -> anyhow::Result<Self> {
+        let port = host.port().unwrap_or(22);
+
+        let config = Arc::new(russh::client::Config {
+            nodelay: true,
+            window_size: CHANNEL_WINDOW_SIZE,
+            maximum_packet_size: MAX_PACKET_SIZE,
+            inactivity_timeout: Some(Duration::from_secs(60)),
+            keepalive_interval: Some(Duration::from_secs(15)),
+            keepalive_max: 3,
+            ..russh::client::Config::default()
+        });
+
+        let prompt = trust::TrustPrompt::new(bus, connection, host.clone(), known_hosts);
+        let mut handle = russh::client::connect(
+            config,
+            (host.host().to_string(), port),
+            ClientHandler::new(prompt),
+        )
+        .await
+        .with_context(|| format!("failed to connect to `{host}`"))?;
+
+        authenticate(&mut handle, user, auth, &host).await?;
+
+        let sftp = Arc::new(open_sftp_session(&handle, &host).await?);
+        let raw_home = sftp
+            .canonicalize(".")
+            .await
+            .with_context(|| format!("failed to resolve home directory on `{host}`"))?;
+
+        let (family, home) = parse_remote_home(&raw_home);
+        let cache = match family {
+            OsFamily::Unix => home.join(".cache"),
+            OsFamily::Windows => home.join("AppData").join("Local"),
+        };
+
+        Ok(Self {
+            handle: Arc::new(handle),
+            sftp: tokio::sync::Mutex::new(Some(sftp)),
+            family,
+            home,
+            cache,
+            host,
+            uploader: OnceLock::new(),
+        })
     }
 
-    /// The label of this host, `user@host:port`.
-    pub fn endpoint(&self) -> Endpoint {
-        self.target.endpoint()
+    /// The address of this machine.
+    pub fn host(&self) -> &HostAddr<String> {
+        &self.host
     }
 
-    /// The active SSH session, or an error if the host is not connected.
-    pub(super) fn active_session(&self) -> anyhow::Result<Arc<SshSession>> {
-        self.current_session()
-            .ok_or_else(|| anyhow::anyhow!("the SSH session to {} is not open", self.target.endpoint()))
+    /// Whether the underlying SSH transport is still open.
+    pub fn is_open(&self) -> bool {
+        !self.handle.is_closed()
     }
 
-    /// The active SSH session, if the host is connected.
-    fn current_session(&self) -> Option<Arc<SshSession>> {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .map(|connected| Arc::clone(&connected.session))
+    /// A check of the same fact that a task can hold after this host is gone.
+    pub(crate) fn openness(&self) -> Box<dyn Fn() -> bool + Send + Sync> {
+        let handle = Arc::clone(&self.handle);
+        Box::new(move || !handle.is_closed())
     }
 
-    /// The file channel that is already open on `for_session`, if one is.
-    pub(super) fn cached_sftp(&self, for_session: &Arc<SshSession>) -> Option<Arc<SftpSession>> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let connected = state.as_ref()?;
-        Arc::ptr_eq(&connected.session, for_session)
-            .then(|| connected.sftp.as_ref().cloned())
-            .flatten()
+    /// Closes the SSH connection cleanly.
+    pub async fn disconnect(&self) -> anyhow::Result<()> {
+        self.handle
+            .disconnect(russh::Disconnect::ByApplication, "pie disconnecting", "en")
+            .await
+            .with_context(|| format!("failed to disconnect from `{}`", self.host))
     }
 
-    /// Keeps an open file channel for `for_session` if that session is still current.
-    pub(super) fn keep_sftp(&self, for_session: &Arc<SshSession>, opened: &Arc<SftpSession>) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(connected) = state.as_mut()
-            && Arc::ptr_eq(&connected.session, for_session)
-        {
-            connected.sftp = Some(Arc::clone(opened));
-        }
-    }
-
-    /// Drops the file channel if it is still the one a failed read used.
-    pub(super) fn forget_sftp(&self, used: &Arc<SftpSession>) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(connected) = state.as_mut()
-            && connected.sftp.as_ref().is_some_and(|cached| Arc::ptr_eq(cached, used))
-        {
-            connected.sftp = None;
-        }
-    }
-
-    /// Runs one operation on the file channel of this host, and opens it first
-    /// when it is not open.
-    ///
-    /// An operation that fails drops the channel: a channel that answered with a
-    /// failure of its own is not one to keep for the next operation.
-    pub(super) async fn with_sftp<T, F>(&self, op: F) -> anyhow::Result<T>
-    where
-        F: std::ops::AsyncFnOnce(&SftpSession) -> anyhow::Result<T>,
-    {
-        let opened = files::sftp(self).await?;
-        match op(&*opened).await {
-            Ok(value) => Ok(value),
-            Err(error) => {
-                self.forget_sftp(&opened);
-                Err(error)
+    /// Returns the shared SFTP session, replacing it if none is cached or the channel died.
+    pub(crate) async fn sftp(&self) -> anyhow::Result<Arc<SftpSession>> {
+        let mut guard = self.sftp.lock().await;
+        if let Some(session) = guard.as_ref() {
+            if session.try_exists(".").await.is_ok() {
+                return Ok(Arc::clone(session));
             }
+            tracing::debug!(
+                host = %self.host,
+                "cached SFTP session is no longer live; opening a replacement"
+            );
+            *guard = None;
         }
+        let session = Arc::new(open_sftp_session(&self.handle, &self.host).await?);
+        *guard = Some(Arc::clone(&session));
+        Ok(session)
+    }
+
+    /// Evicts `dead` from the cache slot if it is still the active session.
+    pub(crate) async fn evict_sftp(&self, dead: &Arc<SftpSession>) {
+        let mut guard = self.sftp.lock().await;
+        if guard
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, dead))
+        {
+            *guard = None;
+        }
+    }
+
+    /// Returns the resumable, deduplicating [`upload::Uploader`] rooted at `<cache dir>/pie/uploads`.
+    pub fn uploader(&self) -> &upload::Uploader {
+        self.uploader.get_or_init(|| {
+            upload::Uploader::new(
+                Arc::clone(&self.handle),
+                uploads_dir(self.cache.to_path()).to_path(),
+                self.family,
+                self.host.clone(),
+            )
+        })
     }
 }
 
-#[async_trait::async_trait]
-impl Connection for SshHost {
-    async fn connect(&self) -> anyhow::Result<()> {
-        let session = SshSession::open(self.target.clone(), self.auth.clone(), self.trust.clone()).await?;
-
-        let previous = self
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .replace(Connected {
-                session: Arc::new(session),
-                sftp: None,
-            });
-        if let Some(previous) = previous {
-            previous.session.close().await;
+/// Authenticates `handle` using the credentials in `auth`.
+async fn authenticate(
+    handle: &mut russh::client::Handle<ClientHandler>,
+    user: &str,
+    auth: &HostAuth,
+    host: &HostAddr<String>,
+) -> anyhow::Result<()> {
+    let outcome = match auth {
+        HostAuth::None => handle
+            .authenticate_none(user)
+            .await
+            .with_context(|| format!("`none` authentication failed on `{host}`"))?,
+        HostAuth::Password(password) => handle
+            .authenticate_password(user, password)
+            .await
+            .with_context(|| format!("password authentication failed on `{host}`"))?,
+        HostAuth::Key {
+            private_key,
+            passphrase,
+        } => {
+            let key_pair = russh::keys::decode_secret_key(private_key, passphrase.as_deref())
+                .with_context(|| format!("failed to decode private key for `{host}`"))?;
+            let hash_alg = handle
+                .best_supported_rsa_hash()
+                .await
+                .with_context(|| format!("failed to negotiate RSA hash algorithm with `{host}`"))?
+                .flatten();
+            let key_with_alg =
+                russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key_pair), hash_alg);
+            handle
+                .authenticate_publickey(user, key_with_alg)
+                .await
+                .with_context(|| format!("public-key authentication failed on `{host}`"))?
         }
+    };
+
+    ensure!(outcome.success(), "authentication rejected by `{host}`");
+    Ok(())
+}
+
+/// Opens a new SSH session channel and starts the SFTP subsystem on it.
+pub(crate) async fn open_sftp_session(
+    handle: &russh::client::Handle<ClientHandler>,
+    host: &HostAddr<String>,
+) -> anyhow::Result<SftpSession> {
+    let channel = handle
+        .channel_open_session()
+        .await
+        .with_context(|| format!("failed to open SFTP channel on `{host}`"))?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .with_context(|| format!("failed to request SFTP subsystem on `{host}`"))?;
+    let sftp = SftpSession::new(channel.into_stream())
+        .await
+        .with_context(|| format!("failed to initialize SFTP session on `{host}`"))?;
+    sftp.set_timeout(SFTP_TIMEOUT_SECS);
+    Ok(sftp)
+}
+
+/// Infers [`OsFamily`] and normalizes the home path returned by SFTP `canonicalize(".")`.
+///
+/// OpenSSH on Windows returns `/C:/Users/u` or `C:/Users/u`; Unix servers return `/home/u`.
+fn parse_remote_home(raw: &str) -> (OsFamily, Utf8TypedPathBuf) {
+    let trimmed = raw.trim();
+    let bytes = trimmed.as_bytes();
+
+    // Detect `/C:/...` or `/C:\...` returned by Windows OpenSSH SFTP.
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
+        return (OsFamily::Windows, typed(&trimmed[1..], OsFamily::Windows));
+    }
+
+    // Detect `C:/...` or `C:\...` or UNC `\\server\share`.
+    if (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+        || trimmed.starts_with(r"\\")
+    {
+        return (OsFamily::Windows, typed(trimmed, OsFamily::Windows));
+    }
+
+    (OsFamily::Unix, typed(trimmed, OsFamily::Unix))
+}
+
+/// Converts a checked machine path into the wire string SFTP expects.
+pub(crate) fn to_sftp_wire_path(path: Utf8TypedPath<'_>) -> String {
+    match path {
+        Utf8TypedPath::Unix(unix) => unix.as_str().to_owned(),
+        Utf8TypedPath::Windows(win) => win.with_unix_encoding().into_string(),
+    }
+}
+
+/// Opens an SSH session channel, sends an `exec` request, and collects any output
+/// that arrived before the server confirmed the request.
+async fn open_exec_channel(
+    handle: &russh::client::Handle<ClientHandler>,
+    line: &str,
+    host: &HostAddr<String>,
+) -> anyhow::Result<(russh::Channel<russh::client::Msg>, Vec<u8>, Vec<u8>)> {
+    let mut channel = handle
+        .channel_open_session()
+        .await
+        .with_context(|| format!("failed to open exec channel on `{host}`"))?;
+
+    channel
+        .exec(true, line)
+        .await
+        .with_context(|| format!("failed to send exec request on `{host}`"))?;
+
+    let mut early_stdout = Vec::new();
+    let mut early_stderr = Vec::new();
+
+    loop {
+        match channel.wait().await {
+            Some(ChannelMsg::Success) => break,
+            Some(ChannelMsg::Failure) => {
+                anyhow::bail!("remote host `{host}` refused the exec request")
+            }
+            Some(ChannelMsg::Data { data }) => early_stdout.extend_from_slice(&data),
+            Some(ChannelMsg::ExtendedData {
+                data,
+                ext: EXT_STDERR,
+            }) => early_stderr.extend_from_slice(&data),
+            Some(ChannelMsg::Close | ChannelMsg::Eof) | None => {
+                anyhow::bail!("exec channel on `{host}` closed before confirming request")
+            }
+            Some(_) => {}
+        }
+    }
+
+    Ok((channel, early_stdout, early_stderr))
+}
+
+impl Executor for SshHost {
+    async fn family(&self) -> OsFamily {
+        self.family
+    }
+
+    async fn spawn(&self, cmd: Command) -> anyhow::Result<(Channel, Process)> {
+        let line = cmd.into_shell_line(self.family)?;
+        let (ssh_channel, early_stdout, early_stderr) =
+            open_exec_channel(&self.handle, &line, &self.host).await?;
+        let (channel, process) =
+            crate::channel::ssh::spawn(ssh_channel, early_stdout, early_stderr);
+        Ok((channel, Process::Ssh(process)))
+    }
+
+    async fn exec(&self, cmd: Command) -> anyhow::Result<CommandOutput> {
+        let program = cmd.program.clone();
+        let line = cmd.into_shell_line(self.family)?;
+
+        let run = async {
+            let (mut channel, early_stdout, early_stderr) =
+                open_exec_channel(&self.handle, &line, &self.host).await?;
+
+            let mut stdout = BytesMut::from(&early_stdout[..]);
+            let mut stderr = BytesMut::from(&early_stderr[..]);
+            let mut total_bytes = stdout.len() + stderr.len();
+            let mut exit_status: Option<ExitStatus> = None;
+
+            loop {
+                if total_bytes > EXEC_OUTPUT_CAP {
+                    let _ = channel.signal(Sig::KILL).await;
+                    let _ = channel.eof().await;
+                    anyhow::bail!(
+                        "`{program}` on `{}` exceeded the {} MiB output limit",
+                        self.host,
+                        EXEC_OUTPUT_CAP / (1024 * 1024)
+                    );
+                }
+                let Some(message) = channel.wait().await else {
+                    break;
+                };
+                match message {
+                    ChannelMsg::Data { data } => {
+                        total_bytes = total_bytes.saturating_add(data.len());
+                        stdout.extend_from_slice(&data);
+                    }
+                    ChannelMsg::ExtendedData {
+                        data,
+                        ext: EXT_STDERR,
+                    } => {
+                        total_bytes = total_bytes.saturating_add(data.len());
+                        stderr.extend_from_slice(&data);
+                    }
+                    ChannelMsg::ExitStatus {
+                        exit_status: status,
+                    } => {
+                        exit_status = Some(ExitStatus::exited(status as i32));
+                    }
+                    ChannelMsg::ExitSignal { signal_name, .. } => {
+                        exit_status = Some(
+                            ExitStatus::try_from(signal_name)
+                                .unwrap_or_else(|_| ExitStatus::signalled(SIGKILL)),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            let exit_status = exit_status.with_context(|| {
+                format!(
+                    "`{program}` on `{}` ended without an exit status",
+                    self.host
+                )
+            })?;
+
+            Ok(CommandOutput {
+                stdout: stdout.freeze(),
+                stderr: stderr.freeze(),
+                exit_status,
+            })
+        };
+
+        tokio::time::timeout(OUTPUT_TIMEOUT, run)
+            .await
+            .with_context(|| {
+                format!(
+                    "`{program}` on `{}` did not answer within {OUTPUT_TIMEOUT:?}",
+                    self.host
+                )
+            })?
+    }
+}
+
+impl FileSystem for SshHost {
+    async fn home_dir(&self) -> anyhow::Result<Utf8TypedPathBuf> {
+        Ok(self.home.clone())
+    }
+
+    async fn cache_dir(&self) -> anyhow::Result<Utf8TypedPathBuf> {
+        Ok(self.cache.clone())
+    }
+
+    async fn metadata(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<FileMetadata> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+        row_of(&sftp, path).await
+    }
+
+    async fn read_dir(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<Vec<FileMetadata>> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+        let wire_path = to_sftp_wire_path(path);
+
+        let entries = sftp
+            .read_dir(wire_path)
+            .await
+            .with_context(|| format!("cannot read {path}"))?;
+
+        let mut rows = Vec::new();
+        for entry in entries {
+            let name = entry.file_name();
+            if name == "." || name == ".." {
+                continue;
+            }
+            let entry_path = path.join(&name);
+            let meta = entry.metadata();
+            let is_symlink = meta.is_symlink();
+
+            let shown = if is_symlink {
+                let target_wire = to_sftp_wire_path(entry_path.to_path());
+                sftp.metadata(target_wire).await.ok().unwrap_or(meta)
+            } else {
+                meta
+            };
+
+            rows.push(file_metadata_from_attrs(entry_path, &shown, is_symlink));
+        }
+        Ok(rows)
+    }
+
+    async fn is_dir(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<bool> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+
+        match sftp.metadata(to_sftp_wire_path(path)).await {
+            Ok(attributes) => Ok(attributes.is_dir()),
+            Err(russh_sftp::client::error::Error::Status(status))
+                if status.status_code == russh_sftp::protocol::StatusCode::NoSuchFile =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(error).with_context(|| format!("cannot check {path}")),
+        }
+    }
+
+    async fn open_file(
+        &self,
+        path: Utf8TypedPath<'_>,
+        options: FileOpenOptions,
+    ) -> anyhow::Result<HostFile> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+        let flags = OpenFlags::from(&options);
+        let wire_path = to_sftp_wire_path(path);
+
+        let file = sftp
+            .open_with_flags(wire_path, flags)
+            .await
+            .with_context(|| format!("cannot open {path}"))?;
+        Ok(Either::Right(file))
+    }
+
+    async fn read_bytes(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<Bytes> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+        let wire_path = to_sftp_wire_path(path);
+
+        let bytes = sftp
+            .read(wire_path)
+            .await
+            .with_context(|| format!("cannot read {path}"))?;
+        Ok(Bytes::from(bytes))
+    }
+
+    async fn write_from<R>(
+        &self,
+        path: Utf8TypedPath<'_>,
+        mut source: R,
+        progress: watch::Sender<u64>,
+    ) -> anyhow::Result<()>
+    where
+        R: AsyncRead + Unpin + Send,
+    {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+        let wire_path = to_sftp_wire_path(path);
+
+        let mut file = sftp
+            .open_with_flags(
+                wire_path,
+                OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+            )
+            .await
+            .with_context(|| format!("cannot create {path}"))?;
+
+        let mut buffer = vec![0u8; SFTP_COPY_BUFFER].into_boxed_slice();
+        let mut written = 0u64;
+
+        loop {
+            let read = source
+                .read(&mut buffer)
+                .await
+                .with_context(|| format!("cannot read the file of {path}"))?;
+            if read == 0 {
+                break;
+            }
+            file.write_all(&buffer[..read])
+                .await
+                .with_context(|| format!("cannot write {path}"))?;
+            written += read as u64;
+            progress.send_replace(written);
+        }
+
+        file.flush()
+            .await
+            .with_context(|| format!("cannot write {path}"))?;
+        file.shutdown()
+            .await
+            .with_context(|| format!("cannot close {path}"))?;
         Ok(())
     }
 
-    fn is_open(&self) -> bool {
-        self.current_session().is_some_and(|session| session.is_open())
-    }
+    async fn remove(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<()> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
+        let wire_path = to_sftp_wire_path(path);
 
-    fn endpoint(&self) -> Endpoint {
-        self.target.endpoint()
-    }
-
-    async fn close(&self) {
-        let previous = self.state.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if let Some(previous) = previous {
-            previous.session.close().await;
-            tracing::info!(endpoint = %self.endpoint(), "disconnected");
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Exec for SshHost {
-    async fn spawn(&self, command: Command) -> anyhow::Result<Channel> {
-        if let Some(dir) = &command.cwd {
-            host_files::check_absolute(dir)?;
-        }
-        let line = command_line(&command)?;
-        let session = self.active_session()?;
-        session.exec(line).await
-    }
-
-    async fn output(&self, command: Command) -> anyhow::Result<Output> {
-        if let Some(dir) = &command.cwd {
-            host_files::check_absolute(dir)?;
-        }
-        let line = command_line(&command)?;
-        let session = self.active_session()?;
-        session.output(line).await
-    }
-}
-
-#[async_trait::async_trait]
-impl Files for SshHost {
-    async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
-        host_files::check_absolute(path)?;
-        self.with_sftp(async |sftp| files::is_dir(sftp, path).await).await
-    }
-
-    async fn create_dir_all(&self, path: &str) -> anyhow::Result<()> {
-        host_files::check_absolute(path)?;
-        self.with_sftp(async |sftp| files::create_dir_all(sftp, path).await)
+        sftp.remove_file(wire_path)
             .await
+            .with_context(|| format!("cannot remove {path}"))
     }
 
-    async fn home_dir(&self) -> anyhow::Result<Option<String>> {
-        let home = self
-            .with_sftp(async |sftp| sftp.canonicalize(".").await.map_err(|e| anyhow::anyhow!(e)))
-            .await?;
-        Ok(Some(home))
-    }
+    async fn create_dir_all(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<()> {
+        let path = require_absolute(path)?;
+        check_type(path, self.family)?;
+        let sftp = self.sftp().await?;
 
-    async fn cache_dir(&self) -> anyhow::Result<String> {
-        let dir = self
-            .cache_dir
-            .get_or_try_init(|| async {
-                let probed = self
-                    .output(Command::new("sh").args(["-c", "printf %s \"${XDG_CACHE_HOME:-$HOME/.cache}\""]))
-                    .await;
-                let base = match probed {
-                    Ok(out)
-                        if matches!(
-                            out.termination,
-                            crate::channel::Termination::Exited { success: true, .. }
-                        ) =>
-                    {
-                        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                        if text.is_empty() { None } else { Some(text) }
-                    }
-                    _ => None,
-                };
-                let base = match base {
-                    Some(b) => b,
-                    None => {
-                        let home = self.home_dir().await?.unwrap_or_else(|| "/tmp".to_string());
-                        format!("{home}/.cache")
-                    }
-                };
-                Ok::<_, anyhow::Error>(format!("{base}/pie/attachments"))
-            })
-            .await?;
-        Ok(dir.clone())
-    }
+        let mut ancestors: Vec<Utf8TypedPath<'_>> = path
+            .ancestors()
+            .filter(|ancestor| !ancestor.as_str().is_empty())
+            .collect();
+        ancestors.reverse();
 
-    async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<FileEntry>> {
-        host_files::check_absolute(path)?;
-        self.with_sftp(async |sftp| files::read_dir(sftp, path).await).await
-    }
-
-    async fn open(&self, path: &str) -> anyhow::Result<Box<dyn AsyncReadSeek>> {
-        host_files::check_absolute(path)?;
-        self.with_sftp(async |sftp| files::open(sftp, path).await).await
-    }
-
-    async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
-        host_files::check_absolute(path)?;
-        self.with_sftp(async |sftp| files::remove_file(sftp, path).await).await
-    }
-
-    async fn stage_file(
-        &self,
-        name: &str,
-        ext: &str,
-        source: &camino::Utf8Path,
-        mut on_progress: ProgressFn<'_>,
-    ) -> anyhow::Result<String> {
-        let target_dir = self.cache_dir().await?;
-        self.with_sftp(async |sftp| upload::upload(self, sftp, &target_dir, source, name, ext, &mut *on_progress).await)
-            .await
+        for level in ancestors {
+            let wire = to_sftp_wire_path(level);
+            if sftp
+                .try_exists(&wire)
+                .await
+                .with_context(|| format!("cannot check {level}"))?
+            {
+                continue;
+            }
+            if let Err(error) = sftp.create_dir(&wire).await
+                && !sftp.try_exists(&wire).await.unwrap_or(false)
+            {
+                return Err(error).with_context(|| format!("cannot make {level}"));
+            }
+        }
+        Ok(())
     }
 }
 
-/// The shell line that runs one command on a remote machine.
-fn command_line(command: &Command) -> anyhow::Result<String> {
-    let mut words = Vec::with_capacity(command.args.len() + 1);
-    words.push(command.program.as_str());
-    words.extend(command.args.iter().map(String::as_str));
-    let invocation = shlex::try_join(words).map_err(|error| anyhow::anyhow!("invalid command argument: {error}"))?;
-
-    if let Some(dir) = &command.cwd {
-        let quoted_dir =
-            shlex::try_quote(dir).map_err(|error| anyhow::anyhow!("invalid working directory `{dir}`: {error}"))?;
-        Ok(format!("cd -- {quoted_dir} && {invocation}"))
+/// Reads the row of one entry over SFTP, following symlinks with a second metadata call.
+async fn row_of(sftp: &SftpSession, path: Utf8TypedPath<'_>) -> anyhow::Result<FileMetadata> {
+    let wire_path = to_sftp_wire_path(path);
+    let entry = sftp
+        .symlink_metadata(&wire_path)
+        .await
+        .with_context(|| format!("cannot read {path}"))?;
+    let is_symlink = entry.is_symlink();
+    let target = if is_symlink {
+        sftp.metadata(&wire_path).await.ok()
     } else {
-        Ok(invocation)
+        None
+    };
+    let shown = target.as_ref().unwrap_or(&entry);
+    Ok(file_metadata_from_attrs(
+        path.to_path_buf(),
+        shown,
+        is_symlink,
+    ))
+}
+
+/// Converts `russh_sftp` attributes into [`FileMetadata`].
+fn file_metadata_from_attrs(
+    path: Utf8TypedPathBuf,
+    attrs: &russh_sftp::protocol::FileAttributes,
+    is_symlink: bool,
+) -> FileMetadata {
+    let modified = attrs
+        .mtime
+        .map(|secs| UNIX_EPOCH + Duration::from_secs(u64::from(secs)));
+    FileMetadata {
+        is_file: attrs.is_regular(),
+        is_dir: attrs.is_dir(),
+        is_symlink,
+        len: attrs.size,
+        path,
+        modified,
+        created: None,
     }
 }
 
@@ -373,61 +689,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_endpoint_names_the_user_host_and_port() {
-        assert_eq!(
-            SshTarget::new("example.com", "pi").endpoint().to_string(),
-            "pi@example.com:22"
-        );
-        assert_eq!(
-            SshTarget::new("example.com", "pi").port(2222).endpoint().to_string(),
-            "pi@example.com:2222"
-        );
+    fn a_unix_home_is_recognized_as_unix() {
+        let (family, path) = parse_remote_home("/home/alice");
+        assert_eq!(family, OsFamily::Unix);
+        assert!(path.is_unix());
+        assert_eq!(path.as_str(), "/home/alice");
     }
 
     #[test]
-    fn auth_debug_output_never_prints_secrets() {
-        let password = format!("{:?}", SshAuth::Password("hunter2".to_string()));
-        assert_eq!(password, "Password(<redacted>)");
-
-        let key = format!(
-            "{:?}",
-            SshAuth::Key {
-                key: "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----".to_string(),
-                passphrase: Some("hunter2".to_string()),
-            }
-        );
-        assert!(!key.contains("BEGIN OPENSSH PRIVATE KEY"), "got `{key}`");
-        assert!(!key.contains("AAAA"), "got `{key}`");
-        assert!(!key.contains("hunter2"), "got `{key}`");
-        assert!(key.contains("<redacted>"), "got `{key}`");
+    fn a_windows_openssh_home_with_leading_slash_becomes_a_windows_path() {
+        let (family, path) = parse_remote_home("/C:/Users/alice");
+        assert_eq!(family, OsFamily::Windows);
+        assert!(path.is_windows());
+        assert_eq!(path.as_str(), "C:/Users/alice");
     }
 
     #[test]
-    fn a_remote_pi_loads_a_session_file_through_a_quoted_path() {
-        let command = Command::new("pi")
-            .args(["--mode", "rpc"])
-            .args(["--session", "/home/o'brien/sessions/one.jsonl"]);
-        assert_eq!(
-            command_line(&command).unwrap(),
-            r#"pi --mode rpc --session "/home/o'brien/sessions/one.jsonl""#
-        );
-    }
-
-    #[test]
-    fn command_line_quotes_directory_and_arguments() {
-        let command = Command::new("pi")
-            .cwd("/var/my projects")
-            .args(["--mode", "rpc"])
-            .args(["--session", "/home/o'brien/sessions/one.jsonl"]);
-        assert_eq!(
-            command_line(&command).unwrap(),
-            r#"cd -- '/var/my projects' && pi --mode rpc --session "/home/o'brien/sessions/one.jsonl""#
-        );
-    }
-
-    #[test]
-    fn command_line_rejects_nul_bytes() {
-        let command = Command::new("pi").args(["bad\0arg"]);
-        assert!(command_line(&command).is_err());
+    fn a_windows_drive_home_is_recognized_as_windows() {
+        let (family, path) = parse_remote_home("D:\\Users\\alice");
+        assert_eq!(family, OsFamily::Windows);
+        assert!(path.is_windows());
+        assert_eq!(path.as_str(), "D:\\Users\\alice");
     }
 }

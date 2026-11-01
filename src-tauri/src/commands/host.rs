@@ -1,532 +1,372 @@
-//! Opening, reading and closing the one machine, and its directories.
-//!
-//! `connect` is the only command that waits for a person. Pie cannot answer one
-//! question itself: whether an unknown host key belongs to the host. The question
-//! arrives as an event while this command is in progress. The answer comes back
-//! through a separate command. Therefore the name of the connection is an
-//! argument here and not a constant: the event uses that name, and the answer
-//! must say which question it answers.
-//!
-//! `list_dirs` is here because a directory belongs to a machine, not to a
-//! session: the picker asks the connected machine, and the session that starts
-//! there reads the answer.
+//! The connections: reaching a machine, its sessions, and its files.
 
-use std::{
-    fmt,
-    future::Future,
-    pin::Pin,
-    sync::{Arc, PoisonError},
-    time::Duration,
-};
+use std::collections::hash_map::Entry;
+use std::sync::{Arc, PoisonError};
+use std::time::Duration;
 
-use anyhow::Context as _;
-use camino::Utf8PathBuf;
-use serde::Deserialize;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::oneshot;
+use tauri::{AppHandle, Emitter, State};
+use typed_path::{Utf8TypedPath, Utf8TypedPathBuf};
 
-use crate::{
-    error::PieError,
-    host::{AskHostKey, ConnectionState, Host, KnownHosts, Listing, PresentedKey, SshAuth, SshTarget, Trust},
-    runtime::{ConnectionInfo, HostKeyQuestion, HostRuntime},
-    session::Id,
-    state::{AppState, HOST_KEY_PATIENCE},
-};
+use crate::commands::host_at;
+use crate::error::PieError;
+use crate::host::executor::OsFamily;
+use crate::host::fs::{UploadReceipt, UploadSource, check_type, require_absolute};
+use crate::host::{Executor, FileSystem, HostConnection, HostTarget, connect};
+use crate::session::SessionInfo;
+use crate::state::{AppState, HostId};
 
-/// How to reach a machine, as the connect screen sends it.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "transport", rename_all = "snake_case")]
-pub enum ConnectSpec {
-    /// This machine.
-    Local,
-    /// A machine reached over SSH.
-    Ssh {
-        /// Hostname or IP address.
-        host: String,
-        /// Port; defaults to 22.
-        #[serde(default)]
-        port: Option<u16>,
-        /// Login name.
-        user: String,
-        /// Credentials.
-        auth: AuthSpec,
-    },
-}
+/// How often an upload reports the bytes it has written.
+const UPLOAD_TICK: Duration = Duration::from_millis(100);
 
-/// Credentials for an SSH connection, as the connect screen sends them.
-#[derive(Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AuthSpec {
-    /// Password authentication.
-    Password {
-        /// The password.
-        password: String,
-    },
-    /// Public-key authentication with the private key itself.
-    Key {
-        /// The private key, in the OpenSSH or PEM form a key file holds.
-        key: String,
-        /// Passphrase, when the key is encrypted.
-        #[serde(default)]
-        passphrase: Option<String>,
-    },
-}
-
-impl fmt::Debug for AuthSpec {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Password { .. } => formatter
-                .debug_struct("Password")
-                .field("password", &"<redacted>")
-                .finish(),
-            Self::Key { key, passphrase } => formatter
-                .debug_struct("Key")
-                .field("bytes", &key.len())
-                .field("passphrase", &passphrase.as_ref().map(|_| "<redacted>"))
-                .finish(),
-        }
-    }
-}
-
-impl From<AuthSpec> for SshAuth {
-    fn from(auth: AuthSpec) -> Self {
-        match auth {
-            AuthSpec::Password { password } => Self::Password(password),
-            AuthSpec::Key { key, passphrase } => Self::Key { key, passphrase },
-        }
-    }
-}
-
-/// The event of the connection for a state.
-fn state_event(connection: &Id) -> String {
-    format!("pi://connection/{connection}/state")
-}
-
-/// Puts host-key questions to the frontend.
-///
-/// Pie builds one for each connection. Therefore the question carries the name of
-/// that connection. The answer comes back through [`trust_host_key`].
-struct AskFrontend {
-    app: AppHandle,
-    question: Arc<HostKeyQuestion>,
-    connection: Id,
-}
-
-impl AskHostKey for AskFrontend {
-    fn ask(&self, presented: PresentedKey) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        // These values leave `self` before the future is boxed. The future
-        // borrows `self`, not the values.
-        let app = self.app.clone();
-        let question = Arc::clone(&self.question);
-        let connection = self.connection.clone();
-        let event = state_event(&connection);
-
-        Box::pin(async move {
-            let (answer, decision) = oneshot::channel();
-            question.open(&connection, answer);
-            if let Err(error) = app.emit(&event, ConnectionState::HostKey { key: presented }) {
-                tracing::warn!(%error, "the host-key question could not be delivered");
-                question.close(&connection);
-                return false;
-            }
-            wait_for_answer(decision, HOST_KEY_PATIENCE).await
-        })
-    }
-}
-
-/// The answer to a host-key question. An absent answer is a refusal.
-///
-/// The sender stays in the slot until an answer arrives or a new question
-/// replaces it. Therefore the wait must end by itself. A frontend that went away
-/// gives the same answer: no trust.
-async fn wait_for_answer(decision: oneshot::Receiver<bool>, patience: Duration) -> bool {
-    match tokio::time::timeout(patience, decision).await {
-        Ok(Ok(trusted)) => trusted,
-        Ok(Err(_gone)) => false,
-        Err(_elapsed) => {
-            tracing::info!(?patience, "nobody answered whether to trust this host key");
-            false
-        }
-    }
-}
-
-/// Connects to a machine, and reads what it holds.
-///
-/// No pi starts here. The connection is the machine: the reach to it and the
-/// conversation files on it. A session is a pi process, and the frontend starts
-/// one with [`attach_session`](crate::commands::session::attach_session) when it
-/// needs to speak. Therefore a screen that only lists conversations runs no pi.
-///
-/// The `id` is the name of this connection from the frontend. The events of this
-/// connection use that name. The host-key question arrives before this command
-/// returns.
-///
-/// # Errors
-///
-/// [`PieError::AlreadyConnected`] if a live connection is present, a sentence if
-/// the name cannot go in an event, and the failure of the reach to the machine.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(connection = %id))]
-pub async fn connect(
-    app: AppHandle,
+/// Start pi on an existing conversation.
+#[tauri::command(rename = "attach_session")]
+pub async fn host_attach_session(
     state: State<'_, AppState>,
-    id: String,
-    spec: ConnectSpec,
+    id: HostId,
+    session: Utf8TypedPathBuf,
+) -> Result<SessionInfo, PieError> {
+    let host = host_at(&state, &id)?;
+    let session = host.attach_session(session, state.bus()).await?;
+    Ok(session.info())
+}
+
+/// What the frontend hears about one connection.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionInfo {
+    pub id: HostId,
+    /// The sessions that run now.
+    pub sessions: Vec<SessionInfo>,
+    /// Whether the reach to the machine is still open.
+    pub open: bool,
+}
+
+/// Reach a machine, and register the connection under `id`.
+#[tauri::command(rename = "connect")]
+pub async fn host_connect(
+    state: State<'_, AppState>,
+    id: HostId,
+    target: HostTarget,
 ) -> Result<ConnectionInfo, PieError> {
-    let id = Id::new(&id)?;
-    let host = build_host(&app, &state, &id, spec)?;
-    let runtime = Arc::new(HostRuntime::new(id.clone(), host));
-
-    let replaced = {
-        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(existing) = hosts.get(&id)
-            && existing.sessions().is_alive()
-        {
-            return Err(PieError::AlreadyConnected {
-                endpoint: existing.endpoint().to_string(),
-            });
-        }
-        hosts.insert(id.clone(), Arc::clone(&runtime))
-    };
-    if let Some(previous) = replaced {
-        // No pi of this connection runs, so nothing speaks through it. The
-        // connection ended with no observer, and the registry must not keep the
-        // machine it reached. A machine that was connected and never spoken to is
-        // this case too: only a session makes a connection live.
-        tracing::info!(connection = %id, "dropping a connection with no live session");
-        previous.close().await;
-    }
-
-    if let Err(error) = runtime.connect().await {
-        {
-            let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-            hosts.remove_if_current(&runtime);
-        }
-        runtime.close().await;
-        return Err(error.into());
-    }
-
-    let active = {
-        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-        hosts.set_active_if_current(&runtime)
-    };
-    if !active {
-        runtime.close().await;
-        return Err(PieError::NotConnected {
-            doing: "connecting".to_string(),
+    if state
+        .hosts
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains_key(&id)
+    {
+        return Err(PieError::AlreadyConnected {
+            connection: id.as_str().to_owned(),
         });
     }
 
-    let info = runtime.info();
-    watching(&app, runtime, id);
-    Ok(info)
-}
+    let connection = Arc::new(connect(id.clone(), target, state.bus(), state.dirs()).await?);
 
-/// Builds the [`Host`] for `spec`.
-fn build_host(app: &AppHandle, state: &AppState, id: &Id, spec: ConnectSpec) -> anyhow::Result<Arc<Host>> {
-    let home = app
-        .path()
-        .home_dir()
-        .ok()
-        .and_then(|h| Utf8PathBuf::from_path_buf(h).ok());
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .ok()
-        .and_then(|c| Utf8PathBuf::from_path_buf(c).ok());
-    match spec {
-        ConnectSpec::Local => Ok(Arc::new(Host::local_with_cache(home, cache))),
-        ConnectSpec::Ssh { host, port, user, auth } => {
-            let store = app
-                .path()
-                .app_data_dir()
-                .with_context(|| "pie cannot resolve where to keep host keys")?
-                .join("known_hosts");
-            let trust = Trust::new(KnownHosts::new(
-                store,
-                home.map(|home| home.as_std_path().join(".ssh").join("known_hosts")),
-                AskFrontend {
-                    app: app.clone(),
-                    question: Arc::clone(&state.question),
-                    connection: id.clone(),
-                },
-            ));
-            let mut target = SshTarget::new(host, user);
-            if let Some(port) = port {
-                target = target.port(port);
+    // The guard is released before any await: a `std` guard across an await would
+    // make the command future `!Send`.
+    let registered = {
+        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
+        match hosts.entry(id.clone()) {
+            Entry::Occupied(_) => Err(Arc::clone(&connection)),
+            Entry::Vacant(slot) => {
+                slot.insert(Arc::clone(&connection));
+                Ok(())
             }
-            Ok(Arc::new(Host::ssh(target, auth.into(), trust)))
+        }
+    };
+
+    match registered {
+        Ok(()) => connection_info(&state, &id),
+        Err(extra) => {
+            let _ = extra.disconnect().await;
+            Err(PieError::AlreadyConnected {
+                connection: id.as_str().to_owned(),
+            })
         }
     }
 }
 
-/// The one connection that pie holds now, or `null` when there is none.
-///
-/// The workspace reads the session it subscribes to from here. The machine that
-/// opened the connection dies with the connect screen, so its answer cannot
-/// outlive it, and Rust is the source of truth: a reload of the webview reads the
-/// same connection instead of losing it.
-///
-/// A connection whose pi has exited is still the connection that pie holds. The
-/// read of a session reports the end; this read does not guess it.
-///
-/// # Errors
-///
-/// The result is the shape of the boundary (`architecture.md`). It is not a claim
-/// about today's code. A read of the registry has nothing to fail on yet.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn get_connection(state: State<'_, AppState>) -> Result<Option<ConnectionInfo>, PieError> {
-    Ok(current_connection(&state))
-}
-
-/// What the frontend is told about the one connection, if there is one.
-fn current_connection(state: &AppState) -> Option<ConnectionInfo> {
-    let runtime = state.hosts.lock().unwrap_or_else(PoisonError::into_inner).active();
-    runtime.map(|runtime| runtime.info())
-}
-
-/// Ends the connection. Every session stops. The files of the sessions stay.
-///
-/// A disconnect with no connection does nothing. Therefore a click that races the
-/// end of the connection is not an error.
-///
-/// A `connect` in progress is not the active runtime until its reach succeeds.
-/// A disconnect during that time removes the runtime, and the pending connect
-/// closes it and reports `NotConnected`.
-///
-/// # Errors
-///
-/// The result is the shape of the boundary (`architecture.md`). It is not a claim
-/// about today's code. The end of a connection has nothing to fail on yet.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn disconnect(state: State<'_, AppState>) -> Result<(), PieError> {
-    // The lock is dropped at the end of this block, before the sessions stop. The
-    // order of a new `connect` against this stop is the task of the frontend, not
-    // of a lock.
-    let runtimes = {
-        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-        hosts.remove_all()
-    };
-    for runtime in runtimes {
-        runtime.close().await;
-    }
+/// Make a directory on the machine, with parents as needed.
+#[tauri::command(rename = "create_dir_all")]
+pub async fn host_create_dir_all(
+    state: State<'_, AppState>,
+    id: HostId,
+    path: String,
+) -> Result<(), PieError> {
+    let host = host_at(&state, &id)?;
+    let path = host_path(&path, host.host().family().await)?;
+    host.host().create_dir_all(path.to_path()).await?;
     Ok(())
 }
 
-/// Brings the connection back, with what this process already holds.
-///
-/// A reach ends on its own: a network goes away, a host sleeps. The frontend hears the
-/// end, and this is the command it answers it with. The machine, the address and the
-/// credential are the ones already used in this process, so a person types nothing a
-/// second time, and no secret crosses the boundary again - not even to pie's own
-/// frontend.
-///
-/// # Errors
-///
-/// [`PieError::NotConnected`] when there is no connection to bring back - what a request
-/// that raced the end of a connection finds - and everything a `connect` reports.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn reconnect(state: State<'_, AppState>) -> Result<ConnectionInfo, PieError> {
-    let previous = {
-        let hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-        hosts.active()
-    };
-    let Some(previous) = previous else {
-        return Err(PieError::NotConnected {
-            doing: "bringing the connection back".to_string(),
-        });
-    };
-
-    let id = previous.id().clone();
-    tracing::info!(connection = %id, endpoint = %previous.endpoint(), "dialling the same machine again");
-
-    if let Err(error) = previous.reconnect().await {
-        tracing::warn!(connection = %id, %error, "the connection could not be brought back");
-        return Err(error.into());
-    }
-    let active = {
-        let mut hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-        hosts.set_active_if_current(&previous)
-    };
-    if !active {
-        previous.close().await;
-        return Err(PieError::NotConnected {
-            doing: "bringing the connection back".to_string(),
-        });
-    }
-    Ok(previous.info())
+/// Delete one conversation file of the machine.
+#[tauri::command(rename = "delete_session")]
+pub async fn host_delete_session(
+    state: State<'_, AppState>,
+    id: HostId,
+    session: Utf8TypedPathBuf,
+) -> Result<(), PieError> {
+    host_at(&state, &id)?.delete_session(&session).await?;
+    Ok(())
 }
 
-/// How often the watch of a reach asks whether it is still open.
-const WATCH_EVERY: Duration = Duration::from_millis(500);
+/// End one pi. The conversation file stays.
+#[tauri::command(rename = "detach_session")]
+pub async fn host_detach_session(
+    state: State<'_, AppState>,
+    id: HostId,
+    session: Utf8TypedPathBuf,
+) -> Result<(), PieError> {
+    host_at(&state, &id)?.detach_session(&session).await?;
+    Ok(())
+}
 
-/// Watches the reach to the machine, and says so when it ends.
-fn watching(app: &AppHandle, runtime: Arc<HostRuntime>, id: Id) {
-    let app = app.clone();
-    tokio::spawn(async move {
-        let mut announced = false;
+/// Whether a path names a directory on the machine.
+#[tauri::command(rename = "dir_exists")]
+pub async fn host_dir_exists(
+    state: State<'_, AppState>,
+    id: HostId,
+    path: String,
+) -> Result<bool, PieError> {
+    let host = host_at(&state, &id)?;
+    let path = host_path(&path, host.host().family().await)?;
+
+    Ok(host.host().is_dir(path.to_path()).await?)
+}
+
+/// End the connection, and every session on it.
+#[tauri::command(rename = "disconnect")]
+pub async fn host_disconnect(state: State<'_, AppState>, id: HostId) -> Result<(), PieError> {
+    let connection = state
+        .hosts
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&id)
+        .ok_or_else(|| PieError::NotConnected {
+            doing: format!("reaching host `{id}`"),
+        })?;
+
+    connection.disconnect().await?;
+    Ok(())
+}
+
+/// The login home of the machine.
+#[tauri::command(rename = "home_dir")]
+pub async fn host_home_dir(
+    state: State<'_, AppState>,
+    id: HostId,
+) -> Result<Option<Utf8TypedPathBuf>, PieError> {
+    let host = host_at(&state, &id)?;
+
+    // A machine reports a missing home as this one failure, so `None` is its answer.
+    match host.host().home_dir().await {
+        Ok(home) => Ok(Some(home)),
+        Err(error) => {
+            tracing::debug!(%error, host = %id, "this machine reports no home directory");
+            Ok(None)
+        }
+    }
+}
+
+/// One row of the directory picker.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirEntry {
+    pub name: String,
+    pub path: Utf8TypedPathBuf,
+    pub is_dir: bool,
+}
+
+/// One directory level of the machine.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Listing {
+    pub directory: Utf8TypedPathBuf,
+    pub entries: Vec<DirEntry>,
+}
+
+/// One directory level of the machine, for the picker.
+#[tauri::command(rename = "list_dirs")]
+pub async fn host_list_dirs(
+    state: State<'_, AppState>,
+    id: HostId,
+    path: String,
+) -> Result<Listing, PieError> {
+    let host = host_at(&state, &id)?;
+    let path = host_path(&path, host.host().family().await)?;
+
+    let entries = host
+        .host()
+        .read_dir(path.to_path())
+        .await?
+        .into_iter()
+        .filter(|row| row.is_dir)
+        .map(|row| DirEntry {
+            name: row
+                .path
+                .to_path()
+                .file_name()
+                .unwrap_or_default()
+                .to_owned(),
+            path: row.path,
+            is_dir: true,
+        })
+        .collect();
+
+    Ok(Listing {
+        directory: path,
+        entries,
+    })
+}
+
+/// Every conversation of the machine, newest first.
+#[tauri::command(rename = "list_sessions")]
+pub async fn host_list_sessions(
+    state: State<'_, AppState>,
+    id: HostId,
+) -> Result<Vec<SessionInfo>, PieError> {
+    Ok(host_at(&state, &id)?.list_sessions().await?)
+}
+
+/// Dial the same machine again, with the credential pie holds.
+#[tauri::command(rename = "reconnect")]
+pub async fn host_reconnect(
+    state: State<'_, AppState>,
+    id: HostId,
+) -> Result<ConnectionInfo, PieError> {
+    let previous = host_at(&state, &id)?;
+    if previous.is_open() {
+        return connection_info(&state, &id);
+    }
+
+    let target = previous.target().clone();
+    let fresh = Arc::new(connect(id.clone(), target, state.bus(), state.dirs()).await?);
+
+    let displaced = state
+        .hosts
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(id.clone(), fresh);
+    if let Some(displaced) = displaced {
+        let _ = displaced.disconnect().await;
+    }
+
+    connection_info(&state, &id)
+}
+
+/// Start pi on a new conversation in `cwd`. pi chooses the conversation file.
+#[tauri::command(rename = "start_new_session")]
+pub async fn host_start_new_session(
+    state: State<'_, AppState>,
+    id: HostId,
+    cwd: String,
+) -> Result<SessionInfo, PieError> {
+    let host = host_at(&state, &id)?;
+    let cwd = host_path(&cwd, host.host().family().await)?;
+    let session = host.start_new_session(cwd.to_path(), state.bus()).await?;
+    Ok(session.info())
+}
+
+/// How far one upload has gone.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadProgress {
+    /// Bytes written to the machine so far.
+    pub bytes: u64,
+    /// Bytes of the whole file.
+    pub total: u64,
+}
+
+/// Stage one file where pi on the machine can read it.
+#[tauri::command(rename = "upload_file")]
+pub async fn host_upload_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: HostId,
+    upload_id: String,
+    source: UploadSource,
+) -> Result<UploadReceipt, PieError> {
+    let host = host_at(&state, &id)?;
+    let total = source_length(&source).await;
+    let (progress, mut reports) = tokio::sync::watch::channel(0u64);
+
+    let event_name = format!("pi://upload/{upload_id}");
+    let reporter = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(UPLOAD_TICK);
+        tick.tick().await;
         loop {
-            tokio::time::sleep(WATCH_EVERY).await;
-            let held = {
-                let state = app.state::<AppState>();
-                let hosts = state.hosts.lock().unwrap_or_else(PoisonError::into_inner);
-                hosts.is_current(&runtime)
-            };
-            if !held {
-                return;
+            tokio::select! {
+                changed = reports.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+                _ = tick.tick() => {
+                    let bytes = *reports.borrow();
+                    if let Err(error) = app.emit(&event_name, UploadProgress { bytes, total }) {
+                        tracing::warn!(%error, event = %event_name, "an upload report did not leave");
+                    }
+                }
             }
-            if runtime.is_open() {
-                announced = false;
-                continue;
-            }
-            if announced {
-                continue;
-            }
-            tracing::info!(connection = %id, "the reach to the machine ended");
-            if let Err(error) = app.emit(&state_event(&id), ConnectionState::Ended) {
-                tracing::warn!(connection = %id, %error, "the end of a reach was not announced");
-            }
-            announced = true;
         }
     });
+
+    let receipt = host.upload_file(source, progress).await;
+    reporter.abort();
+    Ok(receipt?)
 }
 
-/// Answers the host-key question that the frontend shows.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(connection = %connection, trusted))]
-pub fn trust_host_key(state: State<'_, AppState>, connection: String, trusted: bool) -> Result<bool, PieError> {
-    Ok(state.question.answer(&connection, trusted))
+/// The path `text` names on a machine of `family`, or why it names none.
+fn host_path(text: &str, family: OsFamily) -> Result<Utf8TypedPathBuf, PieError> {
+    let path = Utf8TypedPath::derive(text);
+    let path = require_absolute(path).map_err(bad_argument)?;
+    check_type(path, family).map_err(bad_argument)?;
+    Ok(path.to_path_buf())
 }
 
-/// Returns the login home directory of the connected machine, if known.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err)]
-pub async fn home_dir(state: State<'_, AppState>) -> Result<Option<String>, PieError> {
-    let runtime = super::connected_runtime(&state, "reading its home directory")?;
-    Ok(runtime.host().files().home_dir().await?)
+/// A refusal from the filesystem layer, as the failure of an argument.
+fn bad_argument(error: anyhow::Error) -> PieError {
+    PieError::BadArgument {
+        reason: format!("{error:#}"),
+    }
 }
 
-/// One directory level on the connected machine, for the directory picker.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
-pub async fn list_dirs(state: State<'_, AppState>, path: String) -> Result<Listing, PieError> {
-    let runtime = super::connected_runtime(&state, "browsing its directories")?;
-    Ok(runtime.host().list_dirs(&path).await?)
+/// The whole length of `source`, when this side can tell it before the upload.
+async fn source_length(source: &UploadSource) -> u64 {
+    match source {
+        UploadSource::Local { path } => tokio::fs::metadata(path.as_std_path())
+            .await
+            .map(|metadata| metadata.len())
+            .unwrap_or(0),
+        UploadSource::InMemory { content, .. } => content.len() as u64,
+    }
 }
 
-/// Whether a path names a directory on the connected machine.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
-pub async fn dir_exists(state: State<'_, AppState>, path: String) -> Result<bool, PieError> {
-    let runtime = super::connected_runtime(&state, "reading its directories")?;
-    Ok(runtime.host().files().is_dir(&path).await?)
-}
-
-/// Makes a directory on the connected machine, with parents as needed.
-#[tauri::command]
-#[tracing::instrument(level = "debug", skip_all, err, fields(path = %path))]
-pub async fn create_dir(state: State<'_, AppState>, path: String) -> Result<(), PieError> {
-    let runtime = super::connected_runtime(&state, "making a directory")?;
-    Ok(runtime.host().files().create_dir_all(&path).await?)
+/// What the frontend hears about the connection under `id`, or `not_connected`.
+fn connection_info(state: &AppState, id: &HostId) -> Result<ConnectionInfo, PieError> {
+    let host: Arc<HostConnection> = host_at(state, id)?;
+    Ok(ConnectionInfo {
+        // The connection names itself, so the name the frontend keys its events on is
+        // the one the pump puts on them.
+        id: host.id().clone(),
+        sessions: host.attached_sessions(),
+        open: host.is_open(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn a_missing_connection_reads_as_none_rather_than_failing() {
-        let state = AppState::default();
-
-        assert!(
-            current_connection(&state).is_none(),
-            "no connection is a state, not a failure"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_question_nobody_answers_stops_waiting() {
-        let (_answer, decision) = oneshot::channel();
-
-        let trusted = wait_for_answer(decision, Duration::from_millis(10)).await;
-
-        assert!(!trusted, "no answer is not trust");
-    }
-
-    #[tokio::test]
-    async fn an_answer_that_never_arrives_does_not_hold_a_question_open() {
-        let question = HostKeyQuestion::default();
-        let (answer, decision) = oneshot::channel();
-        let connection = Id::new("main").expect("a usable name");
-        question.open(&connection, answer);
-
-        assert!(!wait_for_answer(decision, Duration::from_millis(10)).await);
-        assert!(
-            !question.answer("main", true),
-            "a late answer finds nobody waiting, and says that it answered nothing"
-        );
-    }
-
     #[test]
-    fn spec_deserializes_from_the_connect_screens_json() {
-        let local: ConnectSpec = serde_json::from_str(r#"{"transport": "local"}"#).unwrap();
-        assert!(matches!(local, ConnectSpec::Local));
+    fn a_path_of_the_wrong_shape_is_a_bad_argument() {
+        assert!(host_path("/work/one", OsFamily::Unix).is_ok());
 
-        let ssh: ConnectSpec = serde_json::from_str(
-            r#"{
-                "transport": "ssh",
-                "host": "box.local",
-                "user": "pi",
-                "auth": { "type": "password", "password": "secret" }
-            }"#,
-        )
-        .unwrap();
-        assert!(matches!(ssh, ConnectSpec::Ssh { port: None, .. }));
-
-        let key: ConnectSpec = serde_json::from_str(
-            r#"{
-                "transport": "ssh",
-                "host": "box.local",
-                "port": 2222,
-                "user": "pi",
-                "auth": { "type": "key", "key": "-----BEGIN OPENSSH PRIVATE KEY-----" }
-            }"#,
-        )
-        .unwrap();
-        assert!(matches!(
-            key,
-            ConnectSpec::Ssh {
-                port: Some(2222),
-                auth: AuthSpec::Key { passphrase: None, .. },
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn auth_debug_output_never_prints_secrets() {
-        let password = format!(
-            "{:?}",
-            AuthSpec::Password {
-                password: "hunter2".to_string()
-            }
-        );
-        assert!(!password.contains("hunter2"), "got `{password}`");
-        assert!(password.contains("<redacted>"), "got `{password}`");
-
-        let key = format!(
-            "{:?}",
-            AuthSpec::Key {
-                key: "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----".to_string(),
-                passphrase: Some("hunter2".to_string()),
-            }
-        );
-        assert!(!key.contains("BEGIN OPENSSH PRIVATE KEY"), "got `{key}`");
-        assert!(!key.contains("AAAA"), "got `{key}`");
-        assert!(!key.contains("hunter2"), "got `{key}`");
-        assert!(key.contains("<redacted>"), "got `{key}`");
+        for text in ["work/one", "", "C:\\work"] {
+            let error = host_path(text, OsFamily::Unix).expect_err("no path of this machine");
+            assert!(
+                matches!(error, PieError::BadArgument { .. }),
+                "`{text}`: {error}"
+            );
+        }
     }
 }

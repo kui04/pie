@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Listing, SessionSummary } from "@/lib/bridge";
+import type { Listing, SessionInfo } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
 import { DirectoryPicker } from "@/routes/chat/picker/DirectoryPicker";
 import { sessionSummary } from "@/preview/fixtures";
@@ -40,11 +40,11 @@ const LEVELS: Record<string, Listing> = {
 };
 
 /** The directories pi holds sessions in: the latest three are the recent folders. */
-const SESSIONS: SessionSummary[] = [
-    sessionSummary({ cwd: "/home/kui/Projects/pie", modified: "2026-01-04T00:00:00.000Z" }),
-    sessionSummary({ cwd: "/srv/www", modified: "2026-01-03T00:00:00.000Z" }),
-    sessionSummary({ cwd: "/home/kui/Projects", modified: "2026-01-02T00:00:00.000Z" }),
-    sessionSummary({ cwd: "/home/kui/Documents", modified: "2026-01-01T00:00:00.000Z" }),
+const SESSIONS: SessionInfo[] = [
+    sessionSummary({ cwd: "/home/kui/Projects/pie", modifiedAt: "2026-01-04T00:00:00.000Z" }),
+    sessionSummary({ cwd: "/srv/www", modifiedAt: "2026-01-03T00:00:00.000Z" }),
+    sessionSummary({ cwd: "/home/kui/Projects", modifiedAt: "2026-01-02T00:00:00.000Z" }),
+    sessionSummary({ cwd: "/home/kui/Documents", modifiedAt: "2026-01-01T00:00:00.000Z" }),
 ];
 
 /** A home with more folders than the frame can hold: the rows scroll under the field. */
@@ -62,7 +62,7 @@ function Seeded({
     children,
 }: {
     levels: Record<string, Listing>;
-    sessions: SessionSummary[];
+    sessions: SessionInfo[];
     children: ReactNode;
 }) {
     const [client] = useState(() => {
@@ -84,14 +84,14 @@ const meta = {
         (Story, context) => (
             <Seeded
                 levels={context.parameters.levels as Record<string, Listing>}
-                sessions={context.parameters.sessions as SessionSummary[]}
+                sessions={context.parameters.sessions as SessionInfo[]}
             >
                 <Story />
             </Seeded>
         ),
     ],
     args: {
-        endpoint: "local",
+        host: "main",
         open: true,
         onOpenChange: () => undefined,
         onPick: () => undefined,

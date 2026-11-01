@@ -1,46 +1,54 @@
 /**
- * The app itself: which kind of machine this is, links that leave it, the marks
- * of the providers, and the window's own controls.
+ * The app itself: its platform, its links, the marks of providers, and the answer
+ * to an ask.
  *
- * The mirror of `src-tauri/src/commands/app.rs`, plus the one door of this
- * folder that does not go through `invoke`: the window. Tauri's window API is
- * the bridge itself rather than a plugin, and it holds no policy, so wrapping
- * `minimize` in a command would buy a round trip and nothing else.
+ * The mirror of `src-tauri/src/commands/app.rs`.
  */
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { Answer } from "./ask";
 import { call, type Unsubscribe } from "./invoke";
 
-/** The two words `platform` answers. */
-export type Platform = "mobile" | "desktop";
+/**
+ * Answers one ask.
+ *
+ * `false` means no ask waited under that id: it timed out, or another answer won.
+ */
+export function answer(id: number, answer: Answer): Promise<boolean> {
+    return call<boolean>("answer", { id, answer });
+}
 
 /**
- * Which kind of machine this is.
+ * Tells Rust that the listeners of this window are up.
  *
- * Asked of Rust rather than measured in CSS: a phone-shaped desktop window is
- * still a desktop and a tablet in landscape is still a phone, and both of those
- * questions have to be answered the same way.
+ * Rust then replays every ask it still waits on, with what is left of its budget.
  */
+export function readyForAnswer(): Promise<void> {
+    return call<void>("ready_for_answer");
+}
+
+/** Which kind of machine pie runs on. */
+export type Platform = "mobile" | "desktop";
+
+/** The kind of machine pie runs on. */
 export function platform(): Promise<Platform> {
     return call<Platform>("platform");
 }
 
 /**
- * Asks the machine to open a link from the transcript.
+ * Opens a link in the browser of the machine.
  *
- * A webview is not the place to follow a link: it would take the window pie
- * speaks to pi through. Rust checks the scheme before anything is opened.
+ * Rust refuses a scheme pie does not open, and the failure carries the link.
  */
 export function openUrl(url: string): Promise<void> {
     return call<void>("open_url", { url });
 }
 
 /**
- * The mark of a provider from models.dev, as a data URL, or `null` when it has
- * none.
+ * The mark of one provider as base64 SVG, or `null` when pie has none.
  *
- * Rust fetches it and keeps it for a day, so the popup of a model asks once. A
- * request that fails answers `null` too; the composer then draws its own icon.
+ * Rust caches a mark for a day and a failed fetch for half an hour, so a caller may
+ * ask on every render.
  */
 export function providerLogo(provider: string): Promise<string | null> {
     return call<string | null>("provider_logo", { provider });
@@ -49,8 +57,8 @@ export function providerLogo(provider: string): Promise<string | null> {
 /**
  * The window's own keys.
  *
- * The window plugin rather than `invoke`, but the same kind of exit: nothing
- * above this folder talks to Tauri.
+ * The window plugin rather than `invoke`, but the same kind of exit: nothing above
+ * this folder talks to Tauri.
  */
 export const windowControls = {
     minimize: () => getCurrentWindow().minimize(),
@@ -59,18 +67,13 @@ export const windowControls = {
     isMaximized: () => getCurrentWindow().isMaximized(),
 };
 
-/**
- * Calls `check` whenever the window is resized or moved, and once right away —
- * maximizing is the window's own business, and the window may arrive already
- * maximized.
- */
+/** Calls `check` on every resize and move, and once right away. */
 export async function watchWindow(check: (maximized: boolean) => void): Promise<Unsubscribe> {
     const appWindow = getCurrentWindow();
     const report = async () => check(await windowControls.isMaximized());
 
-    // One at a time, and released again if the next one fails: a listener that arrived
-    // before the failure would otherwise stay on the window with nobody holding its
-    // release.
+    // A listener that arrived before a failure would stay on the window with nobody
+    // holding its release, so each is released again here.
     let off: Unsubscribe[] = [];
     try {
         off = [await appWindow.onResized(() => void report()), await appWindow.onMoved(() => void report())];

@@ -1,22 +1,22 @@
 /**
- * The extension status of the conversation in view: a key in the bar and the
- * lines the extensions reported behind it.
+ * The extension status of the conversation in view: a key in the bar and the lines the
+ * extensions reported behind it.
  *
- * The dot is only a hint that a status exists; the popover is where the words
- * are. The read is the same cached snapshot the session body already listens to,
- * so opening the popover adds no second subscription.
+ * The dot is only a hint that a status exists; the popover is where the words are. The
+ * lines come from the one store the window fills, so opening the popover adds no second
+ * subscription.
  */
 
-import { useQuery } from "@tanstack/react-query";
 import { Puzzle } from "lucide-react";
 import { cn } from "cn";
 import { Button, Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui";
 import { Icon } from "@/components";
-import { sessionQueries } from "@/lib/query";
+import { useStatuses } from "@/lib/extension/store";
+import type { SessionKey } from "@/lib/session";
 import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 
-export function SessionExtensions({ session }: { session: string }) {
-    const statuses = useQuery({ ...sessionQueries.extension(session) }).data?.statuses ?? [];
+export function SessionExtensions({ conversation }: { conversation: SessionKey }) {
+    const statuses = useStatuses(conversation);
     return (
         <Popover>
             <PopoverTrigger
@@ -58,7 +58,7 @@ export function SessionExtensions({ session }: { session: string }) {
                                 <span className="text-label-md text-muted-foreground">{status.key}</span>
                                 <span className="text-body-md">{status.text}</span>
                             </li>
-                        ))}
+                        ))}{" "}
                     </ul>
                 )}
             </PopoverContent>

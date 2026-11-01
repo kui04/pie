@@ -1,348 +1,650 @@
-//! Streaming, resumable, content-addressed SFTP file uploader.
+//! Stateless, resumable, and deduplicating SFTP file uploader for an [`SshHost`].
+//!
+//! Deduplication and resume rely directly on the file's BLAKE3 digest embedded
+//! in the remote filename and `.part` staging file, eliminating any shared
+//! `.manifest.json` lock contention across concurrent sessions or processes.
 
-use std::{
-    collections::HashMap,
-    io::SeekFrom,
-    sync::{Mutex, PoisonError},
-    time::{Duration, Instant},
-};
+use std::collections::{HashMap, HashSet};
+use std::io::SeekFrom;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use anyhow::Context as _;
-use camino::Utf8Path;
+use anyhow::{Context as _, ensure};
+use hostaddr::HostAddr;
 use russh_sftp::client::SftpSession;
-use tokio::{
-    io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
-    sync::watch,
-};
+use russh_sftp::protocol::OpenFlags;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::{Semaphore, watch};
+use typed_path::{Utf8TypedPath, Utf8TypedPathBuf, Utf8UnixPath, Utf8UnixPathBuf};
 
-use super::{SshHost, files::is_no_such_file};
-use crate::host::files as host_files;
+use crate::host::executor::OsFamily;
+use crate::host::fs::{UploadReceipt, UploadSource, UploadStatus, hashed_name, upload_digest};
+use crate::host::ssh::{ClientHandler, SFTP_COPY_BUFFER, open_sftp_session, to_sftp_wire_path};
 
-/// Buffer size for streaming SFTP writes (256 KiB).
-///
-/// 256 KiB balances network throughput over wide-area links against per-transfer
-/// buffer memory. Standard OpenSSH SFTP clients use 256 KiB pipelined requests.
-const CHUNK_SIZE: usize = 256 * 1024;
+/// Maximum concurrent SFTP upload channels per SSH connection.
+/// Stays safely below OpenSSH's default `MaxSessions 4`.
+const MAX_UPLOAD_CONCURRENCY: usize = 4;
 
-/// Throttle interval between progress notifications.
-///
-/// 100 ms bounds progress events to at most 10 IPC updates per second, keeping
-/// the frontend render thread responsive without visual stutter.
-const REPORT_EVERY: Duration = Duration::from_millis(100);
+/// Trailing byte window (64 KiB) read back from an existing `.part` file
+/// to verify its integrity against the local source before resuming.
+const PART_VERIFY_WINDOW: u64 = 64 * 1024;
 
-/// Throttle share: one report per 1/20th of the file during fast transfers.
-///
-/// Guarantees at most 20 progress updates for rapid transfers over high-speed links.
-const REPORT_SHARE: u64 = 20;
-
-/// Map of active uploads to coalesce concurrent identical transfers into one leader.
-pub(super) type InFlightMap = Mutex<HashMap<String, watch::Receiver<Option<Result<String, String>>>>>;
-
-/// Creates an empty in-flight singleflight map.
-pub(super) fn new_in_flight() -> InFlightMap {
-    Mutex::new(HashMap::new())
+/// High-performance, cloneable SFTP file uploader tied to one [`SshHost`].
+#[derive(Clone)]
+pub struct Uploader {
+    inner: Arc<UploaderInner>,
 }
 
-/// RAII guard that removes an in-flight upload key if the upload drops or is cancelled.
-struct FlightGuard<'a> {
-    in_flight: &'a InFlightMap,
-    key: &'a str,
+/// Shared state for an in-flight upload of a specific BLAKE3 hash.
+struct InFlightUpload {
+    tx: watch::Sender<Option<Result<UploadReceipt, String>>>,
 }
 
-impl Drop for FlightGuard<'_> {
+/// Subscription held by a coalesced follower waiting on the leader.
+enum FlightRole {
+    Leader(LeaderGuard),
+    Follower(watch::Receiver<Option<Result<UploadReceipt, String>>>),
+}
+
+/// RAII guard that removes the hash from `in_flight` and broadcasts an outcome
+/// even if the leader returns early with `?`, panics, or has its future cancelled.
+struct LeaderGuard {
+    inner: Arc<UploaderInner>,
+    hash: blake3::Hash,
+    flight: Arc<InFlightUpload>,
+    completed: bool,
+}
+
+impl LeaderGuard {
+    fn complete(mut self, outcome: &anyhow::Result<UploadReceipt>) {
+        self.completed = true;
+        self.inner
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.hash);
+        let shared = match outcome {
+            Ok(receipt) => Ok(receipt.clone()),
+            Err(err) => Err(format!("{err:#}")),
+        };
+        let _ = self.flight.tx.send_replace(Some(shared));
+    }
+}
+
+impl Drop for LeaderGuard {
     fn drop(&mut self) {
-        let mut map = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
-        map.remove(self.key);
+        if !self.completed {
+            self.inner
+                .in_flight
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&self.hash);
+            let _ = self.flight.tx.send_replace(Some(Err(
+                "leader upload aborted before completion".to_owned(),
+            )));
+        }
     }
 }
 
-/// Throttles progress notifications to avoid flooding IPC and UI renders.
-#[derive(Debug)]
-struct ProgressThrottle {
-    total: u64,
-    share: u64,
-    reported: u64,
-    reported_at: Instant,
+struct UploaderInner {
+    handle: Arc<russh::client::Handle<ClientHandler>>,
+    host: HostAddr<String>,
+    family: OsFamily,
+    target_dir: Utf8TypedPathBuf,
+    staging_dir: Utf8TypedPathBuf,
+    concurrency: Arc<Semaphore>,
+    idle_sessions: Mutex<Vec<SftpSession>>,
+    /// Singleflight coalescing map for concurrent uploads of identical content.
+    in_flight: Mutex<HashMap<blake3::Hash, Arc<InFlightUpload>>>,
+    /// Remote directories already verified or created during this connection.
+    initialized_dirs: Mutex<HashSet<String>>,
 }
 
-impl ProgressThrottle {
-    fn new(start: u64, total: u64) -> Self {
+impl std::fmt::Debug for Uploader {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Uploader")
+            .field("host", &self.inner.host)
+            .field("family", &self.inner.family)
+            .field("target_dir", &self.inner.target_dir)
+            .finish()
+    }
+}
+
+impl Uploader {
+    /// Creates an [`Uploader`] rooted at `target_dir` on `host`.
+    pub(crate) fn new(
+        handle: Arc<russh::client::Handle<ClientHandler>>,
+        target_dir: Utf8TypedPath<'_>,
+        family: OsFamily,
+        host: HostAddr<String>,
+    ) -> Self {
+        let target_dir = target_dir.to_path_buf();
+        let staging_dir = target_dir.join(".staging");
+
         Self {
-            total,
-            share: (total / REPORT_SHARE).max(1),
-            reported: start,
-            reported_at: Instant::now(),
+            inner: Arc::new(UploaderInner {
+                handle,
+                host,
+                family,
+                target_dir,
+                staging_dir,
+                concurrency: Arc::new(Semaphore::new(MAX_UPLOAD_CONCURRENCY)),
+                idle_sessions: Mutex::new(Vec::with_capacity(MAX_UPLOAD_CONCURRENCY)),
+                in_flight: Mutex::new(HashMap::new()),
+                initialized_dirs: Mutex::new(HashSet::new()),
+            }),
         }
     }
 
-    fn should_report(&mut self, transferred: u64) -> bool {
-        if transferred == self.total
-            || self.reported_at.elapsed() >= REPORT_EVERY
-            || transferred.saturating_sub(self.reported) >= self.share
-        {
-            self.reported = transferred;
-            self.reported_at = Instant::now();
-            true
-        } else {
-            false
-        }
-    }
-}
+    /// Uploads `source` into the remote cache directory, emitting cumulative bytes
+    /// ready on `progress`, and returns the [`UploadReceipt`].
+    pub async fn upload(
+        &self,
+        source: UploadSource,
+        progress: watch::Sender<u64>,
+    ) -> anyhow::Result<UploadReceipt> {
+        let rel_unix = extract_safe_relative_path(&source)?;
+        let (hash, total_bytes) = upload_digest(&source).await?;
 
-/// Checks whether a completed target file exists on the remote SFTP server with matching size.
-pub(super) async fn landed(sftp: &SftpSession, path: &str, size: u64) -> anyhow::Result<bool> {
-    match sftp.metadata(path).await {
-        Ok(meta) => Ok(meta.len() == size),
-        Err(e) if is_no_such_file(&e) => Ok(false),
-        Err(e) => Err(e).with_context(|| format!("cannot inspect remote path `{path}`")),
-    }
-}
-
-/// Safely moves a completed part file to the final destination, falling back if already landed.
-async fn finish_part(sftp: &SftpSession, part: &str, target_path: &str, total_size: u64) -> anyhow::Result<()> {
-    match sftp.rename(part, target_path).await {
-        Ok(_) => Ok(()),
-        Err(err) => {
-            if landed(sftp, target_path, total_size).await? {
-                tracing::debug!(target = %target_path, "target file already landed, removing temporary part file");
-                let _ = sftp.remove_file(part).await;
-                Ok(())
+        // Singleflight guard: coalesce concurrent in-process uploads of identical content.
+        // Followers subscribe to the `watch` channel while holding the mutex so they can
+        // never miss a leader that finishes immediately after releasing the lock.
+        let role = {
+            let mut in_flight = self
+                .inner
+                .in_flight
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some(existing) = in_flight.get(&hash) {
+                FlightRole::Follower(existing.tx.subscribe())
             } else {
-                Err(err).with_context(|| format!("cannot rename `{part}` to `{target_path}`"))
+                let (tx, _) = watch::channel(None);
+                let flight = Arc::new(InFlightUpload { tx });
+                in_flight.insert(hash, Arc::clone(&flight));
+                FlightRole::Leader(LeaderGuard {
+                    inner: Arc::clone(&self.inner),
+                    hash,
+                    flight,
+                    completed: false,
+                })
             }
-        }
-    }
-}
+        };
 
-#[derive(Debug)]
-struct UploadTarget<'a> {
-    dir: &'a str,
-    path: &'a str,
-    staged_name: &'a str,
-    total_size: u64,
-}
+        let leader_guard = match role {
+            FlightRole::Leader(guard) => guard,
+            FlightRole::Follower(mut rx) => {
+                // Wait for the leader to publish its result.
+                if let Ok(borrowed) = rx.wait_for(Option::is_some).await
+                    && let Some(Ok(leader_receipt)) = borrowed.as_ref()
+                {
+                    progress.send_replace(total_bytes);
+                    return Ok(UploadReceipt {
+                        hash: leader_receipt.hash,
+                        remote_path: leader_receipt.remote_path.clone(),
+                        total_bytes: leader_receipt.total_bytes,
+                        bytes_transferred: 0,
+                        status: UploadStatus::SkippedDuplicate {
+                            existing_remote_path: leader_receipt.remote_path.clone(),
+                        },
+                    });
+                }
+                // If the leader failed or was cancelled, fall through and retry via a fresh call.
+                return Box::pin(self.upload(source, progress)).await;
+            }
+        };
 
-/// Uploads `source` to `target_dir` over SFTP with singleflight coalescing and breakpoint resumption.
-pub(super) async fn upload(
-    host: &SshHost,
-    sftp: &SftpSession,
-    target_dir: &str,
-    source: &Utf8Path,
-    name: &str,
-    ext: &str,
-    on_progress: &mut (dyn FnMut(u64, u64) + Send),
-) -> anyhow::Result<String> {
-    let (digest, total_size) = host_files::digest_file(source).await?;
-    let staged_file_name = host_files::staged_name(&digest, name, ext);
-    let target = format!("{target_dir}/{staged_file_name}");
-
-    if landed(sftp, &target, total_size).await? {
-        tracing::debug!(
-            endpoint = %host.endpoint(),
-            path = %target,
-            size = total_size,
-            "attachment already landed on remote host"
-        );
-        on_progress(total_size, total_size);
-        return Ok(target);
-    }
-
-    let flight_key = target.clone();
-    let (leader_tx, follower_rx) = {
-        let mut map = host.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(existing_rx) = map.get(&flight_key) {
-            (None, Some(existing_rx.clone()))
-        } else {
-            let (tx, rx) = watch::channel(None);
-            map.insert(flight_key.clone(), rx);
-            (Some(tx), None)
-        }
-    };
-
-    if let Some(mut rx) = follower_rx {
-        tracing::debug!(
-            endpoint = %host.endpoint(),
-            target = %target,
-            "coalescing upload onto in-flight leader"
-        );
-        rx.wait_for(|state| state.is_some())
+        let _permit = self
+            .inner
+            .concurrency
+            .acquire()
             .await
-            .map_err(|_| anyhow::anyhow!("upload task dropped before completing"))?;
-        let result = rx
-            .borrow()
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("missing in-flight upload result"))?;
-        match result {
-            Ok(remote_path) => {
-                on_progress(total_size, total_size);
-                return Ok(remote_path);
-            }
-            Err(error_msg) => anyhow::bail!("{error_msg}"),
+            .context("uploader concurrency semaphore closed")?;
+
+        let sftp = self.acquire_sftp().await?;
+        let outcome = self
+            .execute_transfer(&sftp, &source, &rel_unix, hash, total_bytes, &progress)
+            .await;
+
+        if outcome.is_ok() {
+            self.release_sftp(sftp);
+        }
+
+        leader_guard.complete(&outcome);
+
+        outcome
+    }
+
+    async fn acquire_sftp(&self) -> anyhow::Result<SftpSession> {
+        let candidate = self
+            .inner
+            .idle_sessions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop();
+
+        if let Some(session) = candidate
+            && session.try_exists(".").await.is_ok()
+        {
+            return Ok(session);
+        }
+        open_sftp_session(&self.inner.handle, &self.inner.host).await
+    }
+
+    fn release_sftp(&self, session: SftpSession) {
+        let mut pool = self
+            .inner
+            .idle_sessions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if pool.len() < MAX_UPLOAD_CONCURRENCY {
+            pool.push(session);
         }
     }
 
-    tracing::info!(
-        endpoint = %host.endpoint(),
-        source = %source,
-        target = %target,
-        size = total_size,
-        "beginning sftp upload"
-    );
+    async fn execute_transfer(
+        &self,
+        sftp: &SftpSession,
+        source: &UploadSource,
+        rel_unix: &Utf8UnixPath,
+        hash: blake3::Hash,
+        total_bytes: u64,
+        progress: &watch::Sender<u64>,
+    ) -> anyhow::Result<UploadReceipt> {
+        self.ensure_remote_dir(sftp, self.inner.target_dir.to_path())
+            .await?;
+        self.ensure_remote_dir(sftp, self.inner.staging_dir.to_path())
+            .await?;
 
-    let target_spec = UploadTarget {
-        dir: target_dir,
-        path: &target,
-        staged_name: &staged_file_name,
-        total_size,
-    };
+        let file_name = rel_unix.file_name().unwrap_or("upload.bin");
+        let hashed_file_name = hashed_name(file_name, &hash);
+        let final_remote_path = self.inner.target_dir.join(&hashed_file_name);
+        let final_wire_path = to_sftp_wire_path(final_remote_path.to_path());
 
-    let leader_tx = leader_tx.expect("leader must hold transmission channel");
-    let _guard = FlightGuard {
-        in_flight: &host.in_flight,
-        key: &flight_key,
-    };
-
-    let result = transfer(host, sftp, &target_spec, source, on_progress).await;
-
-    let outcome = result.as_ref().map(|path| path.clone()).map_err(|e| e.to_string());
-    let _ = leader_tx.send(Some(outcome));
-    drop(_guard);
-
-    result
-}
-
-async fn transfer(
-    host: &SshHost,
-    sftp: &SftpSession,
-    target: &UploadTarget<'_>,
-    source: &Utf8Path,
-    on_progress: &mut (dyn FnMut(u64, u64) + Send),
-) -> anyhow::Result<String> {
-    super::files::create_dir_all(sftp, target.dir).await?;
-
-    let part = format!("{}/.{}.part", target.dir, target.staged_name);
-    let mut resume_offset = 0u64;
-
-    if let Ok(meta) = sftp.metadata(&part).await {
-        let existing_len = meta.len();
-        if existing_len <= target.total_size {
-            resume_offset = existing_len;
-            if resume_offset > 0 {
-                tracing::info!(
-                    endpoint = %host.endpoint(),
-                    part = %part,
-                    offset = resume_offset,
-                    total = target.total_size,
-                    "resuming sftp upload from existing part file"
-                );
-            }
-        } else {
-            tracing::warn!(
-                endpoint = %host.endpoint(),
-                part = %part,
-                existing = existing_len,
-                total = target.total_size,
-                "removing invalid part file larger than source"
+        // Fast-path stateless deduplication: if the target file bearing this BLAKE3
+        // hash already exists on the remote host with the exact byte length, skip transfer.
+        if let Ok(meta) = sftp.metadata(&final_wire_path).await
+            && meta.is_regular()
+            && meta.len() == total_bytes
+        {
+            progress.send_replace(total_bytes);
+            tracing::info!(
+                host = %self.inner.host,
+                file = rel_unix.as_str(),
+                %hash,
+                existing = %final_remote_path,
+                "skipped duplicate SFTP upload"
             );
-            let _ = sftp.remove_file(&part).await;
+            return Ok(UploadReceipt {
+                hash,
+                remote_path: final_remote_path.clone(),
+                total_bytes,
+                bytes_transferred: 0,
+                status: UploadStatus::SkippedDuplicate {
+                    existing_remote_path: final_remote_path,
+                },
+            });
         }
-    }
 
-    if resume_offset == target.total_size && target.total_size > 0 {
-        finish_part(sftp, &part, target.path, target.total_size).await?;
-        tracing::info!(
-            endpoint = %host.endpoint(),
-            target = %target.path,
-            size = target.total_size,
-            "promoted existing complete part file to target"
-        );
-        on_progress(target.total_size, target.total_size);
-        return Ok(target.path.to_string());
-    }
+        // Staging `.part` path also carries the full BLAKE3 hash at the end.
+        let part_remote_path = self
+            .inner
+            .staging_dir
+            .join(format!("{file_name}.{}.part", hash.to_hex()));
+        let part_wire_path = to_sftp_wire_path(part_remote_path.to_path());
 
-    let mut local_file = tokio::fs::File::open(source)
-        .await
-        .with_context(|| format!("cannot open source file `{source}`"))?;
+        // Check for an existing partial upload to resume from.
+        let mut resume_offset = 0u64;
+        if let Ok(meta) = sftp.metadata(&part_wire_path).await {
+            let existing_len = meta.len();
+            if existing_len > 0 && existing_len <= total_bytes {
+                match verify_part_tail(sftp, &part_wire_path, source, existing_len).await {
+                    Ok(true) if existing_len == total_bytes => {
+                        self.atomic_replace(sftp, &part_wire_path, &final_wire_path)
+                            .await?;
+                        progress.send_replace(total_bytes);
+                        return Ok(UploadReceipt {
+                            hash,
+                            remote_path: final_remote_path,
+                            total_bytes,
+                            bytes_transferred: 0,
+                            status: UploadStatus::Resumed {
+                                offset: total_bytes,
+                            },
+                        });
+                    }
+                    Ok(true) => {
+                        resume_offset = existing_len;
+                    }
+                    Ok(false) => {
+                        tracing::warn!(
+                            host = %self.inner.host,
+                            part = %part_remote_path,
+                            existing_len,
+                            "corrupt .part file detected; restarting upload from byte 0"
+                        );
+                    }
+                    Err(err) => {
+                        tracing::debug!(
+                            host = %self.inner.host,
+                            part = %part_remote_path,
+                            %err,
+                            "failed to verify .part file; restarting upload from byte 0"
+                        );
+                    }
+                }
+            }
+        }
 
-    if resume_offset > 0 {
-        local_file
-            .seek(SeekFrom::Start(resume_offset))
+        let flags = if resume_offset > 0 {
+            OpenFlags::CREATE | OpenFlags::WRITE
+        } else {
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE
+        };
+
+        let mut remote_file = sftp
+            .open_with_flags(&part_wire_path, flags)
             .await
-            .with_context(|| format!("cannot seek source file to offset {resume_offset}"))?;
+            .with_context(|| {
+                format!(
+                    "cannot open staging file `{part_remote_path}` on `{}`",
+                    self.inner.host
+                )
+            })?;
+
+        if resume_offset > 0 {
+            remote_file
+                .seek(SeekFrom::Start(resume_offset))
+                .await
+                .with_context(|| {
+                    format!(
+                        "cannot seek staging file `{part_remote_path}` on `{}`",
+                        self.inner.host
+                    )
+                })?;
+            progress.send_replace(resume_offset);
+        }
+
+        let (bytes_transferred, source_intact) = match source {
+            UploadSource::Local { path } => {
+                let mut local_file = tokio::fs::File::open(path.as_std_path())
+                    .await
+                    .with_context(|| format!("cannot open local file `{path}`"))?;
+                let mut hasher = blake3::Hasher::new();
+                if resume_offset > 0 {
+                    hash_local_prefix(&mut local_file, resume_offset, &mut hasher).await?;
+                }
+                let transferred = stream_chunks(
+                    &mut local_file,
+                    &mut remote_file,
+                    resume_offset,
+                    total_bytes,
+                    Some(&mut hasher),
+                    progress,
+                )
+                .await?;
+                (transferred, hasher.finalize() == hash)
+            }
+            UploadSource::InMemory { content, .. } => {
+                let start = usize::try_from(resume_offset).unwrap_or(content.len());
+                let mut slice = &content[start.min(content.len())..];
+                let transferred = stream_chunks(
+                    &mut slice,
+                    &mut remote_file,
+                    resume_offset,
+                    total_bytes,
+                    None,
+                    progress,
+                )
+                .await?;
+                (transferred, true)
+            }
+        };
+
+        remote_file.flush().await.with_context(|| {
+            format!("cannot flush `{part_remote_path}` on `{}`", self.inner.host)
+        })?;
+        remote_file.shutdown().await.with_context(|| {
+            format!("cannot close `{part_remote_path}` on `{}`", self.inner.host)
+        })?;
+        drop(remote_file);
+
+        let final_offset = resume_offset + bytes_transferred;
+        if final_offset != total_bytes || !source_intact {
+            let _ = sftp.remove_file(&part_wire_path).await;
+            anyhow::bail!(
+                "the source of the upload to `{}` changed after it was hashed; the transfer stopped",
+                self.inner.host
+            );
+        }
+
+        self.atomic_replace(sftp, &part_wire_path, &final_wire_path)
+            .await?;
+
+        let status = if resume_offset > 0 {
+            UploadStatus::Resumed {
+                offset: resume_offset,
+            }
+        } else {
+            UploadStatus::UploadedFresh
+        };
+
+        Ok(UploadReceipt {
+            hash,
+            remote_path: final_remote_path,
+            total_bytes,
+            bytes_transferred,
+            status,
+        })
     }
 
-    let flags = if resume_offset > 0 {
-        russh_sftp::protocol::OpenFlags::CREATE | russh_sftp::protocol::OpenFlags::WRITE
-    } else {
-        russh_sftp::protocol::OpenFlags::CREATE
-            | russh_sftp::protocol::OpenFlags::WRITE
-            | russh_sftp::protocol::OpenFlags::TRUNCATE
-    };
+    async fn ensure_remote_dir(
+        &self,
+        sftp: &SftpSession,
+        dir: Utf8TypedPath<'_>,
+    ) -> anyhow::Result<()> {
+        let mut ancestors: Vec<Utf8TypedPath<'_>> =
+            dir.ancestors().filter(|a| !a.as_str().is_empty()).collect();
+        ancestors.reverse();
 
-    let mut remote_file = sftp
-        .open_with_flags(&part, flags)
-        .await
-        .with_context(|| format!("cannot open remote part file `{part}`"))?;
-
-    if resume_offset > 0 {
-        remote_file
-            .seek(SeekFrom::Start(resume_offset))
-            .await
-            .with_context(|| format!("cannot seek remote part file `{part}` to {resume_offset}"))?;
+        for level in ancestors {
+            let wire = to_sftp_wire_path(level);
+            if self
+                .inner
+                .initialized_dirs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(&wire)
+            {
+                continue;
+            }
+            if !sftp.try_exists(&wire).await.unwrap_or(false)
+                && let Err(error) = sftp.create_dir(&wire).await
+                && !sftp.try_exists(&wire).await.unwrap_or(false)
+            {
+                return Err(error)
+                    .with_context(|| format!("cannot create `{level}` on `{}`", self.inner.host));
+            }
+            self.inner
+                .initialized_dirs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(wire);
+        }
+        Ok(())
     }
 
-    let mut buffer = vec![0u8; CHUNK_SIZE];
-    let mut transferred = resume_offset;
-    let mut throttle = ProgressThrottle::new(transferred, target.total_size);
+    async fn atomic_replace(
+        &self,
+        sftp: &SftpSession,
+        src_wire: &str,
+        dst_wire: &str,
+    ) -> anyhow::Result<()> {
+        if sftp.rename(src_wire, dst_wire).await.is_ok() {
+            return Ok(());
+        }
+        if sftp.try_exists(dst_wire).await.unwrap_or(false) {
+            let _ = sftp.remove_file(dst_wire).await;
+        }
+        sftp.rename(src_wire, dst_wire).await.with_context(|| {
+            format!(
+                "failed to rename `{src_wire}` to `{dst_wire}` on `{}`",
+                self.inner.host
+            )
+        })
+    }
+}
 
-    on_progress(transferred, target.total_size);
+/// Streams from `reader` into `remote_file` in 256 KiB chunks while updating `progress`.
+///
+/// Stops before it writes the chunk that would pass `total_bytes`; that chunk still counts in
+/// the returned length, so the caller sees the excess. Every byte sent also goes into `hasher`.
+async fn stream_chunks<R>(
+    reader: &mut R,
+    remote_file: &mut russh_sftp::client::fs::File,
+    initial_offset: u64,
+    total_bytes: u64,
+    mut hasher: Option<&mut blake3::Hasher>,
+    progress: &watch::Sender<u64>,
+) -> anyhow::Result<u64>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buffer = vec![0u8; SFTP_COPY_BUFFER].into_boxed_slice();
+    let mut transferred = 0u64;
 
     loop {
-        let bytes_read = local_file
+        let read = reader
             .read(&mut buffer)
             .await
-            .with_context(|| format!("cannot read from `{source}`"))?;
-        if bytes_read == 0 {
+            .context("failed to read upload source")?;
+        if read == 0 {
             break;
         }
-
-        remote_file
-            .write_all(&buffer[..bytes_read])
-            .await
-            .with_context(|| format!("cannot write to `{part}`"))?;
-
-        transferred += bytes_read as u64;
-        if throttle.should_report(transferred) {
-            on_progress(transferred, target.total_size);
+        transferred += read as u64;
+        if initial_offset + transferred > total_bytes {
+            break;
         }
+        if let Some(hasher) = hasher.as_deref_mut() {
+            hasher.update(&buffer[..read]);
+        }
+        remote_file
+            .write_all(&buffer[..read])
+            .await
+            .context("failed to write chunk to SFTP")?;
+        progress.send_replace(initial_offset + transferred);
     }
 
-    remote_file
-        .flush()
-        .await
-        .with_context(|| format!("cannot flush `{part}`"))?;
-    remote_file
-        .shutdown()
-        .await
-        .with_context(|| format!("cannot close `{part}`"))?;
-    drop(remote_file);
+    Ok(transferred)
+}
 
-    if transferred != target.total_size {
-        anyhow::bail!(
-            "file changed during upload: expected {} bytes, transferred {transferred} bytes",
-            target.total_size
-        );
+/// Feeds the first `len` bytes of `file` into `hasher`, leaving `file` positioned at `len`.
+/// A shorter file leaves the hash wrong, which the caller finds at the end of the transfer.
+async fn hash_local_prefix(
+    file: &mut tokio::fs::File,
+    len: u64,
+    hasher: &mut blake3::Hasher,
+) -> anyhow::Result<()> {
+    let mut prefix = file.take(len);
+    let mut buffer = vec![0u8; SFTP_COPY_BUFFER].into_boxed_slice();
+    loop {
+        let read = prefix
+            .read(&mut buffer)
+            .await
+            .context("failed to read the local file for resume")?;
+        if read == 0 {
+            return Ok(());
+        }
+        hasher.update(&buffer[..read]);
     }
+}
 
-    finish_part(sftp, &part, target.path, target.total_size).await?;
-    tracing::info!(
-        endpoint = %host.endpoint(),
-        target = %target.path,
-        size = target.total_size,
-        "sftp upload completed successfully"
+/// Extracts and validates the relative POSIX file name from [`UploadSource`].
+fn extract_safe_relative_path(source: &UploadSource) -> anyhow::Result<Utf8UnixPathBuf> {
+    match source {
+        UploadSource::Local { path } => {
+            let file_name = path
+                .file_name()
+                .with_context(|| format!("local path `{path}` has no file name"))?;
+            sanitize_relative_unix_path(file_name)
+        }
+        UploadSource::InMemory { name, .. } => sanitize_relative_unix_path(name),
+    }
+}
+
+/// Normalizes `raw` into a safe relative [`Utf8UnixPathBuf`] and verifies via `join_checked`
+/// that it cannot traverse outside the target root directory.
+pub(crate) fn sanitize_relative_unix_path(raw: &str) -> anyhow::Result<Utf8UnixPathBuf> {
+    let trimmed = raw.trim();
+    ensure!(
+        !trimmed.is_empty() && !trimmed.contains('\0'),
+        "invalid upload file name `{raw}`"
     );
-    on_progress(target.total_size, target.total_size);
-    Ok(target.path.to_string())
+
+    let Utf8TypedPathBuf::Unix(unix_candidate) =
+        Utf8TypedPath::derive(trimmed).with_unix_encoding()
+    else {
+        unreachable!("`with_unix_encoding` always yields a Unix path");
+    };
+
+    ensure!(
+        !unix_candidate.is_absolute(),
+        "upload path `{raw}` must be relative"
+    );
+
+    let _verified = Utf8UnixPath::new("/root")
+        .join_checked(&unix_candidate)
+        .with_context(|| format!("path traversal refused in `{raw}`"))?;
+    let normalized = unix_candidate.normalize();
+
+    ensure!(
+        !normalized.as_str().is_empty() && normalized.as_str() != ".",
+        "invalid upload file name `{raw}`"
+    );
+    Ok(normalized)
+}
+
+/// Verifies that an existing `.part` file on the remote server matches the local `source`
+/// by comparing the BLAKE3 digest of its trailing [`PART_VERIFY_WINDOW`] bytes (up to 64 KiB)
+/// and its leading 4 KiB header (when the file is larger than one window).
+async fn verify_part_tail(
+    sftp: &SftpSession,
+    part_wire_path: &str,
+    source: &UploadSource,
+    existing_len: u64,
+) -> anyhow::Result<bool> {
+    let window = existing_len.min(PART_VERIFY_WINDOW);
+    let offset = existing_len - window;
+    let len_usize = usize::try_from(window).context("invalid verify window")?;
+
+    let mut remote_part = sftp.open(part_wire_path).await?;
+    if offset > 0 {
+        remote_part.seek(SeekFrom::Start(offset)).await?;
+    }
+    let mut remote_buf = vec![0u8; len_usize];
+    remote_part.read_exact(&mut remote_buf).await?;
+    let remote_tail_hash = blake3::hash(&remote_buf);
+
+    let local_tail_hash = match source {
+        UploadSource::Local { path } => {
+            let mut local_file = tokio::fs::File::open(path.as_std_path()).await?;
+            if offset > 0 {
+                local_file.seek(SeekFrom::Start(offset)).await?;
+            }
+            let mut local_buf = vec![0u8; len_usize];
+            local_file.read_exact(&mut local_buf).await?;
+            blake3::hash(&local_buf)
+        }
+        UploadSource::InMemory { content, .. } => {
+            let start = usize::try_from(offset)?;
+            let end = start + len_usize;
+            if end > content.len() {
+                return Ok(false);
+            }
+            blake3::hash(&content[start..end])
+        }
+    };
+
+    Ok(remote_tail_hash == local_tail_hash)
 }
 
 #[cfg(test)]
@@ -350,16 +652,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flight_guard_removes_key_on_drop() {
-        let map = new_in_flight();
-        let key = "flight_test_key";
-        {
-            let (tx, rx) = watch::channel(None);
-            map.lock().unwrap().insert(key.to_string(), rx);
-            let _guard = FlightGuard { in_flight: &map, key };
-            assert!(map.lock().unwrap().contains_key(key));
-            drop(tx);
-        }
-        assert!(!map.lock().unwrap().contains_key(key));
+    fn a_plain_file_name_is_accepted() {
+        let clean = sanitize_relative_unix_path("report.pdf").expect("valid file name");
+        assert_eq!(clean.as_str(), "report.pdf");
+    }
+
+    #[test]
+    fn parent_directory_traversal_is_refused() {
+        assert!(sanitize_relative_unix_path("../secret.txt").is_err());
+        assert!(sanitize_relative_unix_path("sub/../../secret.txt").is_err());
+    }
+
+    #[test]
+    fn an_absolute_path_is_refused() {
+        assert!(sanitize_relative_unix_path("/etc/passwd").is_err());
+        assert!(sanitize_relative_unix_path("C:\\Windows\\System32").is_err());
     }
 }

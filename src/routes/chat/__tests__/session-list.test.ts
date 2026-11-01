@@ -13,25 +13,25 @@ import { sessionSummary } from "@/preview/fixtures";
 
 describe("groupSessions", () => {
     it("puts the sessions of one directory together, the newest written first", () => {
-        const old = sessionSummary({ cwd: "/b", modified: "2026-01-01T00:00:00.000Z" });
-        const fresh = sessionSummary({ cwd: "/a", modified: "2026-01-03T00:00:00.000Z" });
-        const middle = sessionSummary({ cwd: "/a", modified: "2026-01-02T00:00:00.000Z" });
+        const old = sessionSummary({ cwd: "/b", modifiedAt: "2026-01-01T00:00:00.000Z" });
+        const fresh = sessionSummary({ cwd: "/a", modifiedAt: "2026-01-03T00:00:00.000Z" });
+        const middle = sessionSummary({ cwd: "/a", modifiedAt: "2026-01-02T00:00:00.000Z" });
 
         const groups = groupSessions([fresh, old, middle]);
 
         expect(groups.map((group) => group.cwd)).toEqual(["/a", "/b"]);
         // A group keeps the order the listing gave it: Rust sorts the rows, and
         // this only decides where the groups break.
-        expect(groups[0].sessions.map((session) => session.modified)).toEqual([
+        expect(groups[0].sessions.map((session) => session.modifiedAt)).toEqual([
             "2026-01-03T00:00:00.000Z",
             "2026-01-02T00:00:00.000Z",
         ]);
     });
 
     it("keeps a session with no directory of its own apart, and last", () => {
-        const named = sessionSummary({ cwd: "/a", modified: "2026-01-01T00:00:00.000Z" });
+        const named = sessionSummary({ cwd: "/a", modifiedAt: "2026-01-01T00:00:00.000Z" });
         // Files older than the `cwd` field of pi report no directory at all.
-        const ancient = sessionSummary({ cwd: "", modified: "2026-01-09T00:00:00.000Z" });
+        const ancient = sessionSummary({ cwd: "", modifiedAt: "2026-01-09T00:00:00.000Z" });
 
         expect(groupSessions([named, ancient]).map((group) => group.cwd)).toEqual(["/a", ""]);
     });
@@ -43,17 +43,19 @@ describe("groupSessions", () => {
 
 describe("sessionTitle", () => {
     it("says the name pi holds", () => {
-        expect(sessionTitle(sessionSummary({ name: "Fix the parser" }))).toBe("Fix the parser");
+        expect(sessionTitle(sessionSummary({ title: { type: "named", name: "Fix the parser" } }))).toBe(
+            "Fix the parser",
+        );
     });
 
     it("falls back to the words that opened the conversation, in one line", () => {
-        const session = sessionSummary({ name: null, firstMessage: "  two\nlines  " });
+        const session = sessionSummary({ title: { type: "untitled" }, firstPrompt: "  two\nlines  " });
         expect(sessionTitle(session)).toBe("two lines");
     });
 
     it("has no title for a session pi holds nothing about", () => {
-        expect(sessionTitle(sessionSummary({ name: "", firstMessage: null }))).toBeNull();
-        expect(sessionTitle(sessionSummary({ name: null, firstMessage: "   " }))).toBeNull();
+        expect(sessionTitle(sessionSummary({ title: { type: "untitled" }, firstPrompt: null }))).toBeNull();
+        expect(sessionTitle(sessionSummary({ title: { type: "untitled" }, firstPrompt: "   " }))).toBeNull();
     });
 });
 
@@ -106,8 +108,8 @@ describe("relativeTimeAgo", () => {
 
 describe("matchesSearch", () => {
     const session = sessionSummary({
-        name: "Fix the parser",
-        firstMessage: "Make the parser skip empty lines",
+        title: { type: "named", name: "Fix the parser" },
+        firstPrompt: "Make the parser skip empty lines",
         cwd: "/home/kui/Projects/pie",
         path: "/home/kui/.pi/agent/sessions/--home-kui-Projects-pie--/one.jsonl",
     });
@@ -126,7 +128,7 @@ describe("matchesSearch", () => {
     });
 
     it("reads a field that is not there as no match", () => {
-        const unnamed = sessionSummary({ cwd: "", name: null, firstMessage: null });
+        const unnamed = sessionSummary({ cwd: "", title: { type: "untitled" }, firstPrompt: null });
         expect(matchesSearch(unnamed, "xyz")).toBe(false);
     });
 });

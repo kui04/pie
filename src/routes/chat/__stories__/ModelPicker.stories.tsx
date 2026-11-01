@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { queryDefaults } from "@/lib/query";
 import { ModelPicker, type ModelPickerProps } from "@/routes/chat/composer/ModelPicker";
-import { model } from "@/preview/fixtures";
+import { model, conversation } from "@/preview/fixtures";
 
 /**
  * The popup reads the models of the session and the marks of their providers over
@@ -96,7 +96,7 @@ const meta = {
         },
     ],
     args: {
-        session: "main:1",
+        conversation: conversation(),
         current: model({ id: "deepseek-flash", name: "DeepSeek Flash", provider: "deepseek" }),
         open: false,
         onOpenChange: () => undefined,

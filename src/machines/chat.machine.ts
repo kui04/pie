@@ -103,7 +103,7 @@ export const chatMachine = setup({
                 onDone: {
                     target: "viewing",
                     actions: assign({
-                        session: ({ event }) => event.output.id,
+                        session: ({ event }) => event.output.path,
                         path: null,
                         cwd: null,
                         error: null,

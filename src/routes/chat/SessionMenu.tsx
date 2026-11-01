@@ -24,7 +24,8 @@ import {
 import { ConfirmDialog, DialogAction, DialogFrame, Icon, ScrollPane, TextDialog, TruncatedText } from "@/components";
 import * as bridge from "@/lib/bridge";
 import { sessionKeys, sessionQueries } from "@/lib/query";
-import type { SessionRef } from "@/lib/session";
+import type { HostId } from "@/lib/bridge";
+import type { SessionKey, SessionRef } from "@/lib/session";
 import { phaseOf } from "@/machines/session.machine";
 import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 
@@ -34,9 +35,9 @@ const FORK_DESCRIPTION = "The conversation begins again before the message you p
 const FORK_TITLE = "Fork from a message";
 
 export interface SessionMenuProps {
-    session?: string | null;
+    conversation?: SessionKey | null;
     machine?: SessionRef;
-    endpoint: string;
+    host: HostId;
     /** Whether the popup is open. The caller holds this, so one popup is open at a time. */
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -68,13 +69,13 @@ export function SessionMenu({ machine, working = false, ...props }: SessionMenuP
     const machineWorking = useSelector(machine, (snapshot) =>
         snapshot === undefined ? false : phaseOf(snapshot) !== "idle",
     );
-    return <SessionMenuBody {...props} machine={machine} isWorking={machine ? machineWorking : working} />;
+    void machine;
+    return <SessionMenuBody {...props} isWorking={machine ? machineWorking : working} />;
 }
 
 function SessionMenuBody({
-    session,
-    machine,
-    endpoint,
+    conversation,
+    host,
     open,
     onOpenChange,
     onClose,
@@ -91,32 +92,38 @@ function SessionMenuBody({
 }: SessionMenuProps & { isWorking: boolean }) {
     const client = useQueryClient();
     const [view, setView] = useState<"menu" | "rename" | "fork" | "delete">("menu");
-    const activeSession = session ?? "";
+    const activeSession = conversation?.session ?? "";
+
+    // The key is built whatever the row holds, because a hook cannot be skipped: a row whose
+    // conversation no process holds still draws the menu, and `enabled` is what stops the read.
+    const key: SessionKey = conversation ?? { host, session: "" };
 
     // The name and the file of the conversation come from the same cache the bar reads when activeSession is set.
-    const state = useQuery({ ...sessionQueries.state(activeSession), enabled: open && Boolean(activeSession) });
+    const state = useQuery({
+        ...sessionQueries.state(key),
+        enabled: open && Boolean(activeSession),
+    });
     const file = propsFile ?? state.data?.sessionFile ?? null;
     const name = initialName ?? state.data?.sessionName ?? null;
 
     /** The process holds another conversation: everything of the old one goes, and the reads answer again. */
     function adopted() {
         if (activeSession) {
-            void client.cancelQueries({ queryKey: sessionKeys.whole(activeSession) });
-            void client.invalidateQueries({ queryKey: sessionKeys.whole(activeSession) });
+            void client.cancelQueries({ queryKey: sessionKeys.whole(conversation as SessionKey) });
+            void client.invalidateQueries({ queryKey: sessionKeys.whole(conversation as SessionKey) });
         }
-        void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
-        machine?.send({ type: "REPLACED" });
+        void client.invalidateQueries({ queryKey: ["sessions", host] });
     }
 
     /** The name the host lists has changed. */
     function renamed() {
-        void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+        void client.invalidateQueries({ queryKey: ["sessions", host] });
     }
 
     /** The process ended and the file is gone. */
     function deleted() {
         void client.invalidateQueries({ queryKey: ["connection"] });
-        void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+        void client.invalidateQueries({ queryKey: ["sessions", host] });
         onGone?.();
     }
 
@@ -124,9 +131,9 @@ function SessionMenuBody({
         if (!activeSession) return;
         onOpenChange(false);
         void bridge
-            .cloneSession(activeSession)
+            .cloneSession(conversation?.host ?? host, activeSession)
             .then((result) => {
-                if (result.cancelled) {
+                if (result.type === "cancelled") {
                     toast("An extension refused the copy.");
                     return;
                 }
@@ -140,9 +147,9 @@ function SessionMenuBody({
         if (onClose) {
             onClose();
         } else if (activeSession) {
-            void bridge.detachSession(activeSession).then(() => {
+            void bridge.detachSession(conversation?.host ?? host, activeSession).then(() => {
                 void client.invalidateQueries({ queryKey: ["connection"] });
-                void client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+                void client.invalidateQueries({ queryKey: ["sessions", host] });
             });
         }
     }
@@ -253,7 +260,7 @@ function SessionMenuBody({
             </DropdownMenu>
             {activeSession && view === "rename" && (
                 <RenameSession
-                    session={activeSession}
+                    conversation={conversation as SessionKey}
                     initial={name}
                     onClose={closeView}
                     onRenamed={renamed}
@@ -261,11 +268,17 @@ function SessionMenuBody({
                 />
             )}
             {activeSession && view === "fork" && (
-                <ForkSession session={activeSession} onClose={closeView} onForked={adopted} isMobile={isMobile} />
+                <ForkSession
+                    conversation={conversation as SessionKey}
+                    onClose={closeView}
+                    onForked={adopted}
+                    isMobile={isMobile}
+                />
             )}
             {view === "delete" && (
                 <DeleteSession
-                    session={activeSession}
+                    conversation={conversation as SessionKey}
+                    host={host}
                     file={file}
                     onClose={closeView}
                     onDeleted={deleted}
@@ -320,7 +333,7 @@ function MenuRow({
 
 /** The name of the conversation: one field, in a sheet on a phone and a dialog on a desktop. */
 export interface RenameSessionProps {
-    session: string;
+    conversation: SessionKey;
     /** The name pi holds now, for the field to open with. */
     initial: string | null;
     /** The question was let go without an answer. */
@@ -331,11 +344,11 @@ export interface RenameSessionProps {
     isMobile?: boolean;
 }
 
-export function RenameSession({ session, initial, onClose, onRenamed, isMobile }: RenameSessionProps) {
+export function RenameSession({ conversation, initial, onClose, onRenamed, isMobile }: RenameSessionProps) {
     const [name, setName] = useState(initial ?? "");
 
     const rename = useMutation({
-        mutationFn: (next: string) => bridge.setSessionName(session, next),
+        mutationFn: (next: string) => bridge.setSessionName(conversation.host, conversation.session, next),
         onSuccess: () => {
             onClose();
             onRenamed();
@@ -374,7 +387,9 @@ export function RenameSession({ session, initial, onClose, onRenamed, isMobile }
 
 /** Delete the conversation of this session: a sheet on a phone, a dialog on a desktop, and one confirmation. */
 export interface DeleteSessionProps {
-    session: string;
+    conversation: SessionKey;
+    /** The connection that holds it. */
+    host: HostId;
     /** The file of the conversation, from its state; `null` while the state is not read. */
     file: string | null;
     /** The question was let go without an answer. */
@@ -385,13 +400,13 @@ export interface DeleteSessionProps {
     isMobile?: boolean;
 }
 
-export function DeleteSession({ session, file, onClose, onDeleted, isMobile }: DeleteSessionProps) {
+export function DeleteSession({ conversation, host, file, onClose, onDeleted, isMobile }: DeleteSessionProps) {
     const remove = useMutation({
         mutationFn: async (path: string) => {
-            if (session !== "") {
-                await bridge.detachSession(session);
+            if (conversation.session !== "") {
+                await bridge.detachSession(host, conversation.session);
             }
-            await bridge.deleteSession(path);
+            await bridge.deleteSession(host, path);
         },
         onSuccess: () => {
             onClose();
@@ -425,7 +440,7 @@ export function DeleteSession({ session, file, onClose, onDeleted, isMobile }: D
 
 /** Fork a conversation at one of its user messages: a sheet on a phone, a dialog on a desktop. */
 export interface ForkSessionProps {
-    session: string;
+    conversation: SessionKey;
     /** The question was let go without an answer. */
     onClose: () => void;
     /** The process holds a new branch: the caller reads the state and the entries again. */
@@ -434,13 +449,13 @@ export interface ForkSessionProps {
     isMobile?: boolean;
 }
 
-export function ForkSession({ session, onClose, onForked, isMobile }: ForkSessionProps) {
-    const points = useQuery(sessionQueries.forkMessages(session));
+export function ForkSession({ conversation, onClose, onForked, isMobile }: ForkSessionProps) {
+    const points = useQuery(sessionQueries.forkMessages(conversation));
     const fork = useMutation({
-        mutationFn: (entryId: string) => bridge.forkSession(session, entryId),
+        mutationFn: (entryId: string) => bridge.forkSession(conversation.host, conversation.session, entryId),
         onSuccess: (result) => {
             onClose();
-            if (result.cancelled) {
+            if (result.type === "cancelled") {
                 toast("An extension refused the fork.");
                 return;
             }

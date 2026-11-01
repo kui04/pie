@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { motion } from "motion/react";
 import { AppRoutes } from "@/routes/AppRoutes";
 import { Toaster } from "@/components/ui";
-import { useMotion, usePlatformResource, useSessionSync } from "@/hooks";
+import { useExtensionSync, useMotion, usePlatformResource, useSessionSync } from "@/hooks";
 
 function App() {
     return (
@@ -18,6 +18,9 @@ function AppShell() {
     // The charts of the sessions follow the connection, not a screen: they live here, beside
     // the routes, so a run continues while another conversation is in view.
     useSessionSync();
+    // The extension channels belong to the window too: a dialog waits on pi, and a screen
+    // that arrives later still finds it.
+    useExtensionSync();
 
     // TODO: Handle the case where the platform is null (e.g., show an error message or a fallback UI)
     if (platform === null) return null;

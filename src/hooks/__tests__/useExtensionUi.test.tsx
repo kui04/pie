@@ -1,17 +1,13 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
-import { type ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
-import type { ExtensionUIRequest } from "@/lib/rpc-protocol";
-import { queryDefaults } from "@/lib/query";
+import { useExtensionStore } from "@/lib/extension/store";
+import { idOf } from "@/lib/session";
+import { conversation } from "@/preview/fixtures";
 import { useExtensionUi } from "@/hooks/useExtensionUi";
 
 const fake = vi.hoisted(() => ({
-    getExtensionState: vi.fn<(session: string) => Promise<Bridge.ExtensionSnapshot>>(),
-    onExtensionEvent:
-        vi.fn<(session: string, onEvent: (event: Bridge.ExtensionEvent) => void) => Promise<() => void>>(),
-    answerExtension: vi.fn<(session: string, id: string, answer: Bridge.ExtensionAnswer) => Promise<boolean>>(),
+    answer: vi.fn<(id: number, answer: Bridge.Answer) => Promise<boolean>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -19,75 +15,66 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
     ...fake,
 }));
 
-const SESSION = "main:1";
+const CONVERSATION = conversation({ session: "main:1" });
 
-function request(): ExtensionUIRequest {
-    return {
-        type: "extension_ui_request",
-        id: "q-1",
-        method: "input",
-        title: "Name",
-    };
-}
-
-function empty(): Bridge.ExtensionSnapshot {
-    return { requests: [], statuses: [], title: null, editorText: null };
-}
-
-function withRequest(): Bridge.ExtensionSnapshot {
-    return { ...empty(), requests: [request()] };
-}
-
-let client: QueryClient;
-
-function mount() {
-    const wrapper = ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-    return renderHook(() => useExtensionUi(SESSION), { wrapper });
+function asked(id: number, title: string): void {
+    useExtensionStore.getState().asked(CONVERSATION, id, { method: "input", title });
 }
 
 beforeEach(() => {
     vi.clearAllMocks();
-    client = new QueryClient(queryDefaults);
-    fake.getExtensionState.mockResolvedValue(empty());
-    fake.onExtensionEvent.mockResolvedValue(() => undefined);
-    fake.answerExtension.mockResolvedValue(true);
-});
-
-afterEach(() => {
-    client.clear();
+    useExtensionStore.setState({ dialogs: {}, statuses: {}, editors: {} });
+    fake.answer.mockResolvedValue(true);
 });
 
 describe("useExtensionUi", () => {
-    it("reads the snapshot after it subscribes, for a request that arrived first", async () => {
-        fake.getExtensionState.mockResolvedValue(withRequest());
-        const rendered = mount();
+    it("draws the dialog at the head of the queue", () => {
+        asked(1, "Name");
+        asked(2, "Second");
 
-        await waitFor(() => expect(rendered.result.current.request?.id).toBe("q-1"));
-        expect(rendered.result.current.state).not.toBeNull();
-        expect(fake.onExtensionEvent).toHaveBeenCalledTimes(1);
-        expect(fake.getExtensionState).toHaveBeenCalledTimes(1);
+        const rendered = renderHook(() => useExtensionUi(CONVERSATION));
+
+        expect(rendered.result.current.request?.id).toBe(1);
     });
 
-    it("answers a dialog and reads the queue again", async () => {
-        fake.getExtensionState.mockResolvedValue(withRequest());
-        const rendered = mount();
-        await waitFor(() => expect(rendered.result.current.request).not.toBeNull());
+    it("answers a dialog under the id it arrived with, and forgets it", async () => {
+        asked(1, "Name");
+        const rendered = renderHook(() => useExtensionUi(CONVERSATION));
 
-        rendered.result.current.answer("q-1", { type: "value", value: "pie" });
+        act(() => rendered.result.current.answer(1, { type: "value", value: "pie" }));
+
         await waitFor(() =>
-            expect(fake.answerExtension).toHaveBeenCalledWith(SESSION, "q-1", { type: "value", value: "pie" }),
+            expect(fake.answer).toHaveBeenCalledWith(1, {
+                status: "resolved",
+                data: { type: "value", value: "pie" },
+            }),
         );
+        await waitFor(() => expect(rendered.result.current.request).toBeNull());
     });
 
-    it("closes its listener when the session body leaves", async () => {
-        const stop = vi.fn();
-        fake.onExtensionEvent.mockResolvedValue(stop);
-        const rendered = mount();
-        await waitFor(() => expect(fake.onExtensionEvent).toHaveBeenCalledTimes(1));
+    it("takes its statuses and its editor text from the same store", () => {
+        useExtensionStore.getState().reported(CONVERSATION, { key: "permissions", text: "waiting" });
+        useExtensionStore.getState().edited(CONVERSATION, "a draft");
 
-        rendered.unmount();
-        expect(stop).toHaveBeenCalledTimes(1);
+        const rendered = renderHook(() => useExtensionUi(CONVERSATION));
+
+        expect(rendered.result.current.statuses).toEqual([{ key: "permissions", text: "waiting" }]);
+        expect(rendered.result.current.editorText).toBe("a draft");
+    });
+
+    it("holds nothing for a conversation that was never asked", () => {
+        const rendered = renderHook(() => useExtensionUi(conversation({ session: "/other.jsonl" })));
+
+        expect(rendered.result.current.request).toBeNull();
+        expect(rendered.result.current.statuses).toEqual([]);
+        expect(rendered.result.current.editorText).toBeNull();
+    });
+
+    it("keys the store by the connection and the file together", () => {
+        asked(1, "Name");
+        const elsewhere = renderHook(() => useExtensionUi({ ...CONVERSATION, host: "other" }));
+
+        expect(elsewhere.result.current.request).toBeNull();
+        expect(idOf(CONVERSATION)).toContain(CONVERSATION.session);
     });
 });

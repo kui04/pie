@@ -1,3 +1,4 @@
+import { conversation } from "@/preview/fixtures";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RenameSession } from "@/routes/chat/SessionMenu";
 
@@ -6,7 +7,7 @@ const meta = {
     component: RenameSession,
     parameters: { layout: "fullscreen" },
     args: {
-        session: "main:1",
+        conversation: conversation(),
         onClose: () => undefined,
         initial: "Fix the parser",
         onRenamed: () => undefined,

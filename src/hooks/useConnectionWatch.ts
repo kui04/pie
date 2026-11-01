@@ -25,6 +25,13 @@ import {
 import { subscribeToReachFailures } from "@/lib/query";
 import { connectionQueries } from "@/lib/query";
 import * as bridge from "@/lib/bridge";
+import { useHostStore } from "@/stores/host.store";
+
+/** The machine pie reached, as the last dial described it. */
+function endpointOf(host: { transport: "local" | "ssh"; address: string } | null): string {
+    if (host === null) return "the host";
+    return host.transport === "local" ? "local" : host.address;
+}
 
 /** The state the overlay draws, and the two answers it offers. */
 export interface ConnectionWatch {
@@ -49,9 +56,9 @@ export function useConnectionWatch(): ConnectionWatch {
     const deps = useMemo<ConnectionWatchDeps>(
         () => ({
             reconnect: async () => {
-                await bridge.reconnect();
+                await bridge.reconnect(bridge.CONNECTION_ID);
                 // The reads of the app are keyed on the connection: a new one is a new
-                // answer to `get_connection`, and the session charts follow it.
+                // answer to the connection read, and the session charts follow it.
                 await client.invalidateQueries({ queryKey: ["connection"] });
             },
         }),
@@ -60,14 +67,16 @@ export function useConnectionWatch(): ConnectionWatch {
 
     const [snapshot, send] = useMachine(connectionWatchMachine, { input: deps });
 
-    // Rust says when the reach ends. Nothing else does: no command need be in flight when a
-    // network goes away, so no failed read can be read as this.
+    // Rust says when the reach ends, and when it is open again. Nothing else does: no
+    // command need be in flight when a network goes away, so no failed read can be read as
+    // this.
     useEffect(() => {
         let unlisten: bridge.Unsubscribe | undefined;
         let stopped = false;
         void (async () => {
             try {
-                unlisten = await bridge.onConnectionState(bridge.CONNECTION_ID, (state) => {
+                unlisten = await bridge.onConnectionState((state) => {
+                    if (state.host !== bridge.CONNECTION_ID) return;
                     if (state.type === "ended") send({ type: "LOST", at: Date.now() });
                 });
                 if (stopped) unlisten();
@@ -85,18 +94,12 @@ export function useConnectionWatch(): ConnectionWatch {
         };
     }, [send]);
 
-    // The answer of the connection read decides, whichever reason made it arrive: `open` is the
-    // reach answering, and a closed one is the end of the connection - the same news as Rust's
-    // own `ended`, at the moment the first failed read asked for it. The clock is the read's
-    // `dataUpdatedAt`, the one the machine keeps.
+    // An answer of the connection read means the machine answered it, so the reach is back.
+    // The clock is the read's `dataUpdatedAt`, the one the machine keeps, and the machine
+    // discards an answer that was formed before the end was heard.
     useEffect(() => {
-        const at = connection.dataUpdatedAt;
         if (connection.data == null) return;
-        if (connection.data.open) {
-            send({ type: "RESTORED", at });
-            return;
-        }
-        send({ type: "LOST", at });
+        send({ type: "RESTORED", at: connection.dataUpdatedAt });
     }, [connection.data, connection.dataUpdatedAt, send]);
 
     // A read that failed against the reach is the earliest news of a connection that ended: the
@@ -141,7 +144,7 @@ export function useConnectionWatch(): ConnectionWatch {
 
     return {
         state: snapshot.value as ConnectionWatch["state"],
-        endpoint: connection.data?.endpoint ?? "the host",
+        endpoint: endpointOf(useHostStore((state) => state.lastHost)),
         message: snapshot.context.message,
         retry,
         leave,

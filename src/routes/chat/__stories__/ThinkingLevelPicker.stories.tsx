@@ -1,3 +1,4 @@
+import { conversation } from "@/preview/fixtures";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -46,7 +47,7 @@ const meta = {
         ),
     ],
     args: {
-        session: "main:1",
+        conversation: conversation(),
         current: "medium",
         open: false,
         onOpenChange: () => undefined,

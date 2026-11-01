@@ -25,6 +25,8 @@ import {
     itemsOf,
     uploadingOf,
     type AttachmentDeps,
+    type AttachmentFile,
+    type ImageAttachment,
     type StagedAttachment,
     type StagedFileAttachment,
     type StagedImageAttachment,
@@ -37,7 +39,7 @@ import { ThinkingLevelPicker } from "@/routes/chat/composer/ThinkingLevelPicker"
 import { UserCommand } from "@/routes/chat/transcript/entries/UserCommand";
 import { presentRunningExecution } from "@/routes/chat/transcript/presentation";
 import { useMachine, useSelector } from "@xstate/react";
-import type { SessionRef } from "@/lib/session";
+import type { SessionKey, SessionRef } from "@/lib/session";
 import { Icon } from "@/components";
 
 /**
@@ -65,8 +67,8 @@ export function PickerPill({ className, ...props }: ComponentProps<typeof Button
 }
 
 export interface ComposerProps {
-    /** The session that this box sends to. */
-    session: string;
+    /** The conversation that this box sends to. */
+    conversation: SessionKey;
     /**
      * Whether a run of that session is in flight, from `useSession`. It decides what a
      * key means: Enter steers a run, and starts the next turn when none goes on.
@@ -85,7 +87,7 @@ export interface ComposerProps {
 }
 
 export function Composer({
-    session,
+    conversation,
     working,
     machine,
     editorText = null,
@@ -103,12 +105,17 @@ export function Composer({
     const attachments = useMemo<AttachmentDeps>(
         () => ({
             progress: (uploadId, notify) =>
-                bridge.onUploadProgress(uploadId, (event) => notify(event.transferred, event.total)),
-            stage: (request) =>
-                bridge.stageAttachment(request.uploadId, request.name, request.localPath, request.bytesBase64),
+                bridge.onUploadProgress(uploadId, (event) => notify(event.bytes, event.total)),
+            stage: async (request) => {
+                const source: bridge.UploadSource = request.localPath
+                    ? { type: "local", path: request.localPath }
+                    : { type: "in_memory", name: request.name, content: bytesOf(request.bytesBase64 ?? "") };
+                const receipt = await bridge.uploadFile(conversation.host, request.uploadId, source);
+                return { path: receipt.remotePath, size: receipt.totalBytes, mimeType: request.mimeType };
+            },
             notify: (failure) => toast.error(failure.message),
         }),
-        [],
+        [conversation.host],
     );
     const [, stage, strip] = useMachine(attachmentsMachine, { input: { deps: attachments } });
     const staged = useSelector(strip, itemsOf);
@@ -118,7 +125,7 @@ export function Composer({
     const [dismissed, setDismissed] = useState(false);
     const [panel, setPanel] = useState<"model" | "thinking" | null>(null);
     const input = useRef<HTMLTextAreaElement>(null);
-    const appliedEditorText = useRef<number | null>(null);
+    const appliedEditorText = useRef<string | null>(null);
 
     const blurTimer = useRef<number | null>(null);
     const focused = useRef(false);
@@ -165,20 +172,21 @@ export function Composer({
 
     useEffect(() => {
         appliedEditorText.current = null;
-    }, [session]);
+    }, [conversation]);
 
     useEffect(() => {
-        if (editorText === null || appliedEditorText.current === editorText.seq) return;
-        appliedEditorText.current = editorText.seq;
+        // The record carries no sequence: the text itself is what a second read compares.
+        if (editorText === null || appliedEditorText.current === editorText.text) return;
+        appliedEditorText.current = editorText.text;
         setValue(editorText.text);
         input.current?.focus();
     }, [editorText]);
 
-    const state = useQuery(sessionQueries.state(session));
-    const commands = useQuery(sessionQueries.commands(session));
+    const state = useQuery(sessionQueries.state(conversation));
+    const commands = useQuery(sessionQueries.commands(conversation));
     const runningBash = useSelector(machine, (snapshot) => snapshot.context.bash);
 
-    const piCommands = useMemo(() => commands.data?.commands ?? [], [commands.data]);
+    const piCommands = useMemo(() => commands.data ?? [], [commands.data]);
     const name = slashName(value);
     const commandListOpen = name !== null && !/\s/.test(value.trimStart()) && !dismissed && panel === null;
     const rows = useMemo(
@@ -206,8 +214,21 @@ export function Composer({
         setDismissed(false);
         const promptPromise =
             filePaths.length > 0
-                ? bridge.prompt(session, text, behavior, images.length > 0 ? images : undefined, filePaths)
-                : bridge.prompt(session, text, behavior, images.length > 0 ? images : undefined);
+                ? bridge.prompt(
+                      conversation.host,
+                      conversation.session,
+                      text,
+                      behavior,
+                      images.length > 0 ? images : undefined,
+                      filePaths,
+                  )
+                : bridge.prompt(
+                      conversation.host,
+                      conversation.session,
+                      text,
+                      behavior,
+                      images.length > 0 ? images : undefined,
+                  );
 
         void promptPromise.catch((thrown: unknown) => {
             toast.error(bridge.asPieError(thrown).message);
@@ -229,11 +250,11 @@ export function Composer({
         setDismissed(false);
         machine.send({ type: "BASH_START", run: shell });
         void bridge
-            .bash(session, shell.command, shell.excludeFromContext)
+            .bash(conversation.host, conversation.session, shell.command, shell.excludeFromContext)
             .then(() => {
                 // Pi records the run as an entry, and no event carries it: the read is
                 // what takes the live card down and puts the record in its place.
-                void client.invalidateQueries({ queryKey: sessionQueries.entries(session).queryKey });
+                void client.invalidateQueries({ queryKey: sessionQueries.entries(conversation).queryKey });
             })
             .catch((thrown: unknown) => {
                 toast.error(bridge.asPieError(thrown).message);
@@ -249,11 +270,15 @@ export function Composer({
     /** Stops what runs: the answer of pi first, or the shell command of the reader. */
     function stop() {
         if (working) {
-            void bridge.abort(session).catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
+            void bridge
+                .abort(conversation.host, conversation.session)
+                .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
             return;
         }
         if (runningBash !== null) {
-            void bridge.abortBash(session).catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
+            void bridge
+                .abortBash(conversation.host, conversation.session)
+                .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
         }
     }
 
@@ -348,9 +373,22 @@ export function Composer({
     async function stagePaths(paths: string[]) {
         if (paths.length === 0) return;
         try {
-            const picked = await bridge.inspectPaths(paths);
-            if (picked.images.length > 0) stage({ type: "STAGE_IMAGES", images: picked.images });
-            if (picked.files.length > 0) stage({ type: "STAGE_FILES", files: picked.files });
+            const images: ImageAttachment[] = [];
+            const files: AttachmentFile[] = [];
+            for (const path of paths) {
+                // One read says both what the file is and, for a picture, what pi takes
+                // inline: the frontend composes this, so Rust needs no classifying command.
+                const content = await bridge.read(path);
+                const name = path.split(/[\\/]/).pop() ?? path;
+                if (content.type === "image") {
+                    images.push({ name, image: { type: "image", data: content.base64, mimeType: content.mimeType } });
+                    continue;
+                }
+                const metadata = await bridge.readMetadata(path);
+                files.push({ name, size: metadata.size, mimeType: metadata.mimeType, localPath: path });
+            }
+            if (images.length > 0) stage({ type: "STAGE_IMAGES", images });
+            if (files.length > 0) stage({ type: "STAGE_FILES", files });
         } catch (thrown: unknown) {
             toast.error(bridge.asPieError(thrown).message);
         }
@@ -359,7 +397,7 @@ export function Composer({
     /** Asks the person for attachments and stages what they chose. */
     function attach() {
         void bridge
-            .selectPaths({ multiple: true })
+            .selectFiles({ multiple: true })
             .then(async (paths) => {
                 if (paths && paths.length > 0) await stagePaths(paths);
             })
@@ -485,7 +523,7 @@ export function Composer({
                         <div id="composer-controls" className="flex items-center justify-between p-3">
                             <div id="composer-pickers" className="flex min-w-0 flex-1 items-center gap-2.5">
                                 <ModelPicker
-                                    session={session}
+                                    conversation={conversation}
                                     current={state.data?.model ?? null}
                                     open={panel === "model"}
                                     onOpenChange={(open) => setPanel(open ? "model" : null)}
@@ -493,7 +531,7 @@ export function Composer({
                                     onBlur={handleBlur}
                                 />
                                 <ThinkingLevelPicker
-                                    session={session}
+                                    conversation={conversation}
                                     current={state.data?.thinkingLevel ?? null}
                                     open={panel === "thinking"}
                                     onOpenChange={(open) => setPanel(open ? "thinking" : null)}
@@ -562,4 +600,12 @@ export function Composer({
             )}
         </Popover>
     );
+}
+
+/** The bytes of a base64 payload, as the array `UploadSource` carries. */
+function bytesOf(base64: string): number[] {
+    const text = atob(base64);
+    const bytes = new Array<number>(text.length);
+    for (let at = 0; at < text.length; at += 1) bytes[at] = text.charCodeAt(at);
+    return bytes;
 }

@@ -9,25 +9,24 @@ import { connectionMachine, type ConnectionDeps } from "@/machines/connection.ma
  * of the machine to the outside.
  */
 function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
-    let publish: ((state: bridge.ConnectionState) => void) | undefined;
-    let subscribed = "";
-    let unsubscribed = "";
+    let publish: ((envelope: bridge.AskEnvelope<bridge.TrustAsk>) => void) | undefined;
+    let subscribed = false;
+    let unsubscribed = false;
     let unlistenCalls = 0;
 
     const deps: ConnectionDeps = {
         connection: "main",
-        connect: vi.fn(async () => ({
+        connect: vi.fn<(id: string, target: bridge.HostTarget) => Promise<bridge.ConnectionInfo>>(async () => ({
             id: "main",
-            endpoint: "local",
-            sessions: [{ id: "main:0", cwd: "/home/pie" }],
+            sessions: [],
             open: true,
         })),
-        trustHostKey: vi.fn(async () => true),
-        onConnectionState: vi.fn(async (id, onState) => {
-            subscribed = id;
-            publish = onState;
+        answer: vi.fn(async () => true),
+        onTrustAsk: vi.fn(async (onAsk) => {
+            subscribed = true;
+            publish = onAsk;
             return () => {
-                unsubscribed = id;
+                unsubscribed = true;
                 unlistenCalls += 1;
             };
         }),
@@ -39,7 +38,7 @@ function fakeDeps(overrides: Partial<ConnectionDeps> = {}) {
     return {
         deps,
         /** Puts a host-key question on the wire, as Rust does during the handshake. */
-        askHostKey: (key: bridge.PresentedKey) => publish?.({ type: "host_key", key }),
+        askHostKey: (id: number, key: bridge.TrustAsk) => publish?.({ id, timeoutMs: 1000, payload: key }),
         subscribed: () => subscribed,
         unsubscribed: () => unsubscribed,
         unlistenCalls: () => unlistenCalls,
@@ -65,20 +64,19 @@ function pendingDeps(overrides: Partial<ConnectionDeps> = {}) {
     });
     return {
         ...harness,
-        settle: (info: bridge.ConnectionInfo = { id: "main", endpoint: "local", sessions: [], open: true }) =>
-            release?.(info),
+        settle: (info: bridge.ConnectionInfo = { id: "main", sessions: [], open: true }) => release?.(info),
         failWith: (thrown: unknown) => fail?.(thrown),
     };
 }
 
-const KEY: bridge.PresentedKey = {
-    host: "192.168.1.10",
-    port: 22,
+const KEY: bridge.TrustAsk = {
+    host: "main",
+    endpoint: "192.168.1.10:22",
     algorithm: "ssh-ed25519",
     fingerprint: "SHA256:2a:b4:c1:88:9f:0e",
 };
 
-const SPEC: bridge.ConnectSpec = { transport: "local" };
+const SPEC: bridge.HostTarget = { transport: "local" };
 
 describe("connectionMachine", () => {
     it("reaches connected through the happy path, and unsubscribes on the way out", async () => {
@@ -86,11 +84,11 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
         expect(actor.getSnapshot().matches("connecting")).toBe(true);
 
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
-        expect(harness.unsubscribed()).toBe("main");
+        expect(harness.unsubscribed()).toBe(true);
         expect(harness.unlistenCalls()).toBe(1);
     });
 
@@ -99,13 +97,13 @@ describe("connectionMachine", () => {
         // listener registered after the dial misses it.
         const order: string[] = [];
         const harness = fakeDeps({
-            onConnectionState: async () => {
+            onTrustAsk: async () => {
                 order.push("listen");
                 return () => undefined;
             },
             connect: async () => {
                 order.push("connect");
-                return { id: "main", endpoint: "local", sessions: [], open: true };
+                return { id: "main", sessions: [], open: true };
             },
         });
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
@@ -121,7 +119,7 @@ describe("connectionMachine", () => {
         // is a failure like any other. The form must not stay locked on
         // "Connecting".
         const harness = fakeDeps({
-            onConnectionState: async () => {
+            onTrustAsk: async () => {
                 throw new Error("no IPC bridge here");
             },
         });
@@ -146,7 +144,7 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
 
         harness.failWith(new Error("connection refused"));
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
@@ -163,9 +161,9 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
-        harness.askHostKey(KEY);
-        expect(harness.deps.onHostKey).toHaveBeenCalledWith(KEY);
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
+        harness.askHostKey(1, KEY);
+        expect(harness.deps.onHostKey).toHaveBeenCalledWith({ id: 1, ask: KEY });
 
         harness.failWith(new Error("host never answered"));
         await vi.waitFor(() => expect(actor.getSnapshot().matches("error")).toBe(true));
@@ -182,8 +180,8 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
-        harness.askHostKey(KEY);
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
+        harness.askHostKey(1, KEY);
         harness.settle();
 
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
@@ -195,15 +193,15 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         // Outside the handshake, there is no one to ask. The graph shows this.
-        actor.send({ type: "HOST_KEY", key: KEY });
+        actor.send({ type: "HOST_KEY", question: { id: 1, ask: KEY } });
         expect(actor.getSnapshot().matches("idle")).toBe(true);
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
-        harness.askHostKey(KEY);
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
+        harness.askHostKey(1, KEY);
 
         expect(actor.getSnapshot().matches({ connecting: "asking" })).toBe(true);
-        expect(harness.deps.onHostKey).toHaveBeenCalledWith(KEY);
+        expect(harness.deps.onHostKey).toHaveBeenCalledWith({ id: 1, ask: KEY });
     });
 
     it("keeps waiting when the answer itself cannot be delivered", async () => {
@@ -212,15 +210,15 @@ describe("connectionMachine", () => {
         // dropped and the machine stays in `answering`. The prompt is gone and
         // the form is locked.
         const harness = pendingDeps({
-            trustHostKey: async () => {
+            answer: async () => {
                 throw new Error("no IPC bridge here");
             },
         });
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
-        harness.askHostKey(KEY);
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
+        harness.askHostKey(1, KEY);
         actor.send({ type: "ANSWER_HOST_KEY", trusted: true });
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "answering" })).toBe(true));
 
@@ -241,11 +239,13 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
-        harness.askHostKey(KEY);
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
+        harness.askHostKey(1, KEY);
         actor.send({ type: "ANSWER_HOST_KEY", trusted: true });
 
-        await vi.waitFor(() => expect(harness.deps.trustHostKey).toHaveBeenCalledWith("main", true));
+        await vi.waitFor(() =>
+            expect(harness.deps.answer).toHaveBeenCalledWith(1, { status: "resolved", data: { type: "trusted" } }),
+        );
         // The dial continues. The result of the answer is not visible yet. The
         // sheet is gone, but the handshake has not decided.
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ connecting: "waiting" })).toBe(true));
@@ -260,11 +260,13 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
-        harness.askHostKey(KEY);
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
+        harness.askHostKey(1, KEY);
         actor.send({ type: "ANSWER_HOST_KEY", trusted: false });
 
-        await vi.waitFor(() => expect(harness.deps.trustHostKey).toHaveBeenCalledWith("main", false));
+        await vi.waitFor(() =>
+            expect(harness.deps.answer).toHaveBeenCalledWith(1, { status: "resolved", data: { type: "refused" } }),
+        );
     });
 
     it("reports a refused host key as the sentence Rust wrote", async () => {
@@ -324,7 +326,7 @@ describe("connectionMachine", () => {
         actor.send({ type: "CONNECT", spec: SPEC });
         await vi.waitFor(() => expect(actor.getSnapshot().matches("connected")).toBe(true));
 
-        actor.send({ type: "HOST_KEY", key: KEY });
+        actor.send({ type: "HOST_KEY", question: { id: 1, ask: KEY } });
 
         expect(actor.getSnapshot().matches("connected")).toBe(true);
         // The handshake exit withdraws with null; no question content ever routes.
@@ -336,13 +338,13 @@ describe("connectionMachine", () => {
         const actor = createActor(connectionMachine, { input: harness.deps }).start();
 
         actor.send({ type: "CONNECT", spec: SPEC });
-        await vi.waitFor(() => expect(harness.subscribed()).toBe("main"));
+        await vi.waitFor(() => expect(harness.subscribed()).toBe(true));
 
         actor.stop();
         // One listener for each handshake, and stopping the actor is what drops
         // it. A question that Rust replaces never returns to this channel, so
         // there is no second subscription to leave behind.
-        expect(harness.unsubscribed()).toBe("main");
+        expect(harness.unsubscribed()).toBe(true);
         expect(actor.getSnapshot().status).toBe("stopped");
     });
 });

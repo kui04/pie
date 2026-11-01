@@ -18,8 +18,8 @@ logic and drives `pi --mode rpc` (JSONL over stdio) locally or over SSH.
   `transcript/`) and `rpc-protocol.ts` (type aliases over
   `@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai`).
 - `src-tauri/src/`: layered Rust backend
-  (`commands -> runtime -> session -> host -> channel -> pi_rpc`), plus
-  `error.rs`, `log.rs`, and `state.rs`.
+  (`commands -> state -> host -> channel -> pi_rpc`; `session` is a peer of
+  `host`), plus `bridge.rs`, `error.rs`, `log.rs`, and `state.rs`.
 - `src-tauri/gen/android/`: committed Android Gradle project (`gen/schemas` is
   ignored).
 - `.codegraph/.references/pi`: untracked Pi source checkout at
@@ -63,11 +63,10 @@ checks while iterating, and full checks before finishing.
   unmodified `shadcn` output; requires network).
 - **Rust checks**: `pnpm check`, `pnpm clippy` (`--all-targets -- -D warnings`),
   `pnpm rust-test`, `pnpm doc` (`RUSTDOCFLAGS="-D warnings"`).
-- **Live Pi and SSH integration tests**:
-  `cd src-tauri && cargo test -- --ignored` runs tests against a local `pi`
-  binary; `pnpm ssh-test` starts the container sshd fixture (`pnpm ssh-fixture`)
-  and runs the ignored `ssh` and `session` suites (requires a POSIX shell for
-  `eval`).
+- **Rust suites**: `cd src-tauri && cargo test` runs the unit tests. The live Pi
+  and SSH suites of the previous backend are not in the tree yet: the rewrite
+  rebuilds them under `src-tauri/tests/`, and `pnpm ssh-test` /
+  `pnpm ssh-fixture` fail until that fixture script returns.
 - **Desktop and preview**: `pnpm app:dev`, `pnpm app:build`, `pnpm storybook`,
   `pnpm build-storybook`. Do not use `pnpm dev` alone to preview the app in a
   browser — the frontend queries Rust for the platform before rendering.
@@ -88,25 +87,24 @@ checks while iterating, and full checks before finishing.
 ## Repository conventions and traps
 
 - **Alphabetical Cargo manifest**: `src-tauri/Cargo.toml` keeps `[dependencies]`
-  and `[dev-dependencies]` in alphabetical order, enforced by
-  `src-tauri/tests/manifest.rs`.
+  and `[dev-dependencies]` in alphabetical order. The test that checked it
+  (`tests/manifest.rs`) returns with the rewrite's test suite; until then review
+  keeps the order.
 - **Self-contained code comments**: Cite only sources a reader outside this
   working tree can look up (this repo's code, OpenSSH/russh source, or Pi at the
   pinned revision). Never cite `docs/` in committed files.
 - **Version bumps** (tracks the
   [Pi release](https://github.com/earendil-works/pi/releases), currently
   `1.1.0`):
-  1. Update `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
-     and `PI_VERSION` + `PI_SHA256` in `src-tauri/tests/pi-host/Dockerfile`
-     (`src-tauri/tests/ssh.rs` asserts the Dockerfile matches the crate
-     version).
+  1. Update `package.json`, `src-tauri/tauri.conf.json`, and
+     `src-tauri/Cargo.toml`. The SSH fixture's Dockerfile pins `PI_VERSION` and
+     `PI_SHA256` too, and returns with the fixture.
   2. Move `.codegraph/.references/pi` to the release commit and re-run
      `codegraph index`.
   3. Update `pi_rpc` (whose `[package.metadata.pi_rpc] pi_rev` names the Pi
-     commit its protocol was recorded from), run `cargo update -p pi_rpc` and
-     `pnpm check`, and re-record `src-tauri/tests/fixtures`
-     (`src-tauri/tests/scripts/README.md`) so `src-tauri/tests/conformance.rs`
-     passes.
+     commit its protocol was recorded from) and run `cargo update -p pi_rpc` and
+     `pnpm check`. The recorded JSONL fixtures and `tests/conformance.rs` return
+     with the rewrite's test suite; a protocol change re-records them then.
 - **Logging**: `src-tauri/src/log.rs` routes `tracing` to stderr on desktop and
   logcat on Android. `RUST_LOG` replaces the default `info` filter — use
   `RUST_LOG=info,pi_rpc=debug` to raise one target without silencing app logs.

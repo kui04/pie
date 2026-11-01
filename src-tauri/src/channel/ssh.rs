@@ -1,29 +1,15 @@
-//! A started program as an exec channel of an SSH session.
-//!
-//! The SSH layer reaches a machine in [`host::ssh`](crate::host::ssh); this
-//! module owns what happens after a command is running in a channel of that
-//! session: the two byte streams, the exit status, and the way to end the
-//! command. It knows `russh` and nothing about which machine the session
-//! reaches - a channel that is never named cannot be reached by a wrong name.
-//!
-//! stdout and stderr arrive as separate SSH messages on one channel while the
-//! app wants two streams, so a pump copies each into a pipe of its own. The
-//! pump is also the only source of the exit status: SSH reports it as a channel
-//! message, not as a return value.
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
 
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll, Waker},
-};
+use russh::ChannelMsg;
+use tokio::io::{AsyncWrite, AsyncWriteExt, DuplexStream};
+use tokio::sync::watch;
 
-use russh::{Channel as SshChannel, ChannelMsg, ChannelWriteHalf, Sig};
-use tokio::{
-    io::{AsyncWrite, AsyncWriteExt, DuplexStream},
-    sync::{Notify, watch},
-};
+use crate::channel::{Channel, ExitStatus, Handle};
 
-use super::{Channel, Lifecycle, Termination};
+/// SIGKILL, under the number every POSIX system gives it.
+const SIGKILL: i32 = 9;
 
 /// Bytes a direction may buffer between the SSH channel and the client.
 ///
@@ -34,134 +20,147 @@ const PIPE_CAPACITY: usize = 64 * 1024;
 /// SSH's extended-data code for a command's standard error.
 const STDERR: u32 = 1;
 
-/// Assembles a protocol channel from an SSH exec channel.
-pub(super) fn from_channel(
-    channel: SshChannel<russh::client::Msg>,
-    endpoint: String,
+/// A program in an SSH exec channel. The pump writes its exit status into the
+/// watch.
+pub struct SshProcess {
+    write_half: russh::ChannelWriteHalf<russh::client::Msg>,
+    exit: watch::Receiver<Option<ExitStatus>>,
+    stop: Arc<tokio::sync::Notify>,
+    killed: bool,
+}
+
+impl std::fmt::Debug for SshProcess {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SshProcessHandler(<channel>)")
+    }
+}
+
+/// A lifecycle failure on an SSH channel.
+#[derive(Debug, thiserror::Error)]
+pub enum SshProcessError {
+    /// The channel ended without an exit message.
+    #[error("the ssh channel ended without an exit status")]
+    NoStatus,
+
+    /// The channel request itself failed.
+    #[error(transparent)]
+    Channel(#[from] russh::Error),
+}
+
+/// Takes a started exec channel: its streams become a [`Channel`], its end an
+/// [`SshProcess`].
+///
+/// `early_stdout` and `early_stderr` hold what the machine sent before it
+/// confirmed the exec request; the pump writes them out before it reads the
+/// channel.
+pub(crate) fn spawn(
+    channel: russh::Channel<russh::client::Msg>,
     early_stdout: Vec<u8>,
     early_stderr: Vec<u8>,
-) -> Channel {
+) -> (Channel, SshProcess) {
     let (read_half, write_half) = channel.split();
 
-    let (stdout_tx, stdout_rx) = tokio::io::duplex(PIPE_CAPACITY);
-    let (stderr_tx, stderr_rx) = tokio::io::duplex(PIPE_CAPACITY);
-    let (exit_tx, exit_rx) = watch::channel(None);
-    let stop = Arc::new(Notify::new());
+    let (stdout, stdout_rx) = tokio::io::duplex(PIPE_CAPACITY);
+    let (stderr, stderr_rx) = tokio::io::duplex(PIPE_CAPACITY);
+    let (exit, exit_rx) = watch::channel(None);
+    let stop = Arc::new(tokio::sync::Notify::new());
 
     tokio::spawn(pump(
         read_half,
-        stdout_tx,
-        stderr_tx,
+        stdout,
+        stderr,
         early_stdout,
         early_stderr,
-        exit_tx,
+        exit,
         Arc::clone(&stop),
     ));
 
-    let stdin = Box::new(write_half.make_writer());
-    let remote = Remote {
-        endpoint,
+    let channel = Channel::new(
+        Box::new(write_half.make_writer()),
+        Box::new(stdout_rx),
+        Box::new(stderr_rx),
+    );
+    let process = SshProcess {
         write_half,
-        exit_rx,
+        exit: exit_rx,
         stop,
         killed: false,
     };
 
-    Channel::new(stdout_rx, stdin, stderr_rx, Box::new(remote))
+    (channel, process)
 }
 
-/// The running command behind an SSH channel.
-struct Remote {
-    endpoint: String,
-    write_half: ChannelWriteHalf<russh::client::Msg>,
-    exit_rx: watch::Receiver<Option<Termination>>,
-    /// Tells the pump to stop copying: after a terminate there is nobody left
-    /// to copy for, and a quiet command never gives the copy a reason to end.
-    stop: Arc<Notify>,
-    /// Whether this control asked the command to die, which decides what
-    /// `wait` reports when the host's own status never arrives.
-    killed: bool,
-}
-
-impl std::fmt::Debug for Remote {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Remote")
-            .field("endpoint", &self.endpoint)
-            .finish_non_exhaustive()
+/// How to end a wait that the channel answered without a status.
+fn status_without_ended(killed: bool) -> anyhow::Result<ExitStatus> {
+    if killed {
+        return Ok(ExitStatus::signalled(SIGKILL));
     }
+    Err(SshProcessError::NoStatus.into())
 }
 
-#[async_trait::async_trait]
-impl Lifecycle for Remote {
-    /// Asks the machine to end the command, with the signal request sshd turns
-    /// into a kill of the process group, and EOF alongside it.
-    ///
-    /// No CHANNEL_CLOSE is sent, on purpose. russh 0.63.3 drops a channel from
-    /// its own bookkeeping when the client closes it (`session.rs` `close`) and
-    /// then discards the server's close and exit-status over the missing entry
-    /// (`client/encrypted.rs`, the established-channel check), so the stream the
-    /// pump reads would never end and `wait` would hang on a command that prints
-    /// nothing. EOF keeps the entry; stopping the pump does the rest. The rest
-    /// of the session - other sessions' pi and the app's sftp scans - rides on
-    /// untouched.
-    async fn terminate(&mut self) {
-        tracing::debug!(endpoint = %self.endpoint, "killing the remote command");
-        if let Err(error) = self.write_half.signal(Sig::KILL).await {
-            tracing::debug!(endpoint = %self.endpoint, %error, "the host took no signal request");
+impl Handle for SshProcess {
+    async fn wait(&mut self) -> anyhow::Result<ExitStatus> {
+        let killed = self.killed;
+        match self.exit.wait_for(Option::is_some).await {
+            // `Unknown` is what the pump records when the channel closed without an
+            // exit message, so it is not a status a host reported.
+            Ok(ended) => match *ended {
+                Some(ExitStatus::Unknown) | None => status_without_ended(killed),
+                Some(status) => Ok(status),
+            },
+            Err(_) => status_without_ended(killed),
         }
-        let _ = self.write_half.eof().await;
+    }
+
+    fn try_wait(&mut self) -> anyhow::Result<Option<ExitStatus>> {
+        let killed = self.killed;
+        match *self.exit.borrow() {
+            None => Ok(None),
+            Some(ExitStatus::Unknown) => status_without_ended(killed).map(Some),
+            Some(status) => Ok(Some(status)),
+        }
+    }
+
+    async fn kill(&mut self) -> anyhow::Result<()> {
+        // No CHANNEL_CLOSE on purpose: russh 0.63.3 forgets a channel its client
+        // closed and then discards the server's exit message for it, so the pump
+        // would never see the end. EOF keeps the entry; stopping the pump does
+        // the rest.
+        if let Err(error) = self.write_half.signal(russh::Sig::KILL).await {
+            tracing::debug!(%error, "the host took no signal request");
+        }
+        if let Err(error) = self.write_half.eof().await {
+            tracing::debug!(%error, "the host took no end-of-file");
+        }
         self.killed = true;
         self.stop.notify_one();
-    }
-
-    /// Waits for the command to end and reports how it ended.
-    async fn wait(&mut self) -> Termination {
-        let termination = match self.exit_rx.wait_for(Option::is_some).await {
-            Ok(guard) => guard.unwrap_or(Termination::Unknown),
-            Err(_) => {
-                tracing::warn!(
-                    endpoint = %self.endpoint,
-                    "the command's channel ended without a status"
-                );
-                Termination::Unknown
-            }
-        };
-        self.resolve_termination(termination)
-    }
-}
-
-impl Remote {
-    /// What the command ending reports after this control asked it to die.
-    fn resolve_termination(&self, termination: Termination) -> Termination {
-        match termination {
-            Termination::Unknown if self.killed => Termination::from(Sig::KILL),
-            known => known,
-        }
+        Ok(())
     }
 }
 
 /// Moves the channel's messages into the byte streams the client reads.
 ///
-/// The channel's exit status is the only source for [`Remote::wait`], which is
-/// why it is collected here.
+/// The exit status arrives as a channel message, not as a return value, so the
+/// pump is its only source.
 async fn pump(
     mut channel: russh::ChannelReadHalf,
     mut stdout: DuplexStream,
     mut stderr: DuplexStream,
     early_stdout: Vec<u8>,
     early_stderr: Vec<u8>,
-    exit_tx: watch::Sender<Option<Termination>>,
-    stop: Arc<Notify>,
+    exit: watch::Sender<Option<ExitStatus>>,
+    stop: Arc<tokio::sync::Notify>,
 ) {
-    let mut termination = Termination::Unknown;
-    let mut dropped_stderr = 0usize;
+    // `Unknown` means the channel closed without an exit message; `wait` reads it
+    // as the absence of a status, not as one.
+    let mut ended = ExitStatus::Unknown;
+    let mut dropped = 0usize;
 
-    let copy_loop = async {
+    let copy = async {
         if !early_stdout.is_empty() && stdout.write_all(&early_stdout).await.is_err() {
             return;
         }
-        dropped_stderr += early_stderr.len() - write_now(&mut stderr, &early_stderr);
+        dropped += early_stderr.len() - write_now(&mut stderr, &early_stderr);
 
         while let Some(message) = channel.wait().await {
             match message {
@@ -171,69 +170,134 @@ async fn pump(
                     }
                 }
                 ChannelMsg::ExtendedData { data, ext: STDERR } => {
-                    dropped_stderr += data.len() - write_now(&mut stderr, &data);
+                    dropped += data.len() - write_now(&mut stderr, &data);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
-                    termination = Termination::Exited {
-                        code: exit_status as i32,
-                        success: exit_status == 0,
-                    };
+                    ended = ExitStatus::exited(exit_status as i32);
                 }
                 ChannelMsg::ExitSignal { signal_name, .. } => {
-                    termination = Termination::from(signal_name);
+                    match ExitStatus::try_from(signal_name) {
+                        Ok(status) => ended = status,
+                        Err(error) => {
+                            tracing::debug!(%error, "the host reported a signal pie cannot name");
+                        }
+                    }
                 }
                 _ => {}
             }
         }
     };
 
-    // Preempts both `channel.wait()` and a blocked `stdout.write_all()` when
-    // `Remote::terminate` notifies `stop`.
+    // Preempts both `channel.wait()` and a blocked `stdout.write_all()` once the
+    // process is killed: after that nobody reads the streams.
     tokio::select! {
-        () = copy_loop => {}
+        () = copy => {}
         () = stop.notified() => {}
     }
 
     drop(stdout);
     drop(stderr);
 
-    if dropped_stderr > 0 {
+    if dropped > 0 {
         tracing::debug!(
             target: "channel::ssh",
-            bytes = dropped_stderr,
+            bytes = dropped,
             "dropped stderr nobody was reading"
         );
     }
-    let _ = exit_tx.send_replace(Some(termination));
+    let _ = exit.send_replace(Some(ended));
 }
 
 /// Writes as much of `data` as fits right now, never waiting, and reports how
 /// much that was.
 fn write_now(stream: &mut DuplexStream, data: &[u8]) -> usize {
-    let mut cx = Context::from_waker(Waker::noop());
-    match Pin::new(stream).poll_write(&mut cx, data) {
+    let mut context = Context::from_waker(Waker::noop());
+    match Pin::new(stream).poll_write(&mut context, data) {
         Poll::Ready(Ok(written)) => written,
         Poll::Ready(Err(_)) | Poll::Pending => 0,
     }
 }
 
-impl From<Sig> for Termination {
-    fn from(signal: Sig) -> Self {
+impl TryFrom<russh::Sig> for ExitStatus {
+    type Error = anyhow::Error;
+
+    fn try_from(signal: russh::Sig) -> Result<Self, Self::Error> {
         let signal = match signal {
-            Sig::HUP => 1,
-            Sig::INT => 2,
-            Sig::QUIT => 3,
-            Sig::ILL => 4,
-            Sig::ABRT => 6,
-            Sig::FPE => 8,
-            Sig::KILL => 9,
-            Sig::USR1 => 10,
-            Sig::SEGV => 11,
-            Sig::PIPE => 13,
-            Sig::ALRM => 14,
-            Sig::TERM => 15,
-            Sig::Custom(_) => return Self::Unknown,
+            russh::Sig::ABRT => 6,
+            russh::Sig::ALRM => 14,
+            russh::Sig::FPE => 8,
+            russh::Sig::HUP => 1,
+            russh::Sig::ILL => 4,
+            russh::Sig::INT => 2,
+            russh::Sig::KILL => SIGKILL,
+            russh::Sig::PIPE => 13,
+            russh::Sig::QUIT => 3,
+            russh::Sig::SEGV => 11,
+            russh::Sig::TERM => 15,
+            russh::Sig::USR1 => 10,
+            russh::Sig::Custom(name) => {
+                anyhow::bail!("the host reported the signal `{name}`, which pie does not know")
+            }
         };
-        Self::Signalled { signal }
+        Ok(Self::signalled(signal))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_named_signal_carries_its_number() {
+        let table = [
+            (russh::Sig::HUP, 1),
+            (russh::Sig::INT, 2),
+            (russh::Sig::QUIT, 3),
+            (russh::Sig::ILL, 4),
+            (russh::Sig::ABRT, 6),
+            (russh::Sig::FPE, 8),
+            (russh::Sig::KILL, 9),
+            (russh::Sig::USR1, 10),
+            (russh::Sig::SEGV, 11),
+            (russh::Sig::PIPE, 13),
+            (russh::Sig::ALRM, 14),
+            (russh::Sig::TERM, 15),
+        ];
+
+        for (signal, number) in table {
+            let status = ExitStatus::try_from(signal).expect("a known signal becomes a status");
+            assert_eq!(status.code(), None);
+            assert_eq!(status.signal(), Some(number));
+            assert!(status.is_signalled());
+        }
+    }
+
+    #[test]
+    fn a_signal_pie_cannot_name_is_a_failure_that_names_it() {
+        let error = ExitStatus::try_from(russh::Sig::Custom("FOO".to_string()))
+            .expect_err("an unknown signal is refused");
+
+        assert!(
+            error.to_string().contains("FOO"),
+            "the failure names the signal: {error}"
+        );
+    }
+
+    #[test]
+    fn a_killed_command_that_left_no_status_is_reported_by_sigkill() {
+        let status = status_without_ended(true).expect("a kill is not a failure");
+
+        assert_eq!(status.code(), None);
+        assert_eq!(status.signal(), Some(9));
+    }
+
+    #[test]
+    fn a_command_that_left_no_status_is_a_failure() {
+        let error = status_without_ended(false).expect_err("no status is a failure");
+
+        assert!(
+            error.to_string().contains("without an exit status"),
+            "the failure says what is missing: {error}"
+        );
     }
 }

@@ -21,7 +21,8 @@ import type {
     ToolResultMessage,
     Usage,
 } from "@/lib/rpc-protocol";
-import type { SessionSummary } from "@/lib/bridge";
+import type { SessionInfo } from "@/lib/bridge";
+import type { SessionKey } from "@/lib/session";
 import type { TranscriptEntries } from "@/lib/transcript";
 
 /** When every fixture happened. The clock is not part of what is under test. */
@@ -91,17 +92,17 @@ export const sessionState = (overrides: Partial<SessionState> = {}): SessionStat
 let rows = 0;
 
 /** A row of the session list, as the scan of the host reports it. */
-export function sessionSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
+export function sessionSummary(overrides: Partial<SessionInfo> = {}): SessionInfo {
     rows += 1;
-    const cwd = overrides.cwd ?? "/home/kui/Projects/pie";
     return {
         path: `/home/kui/.pi/agent/sessions/--home-kui-Projects-pie--/2026-01-01T00-00-00-000Z_${rows}.jsonl`,
         id: `0193f0c4-0000-7000-8000-${String(rows).padStart(12, "0")}`,
-        cwd,
-        name: "Fix the parser",
-        created: AT,
-        modified: AT,
-        firstMessage: "Make the parser skip empty lines, and run the tests.",
+        cwd: "/home/kui/Projects/pie",
+        title: { type: "named", name: "Fix the parser" },
+        parentPath: null,
+        createdAt: AT,
+        modifiedAt: AT,
+        firstPrompt: "Make the parser skip empty lines, and run the tests.",
         ...overrides,
     };
 }
@@ -459,4 +460,13 @@ export function longTurnTranscript(): SessionEntry[] {
             ),
         ),
     );
+}
+
+/** One conversation of the one connection pie holds. */
+export function conversation(overrides: Partial<SessionKey> = {}): SessionKey {
+    return {
+        host: "main",
+        session: "/home/kui/.pi/agent/sessions/--home-kui-Projects-pie--/2026-01-01T00-00-00-000Z_1.jsonl",
+        ...overrides,
+    };
 }

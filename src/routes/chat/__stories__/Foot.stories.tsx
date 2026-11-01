@@ -6,7 +6,7 @@ import { createActor } from "xstate";
 import { sessionMachine } from "@/machines/session.machine";
 import { queryDefaults } from "@/lib/query";
 import { transcriptRows } from "@/lib/transcript";
-import { sampleTranscript, sessionState, slashCommand, storeOf } from "@/preview/fixtures";
+import { sampleTranscript, sessionState, slashCommand, storeOf, conversation } from "@/preview/fixtures";
 import { Composer } from "@/routes/chat/composer/Composer";
 import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
 
@@ -65,7 +65,7 @@ const meta = {
         ),
     ],
     args: {
-        session: "main:1",
+        conversation: conversation(),
         working: false,
         machine,
     },

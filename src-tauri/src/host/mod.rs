@@ -1,329 +1,746 @@
-//! The machine pie talks to: reaching it, and what runs on it beside pi.
-//!
-//! Pi runs on the machine that has it - this machine, or a machine that pie
-//! reaches over SSH - and everything pie does starts here. This module owns the
-//! reach: the socket, the credentials, the host key, the version of the pi that
-//! is installed there, the commands pie runs beside pi, and the files of the
-//! machine. It owns no session: which pi processes exist, what they say, and what
-//! happens when one ends belongs to [`session`](crate::session).
-//!
-//! Two machines, one vocabulary: [`Host`] answers for both, and the two
-//! implementations live in `local` and `ssh`. A caller outside this module
-//! never asks which machine it has.
+//! One machine: the reach to it, the programs it runs, and its files.
 
-mod connection;
-mod exec;
-pub(crate) mod files;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
+use std::time::Duration;
+
+// `enum_dispatch` expands the `FileSystem` signatures here, so `Bytes` and
+// `AsyncRead` stay in scope though this file names neither.
+use anyhow::{Context as _, ensure};
+use bytes::Bytes;
+use enum_dispatch::enum_dispatch;
+use hostaddr::HostAddr;
+use pi_rpc::client::Client;
+use tokio::io::AsyncRead;
+use tokio::sync::watch;
+use typed_path::{Utf8TypedPath, Utf8TypedPathBuf};
+
+use crate::bus::Bus;
+use crate::channel::{Channel, Process};
+use crate::session::{Session, SessionInfo, store};
+use crate::state::{HostId, LocalDirs};
+
+pub mod executor;
+pub mod fs;
 mod local;
 mod ssh;
 
-use std::{fmt, sync::Arc};
+#[doc(inline)]
+pub use executor::Executor;
+use executor::*;
+#[doc(inline)]
+pub use fs::FileSystem;
+use fs::*;
+use ssh::trust::KnownHosts;
 
-use camino::Utf8PathBuf;
-pub use connection::Connection;
-pub use exec::{Command, Exec, Output};
-pub use files::{
-    AsyncReadSeek, DirEntry, FileEntry, Files, Listing, ProgressFn, digest_bytes, digest_file, staged_name,
-};
-pub use local::{LocalHost, spool};
-use serde::Serialize;
-pub use ssh::{
-    AskHostKey, HostKey, KnownHosts, PresentedKey, SshAuth, SshHost, SshSession, SshTarget, SubsystemStream, Trust,
-};
+/// The pi release pie speaks to. The crate version mirrors it.
+pub(crate) const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-use crate::channel::Channel;
-
-/// The Pi release this crate mirrors.
-pub const PI_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// What a packaged pi reports when its build had no version to bake in: "cannot tell".
-pub const UNKNOWN_VERSION: &str = "0.0.0";
-
-/// Compares a reported version against [`PI_VERSION`].
-pub fn check_version(found: &str) -> Result<(), VersionMismatch> {
-    let found = found.trim();
-    if found == PI_VERSION || found == UNKNOWN_VERSION {
-        Ok(())
-    } else {
-        Err(VersionMismatch {
-            expected: PI_VERSION.to_string(),
-            found: found.to_string(),
-        })
-    }
-}
-
-/// The `pi` on a machine is not the release that pie mirrors.
-#[derive(Debug, thiserror::Error)]
-#[error("pi version mismatch: expected {expected}, found {found}")]
-pub struct VersionMismatch {
-    /// Version pie mirrors.
-    pub expected: String,
-    /// Version reported by the probed binary.
-    pub found: String,
-}
-
-/// The label of a machine: `local`, or `user@host:port`.
-///
-/// Used in UI headers, log lines, and error messages so the user can tell which
-/// machine a message came from.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct Endpoint(String);
-
-impl Endpoint {
-    /// Names an endpoint directly.
-    pub fn new(label: impl Into<String>) -> Self {
-        Self(label.into())
-    }
-
-    /// The endpoint of this machine.
-    pub fn local() -> Self {
-        Self::new("local")
-    }
-
-    /// Views the label as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for Endpoint {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-/// A machine pie reaches, and the pi that runs on it.
-///
-/// A host composes the three capabilities of one machine: its reach
-/// ([`Connection`]), its files ([`Files`]), and its programs ([`Exec`]).
-/// Callers hold `Arc<Host>` and never ask which machine they have.
-#[derive(Debug, Clone)]
-pub struct Host {
-    connection: Arc<dyn Connection>,
-    files: Arc<dyn Files>,
-    exec: Arc<dyn Exec>,
-}
-
-impl Host {
-    /// Assembles a host from its three capabilities.
-    ///
-    /// The three must belong to the same machine: `connect` opens the reach and
-    /// then probes `pi` through `exec`.
-    pub(crate) fn new(connection: Arc<dyn Connection>, files: Arc<dyn Files>, exec: Arc<dyn Exec>) -> Self {
-        Self {
-            connection,
-            files,
-            exec,
-        }
-    }
-
-    /// The machine the app itself runs on, with the home the app resolved.
-    pub fn local(home: Option<Utf8PathBuf>) -> Self {
-        Self::local_with_cache(home, None)
-    }
-
-    /// The machine the app itself runs on, with home and cache directories resolved.
-    pub fn local_with_cache(home: Option<Utf8PathBuf>, cache: Option<Utf8PathBuf>) -> Self {
-        let local = Arc::new(LocalHost::with_cache(home, cache));
-        let connection: Arc<dyn Connection> = local.clone();
-        let files: Arc<dyn Files> = local.clone();
-        let exec: Arc<dyn Exec> = local;
-        Self::new(connection, files, exec)
-    }
-
+/// Where and how pie reaches a machine.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "transport", rename_all = "snake_case")]
+pub enum HostTarget {
+    /// This machine, where pie itself runs.
+    Local,
     /// A machine reached over SSH.
-    pub fn ssh(target: SshTarget, auth: SshAuth, trust: Trust) -> Self {
-        let remote = Arc::new(SshHost::new(target, auth, trust));
-        let connection: Arc<dyn Connection> = remote.clone();
-        let files: Arc<dyn Files> = remote.clone();
-        let exec: Arc<dyn Exec> = remote;
-        Self::new(connection, files, exec)
-    }
+    Ssh {
+        user: String,
+        host: HostAddr<String>,
+        auth: HostAuth,
+    },
+}
 
-    /// Establishes or re-establishes the reach and verifies that `pi` runs on it.
-    pub async fn connect(&self) -> anyhow::Result<()> {
-        self.connection.connect().await?;
-        match self.pi_version().await {
-            Ok(version) => {
-                if let Err(mismatch) = check_version(&version) {
-                    tracing::warn!(%mismatch, "the pi of this machine is not the release pie speaks; going on");
-                }
-                Ok(())
-            }
-            Err(error) => {
-                self.connection.close().await;
-                Err(error)
-            }
+/// Credentials used to authenticate with an SSH host.
+#[derive(Clone, serde::Deserialize)]
+pub enum HostAuth {
+    None,
+    Password(String),
+    Key {
+        private_key: String,
+        passphrase: Option<String>,
+    },
+}
+
+impl Debug for HostAuth {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => formatter.write_str("None"),
+            Self::Password(_) => formatter.write_str("Password(<redacted>)"),
+            Self::Key {
+                private_key,
+                passphrase,
+            } => formatter
+                .debug_struct("Key")
+                .field("bytes", &private_key.len())
+                .field("passphrase", &passphrase.as_ref().map(|_| "<redacted>"))
+                .finish(),
         }
-    }
-
-    /// Whether the reach to the machine is still open.
-    pub fn is_open(&self) -> bool {
-        self.connection.is_open()
-    }
-
-    /// The label of this machine: `local`, or `user@host:port`.
-    pub fn endpoint(&self) -> Endpoint {
-        self.connection.endpoint()
-    }
-
-    /// Ends the reach to the machine.
-    pub async fn close(&self) {
-        self.connection.close().await;
-    }
-
-    /// The file operations of this machine.
-    pub fn files(&self) -> &dyn Files {
-        self.files.as_ref()
-    }
-
-    /// Another hand on the file operations, for a task that must own them.
-    pub fn files_arc(&self) -> Arc<dyn Files> {
-        Arc::clone(&self.files)
-    }
-
-    /// The program operations of this machine.
-    pub fn exec(&self) -> &dyn Exec {
-        self.exec.as_ref()
-    }
-
-    /// Starts `pi --mode rpc` on this machine in `cwd`, returning the
-    /// channel and the starting working directory label.
-    pub async fn spawn_pi(&self, cwd: &str, session_file: Option<&str>) -> anyhow::Result<(Channel, Option<String>)> {
-        let cwd = files::check_absolute(cwd)?;
-        let session_file = session_file.map(files::check_absolute).transpose()?;
-        let mut command = Command::new("pi").args(["--mode", "rpc"]).cwd(cwd);
-        if let Some(session_file) = session_file {
-            command = command.args(["--session", session_file]);
-        }
-        let channel = self.exec.spawn(command).await?;
-        Ok((channel, Some(cwd.to_string())))
-    }
-
-    /// Returns the version string reported by `pi --version` on this machine.
-    pub async fn pi_version(&self) -> anyhow::Result<String> {
-        let output = self.exec.output(Command::new("pi").arg("--version")).await?;
-        version_of(&output, &self.endpoint())
-    }
-
-    /// Lists one directory level of this machine for the directory picker.
-    pub async fn list_dirs(&self, path: &str) -> anyhow::Result<Listing> {
-        let mut entries: Vec<DirEntry> = self
-            .files
-            .read_dir(path)
-            .await?
-            .into_iter()
-            .map(|entry| DirEntry {
-                name: entry.name,
-                path: entry.path,
-                is_dir: entry.is_dir,
-            })
-            .collect();
-        files::sort_dirs_first(&mut entries);
-        Ok(Listing {
-            directory: path.to_string(),
-            entries,
-        })
     }
 }
 
-/// Reads the version that a `pi --version` capture reported.
-pub(crate) fn version_of(output: &Output, endpoint: &Endpoint) -> anyhow::Result<String> {
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if let crate::channel::Termination::Exited { success: true, .. } = output.termination
-        && !stdout.is_empty()
-    {
-        return Ok(stdout);
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let said = stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
-    if said.is_empty() {
-        anyhow::bail!("`pi --version` on {endpoint} failed with {:?}", output.termination);
-    }
-    anyhow::bail!("`pi --version` on {endpoint} failed: {said}");
+/// The reach to one machine, one variant per transport.
+#[derive(Debug)]
+#[enum_dispatch(Executor, FileSystem)]
+pub enum Host {
+    Local(local::LocalHost),
+    Ssh(ssh::SshHost),
 }
 
-/// What the frontend hears about a connection during the handshake.
-#[derive(Debug, Clone, Serialize)]
+/// Dials or initializes `target`, checks the release of `pi`, and answers the connection.
+///
+/// A `pi` that is not installed fails the connect. A `pi` of another release is
+/// logged and the connection goes on, because the files of the machine stay usable.
+pub async fn connect(
+    id: HostId,
+    target: HostTarget,
+    bus: Bus,
+    dirs: &LocalDirs,
+) -> anyhow::Result<HostConnection> {
+    // The SSH dial takes the bus for its host-key question; the watcher needs its own.
+    let watcher = bus.clone();
+    let host = match &target {
+        HostTarget::Local => Host::Local(local::LocalHost::new(dirs)),
+        HostTarget::Ssh { user, host, auth } => Host::Ssh(
+            ssh::SshHost::connect(
+                user,
+                id.clone(),
+                host.clone(),
+                auth,
+                bus,
+                KnownHosts::new(dirs.known_hosts.clone()),
+            )
+            .await?,
+        ),
+    };
+
+    let connection = HostConnection {
+        id,
+        target,
+        host,
+        sessions: RwLock::new(HostSessions::default()),
+        ending: Arc::new(AtomicBool::new(false)),
+    };
+
+    // The reach is watched before the release is checked, so a link that goes away
+    // during the check still reaches the frontend.
+    tokio::spawn(watch_reach(
+        connection.id.clone(),
+        connection.openness(),
+        watcher,
+        Arc::clone(&connection.ending),
+    ));
+
+    let version = connection
+        .pi_version()
+        .await
+        .context("this machine does not answer `pi --version`")?;
+    if version != PI_VERSION {
+        tracing::warn!(
+            found = %version,
+            expected = PI_VERSION,
+            "the pi on this machine is not the release pie speaks to; the connection goes on"
+        );
+    }
+
+    Ok(connection)
+}
+
+/// How often the reach of a connection is checked. A closed SSH transport is a flag
+/// that only a check turns into an event.
+const REACH_TICK: Duration = Duration::from_secs(1);
+
+/// One cheap check of whether the reach to a machine is still open.
+enum Reach {
+    /// This machine: open while pie runs, so there is nothing to watch.
+    Always,
+    Ssh(Box<dyn Fn() -> bool + Send + Sync>),
+}
+
+impl Reach {
+    fn is_open(&self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Ssh(check) => check(),
+        }
+    }
+}
+
+/// What the frontend hears about the reach to one machine.
+///
+/// This is the only news of a link that goes away while nothing is being asked, so
+/// it travels even when no command is in flight.
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ConnectionState {
-    /// A host presented a key that is in no store. Therefore the connection
-    /// waits for a person. The result of an answer that never arrives is the
-    /// business of the frontend: the frontend decides the length of the wait,
-    /// and no answer is a refusal.
-    HostKey {
-        /// The key in the values that a person compares.
-        key: PresentedKey,
-    },
+    /// The reach is open.
+    Open { host: HostId },
+    /// The reach ended on its own: the machine is unreachable.
+    Ended { host: HostId },
+}
 
-    /// The reach to the machine ended. Pie holds the connection, and nothing on
-    /// it answers any more: a network that went away, a host that slept. The
-    /// frontend decides what happens next - a person may bring the reach back, or
-    /// leave for the connect screen.
-    Ended,
+impl crate::bus::Notification for ConnectionState {
+    const EVENT_NAME: &'static str = "pi://connection/state";
+}
+
+/// Announces the reach of one connection until it ends.
+///
+/// An end that pie asked for is not announced: the caller that asked already knows.
+async fn watch_reach(host: HostId, reach: Reach, bus: Bus, ending: Arc<AtomicBool>) {
+    if bus
+        .notify(ConnectionState::Open { host: host.clone() })
+        .is_err()
+    {
+        return;
+    }
+
+    if matches!(reach, Reach::Always) {
+        return;
+    }
+
+    loop {
+        tokio::time::sleep(REACH_TICK).await;
+        if reach.is_open() {
+            continue;
+        }
+        if !ending.load(Ordering::Relaxed)
+            && let Err(error) = bus.notify(ConnectionState::Ended { host })
+        {
+            tracing::warn!(%error, "the end of a connection did not leave");
+        }
+        return;
+    }
+}
+
+/// The processes that run now, guarded inside a [`HostConnection`].
+#[derive(Debug, Default)]
+struct HostSessions {
+    /// Active `pi --mode rpc` processes keyed by the conversation file they serve.
+    attached: HashMap<Utf8TypedPathBuf, Arc<Session>>,
+}
+
+/// One connected machine: the target it was dialled with, the reach to it, and the pi
+/// processes pie started on it.
+#[derive(Debug)]
+pub struct HostConnection {
+    id: HostId,
+    target: HostTarget,
+    host: Host,
+    sessions: RwLock<HostSessions>,
+    /// Set when pie itself ends the reach, so no end is announced for it.
+    ending: Arc<AtomicBool>,
+}
+
+impl HostConnection {
+    /// The name this connection was registered under.
+    ///
+    /// Two machines can hold the same conversation path, so every event a session
+    /// of this connection sends names both.
+    pub fn id(&self) -> &HostId {
+        &self.id
+    }
+
+    /// The reach to the machine, with its [`Executor`] and [`FileSystem`].
+    pub fn host(&self) -> &Host {
+        &self.host
+    }
+
+    /// The target specification used to establish this connection (used by `reconnect`).
+    pub fn target(&self) -> &HostTarget {
+        &self.target
+    }
+
+    /// Whether the underlying transport to the machine is still open.
+    pub fn is_open(&self) -> bool {
+        match &self.host {
+            Host::Local(_) => true,
+            Host::Ssh(ssh) => ssh.is_open(),
+        }
+    }
+
+    /// A check of the same fact that a task can hold after this connection is gone.
+    fn openness(&self) -> Reach {
+        match &self.host {
+            Host::Local(_) => Reach::Always,
+            Host::Ssh(ssh) => Reach::Ssh(ssh.openness()),
+        }
+    }
+
+    /// Terminates all attached `pi` processes and closes the underlying transport if SSH.
+    pub async fn disconnect(&self) -> anyhow::Result<()> {
+        // Set first, so the watcher does not announce an end that pie itself asked for.
+        self.ending.store(true, Ordering::Relaxed);
+
+        let attached: Vec<Arc<Session>> = {
+            let mut guard = self
+                .sessions
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            std::mem::take(&mut guard.attached).into_values().collect()
+        };
+
+        for session in attached {
+            if let Err(error) = session.shutdown().await {
+                tracing::warn!(%error, path = %session.path(), "a pi process did not end cleanly");
+            }
+        }
+
+        if let Host::Ssh(ssh) = &self.host {
+            ssh.disconnect().await?;
+        }
+        Ok(())
+    }
+
+    /// Looks up a currently attached session by its conversation file.
+    pub fn session(&self, path: &Utf8TypedPathBuf) -> Option<Arc<Session>> {
+        let guard = self.sessions.read().unwrap_or_else(PoisonError::into_inner);
+        guard.attached.get(path).cloned()
+    }
+
+    /// Lists all conversations stored on this machine, newest first.
+    ///
+    /// A conversation that runs now reports its live name and id, so a rename shows
+    /// here without a rescan. The file's times stay, which is what the order uses.
+    pub async fn list_sessions(&self) -> anyhow::Result<Vec<SessionInfo>> {
+        let family = self.host.family().await;
+        let mut rows = store::load_catalog(&self.host, family).await?;
+
+        {
+            let guard = self.sessions.read().unwrap_or_else(PoisonError::into_inner);
+            for session in guard.attached.values() {
+                if let Some(row) = rows.iter_mut().find(|row| row.path == session.path()) {
+                    let live = session.info();
+                    row.id = live.id;
+                    row.title = live.title;
+                }
+            }
+        }
+
+        Ok(rows)
+    }
+
+    /// The sessions that run on this machine now.
+    pub fn attached_sessions(&self) -> Vec<SessionInfo> {
+        let guard = self.sessions.read().unwrap_or_else(PoisonError::into_inner);
+        guard
+            .attached
+            .values()
+            .map(|session| session.info())
+            .collect()
+    }
+
+    /// Starts `pi --mode rpc --session <path>` for an existing conversation and registers it.
+    ///
+    /// Two callers that attach one file at once get one pi: the second process is
+    /// ended and the first session answers.
+    pub async fn attach_session(
+        &self,
+        path: Utf8TypedPathBuf,
+        bus: Bus,
+    ) -> anyhow::Result<Arc<Session>> {
+        if let Some(session) = self.session(&path) {
+            return Ok(session);
+        }
+
+        let family = self.host.family().await;
+        let entry = self.host.metadata(path.to_path()).await?;
+        let mut info = store::scan_session_file(&self.host, &entry, family).await?;
+
+        let home = self.host.home_dir().await?;
+        let (channel, process) = self.spawn_pi(home.to_path(), Some(path.clone())).await?;
+        let client = Client::new(channel);
+        let state = client
+            .get_state()
+            .await
+            .context("pi did not answer with the state of its conversation")?;
+        info.apply_rpc_state(&state);
+
+        let session = Arc::new(Session::new(path.clone(), info, client, process));
+        // The handler is installed before the session is registered, because a second
+        // caller that finds this session may prompt it before this one returns.
+        session
+            .install_extension(self.id.clone(), bus.clone())
+            .await;
+
+        // The write guard is released before any await: a `std` guard across an
+        // await would make the command future `!Send`.
+        let registered = {
+            let mut guard = self
+                .sessions
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            match guard.attached.get(&path) {
+                Some(existing) => Err(Arc::clone(existing)),
+                None => {
+                    guard.attached.insert(path.clone(), Arc::clone(&session));
+                    Ok(())
+                }
+            }
+        };
+
+        match registered {
+            Ok(()) => {
+                session.pump(self.id.clone(), bus);
+                Ok(session)
+            }
+            Err(existing) => {
+                // The losing process starts no pump: it is never served, and an end
+                // event for a conversation that stays attached would be a lie.
+                if let Err(error) = session.shutdown().await {
+                    tracing::warn!(%error, path = %path, "a second pi for one conversation did not end");
+                }
+                Ok(existing)
+            }
+        }
+    }
+
+    /// Starts `pi --mode rpc` on a brand-new conversation in `cwd` and registers it.
+    pub async fn start_new_session(
+        &self,
+        cwd: Utf8TypedPath<'_>,
+        bus: Bus,
+    ) -> anyhow::Result<Arc<Session>> {
+        let (channel, process) = self.spawn_pi(cwd, None).await?;
+        let client = Client::new(channel);
+        let state = client
+            .get_state()
+            .await
+            .context("pi did not answer with the state of its conversation")?;
+
+        let file = state
+            .session_file
+            .clone()
+            .filter(|file| !file.is_empty())
+            .context("pi started no conversation file")?;
+
+        let family = self.host.family().await;
+        let path = typed(file, family);
+        let entry = self.host.metadata(path.to_path()).await?;
+        let mut info = store::scan_session_file(&self.host, &entry, family).await?;
+        info.apply_rpc_state(&state);
+
+        let session = Arc::new(Session::new(path.clone(), info, client, process));
+        session
+            .install_extension(self.id.clone(), bus.clone())
+            .await;
+
+        // The write guard is released before any await: a `std` guard across an
+        // await would make the command future `!Send`.
+        {
+            let mut guard = self
+                .sessions
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            guard.attached.insert(path, Arc::clone(&session));
+        }
+
+        // The pump starts once the session is the one this connection serves, so a
+        // notification can never describe a conversation the map does not hold.
+        session.pump(self.id.clone(), bus);
+
+        Ok(session)
+    }
+
+    /// Stops the `pi` process of `path` while keeping its conversation file on disk.
+    pub async fn detach_session(&self, path: &Utf8TypedPathBuf) -> anyhow::Result<()> {
+        let session = {
+            let mut guard = self
+                .sessions
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            guard.attached.remove(path)
+        };
+
+        match session {
+            Some(session) => {
+                session.shutdown().await?;
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Deletes a conversation file from disk (detaching it first if currently running).
+    pub async fn delete_session(&self, path: &Utf8TypedPathBuf) -> anyhow::Result<()> {
+        self.detach_session(path).await?;
+        self.host.remove(path.to_path()).await
+    }
+
+    /// Stages an [`UploadSource`] onto this machine's upload cache directory, reporting bytes written.
+    pub async fn upload_file(
+        &self,
+        source: UploadSource,
+        progress: watch::Sender<u64>,
+    ) -> anyhow::Result<UploadReceipt> {
+        match &self.host {
+            Host::Ssh(ssh) => ssh.uploader().upload(source, progress).await,
+            Host::Local(local) => local.upload_file(source, progress).await,
+        }
+    }
+
+    /// Spawns `pi --mode rpc` in `cwd`, optionally on the conversation file `session`.
+    async fn spawn_pi(
+        &self,
+        cwd: Utf8TypedPath<'_>,
+        session: Option<Utf8TypedPathBuf>,
+    ) -> anyhow::Result<(Channel, Process)> {
+        let family = self.host.family().await;
+        let cwd = require_absolute(cwd)?;
+        check_type(cwd, family)?;
+
+        let mut command = Command::new("pi")
+            .with_args(["--mode", "rpc"])
+            .with_cwd(cwd.as_str());
+        if let Some(path) = session {
+            check_type(path.to_path(), family)?;
+            command = command.with_args(["--session", path.as_str()]);
+        }
+
+        self.host.spawn(command).await
+    }
+
+    /// Probes `pi --version` on the target machine and returns its trimmed version string.
+    pub async fn pi_version(&self) -> anyhow::Result<String> {
+        let output = self
+            .host
+            .exec(Command::new("pi").with_arg("--version"))
+            .await?;
+
+        ensure!(
+            output.exit_status.is_success(),
+            "`pi --version` on this machine {}: {}",
+            output.exit_status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+
+        let version = String::from_utf8(output.stdout.to_vec())
+            .context("`pi --version` printed a version pie cannot read")?;
+        Ok(version.trim().to_owned())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use camino::Utf8PathBuf;
+    use tempfile::TempDir;
+    use typed_path::Utf8TypedPath;
+
     use super::*;
+    use crate::host::executor::OsFamily;
+    use crate::host::fs::{UploadSource, UploadStatus, typed};
+    use crate::session::SessionTitle;
 
-    #[test]
-    fn check_version_accepts_the_pin_and_unknown() {
-        assert!(check_version(PI_VERSION).is_ok());
-        assert!(check_version(format!(" {PI_VERSION}\n").as_str()).is_ok());
-        assert!(check_version(UNKNOWN_VERSION).is_ok());
+    /// A connection to this machine, with a temporary home and cache.
+    fn connection(home: &TempDir, cache: &TempDir) -> HostConnection {
+        let dirs = LocalDirs {
+            home: Some(
+                Utf8PathBuf::from_path_buf(home.path().to_path_buf()).expect("a UTF-8 path"),
+            ),
+            cache: Some(
+                Utf8PathBuf::from_path_buf(cache.path().to_path_buf()).expect("a UTF-8 path"),
+            ),
+            known_hosts: Utf8PathBuf::default(),
+        };
 
-        let mismatch = check_version("0.0.1").unwrap_err();
-        assert_eq!(mismatch.expected, PI_VERSION);
-        assert_eq!(mismatch.found, "0.0.1");
+        HostConnection {
+            id: HostId::new("test"),
+            target: HostTarget::Local,
+            host: Host::Local(local::LocalHost::new(&dirs)),
+            sessions: RwLock::new(HostSessions::default()),
+            ending: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn path(text: &str) -> Utf8TypedPathBuf {
+        typed(text, OsFamily::Unix)
     }
 
     #[test]
-    fn the_local_machine_is_always_open() {
-        let host = Host::local(None);
-        assert!(host.is_open());
-        assert_eq!(host.endpoint().as_str(), "local");
-    }
+    fn a_connection_state_names_its_connection() {
+        use crate::bus::Notification as _;
 
-    #[test]
-    fn the_end_of_a_reach_travels_under_a_tag_of_its_own() {
         assert_eq!(
-            serde_json::to_value(ConnectionState::Ended).expect("an end serializes"),
-            serde_json::json!({ "type": "ended" })
+            serde_json::to_value(ConnectionState::Ended {
+                host: HostId::new("work"),
+            })
+            .expect("a connection state serializes"),
+            serde_json::json!({ "type": "ended", "host": "work" })
         );
+        assert_eq!(ConnectionState::EVENT_NAME, "pi://connection/state");
     }
 
     #[test]
-    fn the_native_path_style_accepts_posix_and_windows_roots_and_rejects_relative_paths() {
-        for path in [
-            "/",
-            "/home/u/.pi/agent/sessions/one.jsonl",
-            "C:\\Users\\u\\.pi\\agent\\sessions\\one.jsonl",
-            "c:/Users/u/.pi/agent/sessions/one.jsonl",
-            "\\\\server\\share\\sessions\\one.jsonl",
-        ] {
-            assert_eq!(
-                files::check_absolute(path).expect("absolute path"),
-                path,
-                "`{path}` is absolute"
-            );
-        }
+    fn a_local_target_names_no_user() {
+        let target: HostTarget =
+            serde_json::from_str(r#"{"transport":"local"}"#).expect("a local target");
+        assert!(matches!(target, HostTarget::Local));
 
-        for path in [
-            "",
-            ".",
-            "..",
-            "sessions/one.jsonl",
-            "./one.jsonl",
-            "../one.jsonl",
-            "C:relative\\one.jsonl",
-            "\\Users\\u\\one.jsonl",
-        ] {
-            assert!(
-                files::check_absolute(path).is_err(),
-                "`{path}` is relative and must not pass as absolute"
-            );
+        // A frontend that still sends the user it no longer needs is understood.
+        let stale: HostTarget = serde_json::from_str(r#"{"transport":"local","user":"u"}"#)
+            .expect("a stale local target");
+        assert!(matches!(stale, HostTarget::Local));
+    }
+
+    #[test]
+    fn an_ssh_target_carries_its_credentials() {
+        let target: HostTarget = serde_json::from_str(
+            r#"{"transport":"ssh","user":"u","host":{"host":{"domain":"example.test"},"port":null},"auth":{"Password":"secret"}}"#,
+        )
+        .expect("an ssh target");
+
+        match target {
+            HostTarget::Ssh { user, auth, .. } => {
+                assert_eq!(user, "u");
+                assert!(matches!(auth, HostAuth::Password(_)));
+            }
+            HostTarget::Local => panic!("the target is an ssh one"),
         }
+    }
+
+    #[test]
+    fn a_credential_never_reaches_a_debug_line() {
+        let key = HostAuth::Key {
+            private_key: "-----BEGIN KEY-----\nsecret\n-----END KEY-----".to_owned(),
+            passphrase: Some("secret".to_owned()),
+        };
+        let password = HostAuth::Password("secret".to_owned());
+
+        for auth in [key, password] {
+            let printed = format!("{auth:?}");
+            assert!(!printed.contains("secret"), "{printed}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_file_of_this_machine_is_listed() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let sessions = home.path().join(".pi/agent/sessions/--work--");
+        fs::create_dir_all(&sessions).expect("the session directory");
+        fs::write(
+            sessions.join("2025-09-01T10-00-00-000Z_0193.jsonl"),
+            concat!(
+                r#"{"type":"session","id":"0193","cwd":"/work","timestamp":"2025-09-01T10:00:00.000Z"}"#,
+                "\n",
+                r#"{"type":"message","message":{"role":"user","content":"fix the bug"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the session file");
+
+        let rows = connection(&home, &cache)
+            .list_sessions()
+            .await
+            .expect("the catalog");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id.as_str(), "0193");
+        assert_eq!(
+            rows[0].path.to_path().file_name(),
+            Some("2025-09-01T10-00-00-000Z_0193.jsonl")
+        );
+        assert_eq!(rows[0].title, SessionTitle::FromFirstPrompt);
+        assert_eq!(rows[0].first_prompt.as_deref(), Some("fix the bug"));
+    }
+
+    #[tokio::test]
+    async fn a_conversation_no_pi_serves_is_not_attached() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let connection = connection(&home, &cache);
+        let path = path("/nowhere/2025-09-01T10-00-00-000Z_0193.jsonl");
+
+        assert!(connection.session(&path).is_none());
+        connection
+            .detach_session(&path)
+            .await
+            .expect("a file no pi serves is already detached");
+    }
+
+    #[tokio::test]
+    async fn a_local_upload_is_staged_once_and_then_met_again() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let connection = connection(&home, &cache);
+        let source = UploadSource::InMemory {
+            name: "note.txt".to_owned(),
+            content: Bytes::from_static(b"hello"),
+        };
+
+        let (report, _) = watch::channel(0u64);
+        let fresh = connection
+            .upload_file(source.clone(), report)
+            .await
+            .expect("the file is staged");
+
+        assert_eq!(fresh.status, UploadStatus::UploadedFresh);
+        assert_eq!(fresh.total_bytes, 5);
+        assert_eq!(fresh.bytes_transferred, 5);
+        assert!(
+            fresh.remote_path.as_str().contains("note.")
+                && fresh.remote_path.as_str().ends_with(".txt"),
+            "{fresh:?}"
+        );
+        assert_eq!(
+            fs::read(fresh.remote_path.as_str()).expect("the staged file"),
+            b"hello"
+        );
+
+        let (report, _) = watch::channel(0u64);
+        let again = connection
+            .upload_file(source, report)
+            .await
+            .expect("the same file is met");
+
+        assert_eq!(
+            again.status,
+            UploadStatus::SkippedDuplicate {
+                existing_remote_path: fresh.remote_path.clone()
+            }
+        );
+        assert_eq!(again.bytes_transferred, 0);
+    }
+
+    #[tokio::test]
+    async fn a_local_upload_copies_a_file_of_this_machine() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let source = home.path().join("source.txt");
+        fs::write(&source, b"bytes").expect("the source file");
+
+        let (report, _) = watch::channel(0u64);
+        let receipt = connection(&home, &cache)
+            .upload_file(
+                UploadSource::Local {
+                    path: Utf8PathBuf::from_path_buf(source).expect("a UTF-8 path"),
+                },
+                report,
+            )
+            .await
+            .expect("the file is staged");
+
+        assert_eq!(receipt.total_bytes, 5);
+        assert!(receipt.remote_path.as_str().contains("source."));
+        assert!(!receipt.remote_path.as_str().contains('\\'));
+    }
+
+    #[tokio::test]
+    async fn a_session_starts_only_in_an_absolute_directory_of_this_machine() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let connection = connection(&home, &cache);
+
+        let error = match connection
+            .spawn_pi(Utf8TypedPath::derive("relative"), None)
+            .await
+        {
+            Ok(_) => panic!("a relative directory names no place"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("is not absolute"), "{error}");
     }
 }

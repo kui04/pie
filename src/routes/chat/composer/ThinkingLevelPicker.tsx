@@ -15,12 +15,13 @@ import { Popover, PopoverContent, PopoverTrigger, Skeleton } from "@/components/
 import * as bridge from "@/lib/bridge";
 import type { ModelThinkingLevel } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
+import type { SessionKey } from "@/lib/session";
 import { Icon, TruncatedText } from "@/components";
 import { COMPOSER_PANEL, PickerPill } from "@/routes/chat/composer/Composer";
 
 export interface ThinkingLevelPickerProps {
-    /** The session whose thinking level this changes. */
-    session: string;
+    /** The conversation whose thinking level this changes. */
+    conversation: SessionKey;
     /** The level that is active, from the state of the session. */
     current: ModelThinkingLevel | null;
     /** Whether the popup is open. The caller holds this, so one popup is open at a time. */
@@ -32,18 +33,18 @@ export interface ThinkingLevelPickerProps {
     onBlur?: () => void;
 }
 
-export function ThinkingLevelPicker({ session, current, open, onOpenChange }: ThinkingLevelPickerProps) {
+export function ThinkingLevelPicker({ conversation, current, open, onOpenChange }: ThinkingLevelPickerProps) {
     const client = useQueryClient();
-    const levels = useQuery({ ...sessionQueries.thinkingLevels(session), enabled: open });
-    const available = levels.data?.levels ?? [];
+    const levels = useQuery({ ...sessionQueries.thinkingLevels(conversation), enabled: open });
+    const available = levels.data ?? [];
     const value = current ?? null;
 
     const choose = (chosen: string) => {
         const level = available.find((candidate) => candidate === chosen);
         if (level === undefined || chosen === value) return;
         void bridge
-            .setThinkingLevel(session, level)
-            .then(() => client.invalidateQueries({ queryKey: sessionQueries.state(session).queryKey }))
+            .setThinkingLevel(conversation.host, conversation.session, level)
+            .then(() => client.invalidateQueries({ queryKey: sessionQueries.state(conversation).queryKey }))
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
     };
 

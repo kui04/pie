@@ -15,15 +15,30 @@
  */
 
 import { assign, enqueueActions, fromCallback, raise, setup, stopChild, type SnapshotFrom } from "xstate";
-import {
-    asPieError,
-    type AttachmentFile,
-    type PieError,
-    type ImageAttachment,
-    type StagedAttachment as StagedAttachmentResult,
-    type Unsubscribe,
-} from "@/lib/bridge";
+import { asPieError, type PieError, type Unsubscribe } from "@/lib/bridge";
 import type { ImageContent } from "@/lib/rpc-protocol";
+
+/** One picture a person chose, as the composer read it from the machine. */
+export interface ImageAttachment {
+    name: string;
+    image: ImageContent;
+}
+
+/** One file that is not a picture, as the composer read it from the machine. */
+export interface AttachmentFile {
+    name: string;
+    size: number;
+    mimeType: string;
+    /** The path on this machine, which the upload takes as its source. */
+    localPath?: string;
+}
+
+/** Where a staged copy of one file lies on the machine that runs pi. */
+export interface StagedAttachmentResult {
+    path: string;
+    size: number;
+    mimeType: string;
+}
 
 type StagedFileInput = AttachmentFile & {
     bytesBase64?: string;
@@ -59,6 +74,8 @@ export interface StageRequest {
     /** Names the progress events of this upload. */
     uploadId: string;
     name: string;
+    /** What the file is, as the read of it reported. */
+    mimeType: string;
     localPath?: string;
     bytesBase64?: string;
 }
@@ -193,6 +210,7 @@ export const attachmentsMachine = setup({
                         request: {
                             uploadId: `upload-${context.count + at + 1}`,
                             name: file.name,
+                            mimeType: file.mimeType,
                             localPath: file.localPath,
                             bytesBase64: file.bytesBase64,
                         },

@@ -6,12 +6,10 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui";
 import type * as Bridge from "@/lib/bridge";
-import type { SessionLifecycle } from "@/lib/bridge";
-import type { Event } from "@/lib/rpc-protocol";
+import type { Event as Record } from "@/lib/rpc-protocol";
 import { useSessionSync } from "@/hooks";
-import { forgetSession, phases } from "@/lib/session";
+import { forgetSession, phases, resetSessionStream, sessionOf } from "@/lib/session";
 import { ChatScreen } from "@/routes/chat/ChatScreen";
-import { sessionOf } from "@/lib/session";
 import {
     assistant,
     chain,
@@ -27,14 +25,10 @@ import {
 } from "@/preview/fixtures";
 
 type Call = (...args: never[]) => Promise<unknown>;
-type ListenEvent = (session: string, handler: (payload: Event) => void) => Promise<() => void>;
-type ListenState = (session: string, handler: (payload: SessionLifecycle) => void) => Promise<() => void>;
-type ListenExtension = (session: string, handler: (payload: Bridge.ExtensionEvent) => void) => Promise<() => void>;
 
 const bridge = vi.hoisted(() => ({
-    getConnection: vi.fn<Call>(),
     attachSession: vi.fn<Call>(),
-    startSession: vi.fn<Call>(),
+    startNewSession: vi.fn<Call>(),
     detachSession: vi.fn<Call>(),
     homeDir: vi.fn<Call>(),
     listDirs: vi.fn<Call>(),
@@ -43,11 +37,9 @@ const bridge = vi.hoisted(() => ({
     getSessionStats: vi.fn<Call>(),
     listSessions: vi.fn<Call>(),
     clearQueue: vi.fn<Call>(),
-    onSessionEvent: vi.fn<ListenEvent>(),
-    onSessionState: vi.fn<ListenState>(),
-    getExtensionState: vi.fn<Call>(),
-    onExtensionEvent: vi.fn<ListenExtension>(),
-    answerExtension: vi.fn<Call>(),
+    onSessionEvent: vi.fn<(onEvent: (event: Bridge.SessionEvent) => void) => Promise<() => void>>(),
+    onSessionEnded: vi.fn<(onEnded: (event: Bridge.SessionEnded) => void) => Promise<() => void>>(),
+    answer: vi.fn<Call>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -77,23 +69,27 @@ vi.mock("virtua", () => ({
         <div>{data.map(children)}</div>
     ),
 }));
-
-const CONNECTED = {
-    id: "main",
-    endpoint: { kind: "local" },
-    sessions: [{ id: "main:1", cwd: "/home/kui04/work" }],
-};
+/** The one connection the workspace speaks through. */
+const HOST = "main";
 
 /**
- * The sessions the connection holds, as the mocks below keep them in step with Rust: an attach
- * adds one, a detach takes it away. The workspace reads this list, and the charts of the
- * sessions follow it (`useSessionSync.ts`), so a test that attaches must see the list grow.
+ * The conversations the connection holds, as the mocks below keep them in step with Rust: an
+ * attach adds one, a detach takes it away. The workspace reads this list, and the charts of
+ * the conversations follow it (`useSessionSync.ts`), so a test that attaches must see it grow.
  */
-let held: { id: string; cwd: string | null }[] = [];
+let held: Bridge.SessionInfo[] = [];
 
-/** The connection the workspace reads, with the sessions it holds now. */
-function connected() {
-    return { id: "main", endpoint: { kind: "local" as const }, sessions: [...held] };
+/** One conversation file of the machine, which is what names a conversation. */
+function fileOf(name: string): string {
+    return `/home/kui04/work/.pi/${name}.jsonl`;
+}
+
+/** The conversation every test here opens, as the list draws it. */
+const HELD = sessionSummary({ path: fileOf("held"), title: { type: "named", name: "Fix the parser" } });
+
+/** A row of the list, as the catalog answered it. */
+function rowOf(name: string, cwd = "/home/kui04/work"): Bridge.SessionInfo {
+    return sessionSummary({ path: fileOf(name), cwd, title: { type: "named", name } });
 }
 
 /** A window that has just connected: the machine is there and no pi runs on it. */
@@ -108,6 +104,8 @@ function noSessionYet(): void {
  * from `lg`): without this, a test of either shape would be a test of whichever
  * width the environment happens to report.
  */
+let restoreWidth: (() => void) | null = null;
+
 function windowOf(width: "narrow" | "wide"): () => void {
     const original = window.innerWidth;
     Object.defineProperty(window, "innerWidth", {
@@ -115,22 +113,16 @@ function windowOf(width: "narrow" | "wide"): () => void {
         configurable: true,
     });
     window.dispatchEvent(new Event("resize"));
-    return () => {
+    // A test that fails before it releases must not hand its width to the next one.
+    const release = () => {
         Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
         window.dispatchEvent(new Event("resize"));
+        restoreWidth = null;
     };
+    restoreWidth = release;
+    return release;
 }
 
-/**
- * The rows of the transcript are drawn by a list that measures itself, and this
- * environment does not lay anything out: the height has to be in a style, where
- * the list can read it, or it draws nothing.
- *
- * The screen reads its connection through TanStack Query and its landing links
- * to the gate, so it needs a client above it and a router around it - the same
- * two things the app's own mounting gives it. The gate itself stands at `/`, so a
- * test can see the window leave for it.
- */
 /**
  * The bar's key to the list, by its own id.
  *
@@ -151,8 +143,8 @@ function renderScreen(client = new QueryClient(queryDefaults)) {
                 {/* The toast stack belongs to the app; the workspace announces
                     what a switch could not do. */}
                 <Toaster position="top-center" />
-                {/* The app's root holds the charts of the sessions, not the screen: without
-                    it here, nothing would open a session the workspace is about to show. */}
+                {/* The app's root holds the charts of the conversations, not the screen:
+                    without it here, nothing would open one the workspace is about to show. */}
                 <SessionSync />
                 <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
                     <Routes>
@@ -174,51 +166,50 @@ function SessionSync() {
 beforeEach(() => {
     platform.mobile = false;
     vi.clearAllMocks();
-    held = [...CONNECTED.sessions];
+    held = [HELD];
     bridge.onSessionEvent.mockResolvedValue(() => undefined);
-    bridge.onSessionState.mockResolvedValue(() => undefined);
-    bridge.onExtensionEvent.mockResolvedValue(() => undefined);
-    bridge.getExtensionState.mockResolvedValue({
-        requests: [],
-        statuses: [],
-
-        title: null,
-        editorText: null,
+    bridge.onSessionEnded.mockResolvedValue(() => undefined);
+    // A pi answers with the file it serves. A conversation no process holds fails the read
+    // with `not_attached`, which is how a screen tells a row nobody serves from one that runs.
+    bridge.getState.mockImplementation(async (_host: string, session: string) => {
+        if (!held.some((row) => row.path === session)) {
+            throw { kind: "not_attached", message: `no pi runs on \`\`` };
+        }
+        return sessionState({ sessionFile: session });
     });
-    bridge.getState.mockResolvedValue(sessionState());
-    bridge.getConnection.mockImplementation(async () => connected());
-    bridge.attachSession.mockImplementation(async () => {
-        const id = `main:${held.length + 1}`;
-        held.push({ id, cwd: "/home/kui04/work" });
-        return { id, cwd: "/home/kui04/work" };
+    bridge.listSessions.mockImplementation(async () => [...held]);
+    bridge.attachSession.mockImplementation(async (_host: string, path: string) => {
+        const row = sessionSummary({ path });
+        held = [...held, row];
+        return row;
     });
-    bridge.startSession.mockImplementation(async (cwd: string | undefined) => {
-        const id = `main:${held.length + 1}`;
-        held.push({ id, cwd: cwd ?? null });
-        return { id, cwd: cwd ?? null };
+    bridge.startNewSession.mockImplementation(async (_host: string, cwd: string) => {
+        const row = sessionSummary({ path: fileOf(`new-${held.length + 1}`), cwd });
+        held = [...held, row];
+        return row;
     });
     bridge.homeDir.mockResolvedValue("/home/kui");
     bridge.listDirs.mockResolvedValue({
         directory: "/home/kui",
         entries: [{ name: "Projects", path: "/home/kui/Projects", isDir: true }],
     });
-    bridge.detachSession.mockImplementation(async (session: string) => {
-        held = held.filter((running) => running.id !== session);
+    bridge.detachSession.mockImplementation(async (_host: string, path: string) => {
+        held = held.filter((running) => running.path !== path);
     });
     bridge.getSessionStats.mockResolvedValue(sessionStats());
     bridge.getEntries.mockResolvedValue({ entries: [], leafId: null });
-    bridge.listSessions.mockResolvedValue([]);
     bridge.clearQueue.mockResolvedValue({ steering: [], followUp: [] });
 });
 
 afterEach(() => {
+    restoreWidth?.();
     // A test is a window of its own: the charts of its connection go with it, as the app's go
     // with the connection (`lib/session/registry.ts`).
-    for (const session of [...phases().keys()]) forgetSession(session);
+    for (const id of [...phases().keys()]) forgetSession(id);
+    // The channels outlive the screens that listen on them, and a test window is not the app's:
+    // without this, the next test inherits a pair wired to the mocks of the one before it.
+    resetSessionStream();
 });
-
-/** The session the connection holds, as the list draws it. */
-const HELD = sessionSummary({ name: "Fix the parser", path: sessionState().sessionFile ?? "" });
 
 /**
  * The window with a conversation open.
@@ -228,7 +219,7 @@ const HELD = sessionSummary({ name: "Fix the parser", path: sessionState().sessi
  * test about the transcript says nothing about the landing. The tests of the
  * landing itself render the screen without it.
  */
-async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
+async function renderOpen(rows: Bridge.SessionInfo[] = [HELD]) {
     bridge.listSessions.mockResolvedValue(rows);
     const view = renderScreen();
     // A narrow window keeps the list in a sheet, and the bar's key opens it; a wide
@@ -238,7 +229,8 @@ async function renderOpen(rows: Bridge.SessionSummary[] = [HELD]) {
     }
     // The name of a row carries its mark as well (`Fix the parser attached`), so the lookup
     // matches the title instead of equalling it.
-    fireEvent.click(await screen.findByRole("button", { name: (name) => name.includes(rows[0].name ?? "") }));
+    const title = rows[0]?.title.type === "named" ? rows[0].title.name : "";
+    fireEvent.click(await screen.findByRole("button", { name: (name) => name.includes(title) }));
     return view;
 }
 
@@ -250,9 +242,9 @@ describe("ChatScreen", () => {
         // The read that will answer is still on its way: the window is its frame
         // alone, not a landing whose note the return to the gate would take away
         // again a frame later.
-        bridge.getConnection.mockReturnValue(new Promise(() => undefined));
+        bridge.listSessions.mockReturnValue(new Promise(() => undefined));
         const client = new QueryClient(queryDefaults);
-        client.setQueryData(["connection"], null);
+        client.setQueryData(["connection", HOST], null);
 
         const { container } = renderScreen(client);
 
@@ -280,7 +272,8 @@ describe("ChatScreen", () => {
         // host's folders, and the directory it answers with is where pi starts.
         const restore = windowOf("wide");
         noSessionYet();
-        bridge.listSessions.mockResolvedValue([]);
+        // The connection holds nothing yet, and `held` says so: the attach adds the row the
+        // next read answers with, and the chart of that conversation follows it.
 
         renderScreen();
 
@@ -294,7 +287,7 @@ describe("ChatScreen", () => {
         await waitFor(() => expect(choose).toBeEnabled());
         fireEvent.click(choose);
 
-        await waitFor(() => expect(bridge.startSession).toHaveBeenCalledWith("/home/kui/Projects"));
+        await waitFor(() => expect(bridge.startNewSession).toHaveBeenCalledWith(HOST, "/home/kui/Projects"));
         // The session that answered stands in view, with nothing said in it yet.
         expect(await screen.findByText("Nothing has been said yet.")).toBeInTheDocument();
         restore();
@@ -313,7 +306,7 @@ describe("ChatScreen", () => {
 
         fireEvent.click(await screen.findByRole("button", { name: /Fix the parser/ }));
 
-        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(HELD.path));
+        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(HOST, HELD.path));
     });
 
     it("says it is opening the conversation while the attach runs", async () => {
@@ -389,12 +382,12 @@ describe("ChatScreen", () => {
     it("attaches pi on the conversation that was chosen from the landing", async () => {
         // The list of the landing holds a conversation the connection does not: a session
         // is one process with one conversation, so the pick starts a pi on that file.
-        const other = sessionSummary({ name: "The other one" });
+        const other = rowOf("The other one");
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
 
         await renderOpen([other]);
 
-        expect(bridge.attachSession).toHaveBeenCalledWith(other.path);
+        expect(bridge.attachSession).toHaveBeenCalledWith(HOST, other.path);
         expect(await screen.findByText("the other conversation")).toBeInTheDocument();
     });
 
@@ -418,8 +411,9 @@ describe("ChatScreen", () => {
         renderScreen();
         // The landing carries the same key the session's own bar does.
         fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
-        // The sheet carries the same list the column would.
-        expect(await screen.findByText("No sessions yet")).toBeInTheDocument();
+        // The sheet carries the same rows the column would: the one conversation the
+        // connection holds.
+        expect(await screen.findByRole("button", { name: /Fix the parser/ })).toBeInTheDocument();
         restore();
     });
 
@@ -530,7 +524,7 @@ describe("ChatScreen", () => {
         // A pick is the passage from the words to the page that says a conversation is
         // coming: the rows of the one being left are given up at once, and the reads of
         // the new session do not stand in for them.
-        const other = sessionSummary({ name: "The other one" });
+        const other = rowOf("The other one");
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         bridge.attachSession.mockReturnValue(new Promise(() => undefined));
 
@@ -625,7 +619,7 @@ describe("ChatScreen", () => {
         // through, and the queue of a session arrives after that.
         await screen.findByText("Nothing has been said yet.");
         act(() => {
-            const chart = sessionOf("main:1");
+            const chart = sessionOf({ host: HOST, session: HELD.path });
             if (chart === null) throw new Error("the chart of the session is not running");
             chart.send({
                 type: "RECORD",
@@ -641,14 +635,14 @@ describe("ChatScreen", () => {
         fireEvent.contextMenu(screen.getByText("run the tests first"));
         fireEvent.click(await screen.findByText("Retract queued message"));
 
-        await waitFor(() => expect(bridge.clearQueue).toHaveBeenCalledWith("main:1"));
+        await waitFor(() => expect(bridge.clearQueue).toHaveBeenCalledWith(HOST, HELD.path));
     });
 
     it("attaches another session on a pick while the feed of this one is still opening", async () => {
         // A session is one process with one conversation, and a second one is a second
         // process: the pick does not wait for the listeners of the session in view, and it
         // does not disturb it either.
-        const other = sessionSummary({ name: "The other one" });
+        const other = rowOf("The other one");
         bridge.listSessions.mockResolvedValue([HELD, other]);
         // The listeners of this session never open.
         bridge.onSessionEvent.mockReturnValue(new Promise(() => undefined));
@@ -663,7 +657,7 @@ describe("ChatScreen", () => {
         const row = await screen.findByText("The other one");
         expect(row.closest("button")).not.toBeDisabled();
         fireEvent.click(row);
-        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(other.path));
+        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(HOST, other.path));
         restore();
     });
 
@@ -672,7 +666,7 @@ describe("ChatScreen", () => {
         bridge.getEntries
             .mockResolvedValueOnce(storeOfEntries(chain(messageEntry(user("first words")))))
             .mockResolvedValue(storeOfEntries(chain(messageEntry(user("the other conversation")))));
-        const target = sessionSummary({ name: "The other one" });
+        const target = rowOf("The other one");
         bridge.listSessions.mockResolvedValue([HELD, target]);
 
         await renderOpen([HELD, target]);
@@ -686,7 +680,7 @@ describe("ChatScreen", () => {
         fireEvent.click(await within(sheet).findByText("The other one"));
 
         // The path of the row is the one that is handed over: pi reads the file itself.
-        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(target.path));
+        await waitFor(() => expect(bridge.attachSession).toHaveBeenCalledWith(HOST, target.path));
         // The session the attach answered with is the one in view. The one that was in view
         // keeps running - another session of the same connection - so the words of the
         // conversation it holds are gone from the screen and nothing is ended.
@@ -699,8 +693,8 @@ describe("ChatScreen", () => {
     it("keeps the words on screen while an event has the read asked again", async () => {
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
         let ended: () => void = () => undefined;
-        bridge.onSessionState.mockImplementation(async (_session, onState) => {
-            ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
+        bridge.onSessionEnded.mockImplementation(async (onEnded) => {
+            ended = () => onEnded({ host: HOST, session: HELD.path, status: { type: "exited", code: 0 } });
             return () => undefined;
         });
 
@@ -725,9 +719,9 @@ describe("ChatScreen", () => {
         // the transcript belongs to the run, not to the row: it is at work until the run is
         // over, and it does not go back to waiting for a first output.
         bridge.getEntries.mockResolvedValue(storeOfEntries([]));
-        let publish: (event: Event) => void = () => undefined;
-        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
-            publish = onEvent;
+        let publish: (event: Record) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (onEvent) => {
+            publish = (record) => onEvent({ host: HOST, session: HELD.path, event: record });
             return () => undefined;
         });
         const called = assistant([toolCall("c1", "bash", { command: "pnpm test" })], { stopReason: "toolUse" });
@@ -764,7 +758,9 @@ describe("ChatScreen", () => {
             }),
         );
 
-        await waitFor(() => expect(sessionOf("main:1")?.getSnapshot().context.live.messages).toEqual([]));
+        await waitFor(() =>
+            expect(sessionOf({ host: HOST, session: HELD.path })?.getSnapshot().context.live.messages).toEqual([]),
+        );
         expect(screen.getByText("Working…")).toBeInTheDocument();
         expect(screen.queryByText("Waiting…")).not.toBeInTheDocument();
         // The row stands: the read replaced it with the entry of the same message.
@@ -777,9 +773,9 @@ describe("ChatScreen", () => {
         // has a name. Once the model writes, the run is at work - and it stays at work while
         // it runs what the model called.
         bridge.getEntries.mockResolvedValue(storeOfEntries([]));
-        let publish: (event: Event) => void = () => undefined;
-        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
-            publish = onEvent;
+        let publish: (event: Record) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (onEvent) => {
+            publish = (record) => onEvent({ host: HOST, session: HELD.path, event: record });
             return () => undefined;
         });
 
@@ -826,9 +822,9 @@ describe("ChatScreen", () => {
         // name the live row had: without that, the card of a call would start over - its
         // clock, the body the reader opened - at the moment the run ends.
         bridge.getEntries.mockResolvedValue(storeOfEntries([]));
-        let publish: (event: Event) => void = () => undefined;
-        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
-            publish = onEvent;
+        let publish: (event: Record) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (onEvent) => {
+            publish = (record) => onEvent({ host: HOST, session: HELD.path, event: record });
             return () => undefined;
         });
         const command = toolCall("c1", "bash", { command: "pnpm test" });
@@ -893,9 +889,9 @@ describe("ChatScreen", () => {
         bridge.getSessionStats.mockResolvedValue(
             sessionStats({ contextUsage: { tokens: 1000, contextWindow: 100000, percent: 1 } }),
         );
-        let publish: (event: Event) => void = () => undefined;
-        bridge.onSessionEvent.mockImplementation(async (_session, onEvent) => {
-            publish = onEvent;
+        let publish: (event: Record) => void = () => undefined;
+        bridge.onSessionEvent.mockImplementation(async (onEvent) => {
+            publish = (record) => onEvent({ host: HOST, session: HELD.path, event: record });
             return () => undefined;
         });
 
@@ -917,8 +913,8 @@ describe("ChatScreen", () => {
     it("sends one attach for two rows that are picked at the same instant", async () => {
         const restore = windowOf("narrow");
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
-        const first = sessionSummary({ name: "The first one" });
-        const second = sessionSummary({ name: "The second one" });
+        const first = rowOf("The first one");
+        const second = rowOf("The second one");
         bridge.listSessions.mockResolvedValue([HELD, first, second]);
         // A host across a network answers when it answers, and until it does the reader
         // can pick another row; the chart is on its way to one session, and a second pick
@@ -936,7 +932,7 @@ describe("ChatScreen", () => {
         fireEvent.click(within(sheet).getByText("The second one"));
 
         expect(bridge.attachSession).toHaveBeenCalledTimes(1);
-        expect(bridge.attachSession).toHaveBeenCalledWith(first.path);
+        expect(bridge.attachSession).toHaveBeenCalledWith(HOST, first.path);
         answer({ id: "main:2", cwd: null });
         restore();
     });
@@ -944,7 +940,7 @@ describe("ChatScreen", () => {
     it("says a pick that could not attach, and ends no session for it", async () => {
         const restore = windowOf("narrow");
         bridge.getEntries.mockResolvedValue(storeOfEntries(chain(messageEntry(user("first words")))));
-        const other = sessionSummary({ name: "The other one" });
+        const other = rowOf("The other one");
         bridge.listSessions.mockResolvedValue([HELD, other]);
         bridge.attachSession.mockRejectedValue({
             kind: "failed",
@@ -1002,7 +998,7 @@ describe("the window the chat draws", () => {
     it("draws the bar before the page has slots to carry", () => {
         // The read of the connection has not answered: the page has no slots, and the
         // bar is the window's own keys alone.
-        bridge.getConnection.mockReturnValue(new Promise(() => undefined));
+        bridge.listSessions.mockReturnValue(new Promise(() => undefined));
 
         const { container } = renderScreen();
 

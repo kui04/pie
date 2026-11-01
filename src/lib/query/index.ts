@@ -13,6 +13,8 @@
 
 import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
+import type { HostId, SessionInfo } from "@/lib/bridge";
+import type { SessionKey } from "@/lib/session/key";
 import { isReachRead, reportReachFailure } from "./health";
 import type { RunPhase } from "@/lib/transcript";
 
@@ -56,20 +58,23 @@ const queryCache = new QueryCache({
 export const queryClient = new QueryClient({ ...queryDefaults, queryCache });
 
 /**
- * The keys of one session's reads, in one place: the machine invalidates them by name, and
- * a drifted string would leave a screen reading a cache that nobody refills.
+/**
+ * The keys of one conversation's reads, in one place: the machine invalidates them by
+ * name, and a drifted string would leave a screen reading a cache nobody refills.
+ *
+ * The connection and the file are both in the key. Two machines can hold the same path,
+ * and one conversation's answer may never be read by the other.
  */
 export const sessionKeys = {
-    /** Every read of the session: the prefix of the keys below. */
-    whole: (session: string) => ["session", session] as const,
-    state: (session: string) => [...sessionKeys.whole(session), "state"] as const,
-    entries: (session: string) => [...sessionKeys.whole(session), "entries"] as const,
-    stats: (session: string) => [...sessionKeys.whole(session), "stats"] as const,
-    commands: (session: string) => [...sessionKeys.whole(session), "commands"] as const,
-    extension: (session: string) => [...sessionKeys.whole(session), "extension"] as const,
-    forkMessages: (session: string) => [...sessionKeys.whole(session), "forkMessages"] as const,
-    models: (session: string) => [...sessionKeys.whole(session), "models"] as const,
-    thinkingLevels: (session: string) => [...sessionKeys.whole(session), "thinkingLevels"] as const,
+    /** Every read of the conversation: the prefix of the keys below. */
+    whole: (key: SessionKey) => ["session", key.host, key.session] as const,
+    state: (key: SessionKey) => [...sessionKeys.whole(key), "state"] as const,
+    entries: (key: SessionKey) => [...sessionKeys.whole(key), "entries"] as const,
+    stats: (key: SessionKey) => [...sessionKeys.whole(key), "stats"] as const,
+    commands: (key: SessionKey) => [...sessionKeys.whole(key), "commands"] as const,
+    forkMessages: (key: SessionKey) => [...sessionKeys.whole(key), "forkMessages"] as const,
+    models: (key: SessionKey) => [...sessionKeys.whole(key), "models"] as const,
+    thinkingLevels: (key: SessionKey) => [...sessionKeys.whole(key), "thinkingLevels"] as const,
 };
 
 /** How often the usage is read with no event to say it changed. */
@@ -81,11 +86,11 @@ function statsRefetchInterval(query: { state: { status: string } }): number | fa
 }
 
 /**
- * The fallback poll of the usage, or nothing for a session with no run.
+ * The fallback poll of the usage, or nothing for a conversation with no run.
  *
- * A run that streams for minutes reports its cost in records this query does not see, so the
- * ring asks again while the run is not idle. A failed read is not asked again: its answer
- * would be the same one every thirty seconds for as long as the screen stays open.
+ * A run that streams for minutes reports its cost in records this query does not see, so
+ * the ring asks again while the run is not idle. A failed read is not asked again: its
+ * answer would be the same one every thirty seconds for as long as the screen stays open.
  */
 export function statsPoll(phase: RunPhase): typeof statsRefetchInterval | false {
     return phase === "idle" ? false : statsRefetchInterval;
@@ -97,94 +102,102 @@ function noRetry<T>(queryKey: readonly unknown[], queryFn: () => Promise<T>) {
 }
 
 /**
- * The reads of one session, by the name of the session.
+ * The reads of one conversation, by the name of the conversation.
  *
- * None of them retries. A read fails with the named reason that the command failed (`closed`
- * when pi is gone, `unknown_session` for a name that is not there): asking three more times
- * makes that reason arrive seconds later and changes nothing else. TanStack's default is
+ * None of them retries. A read fails with the named reason the command failed
+ * (`not_attached` for a conversation that no pi serves): asking three more times makes
+ * that reason arrive seconds later and changes nothing else. TanStack's default is
  * three tries.
  */
 export const sessionQueries = {
-    /** The state of a session: its model, its run, its name, its counts. */
-    state: (session: string) => noRetry(sessionKeys.state(session), () => bridge.getState(session)),
+    /** The state of a conversation: its model, its run, its name, its counts. */
+    state: (key: SessionKey) => noRetry(sessionKeys.state(key), () => bridge.getState(key.host, key.session)),
 
-    /** Every entry of a session and the leaf it points at. */
-    entries: (session: string) => noRetry(sessionKeys.entries(session), () => bridge.getEntries(session)),
+    /** Every entry of a conversation and the leaf it points at. */
+    entries: (key: SessionKey) => noRetry(sessionKeys.entries(key), () => bridge.getEntries(key.host, key.session)),
 
     /**
-     * The usage of a session.
+     * The usage of a conversation.
      *
-     * The caller adds a fallback interval where it needs one: the ring of the
-     * header reads this one again after a while, because a run that streams for
-     * minutes reports its cost in events that this query does not see.
+     * The caller adds a fallback interval where it needs one: the ring of the header
+     * reads this one again after a while, because a run that streams for minutes reports
+     * its cost in events that this query does not see.
      */
-    stats: (session: string) => noRetry(sessionKeys.stats(session), () => bridge.getSessionStats(session)),
+    stats: (key: SessionKey) => noRetry(sessionKeys.stats(key), () => bridge.getSessionStats(key.host, key.session)),
 
-    /** The commands that a prompt of this session can invoke, for the command menu. */
-    commands: (session: string) => noRetry(sessionKeys.commands(session), () => bridge.getCommands(session)),
+    /** The commands that a prompt of this conversation can invoke, for the command menu. */
+    commands: (key: SessionKey) => noRetry(sessionKeys.commands(key), () => bridge.getCommands(key.host, key.session)),
 
-    /** The pending dialogs and extension values of this session. */
-    extension: (session: string) => noRetry(sessionKeys.extension(session), () => bridge.getExtensionState(session)),
+    /** The user messages that a fork of this conversation can start from, for the fork sheet. */
+    forkMessages: (key: SessionKey) =>
+        noRetry(sessionKeys.forkMessages(key), () => bridge.getForkMessages(key.host, key.session)),
 
-    /** The user messages that a fork of this session can start from, for the fork sheet. */
-    forkMessages: (session: string) =>
-        noRetry(sessionKeys.forkMessages(session), () => bridge.getForkMessages(session)),
+    /** The models this conversation can use. */
+    models: (key: SessionKey) =>
+        noRetry(sessionKeys.models(key), () => bridge.getAvailableModels(key.host, key.session)),
 
-    /** The models this session can use. */
-    models: (session: string) => noRetry(sessionKeys.models(session), () => bridge.getAvailableModels(session)),
-
-    /** The thinking levels this session accepts. */
-    thinkingLevels: (session: string) =>
-        noRetry(sessionKeys.thinkingLevels(session), () => bridge.getAvailableThinkingLevels(session)),
+    /** The thinking levels this conversation accepts. */
+    thinkingLevels: (key: SessionKey) =>
+        noRetry(sessionKeys.thinkingLevels(key), () => bridge.getAvailableThinkingLevels(key.host, key.session)),
 };
 
 /**
- * The sessions that pi wrote on the connected host.
+ * The conversations that pi wrote on one machine.
  *
  * The drawer reads this one, and its Refresh is what asks again: nothing announces a
- * session file that appears or grows, so this read is never stale on its own.
- *
- * The host is part of the key: the answer is what that machine holds, and a second
- * connection in one run of pie would otherwise be handed the list of the first.
+ * conversation file that appears or grows, so this read is never stale on its own.
  */
 export const sessionsQueries = {
-    /** Every session of the host, most recently written first. */
-    list: (endpoint: string) => noRetry(["sessions", endpoint] as const, () => bridge.listSessions()),
+    /** Every conversation of the machine, most recently written first. */
+    list: (host: HostId) => noRetry(["sessions", host] as const, () => bridge.listSessions(host)),
 };
 
 /**
- * The directories of the host, one level at a time, for the directory picker.
+ * The directories of one machine, one level at a time, for the directory picker.
  *
- * The host is part of the key: the answer is what that machine holds, and a second
- * connection in one run of pie would otherwise be handed the directories of the
- * first. An absent path is the home directory of the machine.
+ * An absent path is the home directory of the machine.
  */
 export const directoryQueries = {
-    /** The login home directory of the connected machine. */
-    home: (endpoint: string) => noRetry(["dirs", endpoint, "home"] as const, () => bridge.homeDir()),
-    /** One level of the directories of the connected machine. */
-    list: (endpoint: string, path: string) => noRetry(["dirs", endpoint, path] as const, () => bridge.listDirs(path)),
+    /** The login home directory of the machine. */
+    home: (host: HostId) => noRetry(["dirs", host, "home"] as const, () => bridge.homeDir(host)),
+    /** One level of the directories of the machine. */
+    list: (host: HostId, path: string) => noRetry(["dirs", host, path] as const, () => bridge.listDirs(host, path)),
 };
 
 /**
- * The one connection that pie holds, by the name of the read.
+ * The one connection pie holds.
  *
- * The machine that opened the connection dies with the connect screen. This read
- * is how the workspace finds the session it subscribes to. Rust is the source of
- * truth, so a reload of the webview reads the same connection instead of losing
- * it.
+ * Rust owns the connection, so a reload of the webview reads the same one instead of
+ * losing it. Rust has no command that answers the connection itself, so this read is
+ * composed: the conversations of the one name the product uses answer whether that
+ * connection exists, and `not_connected` says it does not.
  *
- * A new connect changes the answer, and nothing announces that: this is the one
- * read whose answer can change without an event. Therefore time is its signal,
- * and it is read again on every mount (`staleTime: 0` below). Every other read
- * waits for an event to be invalidated.
+ * A new connect changes the answer, and nothing announces that: time is its signal, so
+ * it is read again on every mount. Whether the reach is still open travels on
+ * `pi://connection/state`, not here.
  */
+
+/** A connection as the commands can describe it. */
+export interface HeldConnection {
+    id: HostId;
+    /** The conversations that have a pi process now. */
+    sessions: SessionInfo[];
+}
+
 export const connectionQueries = {
     /** The connection pie holds now, or `null` when there is none. */
     current: () =>
         queryOptions({
-            queryKey: ["connection"] as const,
-            queryFn: () => bridge.getConnection(),
+            queryKey: ["connection", bridge.CONNECTION_ID] as const,
+            queryFn: async (): Promise<HeldConnection | null> => {
+                try {
+                    return { id: bridge.CONNECTION_ID, sessions: await bridge.listSessions(bridge.CONNECTION_ID) };
+                } catch (thrown) {
+                    const error = bridge.asPieError(thrown);
+                    if (error.kind === "not_connected") return null;
+                    throw error;
+                }
+            },
             // A failure here is a broken IPC, and a retry cannot repair it.
             retry: false,
             staleTime: 0,

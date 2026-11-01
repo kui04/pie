@@ -10,7 +10,7 @@
  * without a bridge.
  */
 
-import type { SessionSummary } from "@/lib/bridge";
+import type { SessionInfo } from "@/lib/bridge";
 import { MOTION } from "@/lib/motion";
 import { isAbsolute, normalize, relative } from "pathe";
 
@@ -21,7 +21,7 @@ export interface SessionGroup {
     /** The directory the sessions of this group started in. */
     cwd: string;
     /** Its sessions, most recently written first. */
-    sessions: SessionSummary[];
+    sessions: SessionInfo[];
 }
 
 /**
@@ -31,11 +31,11 @@ export interface SessionGroup {
  * than that field of pi leave) is its own group, and sorts last: it has no place
  * to name, so it does not push a directory that has one down the list.
  */
-export function groupSessions(sessions: SessionSummary[]): SessionGroup[] {
-    const groups = new Map<string, SessionSummary[]>();
+export function groupSessions(sessions: SessionInfo[]): SessionGroup[] {
+    const groups = new Map<string, SessionInfo[]>();
     for (const session of sessions) {
-        const group = groups.get(session.cwd);
-        if (group === undefined) groups.set(session.cwd, [session]);
+        const group = groups.get(session.cwd ?? "");
+        if (group === undefined) groups.set(session.cwd ?? "", [session]);
         else group.push(session);
     }
     return [...groups].map(([cwd, sessions]) => ({ cwd, sessions })).sort(byNewestFirst);
@@ -52,7 +52,7 @@ function byNewestFirst(left: SessionGroup, right: SessionGroup): number {
 
 /** When the newest session of a group was written, as a number; unreadable last. */
 function modifiedAt(group: SessionGroup): number {
-    const at = Date.parse(group.sessions[0]?.modified ?? "");
+    const at = Date.parse(group.sessions[0]?.modifiedAt ?? "");
     // A comparator may not answer `NaN`: the sort would keep any order at all.
     return Number.isNaN(at) ? -Infinity : at;
 }
@@ -60,15 +60,20 @@ function modifiedAt(group: SessionGroup): number {
 /**
  * What a row says about a session.
  *
- * The name comes first, then the words that opened the conversation, and a
- * session with neither goes unnamed: the row still carries the time it was last
- * written, and a made-up title would be a fact pie does not have.
+ * The name comes first, then the words that opened the conversation, and a session with
+ * neither goes unnamed: the row still carries the time it was last written, and a made-up
+ * title would be a fact pie does not have.
  */
-export function sessionTitle(session: SessionSummary): string | null {
-    const name = session.name?.trim();
+export function sessionTitle(session: SessionInfo): string | null {
+    const name = nameOf(session)?.trim();
     if (name) return name;
-    const first = session.firstMessage?.trim().replace(/\s+/g, " ");
+    const first = session.firstPrompt?.trim().replace(/\s+/g, " ");
     return first ? first : null;
+}
+
+/** The name a person gave a session, or `null` when they gave none. */
+function nameOf(session: SessionInfo): string | null {
+    return session.title.type === "named" ? session.title.name : null;
 }
 
 /**
@@ -109,10 +114,10 @@ export function relativeTimeAgo(modified: string, now: number): string {
  * conversation, the file it lives in, and the directory it started in — a person
  * looking for the work of one project types the project.
  */
-export function matchesSearch(session: SessionSummary, search: string): boolean {
+export function matchesSearch(session: SessionInfo, search: string): boolean {
     const needle = search.trim().toLowerCase();
     if (needle === "") return true;
-    return [session.name, session.firstMessage, session.cwd, session.path]
+    return [nameOf(session), session.firstPrompt, session.cwd, session.path]
         .filter((field): field is string => typeof field === "string")
         .some((field) => field.toLowerCase().includes(needle));
 }

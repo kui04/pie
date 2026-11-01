@@ -16,12 +16,12 @@ import { ConnectionLostOverlay } from "@/routes/connect/ConnectionLostOverlay";
 import { reportReachFailure } from "@/lib/query";
 import { useConnectionWatch } from "@/hooks/useConnectionWatch";
 import { queryDefaults } from "@/lib/query";
+import { useHostStore } from "@/stores/host.store";
 
 const fake = vi.hoisted(() => ({
-    getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo | null>>(),
+    listSessions: vi.fn<() => Promise<Bridge.SessionInfo[]>>(),
     reconnect: vi.fn<() => Promise<Bridge.ConnectionInfo>>(),
-    onConnectionState:
-        vi.fn<(id: string, onState: (state: Bridge.ConnectionState) => void) => Promise<Bridge.Unsubscribe>>(),
+    onConnectionState: vi.fn<(onState: (state: Bridge.ConnectionState) => void) => Promise<Bridge.Unsubscribe>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -29,12 +29,10 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
     ...fake,
 }));
 
-const INFO: Bridge.ConnectionInfo = {
-    id: "main",
-    endpoint: "kui04@localhost:22",
-    sessions: [],
-    open: true,
-};
+const INFO: Bridge.ConnectionInfo = { id: "main", sessions: [], open: true };
+
+/** A read that never answers, for a connection that is not held. */
+const NO_CONNECTION = { kind: "not_connected", message: "no connection" };
 
 /**
  * The app's own shape: the boundary stands above the pages, watching the reach, and the page
@@ -62,11 +60,15 @@ describe("the reach to the machine, watched by the app", () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        fake.getConnection.mockResolvedValue(INFO);
+        fake.listSessions.mockResolvedValue([]);
         fake.reconnect.mockResolvedValue(INFO);
-        fake.onConnectionState.mockImplementation(async (_id, onState) => {
+        fake.onConnectionState.mockImplementation(async (onState) => {
             heard = onState;
             return () => undefined;
+        });
+        // The machine of the last dial, which is what the overlay names.
+        useHostStore.setState({
+            lastHost: { transport: "ssh", address: "kui04@localhost:22", auth: "password" },
         });
         client = new QueryClient(queryDefaults);
     });
@@ -100,17 +102,17 @@ describe("the reach to the machine, watched by the app", () => {
     async function loseTheReach() {
         show();
         await waitFor(() => expect(fake.onConnectionState).toHaveBeenCalled());
-        act(() => heard({ type: "ended" }));
+        act(() => heard({ type: "ended", host: "main" }));
         await screen.findByRole("alertdialog");
     }
 
     it("does not bounce back to the gate when the connection arrives after the read said none", async () => {
         // The window opens at the gate with no connection, and the boundary is mounted for the
         // whole run: its answer says none, and the dial a person makes there is what changes it.
-        fake.getConnection.mockResolvedValue(null);
+        fake.listSessions.mockRejectedValueOnce(NO_CONNECTION);
         show("/");
-        await waitFor(() => expect(fake.getConnection).toHaveBeenCalled());
-        fake.getConnection.mockResolvedValue(INFO);
+        await waitFor(() => expect(fake.listSessions).toHaveBeenCalled());
+        fake.listSessions.mockResolvedValue([]);
 
         await userEvent.click(await screen.findByRole("link", { name: "the workspace" }));
 
@@ -123,7 +125,7 @@ describe("the reach to the machine, watched by the app", () => {
     it("says nothing while the reach answers", async () => {
         show();
 
-        await waitFor(() => expect(fake.getConnection).toHaveBeenCalled());
+        await waitFor(() => expect(fake.listSessions).toHaveBeenCalled());
         expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
 
@@ -133,27 +135,29 @@ describe("the reach to the machine, watched by the app", () => {
         expect(screen.getByText("The connection to kui04@localhost:22 was lost")).toBeInTheDocument();
     });
 
-    it("veils the window on the first failed read, without waiting for a tick", async () => {
+    it("asks the connection again on a failed read, and leaves the veil to Rust", async () => {
         show();
-        await waitFor(() => expect(fake.getConnection).toHaveBeenCalled());
-        // The reach answered, and then the link went: the reads that follow fail, and Rust is
-        // asked what the reach is doing now.
-        fake.getConnection.mockResolvedValue({ ...INFO, open: false });
+        await waitFor(() => expect(fake.listSessions).toHaveBeenCalled());
+        const asked = fake.listSessions.mock.calls.length;
+        // A read that fails against the reach is the earliest news of a link that went. It is
+        // not a verdict - a pi that exited fails a session read the same way - so the read is
+        // asked again and the veil waits for `pi://connection/state`.
+        fake.listSessions.mockRejectedValueOnce(NO_CONNECTION);
 
         act(() => reportReachFailure());
 
-        expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
-        expect(fake.getConnection.mock.calls.length).toBeGreaterThan(1);
+        await waitFor(() => expect(fake.listSessions.mock.calls.length).toBeGreaterThan(asked));
+        expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
 
-    it("keeps the veil over an answer that says the reach is still closed", async () => {
+    it("keeps the veil over a read that still fails", async () => {
         await loseTheReach();
-        fake.getConnection.mockResolvedValue({ ...INFO, open: false });
+        fake.listSessions.mockRejectedValue(NO_CONNECTION);
 
         act(() => reportReachFailure());
 
-        await waitFor(() => expect(fake.getConnection.mock.calls.length).toBeGreaterThan(1));
-        // A closed answer is not the reach back: only an open one lifts the veil.
+        await waitFor(() => expect(fake.listSessions.mock.calls.length).toBeGreaterThan(1));
+        // A read that fails is not the reach back: only an answer that reached the machine is.
         expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     });
 

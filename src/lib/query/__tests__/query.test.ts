@@ -12,9 +12,10 @@ import type { Query } from "@tanstack/react-query";
 import type * as Bridge from "@/lib/bridge";
 import { subscribeToReachFailures } from "../health";
 import { connectionQueries, queryClient, statsPoll } from "../index";
+import { sessionSummary } from "@/preview/fixtures";
 
 const fake = vi.hoisted(() => ({
-    getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo | null>>(),
+    listSessions: vi.fn<() => Promise<Bridge.SessionInfo[]>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -75,7 +76,8 @@ describe("a read that failed", () => {
  */
 describe("the read of the connection", () => {
     it("is the app's one connection, under the key its invalidations use", () => {
-        expect(connectionQueries.current().queryKey).toEqual(["connection"]);
+        // The invalidations of the app name `connection` alone: a prefix of this key.
+        expect(connectionQueries.current().queryKey).toEqual(["connection", "main"]);
     });
 
     it("is read again when it is asked for, because nothing announces a new connection", () => {
@@ -85,17 +87,12 @@ describe("the read of the connection", () => {
     it("answers what Rust holds, and `null` is an answer and not a failure", async () => {
         // What TanStack hands a query function, and this read uses none of it.
         const asked = {} as never;
-        fake.getConnection.mockResolvedValue(null);
+        fake.listSessions.mockRejectedValue({ kind: "not_connected", message: "no connection" });
         expect(await connectionQueries.current().queryFn?.(asked)).toBeNull();
 
-        const info: Bridge.ConnectionInfo = {
-            id: "main",
-            endpoint: "local",
-            sessions: [{ id: "main:0", cwd: "/home/pie" }],
-            open: true,
-        };
-        fake.getConnection.mockResolvedValue(info);
-        expect(await connectionQueries.current().queryFn?.(asked)).toEqual(info);
+        const sessions = [sessionSummary({ cwd: "/home/pie" })];
+        fake.listSessions.mockResolvedValue(sessions);
+        expect(await connectionQueries.current().queryFn?.(asked)).toEqual({ id: "main", sessions });
     });
 
     it("does not ask a second time when it fails", () => {

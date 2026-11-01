@@ -1,3 +1,4 @@
+import { conversation } from "@/preview/fixtures";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createActor } from "xstate";
@@ -21,9 +22,11 @@ const bridge = vi.hoisted(() => ({
     getAvailableThinkingLevels: vi.fn<Call>(),
     setModel: vi.fn<Call>(),
     setThinkingLevel: vi.fn<Call>(),
-    selectPaths: vi.fn<Call>(),
-    inspectPaths: vi.fn<Call>(),
-    stageAttachment: vi.fn<Call>(),
+    selectFiles: vi.fn<Call>(),
+    read: vi.fn<Call>(),
+    readMetadata: vi.fn<Call>(),
+
+    uploadFile: vi.fn<Call>(),
     onUploadProgress: vi.fn<Call>(),
     getState: vi.fn<Call>(),
     getSessionStats: vi.fn<Call>(),
@@ -67,7 +70,12 @@ function renderComposer(phase: "idle" | "working" = "idle", props: Partial<Compo
     const view = render(
         <QueryClientProvider client={client}>
             <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
-                <Composer session="main:1" working={phase !== "idle"} machine={machine} {...props} />
+                <Composer
+                    conversation={conversation({ session: "main:1" })}
+                    working={phase !== "idle"}
+                    machine={machine}
+                    {...props}
+                />
             </div>
         </QueryClientProvider>,
     );
@@ -102,9 +110,9 @@ beforeEach(() => {
         pendingMessageCount: 0,
     });
     bridge.getSessionStats.mockResolvedValue({});
-    bridge.getCommands.mockResolvedValue({ commands: [] });
-    bridge.getAvailableModels.mockResolvedValue({ models: [] });
-    bridge.getAvailableThinkingLevels.mockResolvedValue({ levels: [] });
+    bridge.getCommands.mockResolvedValue([]);
+    bridge.getAvailableModels.mockResolvedValue([]);
+    bridge.getAvailableThinkingLevels.mockResolvedValue([]);
     bridge.prompt.mockResolvedValue({ disposition: "started" });
     bridge.abort.mockResolvedValue(undefined);
     bridge.clearQueue.mockResolvedValue({ steering: [], followUp: [] });
@@ -112,7 +120,7 @@ beforeEach(() => {
     bridge.abortBash.mockResolvedValue(undefined);
     bridge.setModel.mockResolvedValue({});
     bridge.setThinkingLevel.mockResolvedValue(undefined);
-    bridge.selectPaths.mockResolvedValue(null);
+    bridge.selectFiles.mockResolvedValue(null);
     bridge.onUploadProgress.mockResolvedValue(() => undefined);
 });
 
@@ -123,7 +131,13 @@ describe("the composer sends what was typed", () => {
 
         press("Enter");
 
-        expect(bridge.prompt).toHaveBeenCalledWith("main:1", "make the parser skip empty lines", undefined, undefined);
+        expect(bridge.prompt).toHaveBeenCalledWith(
+            "main",
+            "main:1",
+            "make the parser skip empty lines",
+            undefined,
+            undefined,
+        );
         expect(box()).toHaveValue("");
     });
 
@@ -135,8 +149,15 @@ describe("the composer sends what was typed", () => {
         type("and then run the tests");
         press("Enter", { altKey: true });
 
-        expect(bridge.prompt).toHaveBeenNthCalledWith(1, "main:1", "do it the other way", "steer", undefined);
-        expect(bridge.prompt).toHaveBeenNthCalledWith(2, "main:1", "and then run the tests", "followUp", undefined);
+        expect(bridge.prompt).toHaveBeenNthCalledWith(1, "main", "main:1", "do it the other way", "steer", undefined);
+        expect(bridge.prompt).toHaveBeenNthCalledWith(
+            2,
+            "main",
+            "main:1",
+            "and then run the tests",
+            "followUp",
+            undefined,
+        );
     });
 
     it("sends nothing for an empty box, and nothing for a blank line", () => {
@@ -174,7 +195,7 @@ describe("the composer sends what was typed", () => {
         renderComposer("working");
 
         fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-        await waitFor(() => expect(bridge.abort).toHaveBeenCalledWith("main:1"));
+        await waitFor(() => expect(bridge.abort).toHaveBeenCalledWith("main", "main:1"));
 
         // The run is over (the chart said so) and a shell command of the reader runs:
         // the key stops that one now.
@@ -183,7 +204,7 @@ describe("the composer sends what was typed", () => {
         second.machine.send({ type: "BASH_START", run: { command: "ls", excludeFromContext: false } });
         fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
 
-        await waitFor(() => expect(bridge.abortBash).toHaveBeenCalledWith("main:1"));
+        await waitFor(() => expect(bridge.abortBash).toHaveBeenCalledWith("main", "main:1"));
     });
 });
 
@@ -199,7 +220,7 @@ describe("the composer runs a command of the reader's own shell", () => {
 
         type("!ls -la");
         press("Enter");
-        expect(bridge.bash).toHaveBeenNthCalledWith(1, "main:1", "ls -la", false);
+        expect(bridge.bash).toHaveBeenNthCalledWith(1, "main", "main:1", "ls -la", false);
         // The run stands above the card while pi has not recorded it.
         expect(machine.getSnapshot().context.bash).toMatchObject({
             command: "ls -la",
@@ -219,7 +240,7 @@ describe("the composer runs a command of the reader's own shell", () => {
 
         type("!!make test");
         press("Enter");
-        expect(bridge.bash).toHaveBeenNthCalledWith(2, "main:1", "make test", true);
+        expect(bridge.bash).toHaveBeenNthCalledWith(2, "main", "main:1", "make test", true);
         expect(machine.getSnapshot().context.bash).toMatchObject({
             command: "make test",
             excludeFromContext: true,
@@ -251,7 +272,7 @@ describe("the composer runs a command of the reader's own shell", () => {
 
 describe("what the composer does with a slash line", () => {
     it("sends a command that pi registered, and never one of pi's terminal commands", async () => {
-        bridge.getCommands.mockResolvedValue({ commands: [slashCommand("review", "Review the tree", "extension")] });
+        bridge.getCommands.mockResolvedValue([slashCommand("review", "Review the tree", "extension")]);
         renderComposer();
 
         // The list of pi is a read of its own; what it holds is what tells a command
@@ -260,7 +281,7 @@ describe("what the composer does with a slash line", () => {
         await screen.findByText("/review");
         type("/review the diff");
         press("Enter");
-        expect(bridge.prompt).toHaveBeenCalledWith("main:1", "/review the diff", undefined, undefined);
+        expect(bridge.prompt).toHaveBeenCalledWith("main", "main:1", "/review the diff", undefined, undefined);
 
         type("/model");
         press("Enter");
@@ -283,7 +304,7 @@ describe("what the composer does with a slash line", () => {
 
 describe("the command menu", () => {
     it("completes a command of pi into the box", async () => {
-        bridge.getCommands.mockResolvedValue({ commands: [slashCommand("review", "Review the tree", "extension")] });
+        bridge.getCommands.mockResolvedValue([slashCommand("review", "Review the tree", "extension")]);
         renderComposer();
 
         type("/rev");
@@ -297,12 +318,10 @@ describe("the command menu", () => {
     });
 
     it("keeps the keyboard in the box and moves the highlight with the arrows", async () => {
-        bridge.getCommands.mockResolvedValue({
-            commands: [
-                slashCommand("review", "Review the tree", "extension"),
-                slashCommand("deploy", "Deploy the app", "skill"),
-            ],
-        });
+        bridge.getCommands.mockResolvedValue([
+            slashCommand("review", "Review the tree", "extension"),
+            slashCommand("deploy", "Deploy the app", "skill"),
+        ]);
         renderComposer();
 
         type("/");
@@ -324,13 +343,11 @@ describe("the command menu", () => {
     });
 
     it("lights the row under the pointer, and gives it back to the keyboard when it leaves", async () => {
-        bridge.getCommands.mockResolvedValue({
-            commands: [
-                slashCommand("review", "Review the tree", "extension"),
-                slashCommand("deploy", "Deploy the app", "skill"),
-                slashCommand("release", "Prepare a release", "prompt"),
-            ],
-        });
+        bridge.getCommands.mockResolvedValue([
+            slashCommand("review", "Review the tree", "extension"),
+            slashCommand("deploy", "Deploy the app", "skill"),
+            slashCommand("release", "Prepare a release", "prompt"),
+        ]);
         renderComposer();
 
         type("/");
@@ -356,13 +373,11 @@ describe("the command menu", () => {
     });
 
     it("starts the light over on the best match of what is typed now", async () => {
-        bridge.getCommands.mockResolvedValue({
-            commands: [
-                slashCommand("review", "Review the tree", "extension"),
-                slashCommand("deploy", "Deploy the app", "skill"),
-                slashCommand("release", "Prepare a release", "prompt"),
-            ],
-        });
+        bridge.getCommands.mockResolvedValue([
+            slashCommand("review", "Review the tree", "extension"),
+            slashCommand("deploy", "Deploy the app", "skill"),
+            slashCommand("release", "Prepare a release", "prompt"),
+        ]);
         renderComposer();
 
         type("/re");
@@ -377,12 +392,10 @@ describe("the command menu", () => {
     });
 
     it("takes the row under the keyboard with Tab", async () => {
-        bridge.getCommands.mockResolvedValue({
-            commands: [
-                slashCommand("review", "Review the tree", "extension"),
-                slashCommand("deploy", "Deploy the app", "skill"),
-            ],
-        });
+        bridge.getCommands.mockResolvedValue([
+            slashCommand("review", "Review the tree", "extension"),
+            slashCommand("deploy", "Deploy the app", "skill"),
+        ]);
         renderComposer();
 
         type("/");
@@ -401,11 +414,11 @@ describe("the command menu", () => {
 
 describe("the attachments of a message", () => {
     const picture = { type: "image" as const, data: "aGk=", mimeType: "image/png" };
-    const staged = { name: "workspace.png", image: picture };
+    const read = { type: "image" as const, mimeType: "image/png", base64: "aGk=" };
 
     it("stages what the picker answered, and sends it with the words", async () => {
-        bridge.selectPaths.mockResolvedValue(["/tmp/workspace.png"]);
-        bridge.inspectPaths.mockResolvedValue({ images: [staged], files: [] });
+        bridge.selectFiles.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.read.mockResolvedValue(read);
         renderComposer();
 
         fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
@@ -414,26 +427,29 @@ describe("the attachments of a message", () => {
         type("look at this");
         press("Enter");
 
-        expect(bridge.prompt).toHaveBeenCalledWith("main:1", "look at this", undefined, [picture]);
+        expect(bridge.prompt).toHaveBeenCalledWith("main", "main:1", "look at this", undefined, [picture]);
     });
 
     it("stages files chosen through the file picker and appends paths on submit", async () => {
-        bridge.selectPaths.mockResolvedValue(["/tmp/report.pdf"]);
-        bridge.inspectPaths.mockResolvedValue({
-            images: [],
-            files: [
-                {
-                    name: "report.pdf",
-                    size: 2048,
-                    mimeType: "application/pdf",
-                    localPath: "/tmp/report.pdf",
-                },
-            ],
-        });
-        bridge.stageAttachment.mockResolvedValue({
-            path: "/tmp/pie-report.pdf",
-            size: 2048,
+        bridge.selectFiles.mockResolvedValue(["/tmp/report.pdf"]);
+        bridge.read.mockResolvedValue({ type: "text", mimeType: "application/pdf", content: "" });
+        bridge.readMetadata.mockResolvedValue({
+            path: "/tmp/report.pdf",
             mimeType: "application/pdf",
+            size: 2048,
+            isFile: true,
+            isDir: false,
+            isSymlink: false,
+            readonly: false,
+            created: null,
+            modified: null,
+        });
+        bridge.uploadFile.mockResolvedValue({
+            hash: [],
+            remotePath: "/tmp/pie-report.pdf",
+            totalBytes: 2048,
+            bytesTransferred: 2048,
+            status: { type: "uploaded_fresh" },
         });
 
         renderComposer();
@@ -445,15 +461,15 @@ describe("the attachments of a message", () => {
         press("Enter");
 
         await waitFor(() => {
-            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "analyze this report", undefined, undefined, [
+            expect(bridge.prompt).toHaveBeenCalledWith("main", "main:1", "analyze this report", undefined, undefined, [
                 "/tmp/pie-report.pdf",
             ]);
         });
     });
 
     it("removes one of the staged pictures again", async () => {
-        bridge.selectPaths.mockResolvedValue(["/tmp/workspace.png"]);
-        bridge.inspectPaths.mockResolvedValue({ images: [staged], files: [] });
+        bridge.selectFiles.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.read.mockResolvedValue(read);
         renderComposer();
         fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
         await screen.findByText("workspace.png");
@@ -464,8 +480,8 @@ describe("the attachments of a message", () => {
     });
 
     it("stays on screen when pi refuses the message", async () => {
-        bridge.selectPaths.mockResolvedValue(["/tmp/workspace.png"]);
-        bridge.inspectPaths.mockResolvedValue({ images: [staged], files: [] });
+        bridge.selectFiles.mockResolvedValue(["/tmp/workspace.png"]);
+        bridge.read.mockResolvedValue(read);
         bridge.prompt.mockRejectedValue(refusal("pi rejected `prompt`: image too large"));
         renderComposer();
         fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
@@ -501,7 +517,7 @@ describe("the attachments of a message", () => {
         press("Enter");
 
         await waitFor(() => {
-            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "look at pasted", undefined, [
+            expect(bridge.prompt).toHaveBeenCalledWith("main", "main:1", "look at pasted", undefined, [
                 expect.objectContaining({ type: "image", mimeType: "image/png" }),
             ]);
         });
@@ -527,10 +543,12 @@ describe("the attachments of a message", () => {
     });
 
     it("stages non-image files as attachment cards and appends their paths on send", async () => {
-        bridge.stageAttachment.mockResolvedValue({
-            path: "/tmp/pie-document.pdf",
-            size: 1024,
-            mimeType: "application/pdf",
+        bridge.uploadFile.mockResolvedValue({
+            hash: [],
+            remotePath: "/tmp/pie-document.pdf",
+            totalBytes: 1024,
+            bytesTransferred: 1024,
+            status: { type: "uploaded_fresh" },
         });
         renderComposer();
 
@@ -555,23 +573,31 @@ describe("the attachments of a message", () => {
         press("Enter");
 
         await waitFor(() => {
-            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "review this document", undefined, undefined, [
+            expect(bridge.prompt).toHaveBeenCalledWith("main", "main:1", "review this document", undefined, undefined, [
                 "/tmp/pie-document.pdf",
             ]);
         });
     });
 
     it("imports file URIs when pasting from file managers and appends path", async () => {
-        bridge.inspectPaths.mockResolvedValue({
-            images: [],
-            files: [
-                { name: "document.pdf", size: 1024, mimeType: "application/pdf", localPath: "/home/user/document.pdf" },
-            ],
-        });
-        bridge.stageAttachment.mockResolvedValue({
+        bridge.read.mockResolvedValue({ type: "text", mimeType: "application/pdf", content: "" });
+        bridge.readMetadata.mockResolvedValue({
             path: "/home/user/document.pdf",
-            size: 1024,
             mimeType: "application/pdf",
+            size: 1024,
+            isFile: true,
+            isDir: false,
+            isSymlink: false,
+            readonly: false,
+            created: null,
+            modified: null,
+        });
+        bridge.uploadFile.mockResolvedValue({
+            hash: [],
+            remotePath: "/home/user/document.pdf",
+            totalBytes: 1024,
+            bytesTransferred: 1024,
+            status: { type: "uploaded_fresh" },
         });
         renderComposer();
 
@@ -588,7 +614,9 @@ describe("the attachments of a message", () => {
         press("Enter");
 
         await waitFor(() => {
-            expect(bridge.prompt).toHaveBeenCalledWith("main:1", "", undefined, undefined, ["/home/user/document.pdf"]);
+            expect(bridge.prompt).toHaveBeenCalledWith("main", "main:1", "", undefined, undefined, [
+                "/home/user/document.pdf",
+            ]);
         });
     });
 });

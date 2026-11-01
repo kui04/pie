@@ -28,10 +28,9 @@ Pi's fields, or "improve" wire shapes.
   (untagged fallback) so protocol additions degrade gracefully until the next
   pin bump.
 - A change to the protocol types belongs in the crate, and it MUST update the
-  recorded JSONL fixtures of this app (`src-tauri/tests/fixtures`, the
-  conformance corpus from a real `pi --mode rpc`) in the same change.
-  `src-tauri/tests/conformance.rs` is what reads that corpus through the crate:
-  a record the crate cannot name fails there.
+  recorded JSONL fixtures of this app in the same change. The corpus (a real
+  `pi --mode rpc`) and `tests/conformance.rs`, which reads it through the crate,
+  return with the rewrite's test suite; a protocol change re-records both then.
 
 ## Runtime rules
 
@@ -43,12 +42,14 @@ Pi's fields, or "improve" wire shapes.
   and detail to the log and to the frontend.
 - Lifecycle: closing stdin is the graceful shutdown path; handle SIGTERM and
   channel EOF; the SSH case follows the same rules over the russh channel.
-- Check `pi --version` against the pin (`host::check_version` and
-  `Host::pi_version`); a mismatch is a `host::VersionMismatch`, which the
-  connect logs and goes on from - never a silent continue.
+- Check `pi --version` against the pin (`HostConnection::pi_version` and
+  `host::PI_VERSION`); a mismatch is a warning the connect logs and goes on from
+  - never a silent continue - and a pi that does not answer fails the connect.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
-  host-key verification is ours to implement (TOFU + known_hosts); private keys
-  cross the connection boundary as text, never as a path to a file — pie copies
-  no secret material into its own storage. When a key file is picked (a path on
-  desktop or a `content://` URI on Android), `commands::files::read_text` reads
-  its text into the form before `connect` is called.
+  host-key verification is `host::ssh::trust`: trust on first use over an
+  OpenSSH known_hosts file, an unknown key put to the person, a changed key
+  refused. Private keys cross the connection boundary as text, never as a path
+  to a file — pie copies no secret material into its own storage. When a key
+  file is picked (a path on desktop or a `content://` URI on Android),
+  `commands::filesystem::filesystem_read` reads its text into the form before
+  `connect` is called.

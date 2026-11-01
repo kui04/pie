@@ -1,565 +1,739 @@
-//! The conversation files of pi, as pie reads them.
-//!
-//! Pi keeps its sessions as JSONL files under `~/.pi/agent/sessions/` and has no
-//! command to list them. Therefore pie reads them itself. A summary needs three
-//! values: the header line, the first words of the user, and the latest name.
-//! [`SessionSummary`] is that summary, and the parsers of the lines behind it live
-//! here, because the format is pi's wherever the bytes come from.
-//!
-//! How the files are read from a machine is [`Files`]'s business; this module
-//! knows only the JSONL format that pi writes and how to turn each file's lines
-//! into a [`SessionSummary`].
+//! The conversation files of a machine, as the catalog reads them.
 
-use std::{io::SeekFrom, sync::Arc, time::SystemTime};
+use std::io::SeekFrom;
 
-use camino::Utf8PathBuf;
-use pi_rpc::{
-    entry::Entry,
-    message::{Message, UserBlock, UserContent},
-};
-use serde::{Deserialize, Serialize};
-use tokio::{
-    io::{AsyncReadExt, AsyncSeekExt},
-    task::JoinSet,
-};
+use anyhow::Context;
+use futures::{StreamExt, stream};
+use pi_rpc::response::SessionState;
+use serde_json::Value;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
+use typed_path::{Utf8TypedPath, Utf8TypedPathBuf};
 
-use crate::host::{AsyncReadSeek, Files};
+use crate::host::executor::OsFamily;
+use crate::host::fs::{FileMetadata, FileOpenOptions, FileSystem, typed};
+use crate::session::SessionId;
 
-/// The in-memory catalog of all session summaries of one machine.
-#[derive(Debug, Default, Clone)]
-pub struct SessionCatalog {
-    sessions: Vec<SessionSummary>,
-    last_scanned: Option<std::time::Instant>,
+/// Maximum number of session files inspected at one time.
+const MAX_CONCURRENT_FILES: usize = 10;
+
+/// Bytes per backward step when the tail of a session file is read.
+const TAIL_CHUNK_SIZE: u64 = 16 * 1024;
+
+/// Largest window read from the head or the tail of one session file.
+const MAX_SCAN_WINDOW: u64 = 4 * 1024 * 1024;
+
+/// One conversation of a machine.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    pub id: SessionId,
+    pub cwd: Option<Utf8TypedPathBuf>,
+    pub path: Utf8TypedPathBuf,
+    pub title: SessionTitle,
+    pub parent_path: Option<Utf8TypedPathBuf>,
+    pub created_at: jiff::Timestamp,
+    pub modified_at: jiff::Timestamp,
+    pub first_prompt: Option<String>,
 }
 
-impl SessionCatalog {
-    /// All session summaries in the catalog.
-    pub fn all(&self) -> Vec<SessionSummary> {
-        self.sessions.clone()
-    }
+/// How a conversation is named, and who named it.
+///
+/// A person may name a conversation, and pi may derive one from the first thing a
+/// person asked. The two look the same on screen and differ on rename, so the
+/// difference is a variant, not an `Option` that hides it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SessionTitle {
+    /// A person named this conversation.
+    Named { name: String },
+    /// No name was chosen, so the first prompt is the label.
+    FromFirstPrompt,
+    /// No name was chosen and no prompt was read.
+    Untitled,
+}
 
-    /// Looks up a session by its Pi ID.
-    pub fn get(&self, id: &str) -> Option<&SessionSummary> {
-        self.sessions.iter().find(|s| s.id == id)
-    }
-
-    /// Looks up a session by its file path.
-    pub fn get_by_path(&self, path: &str) -> Option<&SessionSummary> {
-        self.sessions.iter().find(|s| s.path == path)
-    }
-
-    /// Removes a session from the catalog by its file path.
-    pub fn remove_by_path(&mut self, path: &str) {
-        self.sessions.retain(|s| s.path != path);
-    }
-
-    /// Updates the catalog with a new list of session summaries.
-    pub fn set(&mut self, sessions: Vec<SessionSummary>) {
-        self.sessions = sessions;
-        self.last_scanned = Some(std::time::Instant::now());
-    }
-
-    /// Drops every entry and the scan time, so the next read scans again.
-    pub fn clear(&mut self) {
-        self.sessions.clear();
-        self.last_scanned = None;
-    }
-
-    /// Whether the catalog has not been populated yet.
-    pub fn is_empty(&self) -> bool {
-        self.sessions.is_empty() && self.last_scanned.is_none()
+impl SessionTitle {
+    /// The title a rename leaves behind: the chosen name, or what an empty name
+    /// falls back to.
+    pub(crate) fn renamed(name: &str, first_prompt: Option<&str>) -> Self {
+        if name.is_empty() {
+            title_of(TailName::Cleared, first_prompt)
+        } else {
+            title_of(TailName::Named(name.to_owned()), first_prompt)
+        }
     }
 }
 
-const HEAD_BYTES: usize = 1024 * 1024;
-const READ_CHUNK: usize = 8 * 1024;
-const NAME_SCAN_BYTES: u64 = 1024 * 1024;
-const NAME_BLOCK: usize = 16 * 1024;
-
-/// Reads the working directory recorded in the header of a session file.
-pub(crate) async fn read_session_cwd(reader: &mut (dyn AsyncReadSeek + '_)) -> anyhow::Result<Option<String>> {
-    let (header, _) = scan_head(reader).await?;
-    Ok(header.map(|h| h.cwd))
+impl SessionInfo {
+    /// Updates scanned metadata with live state returned by `pi` RPC `get_state` after attach.
+    ///
+    /// The conversation file is the identity of a session, so this never takes the
+    /// file pi reports: pi may spell the same file another way.
+    pub(crate) fn apply_rpc_state(&mut self, state: &SessionState) {
+        if !state.session_id.is_empty() {
+            self.id = SessionId::new(state.session_id.clone());
+        }
+        if let Some(name) = state
+            .session_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+        {
+            self.title = SessionTitle::Named {
+                name: name.to_owned(),
+            };
+        }
+    }
 }
 
-/// Scans the summary lines of one session file using seekable asynchronous stream reads.
-pub async fn read_summary(
-    reader: &mut (dyn AsyncReadSeek + '_),
-    path: String,
-    size: Option<u64>,
-    modified: Option<SystemTime>,
-) -> anyhow::Result<Option<SessionSummary>> {
-    let (header, first) = scan_head(reader).await?;
-    let Some(header) = header else {
-        return Ok(None);
+/// What the head of a session file says.
+#[derive(Debug, Clone)]
+pub(crate) struct HeadSummary {
+    pub id: SessionId,
+    pub cwd: Option<Utf8TypedPathBuf>,
+    pub parent_path: Option<Utf8TypedPathBuf>,
+    pub created_at: Option<jiff::Timestamp>,
+    pub first_prompt: Option<String>,
+}
+
+/// What the tail of a session file says.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TailSummary {
+    pub name: TailName,
+    pub last_activity: Option<jiff::Timestamp>,
+}
+
+/// The name the latest `session_info` entry gives a conversation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum TailName {
+    /// No `session_info` entry in the scanned window.
+    #[default]
+    Unknown,
+    /// The latest `session_info` entry clears the name.
+    Cleared,
+    /// The latest `session_info` entry names the conversation.
+    Named(String),
+}
+
+/// Scans `<home>/.pi/agent/sessions/...` with bounded concurrency, sorted by `modified_at` descending.
+pub(crate) async fn load_catalog<F>(fs: &F, family: OsFamily) -> anyhow::Result<Vec<SessionInfo>>
+where
+    F: FileSystem,
+{
+    let home = fs
+        .home_dir()
+        .await
+        .context("cannot find the home directory of this machine")?;
+    let root = home.join(".pi").join("agent").join("sessions");
+
+    let mut files = Vec::new();
+    collect_session_files(fs, root.to_path(), &mut files).await;
+
+    let scanned: Vec<Option<SessionInfo>> = stream::iter(files)
+        .map(|entry| async move {
+            match scan_session_file(fs, &entry, family).await {
+                Ok(info) => Some(info),
+                Err(error) => {
+                    // A machine holds files pie did not write, and pi skips them too.
+                    tracing::debug!(%error, path = %entry.path, "a session file was skipped");
+                    None
+                }
+            }
+        })
+        .buffer_unordered(MAX_CONCURRENT_FILES)
+        .collect()
+        .await;
+
+    let mut results: Vec<SessionInfo> = scanned.into_iter().flatten().collect();
+    results.sort_by(|a, b| {
+        b.modified_at
+            .cmp(&a.modified_at)
+            .then_with(|| a.path.as_str().cmp(b.path.as_str()))
+    });
+    Ok(results)
+}
+
+async fn collect_session_files<F>(fs: &F, dir: Utf8TypedPath<'_>, out: &mut Vec<FileMetadata>)
+where
+    F: FileSystem,
+{
+    let Ok(entries) = fs.read_dir(dir).await else {
+        return;
     };
 
-    let name = scan_tail_backwards(reader, size).await?;
-    let modified_str = modified.and_then(rfc3339).unwrap_or_else(|| header.timestamp.clone());
+    // pi keeps one directory per project: `<sessions>/--<cwd>--/<time>_<id>.jsonl`.
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for entry in entries {
+        if entry.is_dir {
+            dirs.push(entry.path);
+        } else {
+            files.push(entry);
+        }
+    }
+    for dir in dirs {
+        if let Ok(children) = fs.read_dir(dir.to_path()).await {
+            files.extend(children);
+        }
+    }
 
-    Ok(Some(SessionSummary {
-        path,
-        id: header.id,
-        cwd: header.cwd,
-        name,
-        parent_session_path: header.parent_session,
-        modified: modified_str,
-        created: header.timestamp,
-        first_message: first,
+    out.extend(files.into_iter().filter(|entry| {
+        entry.is_file && matches!(entry.path.to_path().extension(), Some("jsonl"))
+    }));
+}
+
+/// Concurrently scans the head and tail of a single session file.
+pub(crate) async fn scan_session_file<F>(
+    fs: &F,
+    entry: &FileMetadata,
+    family: OsFamily,
+) -> anyhow::Result<SessionInfo>
+where
+    F: FileSystem,
+{
+    let mut options = FileOpenOptions::new();
+    options.read(true);
+
+    let mut head_file = fs
+        .open_file(entry.path.to_path(), options)
+        .await
+        .with_context(|| format!("cannot open the head of `{}`", entry.path))?;
+    let mut tail_file = fs
+        .open_file(entry.path.to_path(), options)
+        .await
+        .with_context(|| format!("cannot open the tail of `{}`", entry.path))?;
+
+    // The listing is a snapshot: pi can append before this file is read.
+    let file_len = tail_file
+        .seek(SeekFrom::End(0))
+        .await
+        .with_context(|| format!("cannot measure `{}`", entry.path))?;
+
+    let (head, tail) = tokio::try_join!(
+        scan_head(&mut head_file, family),
+        scan_tail(&mut tail_file, file_len),
+    )
+    .with_context(|| format!("cannot scan `{}`", entry.path))?;
+
+    let head =
+        head.with_context(|| format!("`{}` does not start with a session header", entry.path))?;
+
+    let file_modified = entry
+        .modified
+        .and_then(|time| jiff::Timestamp::try_from(time).ok());
+    let file_created = entry
+        .created
+        .or(entry.modified)
+        .and_then(|time| jiff::Timestamp::try_from(time).ok());
+
+    let modified_at = tail
+        .last_activity
+        .or(head.created_at)
+        .or(file_modified)
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    let created_at = head
+        .created_at
+        .or(file_created)
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+
+    let title = title_of(tail.name, head.first_prompt.as_deref());
+
+    Ok(SessionInfo {
+        id: head.id,
+        cwd: head.cwd,
+        path: entry.path.clone(),
+        title,
+        parent_path: head.parent_path,
+        created_at,
+        modified_at,
+        first_prompt: head.first_prompt,
+    })
+}
+
+/// How the label of a conversation follows from its scan.
+///
+/// A name a person chose wins. Without one, a cleared name and a name that was
+/// never chosen fall back to the first prompt; there is nothing else to fall back to.
+fn title_of(name: TailName, first_prompt: Option<&str>) -> SessionTitle {
+    match name {
+        TailName::Named(name) => SessionTitle::Named { name },
+        TailName::Cleared | TailName::Unknown if first_prompt.is_some() => {
+            SessionTitle::FromFirstPrompt
+        }
+        TailName::Cleared | TailName::Unknown => SessionTitle::Untitled,
+    }
+}
+
+/// Reads the header and the first user message, or `None` when the file is no session.
+async fn scan_head<R>(reader: &mut R, family: OsFamily) -> anyhow::Result<Option<HeadSummary>>
+where
+    R: AsyncRead + Unpin,
+{
+    let limited = reader.take(MAX_SCAN_WINDOW);
+    let mut buf_reader = BufReader::new(limited);
+    let mut line = Vec::new();
+    let mut header = None;
+    let mut first_prompt = None;
+
+    loop {
+        line.clear();
+        if buf_reader.read_until(b'\n', &mut line).await? == 0 {
+            break;
+        }
+
+        let Ok(entry) = serde_json::from_slice::<Value>(&line) else {
+            // pi skips a blank or unreadable line while it looks for the header.
+            continue;
+        };
+
+        if header.is_none() {
+            header = session_header(&entry, family);
+            if header.is_none() {
+                return Ok(None);
+            }
+            continue;
+        }
+
+        if first_prompt.is_none() {
+            first_prompt = user_prompt(&entry);
+        }
+        if first_prompt.is_some() {
+            break;
+        }
+    }
+
+    Ok(header.map(|mut header| {
+        header.first_prompt = first_prompt;
+        header
     }))
 }
 
-struct HeadScan {
-    searched: usize,
-    line_start: usize,
+/// The header a session file starts with, when `entry` is one.
+fn session_header(entry: &Value, family: OsFamily) -> Option<HeadSummary> {
+    if entry.get("type").and_then(Value::as_str) != Some("session") {
+        return None;
+    }
+    let id = entry
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?;
+
+    Some(HeadSummary {
+        id: SessionId::new(id),
+        cwd: entry
+            .get("cwd")
+            .and_then(Value::as_str)
+            .filter(|cwd| !cwd.is_empty())
+            .map(|cwd| typed(cwd, family)),
+        parent_path: entry
+            .get("parentSession")
+            .and_then(Value::as_str)
+            .filter(|path| !path.is_empty())
+            .map(|path| typed(path, family)),
+        created_at: entry
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .and_then(|timestamp| timestamp.parse().ok()),
+        first_prompt: None,
+    })
 }
 
-fn first_turn_is_whole(head: &[u8], scan: &mut HeadScan) -> bool {
-    let mut found = false;
-    while !found {
-        let fresh = &head[scan.searched..];
-        let Some(at) = memchr::memchr(b'\n', fresh) else {
-            scan.searched = head.len();
-            break;
-        };
-        let line_end = scan.searched + at;
-        found = String::from_utf8_lossy(&head[scan.line_start..line_end]).contains("\"role\":\"user\"");
-        scan.line_start = line_end + 1;
-        scan.searched = scan.line_start;
-    }
-    found
+async fn scan_tail<R>(reader: &mut R, file_len: u64) -> anyhow::Result<TailSummary>
+where
+    R: AsyncRead + AsyncSeek + Unpin,
+{
+    scan_tail_in_chunks(reader, file_len, TAIL_CHUNK_SIZE).await
 }
 
-async fn scan_head(
-    reader: &mut (dyn AsyncReadSeek + '_),
-) -> anyhow::Result<(Option<SessionFileHeader>, Option<String>)> {
-    reader.seek(SeekFrom::Start(0)).await?;
-    let mut head = Vec::new();
-    let mut scan = HeadScan {
-        searched: 0,
-        line_start: 0,
-    };
-    let mut chunk = [0u8; READ_CHUNK];
-
-    while head.len() < HEAD_BYTES {
-        let room = (HEAD_BYTES - head.len()).min(READ_CHUNK);
-        let read = reader.read(&mut chunk[..room]).await?;
-        if read == 0 {
-            break;
-        }
-        head.extend_from_slice(&chunk[..read]);
-        if first_turn_is_whole(&head, &mut scan) {
-            break;
-        }
-    }
-
-    let lossy = String::from_utf8_lossy(&head);
-    let mut lines = lossy.lines();
-    let Some(header_line) = lines.next() else {
-        return Ok((None, None));
-    };
-
-    let Ok(header) = serde_json::from_str::<SessionFileHeader>(header_line) else {
-        return Ok((None, None));
-    };
-    if header.kind != "session" {
-        return Ok((None, None));
-    }
-
-    let mut first = None;
-    for line in lines {
-        if let Some(text) = first_text(line.as_bytes()) {
-            first = Some(text);
-            break;
-        }
-    }
-
-    Ok((Some(header), first))
-}
-
-async fn scan_tail_backwards(
-    reader: &mut (dyn AsyncReadSeek + '_),
-    size: Option<u64>,
-) -> anyhow::Result<Option<String>> {
-    let size = match size {
-        Some(size) => size,
-        None => reader.seek(SeekFrom::End(0)).await?,
-    };
-    let budget = size.min(NAME_SCAN_BYTES);
-    let mut position = size;
+/// Reads the tail of a file backward, one chunk at a time, until the name and the activity are known.
+async fn scan_tail_in_chunks<R>(
+    reader: &mut R,
+    file_len: u64,
+    chunk: u64,
+) -> anyhow::Result<TailSummary>
+where
+    R: AsyncRead + AsyncSeek + Unpin,
+{
+    let mut summary = TailSummary::default();
+    let mut end = file_len;
     let mut scanned = 0u64;
-    let mut carry: Vec<u8> = Vec::new();
+    let mut carry = Vec::new();
 
-    while scanned < budget {
-        let block = NAME_BLOCK.min((budget - scanned) as usize);
-        position -= block as u64;
-        reader.seek(SeekFrom::Start(position)).await?;
+    while end > 0 && scanned < MAX_SCAN_WINDOW {
+        let start = end.saturating_sub(chunk);
+        scanned += end - start;
 
-        let mut suffix = vec![0u8; block];
-        let mut filled = 0;
-        while filled < block {
-            let read = reader.read(&mut suffix[filled..]).await?;
-            if read == 0 {
-                break;
-            }
-            filled += read;
+        reader.seek(SeekFrom::Start(start)).await?;
+        let mut buf = vec![0u8; usize::try_from(end - start)?];
+        reader.read_exact(&mut buf).await?;
+        buf.extend_from_slice(&carry);
+
+        // Bytes, not text: a chunk boundary can cut a character in two.
+        let mut lines = buf.split(|byte| *byte == b'\n');
+        let first = lines.next().unwrap_or_default();
+        if start > 0 {
+            carry = first.to_vec();
+        } else {
+            carry.clear();
         }
-        suffix.truncate(filled);
-        suffix.extend_from_slice(&carry);
-        scanned += block as u64;
 
-        let mut end = suffix.len();
-        loop {
-            let Some(line_end) = memchr::memrchr(b'\n', &suffix[..end]) else {
-                carry = suffix[..end].to_vec();
-                break;
-            };
-            let line = &suffix[line_end + 1..end];
-            end = line_end;
-            if let Some(name) = name_in(line) {
-                return Ok(name);
-            }
+        for line in lines.rev() {
+            read_tail_line(line, &mut summary);
         }
-    }
-    Ok(None)
-}
-
-fn sessions_root(home: Option<&str>) -> Option<Utf8PathBuf> {
-    home.map(|h| Utf8PathBuf::from(h).join(".pi").join("agent").join("sessions"))
-}
-
-/// Every conversation that pi wrote on `host`, the newest first.
-///
-/// # Errors
-///
-/// A sentence when the files cannot be read, with the path at fault in it.
-pub(crate) async fn summaries(files: Arc<dyn Files>) -> anyhow::Result<Vec<SessionSummary>> {
-    let home = files.home_dir().await?;
-    let Some(root) = sessions_root(home.as_deref()) else {
-        return Ok(Vec::new());
-    };
-    let projects = match files.read_dir(root.as_str()).await {
-        Ok(entries) => entries,
-        Err(_) => return Ok(Vec::new()),
-    };
-
-    let mut candidates = Vec::new();
-    for project in projects {
-        if !project.is_dir {
-            continue;
+        if start == 0 {
+            read_tail_line(first, &mut summary);
         }
-        let Ok(entries) = files.read_dir(&project.path).await else {
-            continue;
-        };
-        for file in entries {
-            if file.name.ends_with(".jsonl") {
-                candidates.push(file);
-            }
-        }
-    }
 
-    let mut set = JoinSet::new();
-    let mut pending = candidates.into_iter();
-    let mut list = Vec::new();
-    const MAX_CONCURRENT_LOADS: usize = 10;
-
-    loop {
-        while set.len() < MAX_CONCURRENT_LOADS {
-            let Some(candidate) = pending.next() else { break };
-            let files = Arc::clone(&files);
-            set.spawn(async move {
-                let mut reader = files.open(&candidate.path).await.ok()?;
-                read_summary(&mut *reader, candidate.path, candidate.size, candidate.modified)
-                    .await
-                    .ok()
-                    .flatten()
-            });
-        }
-        if set.is_empty() {
+        if summary.name != TailName::Unknown && summary.last_activity.is_some() {
             break;
         }
-        if let Some(Ok(Some(summary))) = set.join_next().await {
-            list.push(summary);
+        end = start;
+    }
+
+    Ok(summary)
+}
+
+/// Reads one line of the tail, newest first, and keeps what it tells.
+fn read_tail_line(line: &[u8], summary: &mut TailSummary) {
+    let line = line.trim_ascii();
+    if line.is_empty() {
+        return;
+    }
+    let Ok(entry) = serde_json::from_slice::<Value>(line) else {
+        return;
+    };
+
+    if summary.name == TailName::Unknown
+        && let Some(name) = name_update(&entry)
+    {
+        summary.name = name;
+    }
+    if summary.last_activity.is_none() {
+        summary.last_activity = message_activity(&entry);
+    }
+}
+
+/// The name a `session_info` entry gives, or `None` when the entry is another kind.
+fn name_update(entry: &Value) -> Option<TailName> {
+    if entry.get("type").and_then(Value::as_str) != Some("session_info") {
+        return None;
+    }
+    let name = entry
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+
+    Some(name.map_or(TailName::Cleared, |name| TailName::Named(name.to_owned())))
+}
+
+/// When `entry` moved the conversation: a message from a person or the model.
+fn message_activity(entry: &Value) -> Option<jiff::Timestamp> {
+    if entry.get("type").and_then(Value::as_str) != Some("message") {
+        return None;
+    }
+    let message = entry.get("message")?;
+    let role = message.get("role").and_then(Value::as_str)?;
+    if !matches!(role, "user" | "assistant") || message.get("content").is_none() {
+        return None;
+    }
+
+    if let Some(millis) = message.get("timestamp").and_then(Value::as_i64) {
+        return jiff::Timestamp::from_millisecond(millis).ok();
+    }
+    entry
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(|timestamp| timestamp.parse().ok())
+}
+
+/// The text of the first user message, when `entry` is one.
+fn user_prompt(entry: &Value) -> Option<String> {
+    if entry.get("type").and_then(Value::as_str) != Some("message") {
+        return None;
+    }
+    let message = entry.get("message")?;
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return None;
+    }
+    let content = message.get("content")?;
+
+    if let Some(text) = content.as_str() {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
         }
     }
-
-    newest_first(&mut list);
-    Ok(list)
-}
-
-/// One session that pi wrote, as its own lines report it.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSummary {
-    /// The place of the file, as the host sees it.
-    pub path: String,
-
-    /// The id of the session from pi, from the header of the file.
-    pub id: String,
-
-    /// The start of the session. Empty for files that are older than this field
-    /// of pi.
-    pub cwd: String,
-
-    /// The display name that the user gave last, if present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-
-    /// The session of the fork, if this session is a fork.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_session_path: Option<String>,
-
-    /// The start time of the session by pi (the timestamp in the header,
-    /// RFC3339).
-    pub created: String,
-
-    /// The time of the last growth of the file, RFC3339.
-    pub modified: String,
-
-    /// The first words of the user, if the file goes that far.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub first_message: Option<String>,
-}
-
-impl SessionSummary {
-    #[cfg(test)]
-    fn of(lines: tests::TestLines) -> Option<SessionSummary> {
-        let header: SessionFileHeader = serde_json::from_str(lines.header.as_deref()?).ok()?;
-        if header.kind != "session" {
-            return None;
+    for item in content.as_array()? {
+        if let Some(text) = item.get("text").and_then(Value::as_str) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_owned());
+            }
         }
-        let modified = lines
-            .modified
-            .and_then(rfc3339)
-            .unwrap_or_else(|| header.timestamp.clone());
-        Some(SessionSummary {
-            path: lines.path,
-            id: header.id,
-            cwd: header.cwd,
-            name: lines.name,
-            parent_session_path: header.parent_session,
-            modified,
-            created: header.timestamp,
-            first_message: lines.first,
-        })
     }
-}
-
-/// The first line of a session file: the `SessionHeader` of pi (pinned
-/// `core/session-manager.ts`).
-///
-/// The header is the only place of the working directory. Pi also encodes a cwd
-/// into the name of the directory, but with loss: the encoding replaces `/` and
-/// `:` in the same way. Therefore `/home/pie` and `/home-pie` are the same name.
-/// For this reason, nothing here decodes a directory name back into a cwd.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionFileHeader {
-    /// The kind of the entry. Pi decides that a file is a session if this value
-    /// is `session`. This reader does the same. Without the check, anything with
-    /// an id and a timestamp would be a header.
-    #[serde(rename = "type")]
-    kind: String,
-
-    /// The session id from pi.
-    id: String,
-
-    /// The start time of the session by pi, ISO.
-    timestamp: String,
-
-    /// The start of the session. The value is absent in files that are older
-    /// than this field.
-    #[serde(default)]
-    cwd: String,
-
-    /// The session of the fork, if this session is a fork.
-    #[serde(default)]
-    parent_session: Option<String>,
-}
-
-/// A session name as pi stores it: without space at the ends, and empty for no
-/// name. The scan of pi takes the latest `session_info` entry, whatever it says,
-/// including an empty entry: a rename to nothing clears a name.
-fn cleaned_name(name: Option<&str>) -> Option<String> {
-    let name = name?.trim();
-    (!name.is_empty()).then(|| name.to_string())
-}
-
-/// What one line says about the display name.
-///
-/// `Some(None)` is a clear. Pi removes a name with a rename to nothing. A scan
-/// stops there and does not read an older name.
-pub(crate) fn name_in(line: &[u8]) -> Option<Option<String>> {
-    let entry: Entry = serde_json::from_slice(line).ok()?;
-    let Entry::SessionInfo(info) = entry else {
-        return None;
-    };
-    Some(cleaned_name(info.name.as_deref()))
-}
-
-/// What one line reports as the words of the user, in the shape that the scan of
-/// pi uses: a user message with text in it (pinned `extractTextContent`).
-pub(crate) fn first_text(line: &[u8]) -> Option<String> {
-    let entry: Entry = serde_json::from_slice(line).ok()?;
-    let Entry::Message(message) = entry else {
-        return None;
-    };
-    let Message::User(user) = message.message else {
-        return None;
-    };
-    let text = text_of(&user.content);
-    (!text.trim().is_empty()).then_some(text)
-}
-
-/// The text of the content of a message: a plain string as it is, or the text
-/// blocks joined with one space, as pi reads them.
-fn text_of(content: &UserContent) -> String {
-    match content {
-        UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                UserBlock::Text(text) => Some(text.text.as_str()),
-                UserBlock::Image(_) | UserBlock::Other(_) => None,
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    }
-}
-
-/// Formats the time of a file as the ISO strings of pi (`toISOString()`, always
-/// three fractional digits). Therefore timestamps compare and sort in one order.
-fn rfc3339(when: SystemTime) -> Option<String> {
-    let since_epoch = when.duration_since(std::time::UNIX_EPOCH).ok()?;
-    let millis = since_epoch.as_millis() as i64;
-    rfc3339_of_millis(millis)
-}
-
-fn rfc3339_of_millis(millis: i64) -> Option<String> {
-    let when = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()?;
-    Some(format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        when.year(),
-        u8::from(when.month()),
-        when.day(),
-        when.hour(),
-        when.minute(),
-        when.second(),
-        when.millisecond()
-    ))
-}
-
-/// The newest conversation first, the order of the session list.
-fn newest_first(summaries: &mut [SessionSummary]) {
-    summaries.sort_by(|a, b| b.modified.cmp(&a.modified));
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::io::SeekFrom;
+
+    use tempfile::TempDir;
+    use tokio::fs::File;
 
     use super::*;
 
-    const HEADER: &str =
-        r#"{"type":"session","version":3,"id":"s1","timestamp":"2026-10-02T13:45:12.345Z","cwd":"/home/pie"}"#;
-
-    #[derive(Debug, Default)]
-    pub(super) struct TestLines {
-        pub path: String,
-        pub modified: Option<SystemTime>,
-        pub header: Option<String>,
-        pub first: Option<String>,
-        pub name: Option<String>,
+    async fn file_of_bytes(content: &[u8]) -> (TempDir, File, u64) {
+        let dir = TempDir::new().expect("a temporary directory");
+        let path = dir.path().join("session.jsonl");
+        std::fs::write(&path, content).expect("a writable file");
+        let mut file = File::open(&path).await.expect("a readable file");
+        let len = file
+            .seek(SeekFrom::End(0))
+            .await
+            .expect("a measurable file");
+        file.seek(SeekFrom::Start(0))
+            .await
+            .expect("a readable file");
+        (dir, file, len)
     }
 
-    fn user_line(id: &str, timestamp: &str, millis: i64, text: &str) -> String {
-        format!(
-            r#"{{"type":"message","id":"{id}","parentId":null,"timestamp":"{timestamp}","message":{{"role":"user","content":"{text}","timestamp":{millis}}}}}"#
-        )
+    async fn file_of_lines(lines: &[&str]) -> (TempDir, File, u64) {
+        file_of_bytes(format!("{}\n", lines.join("\n")).as_bytes()).await
     }
 
-    #[test]
-    fn a_summary_reads_its_header_and_first_message() {
-        let modified = std::time::UNIX_EPOCH + Duration::from_millis(1_790_948_720_000);
-        let lines = TestLines {
-            path: "/x/s.jsonl".to_string(),
-            modified: Some(modified),
-            header: Some(HEADER.to_string()),
-            first: Some("hello there".to_string()),
-            name: Some("Renamed".to_string()),
-        };
+    #[tokio::test]
+    async fn the_header_names_the_session() {
+        let (_dir, mut file, _len) = file_of_lines(&[
+            r#"{"type":"session","version":3,"id":"0193","timestamp":"2025-09-01T10:00:00.000Z","cwd":"/work","parentSession":"/h/.pi/agent/sessions/--work--/2025-08-01T10-00-00-000Z_0192.jsonl"}"#,
+            r#"{"type":"message","id":"a","parentId":null,"timestamp":"2025-09-01T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"fix the bug"}]}}"#,
+        ])
+        .await;
 
-        let summary = SessionSummary::of(lines).expect("a session file");
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
 
-        assert_eq!(summary.id, "s1");
-        assert_eq!(summary.cwd, "/home/pie");
-        assert_eq!(summary.name.as_deref(), Some("Renamed"));
-        assert_eq!(summary.created, "2026-10-02T13:45:12.345Z");
-        assert_eq!(summary.modified, "2026-10-02T13:45:20.000Z");
-        assert_eq!(summary.first_message.as_deref(), Some("hello there"));
-    }
-
-    #[test]
-    fn the_file_time_is_what_modified_falls_back_to() {
-        let lines = TestLines {
-            path: "/x/s.jsonl".to_string(),
-            header: Some(HEADER.to_string()),
-            ..TestLines::default()
-        };
-
-        let summary = SessionSummary::of(lines).expect("a session file");
-
+        assert_eq!(head.id.as_str(), "0193");
+        assert_eq!(head.cwd.as_ref().map(|cwd| cwd.as_str()), Some("/work"));
         assert_eq!(
-            summary.modified, summary.created,
-            "no file time leaves the header's own"
+            head.parent_path.as_ref().map(|path| path.as_str()),
+            Some("/h/.pi/agent/sessions/--work--/2025-08-01T10-00-00-000Z_0192.jsonl")
         );
-    }
-
-    #[test]
-    fn a_file_without_a_session_header_is_not_a_session() {
-        let lines = TestLines {
-            path: "/x/s.jsonl".to_string(),
-            header: Some(user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "hi")),
-            ..TestLines::default()
-        };
-
-        assert!(
-            SessionSummary::of(lines).is_none(),
-            "pi's own scan drops files whose first entry is not a header"
+        assert_eq!(head.first_prompt.as_deref(), Some("fix the bug"));
+        assert_eq!(
+            head.created_at.expect("a header time").to_string(),
+            "2025-09-01T10:00:00Z"
         );
     }
 
     #[tokio::test]
-    async fn read_summary_stream_extracts_header_and_first_turn_and_backward_rename() {
-        let content = format!(
-            "{HEADER}\n{}\n{}\n",
-            user_line("m1", "2026-10-02T13:45:13.000Z", 1790948713000, "hello stream"),
-            r#"{"type":"session_info","id":"s1","parentId":null,"timestamp":"2026-10-02T13:50:00.000Z","name":"Stream Session"}"#
+    async fn a_file_of_another_kind_is_no_session() {
+        let (_dir, mut file, _len) = file_of_lines(&[
+            r#"{"type":"session_info","name":"x"}"#,
+            r#"{"type":"session","id":"0193"}"#,
+        ])
+        .await;
+
+        assert!(
+            scan_head(&mut file, OsFamily::Unix)
+                .await
+                .expect("a readable file")
+                .is_none()
         );
-        let mut cursor = std::io::Cursor::new(content.into_bytes());
-        let summary = read_summary(&mut cursor, "/path/s.jsonl".to_string(), None, None)
+    }
+
+    #[tokio::test]
+    async fn blank_and_broken_lines_do_not_hide_the_header() {
+        let (_dir, mut file, _len) =
+            file_of_lines(&["", "not JSON", r#"{"type":"session","id":"0193"}"#]).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
             .await
-            .expect("read_summary")
-            .expect("summary present");
+            .expect("a readable file")
+            .expect("a session");
 
-        assert_eq!(summary.id, "s1");
-        assert_eq!(summary.cwd, "/home/pie");
-        assert_eq!(summary.name.as_deref(), Some("Stream Session"));
-        assert_eq!(summary.first_message.as_deref(), Some("hello stream"));
+        assert_eq!(head.id.as_str(), "0193");
     }
 
-    #[test]
-    fn text_parts_are_joined_the_way_pi_reads_them() {
-        let line = r#"{"type":"message","id":"m1","parentId":null,"timestamp":"2026-10-02T13:45:13.000Z","message":{"role":"user","content":[{"type":"text","text":"one"},{"type":"image","data":"AAAA","mimeType":"image/png"},{"type":"text","text":"two"}],"timestamp":1790948713000}}"#;
+    #[tokio::test]
+    async fn an_empty_cwd_names_no_place() {
+        let (_dir, mut file, _len) =
+            file_of_lines(&[r#"{"type":"session","id":"0193","cwd":""}"#]).await;
 
-        assert_eq!(first_text(line.as_bytes()).as_deref(), Some("one two"));
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+
+        assert_eq!(head.cwd, None);
     }
 
-    #[test]
-    fn the_modified_time_formats_the_way_pi_stores_it() {
+    #[tokio::test]
+    async fn the_first_prompt_is_the_first_user_message() {
+        let (_dir, mut file, _len) = file_of_lines(&[
+            r#"{"type":"session","id":"0193"}"#,
+            r#"{"type":"message","message":{"role":"assistant","content":"hello"}}"#,
+            r#"{"type":"message","message":{"role":"user","content":"fix the bug"}}"#,
+        ])
+        .await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+
+        assert_eq!(head.first_prompt.as_deref(), Some("fix the bug"));
+    }
+
+    #[tokio::test]
+    async fn the_latest_name_wins() {
+        let (_dir, mut file, len) = file_of_lines(&[
+            r#"{"type":"session","id":"0193"}"#,
+            r#"{"type":"session_info","name":"old"}"#,
+            r#"{"type":"session_info","name":"new"}"#,
+        ])
+        .await;
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+
+        assert_eq!(tail.name, TailName::Named("new".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn an_empty_name_clears_the_title() {
+        let (_dir, mut file, len) = file_of_lines(&[
+            r#"{"type":"session","id":"0193"}"#,
+            r#"{"type":"session_info","name":"old"}"#,
+            r#"{"type":"session_info","name":""}"#,
+        ])
+        .await;
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+
+        assert_eq!(tail.name, TailName::Cleared);
+    }
+
+    #[tokio::test]
+    async fn no_name_entry_leaves_the_name_unknown() {
+        let (_dir, mut file, len) = file_of_lines(&[
+            r#"{"type":"session","id":"0193"}"#,
+            r#"{"type":"message","message":{"role":"user","content":"hello"}}"#,
+        ])
+        .await;
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+
+        assert_eq!(tail.name, TailName::Unknown);
+    }
+
+    #[tokio::test]
+    async fn the_last_message_dates_the_conversation() {
+        let (_dir, mut file, len) = file_of_lines(&[
+            r#"{"type":"session","id":"0193","timestamp":"2025-09-01T10:00:00.000Z"}"#,
+            r#"{"type":"message","timestamp":"2025-09-02T10:00:00.000Z","message":{"role":"assistant","content":"done"}}"#,
+            r#"{"type":"session_info","name":"renamed"}"#,
+        ])
+        .await;
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+
+        assert_eq!(tail.name, TailName::Named("renamed".to_owned()));
         assert_eq!(
-            rfc3339_of_millis(1790948713000).as_deref(),
-            Some("2026-10-02T13:45:13.000Z")
+            tail.last_activity.expect("a message time").to_string(),
+            "2025-09-02T10:00:00Z"
         );
+    }
+
+    #[tokio::test]
+    async fn a_message_time_in_milliseconds_dates_the_conversation() {
+        let activity =
+            jiff::Timestamp::from_millisecond(1_757_000_000_000).expect("a message time");
+        let (_dir, mut file, len) = file_of_lines(&[
+            r#"{"type":"session","id":"0193"}"#,
+            r#"{"type":"message","message":{"role":"user","content":"hi","timestamp":1757000000000}}"#,
+        ])
+        .await;
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+
+        assert_eq!(tail.last_activity, Some(activity));
+    }
+
+    #[tokio::test]
+    async fn a_character_across_a_chunk_boundary_keeps_its_line() {
+        let line = r#"{"type":"session_info","name":"日本語の名前"}"#;
+        let split = line.find('日').expect("a wide character");
+        let chunk = u64::try_from(line.len() - (split + 1)).expect("a chunk size");
+
+        let (_dir, mut file, len) = file_of_lines(&[line]).await;
+
+        // The first chunk starts one byte inside the first wide character.
+        let tail = scan_tail_in_chunks(&mut file, len, chunk)
+            .await
+            .expect("a readable file");
+
+        assert_eq!(tail.name, TailName::Named("日本語の名前".to_owned()));
+    }
+
+    #[test]
+    fn a_chosen_name_is_the_title_and_a_prompt_is_only_a_fallback() {
+        assert_eq!(
+            title_of(TailName::Named("chosen".to_owned()), Some("first")),
+            SessionTitle::Named {
+                name: "chosen".to_owned()
+            }
+        );
+        assert_eq!(
+            title_of(TailName::Unknown, Some("first")),
+            SessionTitle::FromFirstPrompt
+        );
+        assert_eq!(
+            title_of(TailName::Cleared, Some("first")),
+            SessionTitle::FromFirstPrompt
+        );
+        assert_eq!(title_of(TailName::Cleared, None), SessionTitle::Untitled);
+        assert_eq!(title_of(TailName::Unknown, None), SessionTitle::Untitled);
+    }
+
+    #[test]
+    fn a_title_says_on_the_wire_who_named_it() {
+        let chosen = serde_json::to_value(SessionTitle::Named {
+            name: "one".to_owned(),
+        })
+        .expect("a title serializes");
+        assert_eq!(
+            chosen,
+            serde_json::json!({ "type": "named", "name": "one" })
+        );
+
+        let derived =
+            serde_json::to_value(SessionTitle::FromFirstPrompt).expect("a title serializes");
+        assert_eq!(derived, serde_json::json!({ "type": "from_first_prompt" }));
+    }
+
+    #[test]
+    fn a_parent_path_keeps_the_shape_of_its_machine() {
+        for (family, parent) in [
+            (
+                OsFamily::Unix,
+                "/home/my_user/.pi/agent/sessions/--home-my_user--/2025-09-01T10-00-00-000Z_0193.jsonl",
+            ),
+            (
+                OsFamily::Windows,
+                r"C:\Users\my_user\.pi\agent\sessions\--C--Users-my_user--\2025-09-01T10-00-00-000Z_0193.jsonl",
+            ),
+        ] {
+            let entry =
+                serde_json::json!({ "type": "session", "id": "0193", "parentSession": parent });
+
+            let head = session_header(&entry, family).expect("a session");
+
+            assert_eq!(
+                head.parent_path.as_ref().map(|path| path.as_str()),
+                Some(parent)
+            );
+        }
     }
 }

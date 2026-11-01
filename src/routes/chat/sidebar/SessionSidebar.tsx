@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { HostId } from "@/lib/bridge";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Plus, RotateCw, Settings } from "lucide-react";
 import { AnimatePresence, motion, useAnimationFrame } from "motion/react";
@@ -49,7 +50,7 @@ export interface AttachedConversation {
 /** What a stage tells the sidebar about the sessions of the host. */
 export interface SessionList {
     /** The host whose sessions these are (`local`, or `user@host:port`). */
-    endpoint: string;
+    host: HostId;
     /**
      * The conversations that running sessions hold, by the path of pi's session file. A row
      * lights when one of them holds it, and the light says whether that session works now.
@@ -122,11 +123,11 @@ function SessionListPanel({
     breathing,
     ...list
 }: SessionList & { id: string; className?: string; breathing: boolean }) {
-    const { endpoint, attached, onPick, onNew } = list;
+    const { host, attached, onPick, onNew } = list;
     const { stage } = useMotion();
     const client = useQueryClient();
-    const sessions = useQuery(sessionsQueries.list(endpoint));
-    const home = useQuery(directoryQueries.home(endpoint));
+    const sessions = useQuery(sessionsQueries.list(host));
+    const home = useQuery(directoryQueries.home(host));
     const homePath = home.data ?? "";
 
     const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
@@ -148,7 +149,7 @@ function SessionListPanel({
         asking.current = true;
         setAsked(true);
         try {
-            await client.invalidateQueries({ queryKey: ["sessions", endpoint] });
+            await client.invalidateQueries({ queryKey: ["sessions", host] });
         } finally {
             asking.current = false;
             setAsked(false);
@@ -297,7 +298,7 @@ function SessionListPanel({
                                                                         now={now}
                                                                         held={attached.get(session.path) ?? null}
                                                                         breathing={breathing}
-                                                                        endpoint={endpoint}
+                                                                        host={host}
                                                                         onPick={onPick}
                                                                     />
                                                                 ))
@@ -554,24 +555,24 @@ function SessionRow({
     now,
     held,
     breathing,
-    endpoint,
+    host,
     onPick,
 }: {
     id: string;
-    session: bridge.SessionSummary;
+    session: bridge.SessionInfo;
     now: number;
     /** The session that holds this conversation, or `null` when no process holds it. */
     held: AttachedConversation | null;
     /** Whether the list this row belongs to is on screen, and its light is driven. */
     breathing: boolean;
-    endpoint: string;
+    host: string;
     onPick: (path: string) => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const longPress = useLongPress(() => setMenuOpen(true));
     const title = sessionTitle(session);
-    const when = relativeTime(session.modified, now);
-    const ago = relativeTimeAgo(session.modified, now);
+    const when = relativeTime(session.modifiedAt, now);
+    const ago = relativeTimeAgo(session.modifiedAt, now);
     const mark = held === null ? null : held.working ? "working" : "attached";
     const payload = useMemo(() => (title !== null ? { title, ago } : undefined), [title, ago]);
 
@@ -654,11 +655,11 @@ function SessionRow({
                 >
                     <SessionMenu
                         id={`${id}-menu-${pathKey(session.path)}`}
-                        session={held?.session ?? null}
+                        conversation={held === null ? null : { host, session: held.session }}
                         file={session.path}
-                        initialName={session.name ?? null}
+                        initialName={session.title.type === "named" ? session.title.name : null}
                         working={held?.working ?? false}
-                        endpoint={endpoint}
+                        host={host}
                         open={menuOpen}
                         onOpenChange={setMenuOpen}
                         triggerClassName="hover:bg-accent/50 dark:hover:bg-accent/50 text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"

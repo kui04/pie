@@ -1,3 +1,4 @@
+import { conversation } from "@/preview/fixtures";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -71,7 +72,15 @@ function renderPicker(props: Partial<ModelPickerProps> = {}) {
     const client = new QueryClient(queryDefaults);
     function Harness() {
         const [open, setOpen] = useState(false);
-        return <ModelPicker session="main:1" current={null} open={open} onOpenChange={setOpen} {...props} />;
+        return (
+            <ModelPicker
+                conversation={conversation({ session: "main:1" })}
+                current={null}
+                open={open}
+                onOpenChange={setOpen}
+                {...props}
+            />
+        );
     }
     const view = render(
         <QueryClientProvider client={client}>
@@ -86,9 +95,10 @@ beforeEach(() => {
     asked.scrolls.length = 0;
     asked.bufferSize = 0;
     asked.itemSize = 0;
-    bridge.getAvailableModels.mockResolvedValue({
-        models: [model(), model({ id: "deepseek-flash", name: "DeepSeek Flash", provider: "deepseek" })],
-    });
+    bridge.getAvailableModels.mockResolvedValue([
+        model(),
+        model({ id: "deepseek-flash", name: "DeepSeek Flash", provider: "deepseek" }),
+    ]);
     bridge.setModel.mockResolvedValue({});
     bridge.providerLogo.mockResolvedValue(null);
 });
@@ -116,7 +126,7 @@ describe("the model of the session", () => {
 
     it("puts aria-selected on the row the light is on, not on the model in use", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(6, "opencode", "Model") });
+        bridge.getAvailableModels.mockResolvedValue(catalogue(6, "opencode", "Model"));
 
         renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -136,13 +146,15 @@ describe("the model of the session", () => {
         const { client } = renderPicker({ current: model() });
         // The state of the session is what reports the new model; a change marks it
         // stale so that the next render reads it.
-        client.setQueryData(["session", "main:1", "state"], { sessionId: "0193" });
+        client.setQueryData(["session", "main", "main:1", "state"], { sessionId: "0193" });
 
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
         await user.click(await screen.findByRole("option", { name: /DeepSeek Flash/ }));
 
-        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "deepseek", "deepseek-flash"));
-        expect(client.getQueryState(["session", "main:1", "state"])?.isInvalidated).toBe(true);
+        await waitFor(() =>
+            expect(bridge.setModel).toHaveBeenCalledWith("main", "main:1", "deepseek", "deepseek-flash"),
+        );
+        expect(client.getQueryState(["session", "main", "main:1", "state"])?.isInvalidated).toBe(true);
     });
 
     it("draws the mark of a provider, and the key when it has none", async () => {
@@ -169,12 +181,10 @@ describe("the model of the session", () => {
 
     it("asks Rust once for the mark of a provider", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({
-            models: [
-                model({ id: "flash", name: "Flash", provider: "deepseek" }),
-                model({ id: "chat", name: "Chat", provider: "deepseek" }),
-            ],
-        });
+        bridge.getAvailableModels.mockResolvedValue([
+            model({ id: "flash", name: "Flash", provider: "deepseek" }),
+            model({ id: "chat", name: "Chat", provider: "deepseek" }),
+        ]);
         bridge.providerLogo.mockResolvedValue("data:image/svg+xml;base64,PHN2Zy8+");
 
         renderPicker({ current: model({ id: "flash", name: "Flash", provider: "deepseek" }) });
@@ -217,9 +227,10 @@ describe("the model of the session", () => {
 
     it("draws every model of a catalog of hundreds, led by the model in use", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({
-            models: [...catalogue(300, "anthropic", "Claude"), ...catalogue(300, "deepseek", "DeepSeek")],
-        });
+        bridge.getAvailableModels.mockResolvedValue([
+            ...catalogue(300, "anthropic", "Claude"),
+            ...catalogue(300, "deepseek", "DeepSeek"),
+        ]);
 
         renderPicker({ current: model({ id: "model-150", name: "DeepSeek 150", provider: "deepseek" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -236,11 +247,12 @@ describe("the model of the session", () => {
         expect(options[599]).toHaveTextContent("DeepSeek 299");
         // The row in use is in the list once, where it leads it.
         expect(screen.getAllByRole("option", { name: /DeepSeek 150/ })).toHaveLength(1);
-    });
+        // 600 rows: a slow test on a loaded machine, not a wrong one.
+    }, 20_000);
 
     it("finds a model by any way it is named", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
+        bridge.getAvailableModels.mockResolvedValue(catalogue(600, "opencode", "Model"));
 
         renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -261,21 +273,20 @@ describe("the model of the session", () => {
 
         // And Enter takes the row the keyboard is on, which is the first match.
         await user.keyboard("{Enter}");
-        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "opencode", "model-555"));
-    });
+        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main", "main:1", "opencode", "model-555"));
+        // 600 rows, as above: slow on a loaded machine, not wrong.
+    }, 20_000);
 
     it("ranks a provider's own model over a proxy that spells the same model out", async () => {
         const user = userEvent.setup();
         // One host that reaches the same model twice: its own provider, and a proxy whose id
         // spells the provider's name out. This is the pair pi's search text is built for.
-        bridge.getAvailableModels.mockResolvedValue({
-            models: [
-                model({ provider: "openrouter", id: "openai/gpt-5", name: "GPT-5 (proxy)" }),
-                model({ provider: "openai", id: "gpt-5", name: "GPT-5" }),
-                model({ provider: "openai", id: "gpt-5-codex", name: "GPT-5 Codex" }),
-                model({ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }),
-            ],
-        });
+        bridge.getAvailableModels.mockResolvedValue([
+            model({ provider: "openrouter", id: "openai/gpt-5", name: "GPT-5 (proxy)" }),
+            model({ provider: "openai", id: "gpt-5", name: "GPT-5" }),
+            model({ provider: "openai", id: "gpt-5-codex", name: "GPT-5 Codex" }),
+            model({ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }),
+        ]);
         const names = () => screen.queryAllByRole("option").map((row) => row.textContent);
 
         renderPicker({ current: model({ provider: "openai", id: "gpt-5", name: "GPT-5" }) });
@@ -306,7 +317,7 @@ describe("the model of the session", () => {
 
     it("lights the row under the pointer, and gives the light back when the pointer leaves", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(20, "opencode", "Model") });
+        bridge.getAvailableModels.mockResolvedValue(catalogue(20, "opencode", "Model"));
 
         renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -330,7 +341,7 @@ describe("the model of the session", () => {
 
     it("reads every row in the same ink, and marks the model in use with its check alone", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(4, "opencode", "Model") });
+        bridge.getAvailableModels.mockResolvedValue(catalogue(4, "opencode", "Model"));
 
         renderPicker({ current: model({ id: "model-2", name: "Model 2", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -345,7 +356,7 @@ describe("the model of the session", () => {
 
     it("draws the rows past the popup ahead of a scroll, and keeps the cursor in view", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
+        bridge.getAvailableModels.mockResolvedValue(catalogue(600, "opencode", "Model"));
 
         renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -366,7 +377,7 @@ describe("the model of the session", () => {
 
     it("moves the cursor over the whole list with the arrows", async () => {
         const user = userEvent.setup();
-        bridge.getAvailableModels.mockResolvedValue({ models: catalogue(600, "opencode", "Model") });
+        bridge.getAvailableModels.mockResolvedValue(catalogue(600, "opencode", "Model"));
 
         renderPicker({ current: model({ id: "model-0", name: "Model 0", provider: "opencode" }) });
         await user.click(screen.getByRole("button", { name: "Choose the model" }));
@@ -382,6 +393,6 @@ describe("the model of the session", () => {
         expect(cursor).toHaveAttribute("aria-activedescendant", options[1]?.id);
         await user.keyboard("{Enter}");
 
-        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main:1", "opencode", "model-1"));
+        await waitFor(() => expect(bridge.setModel).toHaveBeenCalledWith("main", "main:1", "opencode", "model-1"));
     });
 });

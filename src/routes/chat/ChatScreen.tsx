@@ -9,7 +9,7 @@ import { useMotion, useSession, useWindowSize } from "@/hooks";
 
 import { chatMachine, errorOf, pathOf, sessionOf, stageOf, type ChatDeps } from "@/machines/chat.machine";
 import * as bridge from "@/lib/bridge";
-import { phases, sessionOf as chartOf, subscribeSessions } from "@/lib/session";
+import { idOf, phases, sessionOf as chartOf, subscribeSessions } from "@/lib/session";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SessionLanding } from "@/routes/chat/SessionLanding";
@@ -28,6 +28,8 @@ const COLUMN = "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 export function ChatScreen() {
     const connection = useQuery(connectionQueries.current());
     const client = useQueryClient();
+    // The product holds one machine at a time, so every call names the one connection.
+    const host = bridge.CONNECTION_ID;
     const { windowWidth } = useWindowSize();
     const wide = windowWidth >= 1024;
     const { stage: pageOf } = useMotion();
@@ -35,21 +37,21 @@ export function ChatScreen() {
     const deps = useMemo<ChatDeps>(
         () => ({
             attach: async (path) => {
-                const info = await bridge.attachSession(path);
+                const info = await bridge.attachSession(host, path);
                 await client.invalidateQueries({ queryKey: ["connection"] });
                 return info;
             },
             start: async (cwd) => {
-                const info = await bridge.startSession(cwd);
+                const info = await bridge.startNewSession(host, cwd);
                 await client.invalidateQueries({ queryKey: ["connection"] });
                 return info;
             },
             detach: async (session) => {
-                await bridge.detachSession(session);
+                await bridge.detachSession(host, session);
                 await client.invalidateQueries({ queryKey: ["connection"] });
             },
         }),
-        [client],
+        [client, host],
     );
     const [chat, , machine] = useMachine(chatMachine, { input: deps });
     const stage = stageOf(chat);
@@ -61,10 +63,10 @@ export function ChatScreen() {
     // value across a render: the readers below keep it in their dependencies, and a fresh array
     // every render would run their effects again.
     const sessions = useMemo(() => connection.data?.sessions ?? [], [connection.data]);
-    const endpoint = connection.data?.endpoint ?? "local";
+
     const phaseOfEach = useSyncExternalStore(subscribeSessions, phases, phases);
     const sessionStateReads = useQueries({
-        queries: sessions.map((item) => sessionQueries.state(item.id)),
+        queries: sessions.map((item) => sessionQueries.state({ host, session: item.path })),
     });
     const attached = useMemo(() => {
         const result = new Map<string, AttachedConversation>();
@@ -72,21 +74,24 @@ export function ChatScreen() {
             const item = sessions[index];
             const file = read.data?.sessionFile ?? null;
             if (item === undefined || file === null) return;
-            result.set(file, { session: item.id, working: phaseOfEach.get(item.id) !== "idle" });
+            result.set(file, {
+                session: item.path,
+                working: phaseOfEach.get(idOf({ host, session: item.path })) !== "idle",
+            });
         });
         return result;
-    }, [sessionStateReads, sessions, phaseOfEach]);
+    }, [host, sessionStateReads, sessions, phaseOfEach]);
     // The chart of the session in view, for the bar's own slots: the registry holds it, and a
     // screen only selects it.
     const chart = useSyncExternalStore(
         subscribeSessions,
-        () => (session === null ? null : chartOf(session)),
+        () => (session === null ? null : chartOf({ host, session })),
         () => null,
     );
-    const cwd = sessions.find((running) => running.id === session)?.cwd ?? null;
+    const cwd = sessions.find((running) => running.path === session)?.cwd ?? null;
     // One read of the session in view, so the content can choose the loading page before
     // any part of the conversation mounts. The chart may arrive a frame after the attach.
-    const view = useSession(session ?? "", chart);
+    const view = useSession({ host, session: session ?? "" }, chart);
     const sessionFailure =
         stage === "viewing" ? (view.error ?? view.entries.error ?? view.state.error ?? view.stats.error) : null;
     const sessionLoaded =
@@ -120,7 +125,8 @@ export function ChatScreen() {
     useEffect(() => {
         if (stage !== "viewing" || session === null) return;
         if (connection.isFetching || connection.data == null) return;
-        if (sessions.some((running) => running.id === session)) return;
+        // A conversation is named by its file; `id` is pi's name for it, not this side's.
+        if (sessions.some((running) => running.path === session)) return;
         bridge.log.info("the connection no longer holds the session in view", { session });
         machine.send({ type: "GONE" });
     }, [stage, connection.data, connection.isFetching, session, sessions, machine]);
@@ -177,7 +183,7 @@ export function ChatScreen() {
     } else if (stage === "viewing" && sessionFailure !== null) {
         content = failurePage(bridge.asPieError(sessionFailure).message, retrySession);
     } else if (stage === "viewing" && sessionLoaded && session !== null && chart !== null) {
-        content = <SessionMain session={session} machine={chart} view={view} />;
+        content = <SessionMain conversation={{ host, session }} machine={chart} view={view} />;
     } else if (stage === "viewing") {
         content = <SessionLoading />;
     } else {
@@ -189,7 +195,7 @@ export function ChatScreen() {
             sidebar={
                 <SessionSidebar
                     id="session"
-                    endpoint={endpoint}
+                    host={host}
                     attached={attached}
                     onPick={open}
                     onNew={openPicker}
@@ -206,19 +212,19 @@ export function ChatScreen() {
                     <>
                         <SidebarToggle expanded={expanded} onToggleSessions={toggleSessions} />
                         {sessionLoaded && chart !== null && session !== null && (
-                            <SessionSlots session={session} machine={chart} endpoint={endpoint} cwd={cwd} />
+                            <SessionSlots conversation={{ host, session }} machine={chart} cwd={cwd} />
                         )}
                     </>
                 }
                 end={
                     sessionLoaded && chart !== null && session !== null ? (
                         <>
-                            <SessionUsage session={session} machine={chart} />
-                            <SessionExtensions session={session} />
+                            <SessionUsage conversation={{ host, session }} machine={chart} key={session} />
+                            <SessionExtensions conversation={{ host, session }} />
                             <SessionMenu
-                                session={session}
+                                conversation={{ host, session }}
                                 machine={chart}
-                                endpoint={endpoint}
+                                host={host}
                                 open={menu}
                                 onOpenChange={setMenu}
                                 onClose={() => machine.send({ type: "CLOSE" })}
@@ -236,7 +242,7 @@ export function ChatScreen() {
                 </motion.div>
             </AnimatePresence>
             <DirectoryPicker
-                endpoint={endpoint}
+                host={host}
                 open={picking}
                 onOpenChange={setPicking}
                 onPick={(cwd) => {
@@ -252,7 +258,7 @@ export function ChatScreen() {
         if (session === null) return;
         view.reopen();
         void client.invalidateQueries({ queryKey: ["connection"] });
-        void client.invalidateQueries({ queryKey: sessionKeys.whole(session) });
+        void client.invalidateQueries({ queryKey: sessionKeys.whole({ host, session }) });
     }
 
     function failurePage(message: string, retry: () => void) {

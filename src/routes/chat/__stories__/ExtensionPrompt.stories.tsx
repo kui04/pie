@@ -1,34 +1,30 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { ExtensionUIRequest } from "@/lib/rpc-protocol";
+import type { UiRequest } from "@/lib/bridge";
 import { ExtensionPrompt } from "@/routes/chat/transcript/ExtensionPrompt";
 
-const select: ExtensionUIRequest = {
-    type: "extension_ui_request",
+const select: UiRequest = {
     id: "story-select",
     method: "select",
     title: "Allow this command?",
     options: ["Allow once", "Allow always", "Block"],
 };
 
-const confirm: ExtensionUIRequest = {
-    type: "extension_ui_request",
+const confirm: UiRequest = {
     id: "story-confirm",
     method: "confirm",
     title: "Clear the session?",
     message: "All messages leave the context. The conversation file stays on the host.",
 };
 
-const input: ExtensionUIRequest = {
-    type: "extension_ui_request",
+const input: UiRequest = {
     id: "story-input",
     method: "input",
     title: "Name this branch",
     placeholder: "feature/transcript-fold",
 };
 
-const editor: ExtensionUIRequest = {
-    type: "extension_ui_request",
+const editor: UiRequest = {
     id: "story-editor",
     method: "editor",
     title: "Review the message",
@@ -61,7 +57,7 @@ const meta = {
     title: "Chat/Extension prompt",
     component: ExtensionPrompt,
     parameters: { layout: "fullscreen" },
-    args: { request: select, onAnswer: () => undefined, isMobile: false },
+    args: { askId: 1, request: select, onAnswer: () => undefined, isMobile: false },
 } satisfies Meta<typeof ExtensionPrompt>;
 
 export default meta;

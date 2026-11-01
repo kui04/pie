@@ -12,11 +12,12 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostKeyPrompt } from "@/routes/connect/HostKeyPrompt";
-import type { PresentedKey } from "@/lib/bridge";
+import type { TrustAsk } from "@/lib/bridge";
 
-const KEY: PresentedKey = {
-    host: "192.168.1.10",
-    port: 22,
+const KEY: TrustAsk = {
+    host: "main",
+    endpoint: "192.168.1.10:22",
+
     algorithm: "ssh-ed25519",
     fingerprint: "SHA256:2a:b4:c1:88:9f:0e",
 };

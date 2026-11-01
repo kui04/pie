@@ -16,17 +16,17 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
-import type { Listing, SessionSummary } from "@/lib/bridge";
+import type { Listing, SessionInfo } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
 import { DirectoryPicker, type DirectoryPickerProps } from "@/routes/chat/picker/DirectoryPicker";
 import { sessionSummary } from "@/preview/fixtures";
 
 const bridge = vi.hoisted(() => ({
-    listDirs: vi.fn<(path: string) => Promise<Listing>>(),
-    homeDir: vi.fn<() => Promise<string | null>>(),
-    listSessions: vi.fn<() => Promise<SessionSummary[]>>(),
+    listDirs: vi.fn<(host: string, path: string) => Promise<Listing>>(),
+    homeDir: vi.fn<(host: string) => Promise<string | null>>(),
+    listSessions: vi.fn<() => Promise<SessionInfo[]>>(),
     dirExists: vi.fn<(path: string) => Promise<boolean>>(),
-    createDir: vi.fn<(path: string) => Promise<void>>(),
+    createDirAll: vi.fn<(host: string, path: string) => Promise<void>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -76,12 +76,12 @@ const HOST: Record<string, Listing> = {
 };
 
 /** The directories pi holds sessions in, newest first as the scan writes them. */
-const SESSIONS: SessionSummary[] = [
-    sessionSummary({ cwd: "/home/kui/Projects/pie", modified: "2026-01-04T00:00:00.000Z" }),
-    sessionSummary({ cwd: "/srv/www", modified: "2026-01-03T00:00:00.000Z" }),
-    sessionSummary({ cwd: "/home/kui/Projects", modified: "2026-01-02T00:00:00.000Z" }),
+const SESSIONS: SessionInfo[] = [
+    sessionSummary({ cwd: "/home/kui/Projects/pie", modifiedAt: "2026-01-04T00:00:00.000Z" }),
+    sessionSummary({ cwd: "/srv/www", modifiedAt: "2026-01-03T00:00:00.000Z" }),
+    sessionSummary({ cwd: "/home/kui/Projects", modifiedAt: "2026-01-02T00:00:00.000Z" }),
     // A fourth is beyond the picker's cap: it must not show.
-    sessionSummary({ cwd: "/opt/tools", modified: "2026-01-01T00:00:00.000Z" }),
+    sessionSummary({ cwd: "/opt/tools", modifiedAt: "2026-01-01T00:00:00.000Z" }),
 ];
 
 function renderPicker(props: Partial<DirectoryPickerProps> = {}) {
@@ -90,7 +90,7 @@ function renderPicker(props: Partial<DirectoryPickerProps> = {}) {
     const onOpenChange = vi.fn();
     render(
         <QueryClientProvider client={client}>
-            <DirectoryPicker endpoint="local" open onOpenChange={onOpenChange} onPick={onPick} {...props} />
+            <DirectoryPicker host="main" open onOpenChange={onOpenChange} onPick={onPick} {...props} />
         </QueryClientProvider>,
     );
     return { onPick, onOpenChange };
@@ -110,13 +110,15 @@ describe("the directory picker", () => {
         bridge.homeDir.mockReset();
         bridge.homeDir.mockResolvedValue("/home/kui");
         bridge.listDirs.mockReset();
-        bridge.listDirs.mockImplementation(async (path: string) => HOST[path] ?? { directory: path, entries: [] });
+        bridge.listDirs.mockImplementation(
+            async (_host: string, path: string) => HOST[path] ?? { directory: path, entries: [] },
+        );
         bridge.listSessions.mockReset();
         bridge.listSessions.mockResolvedValue(SESSIONS);
         bridge.dirExists.mockReset();
         bridge.dirExists.mockResolvedValue(false);
-        bridge.createDir.mockReset();
-        bridge.createDir.mockResolvedValue(undefined);
+        bridge.createDirAll.mockReset();
+        bridge.createDirAll.mockResolvedValue(undefined);
     });
 
     it("opens at the home of the host, with the recent folders first", async () => {
@@ -133,7 +135,7 @@ describe("the directory picker", () => {
             "/home/kui/projects",
         ]);
         // The first read asks for the home directory.
-        expect(bridge.listDirs).toHaveBeenCalledWith("/home/kui");
+        expect(bridge.listDirs).toHaveBeenCalledWith("main", "/home/kui");
         expect(screen.queryByRole("option", { name: "/opt/tools" })).not.toBeInTheDocument();
         // A file is not a folder: the picker does not offer one.
         expect(screen.queryByRole("option", { name: "/home/kui/notes.txt" })).not.toBeInTheDocument();
@@ -162,7 +164,7 @@ describe("the directory picker", () => {
 
         expect(await option("/home/kui/projects/pie")).toBeInTheDocument();
         expect(field()).toHaveValue("/home/kui/projects/");
-        expect(bridge.listDirs).toHaveBeenLastCalledWith("/home/kui/projects");
+        expect(bridge.listDirs).toHaveBeenLastCalledWith("main", "/home/kui/projects");
         expect(document.querySelector('[data-slot="dialog-content"]')).not.toBeNull();
         expect(onPick).not.toHaveBeenCalled();
     });
@@ -256,9 +258,9 @@ describe("the directory picker", () => {
         expect(await screen.findByText("No folders match")).toBeInTheDocument();
         fireEvent.keyDown(field(), { key: "Enter" });
 
-        expect(bridge.dirExists).toHaveBeenLastCalledWith("/srv/empty");
+        expect(bridge.dirExists).toHaveBeenLastCalledWith("main", "/srv/empty");
         await waitFor(() => expect(onPick).toHaveBeenCalledWith("/srv/empty"));
-        expect(bridge.createDir).not.toHaveBeenCalled();
+        expect(bridge.createDirAll).not.toHaveBeenCalled();
     });
 
     it("names what Open would create when nothing matches", async () => {
@@ -277,12 +279,12 @@ describe("the directory picker", () => {
         expect(await screen.findByText("No folders match")).toBeInTheDocument();
         fireEvent.keyDown(field(), { key: "Enter" });
 
-        expect(bridge.dirExists).toHaveBeenLastCalledWith("/srv/empty");
+        expect(bridge.dirExists).toHaveBeenLastCalledWith("main", "/srv/empty");
         expect(await screen.findByText("This folder does not exist.")).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
 
-        expect(bridge.createDir).toHaveBeenLastCalledWith("/srv/empty");
+        expect(bridge.createDirAll).toHaveBeenLastCalledWith("main", "/srv/empty");
         await waitFor(() => expect(onPick).toHaveBeenCalledWith("/srv/empty"));
     });
 
@@ -296,7 +298,7 @@ describe("the directory picker", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
-        expect(bridge.createDir).not.toHaveBeenCalled();
+        expect(bridge.createDirAll).not.toHaveBeenCalled();
         expect(screen.queryByText("This folder does not exist.")).not.toBeInTheDocument();
     });
 
@@ -329,7 +331,7 @@ describe("the directory picker", () => {
         // A listing that answers only when this test says so.
         const held: Array<() => void> = [];
         bridge.listDirs.mockImplementation(
-            (path: string) =>
+            (_host: string, path: string) =>
                 new Promise((resolve) => {
                     held.push(() => resolve(HOST[path] ?? { directory: path, entries: [] }));
                 }),
@@ -349,7 +351,7 @@ describe("the directory picker", () => {
         // A listing that answers only when this test says so.
         const held: Array<() => void> = [];
         bridge.listDirs.mockImplementation(
-            (path: string) =>
+            (_host: string, path: string) =>
                 new Promise((resolve) => {
                     held.push(() => resolve(HOST[path] ?? { directory: path, entries: [] }));
                 }),

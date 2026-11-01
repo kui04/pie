@@ -10,7 +10,7 @@
 import { getShortestPaths } from "@xstate/graph";
 import { createActor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
-import type { PieError, SessionLifecycle } from "@/lib/bridge";
+import type { PieError, SessionEnded } from "@/lib/bridge";
 import type { AgentMessage, Event as SessionRecord, SessionEntry } from "@/lib/rpc-protocol";
 import type { Notice } from "@/lib/session";
 import { liveRows } from "@/lib/transcript";
@@ -110,11 +110,11 @@ describe("the feed of a session", () => {
         expect(isListening(actor.getSnapshot())).toBe(true);
     });
 
-    it("takes a gap in the records as a read, and an end as a stale one", async () => {
-        let life: ((life: SessionLifecycle) => void) | undefined;
+    it("takes the end of the process as a stale read, and keeps the feed", async () => {
+        let ended: ((end: SessionEnded) => void) | undefined;
         const start = deps({
-            listen: async (_onRecord, onLifecycle) => {
-                life = onLifecycle;
+            listen: async (_onRecord, onEnded) => {
+                ended = onEnded;
                 return () => undefined;
             },
         });
@@ -122,15 +122,8 @@ describe("the feed of a session", () => {
         await vi.waitFor(() => expect(isListening(actor.getSnapshot())).toBe(true));
         start.reads.length = 0;
 
-        // The pipe of this session fell behind and records went missing: the reads are the
-        // repair, and the feed itself is untouched - the pipe is alive.
-        life?.({ type: "lagged" });
-        expect(isListening(actor.getSnapshot())).toBe(true);
-        expect(start.reads).toEqual(["whole"]);
-
-        // The pi itself is gone: the reads have to say so. The feed stays where it is, too.
-        start.reads.length = 0;
-        life?.({ type: "ended", termination: { type: "exited", code: 0, success: true } });
+        // The pi itself is gone: the reads have to say so. The feed stays where it is.
+        ended?.({ host: "main", session: "/a.jsonl", status: { type: "exited", code: 0 } });
         expect(isListening(actor.getSnapshot())).toBe(true);
         expect(start.reads).toEqual(["whole"]);
     });
@@ -424,87 +417,6 @@ describe("the run of a session", () => {
         ]);
     });
 
-    it("asks every read again when a gap in the records is reported, and keeps the screen", () => {
-        const start = opened();
-        const { actor, reads } = start;
-        // The reader is looking at a run that streams, at an entry the base read does not
-        // carry, and a message queued behind it.
-        actor.send({ type: "RECORD", at: 0, record: record("message_start", { message: user(1) }) });
-        actor.send({ type: "RECORD", at: 0, record: record("message_start", { message: assistantMessage(2) }) });
-        actor.send({
-            type: "RECORD",
-            at: 0,
-            record: record("entry_appended", { entry: entryOf("late", user(3), "a") }),
-        });
-        actor.send({ type: "RECORD", at: 0, record: record("queue_update", { steering: ["go on"], followUp: [] }) });
-        expect(actor.getSnapshot().context.readAuthoritative).toBe(false);
-        expect(actor.getSnapshot().context.overlay.order).toEqual(["late"]);
-        const rows = liveRows(actor.getSnapshot().context.live);
-        expect(rows.map((row) => row.kind)).toEqual(["user", "assistant"]);
-        reads.length = 0;
-
-        actor.send({ type: "GAP", at: Date.now() });
-
-        // What arrived is still on screen, the entry that the base read does not carry with
-        // it: the base read supersedes it as its answer lands.
-        expect(actor.getSnapshot().matches({ transcript: "ready" })).toBe(true);
-        expect(actor.getSnapshot().context.overlay.order).toEqual(["late"]);
-        expect(liveRows(actor.getSnapshot().context.live)).toEqual(rows);
-        expect(phaseOf(actor.getSnapshot())).toBe("working");
-        // The queue is written by records alone, and the ones this gap swallowed are gone.
-        expect(actor.getSnapshot().context.queued).toEqual({ steering: [], followUp: [] });
-        // A read may set the phase again, and every read is asked for.
-        expect(actor.getSnapshot().context.readAuthoritative).toBe(true);
-        expect(reads).toEqual(["whole"]);
-        // The feed is live: a gap in the records is not the end of a session.
-        expect(isListening(actor.getSnapshot())).toBe(true);
-    });
-
-    it("hands the deltas it held over before it reports a gap", async () => {
-        let hear: ((record: SessionRecord) => void) | undefined;
-        let life: ((life: SessionLifecycle) => void) | undefined;
-        const start = deps({
-            listen: async (onRecord, onLifecycle) => {
-                hear = onRecord;
-                life = onLifecycle;
-                return () => undefined;
-            },
-        });
-        const actor = createActor(sessionMachine, { input: start.deps }).start();
-        await vi.waitFor(() => expect(isListening(actor.getSnapshot())).toBe(true));
-
-        // A delta waits for its frame, and the gap arrives in between: the row may not lose
-        // the text the model had already written, so the held deltas go first.
-        hear?.(record("message_start", { message: assistantMessage(2) }));
-        hear?.(
-            record("message_update", {
-                assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "half" },
-                usage: usage({ totalTokens: 1 }),
-            }),
-        );
-        life?.({ type: "lagged" });
-
-        const [live] = actor.getSnapshot().context.live.messages;
-        expect(live.message).toMatchObject({ content: [{ type: "text", text: "half" }] });
-        expect(actor.getSnapshot().context.readAuthoritative).toBe(true);
-    });
-
-    it("ignores a read that was answered before the gap, and takes the one answered after it", () => {
-        const { actor } = opened();
-        actor.send({ type: "RECORD", at: 0, record: record("message_start", { message: user(1) }) });
-        const before = Date.now();
-        actor.send({ type: "GAP", at: before });
-
-        // This answer was written before the gap: it is about a stretch of the stream this
-        // screen can no longer follow, and the records that would correct it are the ones
-        // that went. The clock of the reset is the clock of the answers.
-        actor.send({ type: "STATE_READ", streaming: false, at: before - 1 });
-        expect(phaseOf(actor.getSnapshot())).toBe("waiting");
-
-        actor.send({ type: "STATE_READ", streaming: false, at: Date.now() + 1_000 });
-        expect(phaseOf(actor.getSnapshot())).toBe("idle");
-    });
-
     it("reaches every state of the feed, the transcript and the run on the graph-enumerated shortest paths", () => {
         const { deps: walkable } = deps();
         const everyEvent: SessionEvent[] = [
@@ -547,36 +459,5 @@ describe("the run of a session", () => {
         const actor = createActor(sessionMachine, { input: refused.deps }).start();
         await vi.waitFor(() => expect(actor.getSnapshot().matches({ feed: "failed" })).toBe(true));
         expect(actor.getSnapshot().context.error?.message).toBe("the bus refused the listener");
-    });
-});
-
-/**
- * A fork or a clone replaces the conversation of the same process: the session keeps its
- * id, and everything this side drew belongs to the conversation that is gone.
- */
-describe("the conversation that was replaced", () => {
-    it("drops what the old conversation drew, and reads again", () => {
-        const { actor, reads } = opened();
-        // Something of the old conversation is on screen: a live row, and an entry that
-        // arrived after the base read.
-        actor.send({ type: "RECORD", at: 20, record: record("message_start", { message: assistantMessage(2) }) });
-        actor.send({ type: "RECORD", at: 21, record: record("entry_appended", { entry: entryOf("b", user(3), "a") }) });
-        expect(actor.getSnapshot().context.live.messages).toHaveLength(1);
-        expect(actor.getSnapshot().context.overlay.order).toEqual(["b"]);
-        reads.length = 0;
-
-        actor.send({ type: "REPLACED" });
-
-        expect(actor.getSnapshot().context.live.messages).toEqual([]);
-        expect(actor.getSnapshot().context.overlay.order).toEqual([]);
-        expect(actor.getSnapshot().matches({ transcript: "empty" })).toBe(true);
-        expect(actor.getSnapshot().matches({ run: "idle" })).toBe(true);
-        expect(reads).toEqual(["whole"]);
-
-        // The base in hand was the conversation that is gone, so the next answer stands
-        // for the new one whenever it was written.
-        actor.send({ type: "SNAPSHOT", data: { entries: [entryOf("c", user(4))], leafId: "c" }, at: 5 });
-        expect(isReady(actor.getSnapshot())).toBe(true);
-        expect(actor.getSnapshot().context.lastSnapshotAt).toBe(5);
     });
 });

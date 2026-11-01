@@ -1,3 +1,4 @@
+import { conversation } from "@/preview/fixtures";
 /**
  * The actions of one conversation: rename, fork, copy, delete, detach.
  *
@@ -73,9 +74,9 @@ function Harness({
     const [open, setOpen] = useState(false);
     return (
         <SessionMenu
-            session={SESSION}
+            conversation={conversation({ session: SESSION })}
             machine={machine}
-            endpoint="local"
+            host="main"
             open={open}
             onOpenChange={setOpen}
             onClose={onClose}
@@ -146,7 +147,7 @@ describe("the session menu", () => {
 
         fireEvent.click(await screen.findByRole("menuitem", { name: "Clone" }));
 
-        await waitFor(() => expect(bridge.cloneSession).toHaveBeenCalledWith(SESSION));
+        await waitFor(() => expect(bridge.cloneSession).toHaveBeenCalledWith("main", SESSION));
         expect(onGone).not.toHaveBeenCalled();
     });
 
@@ -159,7 +160,7 @@ describe("the session menu", () => {
         fireEvent.click(await screen.findByRole("menuitem", { name: "Fork" }));
         fireEvent.click(await screen.findByRole("button", { name: "first words" }));
 
-        await waitFor(() => expect(bridge.forkSession).toHaveBeenCalledWith(SESSION, "e1"));
+        await waitFor(() => expect(bridge.forkSession).toHaveBeenCalledWith("main", SESSION, "e1"));
     });
 
     it("renames the conversation from the name pi holds", async () => {
@@ -174,7 +175,7 @@ describe("the session menu", () => {
         fireEvent.change(field, { target: { value: "Rewrite the parser" } });
         fireEvent.click(screen.getByRole("button", { name: "Rename" }));
 
-        await waitFor(() => expect(bridge.setSessionName).toHaveBeenCalledWith(SESSION, "Rewrite the parser"));
+        await waitFor(() => expect(bridge.setSessionName).toHaveBeenCalledWith("main", SESSION, "Rewrite the parser"));
     });
 
     it("ends the process before the file goes", async () => {
@@ -188,8 +189,8 @@ describe("the session menu", () => {
         fireEvent.click(row);
         fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
 
-        await waitFor(() => expect(bridge.deleteSession).toHaveBeenCalledWith(sessionState().sessionFile));
-        expect(bridge.detachSession).toHaveBeenCalledWith(SESSION);
+        await waitFor(() => expect(bridge.deleteSession).toHaveBeenCalledWith("main", sessionState().sessionFile));
+        expect(bridge.detachSession).toHaveBeenCalledWith("main", SESSION);
         expect(onGone).toHaveBeenCalled();
         expect(onClose).not.toHaveBeenCalled();
     });

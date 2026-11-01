@@ -1,411 +1,435 @@
 /**
- * A session of pi: the conversations of the machine, what one session holds, and
- * what it says while it runs.
+ * One conversation of pi: what it holds, what it is asked to do, and what it says
+ * while it runs.
  *
- * The mirror of `src-tauri/src/commands/session.rs` — one session is asked to
- * read, to speak, and to end — plus the events of `commands/pipe.rs`, which
- * carry what pi says.
+ * The mirror of `src-tauri/src/commands/session.rs`. A conversation is named by its
+ * file on a machine, so every call and every event carries a `HostId` and a path:
+ * two machines can hold the same path.
  *
- * A session is named by the id that `attachSession` answered with — pie's id for
- * the process, which is the id its events arrive under. That is not the id of
- * pi's session file: `sessionId` of the state names the conversation the process
- * holds now. One process holds one conversation at a time; a pick attaches a session
- * on the file it names, and pi's own `forkSession` and `cloneSession` replace the
- * conversation a running process holds.
+ * A call answers what pi replied to that one ask. An event reports what pi did,
+ * whether or not this side asked. So a caller that wants the effect of a model
+ * change reads the events, not the answer of the call.
  *
- * An extension has a channel of its own: the snapshot read replays a dialog that
- * arrived before this listener, and the event only shortens the wait for the
- * next read. A failure of an extension is still a record of the session. A
- * record that Rust cannot describe is not forwarded at all.
- *
- * A listener must exist before the records it wants: the event bus has no replay,
- * and Rust sends an event only to a window that already listens for its name.
- * Therefore a caller subscribes first and reads afterwards (see
- * `hooks/useSession.ts`), which is what makes a missed record a record that the
- * snapshot covers.
- *
- * A command here ends in one of three ways, and none of them needs a report
- * through this layer: pi answers with a disposition, a queue, a result, or
- * nothing, and every lasting change reports itself as an event of the session.
- * A caller that wants the effect of a model change or a compaction watches the
- * events, not the answer of the call.
- *
- * The types are hand-written mirrors of Rust: `SessionSummary` of
- * `session::SessionSummary`, the lifecycle of `commands/pipe.rs`, the payloads of
- * the commands below of the session layer, and the aliases of pi's own published
- * types from `@/lib/rpc-protocol`. Rust is the authority.
+ * The event bus has no replay. A caller attaches its listeners first and reads
+ * afterwards, so a missed record is a record the read covers.
  */
 
 import { listen } from "@tauri-apps/api/event";
 import type {
-    AvailableModelsData,
-    AvailableThinkingLevelsData,
+    AgentMessage,
     BashResult,
     ClearQueueData,
-    CloneResult,
-    CommandsData,
     CompactionResult,
     EntriesData,
     Event,
-    ExtensionUIRequest,
-    ForkData,
     ForkMessage,
     ImageContent,
-    LastAssistantTextData,
     Model,
     ModelThinkingLevel,
     PromptData,
+    SessionEntry,
     SessionState,
     SessionStats,
+    SlashCommand,
     StreamingBehavior,
 } from "@/lib/rpc-protocol";
+import { onAsk, type AskEnvelope } from "./ask";
 import { call, type Unsubscribe } from "./invoke";
-import type { SessionInfo } from "./host";
-// The sessions of the host. These are files, not protocol: pie scans the sessions
-// directory itself, on this machine or over sftp, because pi has no command that
-// lists its sessions.
+import type { HostId } from "./host";
 
-/** One session that pi wrote, as its own lines report it. */
-export interface SessionSummary {
-    /** The place of the file, as the host sees it. */
-    path: string;
-    /** The id of the session from pi, from the header of the file. */
-    id: string;
-    /** Where the session started. Empty for files that are older than this field of pi. */
-    cwd: string;
-    /** The display name that the user gave last, if present. */
-    name?: string | null;
-    /** The session of the fork, if this session is a fork. */
-    parentSessionPath?: string | null;
-    /** The start time of the session by pi, RFC3339. */
-    created: string;
-    /** The time of the last growth of the file, RFC3339. */
-    modified: string;
-    /** The first words of the user, if the file goes that far. */
-    firstMessage?: string | null;
+/** How pi queues a message that arrives while the agent streams, and how it reads one back. */
+export type QueueMode = "all" | "one-at-a-time";
+
+/** One event of pi's stream, with the conversation it belongs to. */
+export interface SessionEvent {
+    host: HostId;
+    /** The conversation file, as it was attached. */
+    session: string;
+    /** pi's own record, forwarded verbatim. */
+    event: Event;
+}
+
+/** How one program ended. */
+export type ExitStatus = { type: "exited"; code: number } | { type: "signalled"; signal: number } | { type: "unknown" };
+
+/** The end of the pi process of one conversation. */
+export interface SessionEnded {
+    host: HostId;
+    session: string;
+    status: ExitStatus;
 }
 
 /**
- * Every session on the connected host, most recently written first.
+ * Where one clone left the conversation.
  *
- * A session that has said nothing yet has no file, and therefore no row: pi
- * writes one at the start of the first turn (its `#10000` rule).
+ * pi copies the branch into a new file and serves it. A cancelled clone leaves the
+ * conversation on the file the call named.
  */
-export function listSessions(): Promise<SessionSummary[]> {
-    return call<SessionSummary[]>("list_sessions");
-}
+export type CloneOutcome = { type: "cloned"; session: string } | { type: "cancelled" };
 
 /**
- * Starts a pi on the connected machine, and answers with the session it speaks
- * through.
+ * Where one fork left the conversation.
  *
- * The connection itself runs no pi: reaching the machine and speaking on it are
- * two different things, and only the second one needs a process. The id of the
- * answer is pie's own for that process (`main:1`), and it is what every other
- * function here names, and what the events arrive under.
- *
- * `path` names the conversation file of pi to load at the start. Without one pi
- * starts a new conversation. The path is a path of the host, as the listing
- * wrote it; pi reads the file itself.
+ * pi branches the conversation into a new file and serves it. `text` is the user
+ * message the branch starts from, which pi leaves out of a fork at the leaf. A
+ * cancelled fork leaves the conversation on the file the call named.
  */
+export type ForkOutcome = { type: "forked"; session: string; text: string | null } | { type: "cancelled" };
+
+/** One node of a conversation tree. `label` is what a person named the entry. */
+export interface SessionTreeNode {
+    entry: SessionEntry;
+    children: SessionTreeNode[];
+    label?: string;
+    labelTimestamp?: string;
+}
+
+/** A conversation as a tree, with the entry pi shows now. */
+export interface SessionTree {
+    /** More than one root is possible: navigation can branch, and a broken parent chain roots a node. */
+    tree: SessionTreeNode[];
+    leafId: string | null;
+}
+
+/** What one call to `prompt` did with the message. */
+export type PromptDisposition = "started" | "queued" | "handled";
+
+/** The conversation of one conversation, in the order pi holds it. */
+export type Messages = AgentMessage[];
+
+/** Stops the run of one conversation. */
+export function abort(host: HostId, session: string): Promise<void> {
+    return call<void>("abort", { host, session });
+}
+
+/** Stops the shell command of one conversation, if one runs. */
+export function abortBash(host: HostId, session: string): Promise<void> {
+    return call<void>("abort_bash", { host, session });
+}
+
+/** Stops the retry pi waits on, if one waits. */
+export function abortRetry(host: HostId, session: string): Promise<void> {
+    return call<void>("abort_retry", { host, session });
+}
+
 /**
- * Starts a pi on the connected machine, on a conversation file, and answers
- * with the session it speaks through.
+ * Runs a shell command on the machine of one conversation, in the directory of
+ * that conversation.
  *
- * `path` names the conversation file of pi to load at the start. The path is a
- * path of the host, as the listing wrote it; pi reads the file itself.
+ * The command runs through pi, so its result enters the transcript like the result
+ * of a tool. While it runs, `bash_execution_update` events stream what it prints.
+ * `excludeFromContext` keeps the command and its output out of the model's
+ * context.
  */
-export function attachSession(path: string): Promise<SessionInfo> {
-    return call<SessionInfo>("attach_session", { path });
+export function bash(host: HostId, session: string, command: string, excludeFromContext: boolean): Promise<BashResult> {
+    return call<BashResult>("bash", { host, session, command, excludeFromContext });
+}
+
+/** Drops every queued message of one conversation. The answer names what went. */
+export function clearQueue(host: HostId, session: string): Promise<ClearQueueData> {
+    return call<ClearQueueData>("clear_queue", { host, session });
 }
 
 /**
- * Starts a pi in a directory of the host, for a new conversation.
+ * Copies the whole branch of one conversation into a new file, and serves that
+ * file.
  *
- * `cwd` is a directory as `listDirs` wrote it. The directory is where the
- * conversation is recorded and where the tools of that session run, so the
- * choice decides what the conversation is about. The conversation has no file
- * yet: pi writes one at the first message.
+ * The answer names the file that replaces the one this call named. The old file
+ * stays where pi wrote it.
  */
-export function startSession(cwd: string): Promise<SessionInfo> {
-    return call<SessionInfo>("start_session", { cwd });
+export function cloneSession(host: HostId, session: string): Promise<CloneOutcome> {
+    return call<CloneOutcome>("clone_session", { host, session });
 }
 
 /**
- * Deletes one conversation file of the host.
+ * Compacts the conversation of one conversation into a summary, now.
  *
- * Pi has no command for this: the caller ends the process that holds the
- * conversation first (`detachSession`), then asks for this. A fork of that
- * conversation is unaffected; a branch holds a copy of the entries it keeps.
+ * `customInstructions` steers the summary. The compaction reports itself on the
+ * event channel, so the transcript hears of it whether or not this call asked.
  */
-export function deleteSession(path: string): Promise<void> {
-    return call<void>("delete_session", { path });
-}
-
-/** The user messages of one session that a fork can start from. */
-export function getForkMessages(session: string): Promise<ForkMessage[]> {
-    return call<ForkMessage[]>("get_fork_messages", { session });
+export function compact(host: HostId, session: string, customInstructions?: string): Promise<CompactionResult> {
+    return call<CompactionResult>("compact", { host, session, customInstructions });
 }
 
 /**
- * Forks one session at a user message, in the same process.
+ * Forks one conversation at a user message.
  *
- * Pi writes a new conversation file and the process holds it from here; the old
- * file stays where pi wrote it. The session keeps its id - it is the process, not
- * the conversation - so the caller reads the state and the entries again, and a
- * screen that drew the old conversation lets it go.
+ * The answer names the branched file that replaces the one this call named. The
+ * branch is a new conversation, so it runs in a pi of its own.
  */
-export function forkSession(session: string, entryId: string): Promise<ForkData> {
-    return call<ForkData>("fork_session", { session, entryId });
+export function forkSession(host: HostId, session: string, entryId: string): Promise<ForkOutcome> {
+    return call<ForkOutcome>("fork_session", { host, session, entryId });
 }
 
-/** Copies the whole branch of one session into a new file, in the same process. */
-export function cloneSession(session: string): Promise<CloneResult> {
-    return call<CloneResult>("clone_session", { session });
+/** The models that one conversation can use. */
+export function getAvailableModels(host: HostId, session: string): Promise<Model[]> {
+    return call<Model[]>("get_available_models", { host, session });
+}
+
+/** The thinking levels that one conversation accepts. */
+export function getAvailableThinkingLevels(host: HostId, session: string): Promise<ModelThinkingLevel[]> {
+    return call<ModelThinkingLevel[]>("get_available_thinking_levels", { host, session });
 }
 
 /**
- * Ends one pi. The machine stays reached, and the conversation file stays where
- * pi wrote it.
+ * The commands that a prompt of one conversation can invoke.
  *
- * Pi winds down: pie closes its standard input, waits for the process to stop,
- * and kills it only when it does not. A session that is gone is a failure
- * (`unknown_session`), because a caller that asks to end something twice holds a
- * stale id.
+ * The answer holds the commands of the extensions, the prompt templates and the
+ * skills of pi. The built-in commands of pi are not in it: this side answers those
+ * itself.
  */
-export function detachSession(session: string): Promise<void> {
-    return call<void>("detach_session", { session });
-}
-
-// One session, by the name of it.
-
-/**
- * The state of one session: its model, its run, its name, its counts.
- *
- * `sessionId` here is the id of pi's session file: the conversation this process
- * opened with, and the id that `listSessions` lists.
- */
-export function getState(session: string): Promise<SessionState> {
-    return call<SessionState>("get_state", { session });
+export function getCommands(host: HostId, session: string): Promise<SlashCommand[]> {
+    return call<SlashCommand[]>("get_commands", { host, session });
 }
 
 /**
- * Every entry of one session, and the leaf it points at.
+ * Every entry of one conversation, and the leaf it points at.
  *
  * The answer is the raw set: the other branches of a fork are in it, and the
- * entries that a compaction summarized stay in it. The view of the transcript is
- * built from it on this side (see `lib/transcript/merge.ts`).
+ * entries that a compaction summarized stay in it. A screen that needs the
+ * branches as a tree reads {@link getTree} instead.
  */
-export function getEntries(session: string): Promise<EntriesData> {
-    return call<EntriesData>("get_entries", { session });
+export function getEntries(host: HostId, session: string): Promise<EntriesData> {
+    return call<EntriesData>("get_entries", { host, session });
 }
 
-/** The usage of one session: its counts, its tokens, its cost, its context. */
-export function getSessionStats(session: string): Promise<SessionStats> {
-    return call<SessionStats>("get_session_stats", { session });
-}
-// What pi says about a running session, as it says it.
-
-/** How the pi of a session ended. */
-export type Termination =
-    { type: "exited"; code: number; success: boolean } | { type: "signalled"; signal: number } | { type: "unknown" };
-
-/** What the frontend hears about the life of a session. */
-export type SessionLifecycle =
-    | {
-          type: "ended";
-          /** How the process ended; `success` separates an orderly end from a crash. */
-          termination: Termination;
-      }
-    | {
-          /**
-           * Records of the session were dropped before they reached this side: the pipe of
-           * that session fell behind. The session itself is unchanged, and the reads are the
-           * repair. No count travels: what a screen does with the fact does not depend on
-           * how many records went.
-           */
-          type: "lagged";
-      };
-
-/** The latest status line of one extension. */
-export interface ExtensionStatusValue {
-    key: string;
-    text: string;
+/** The user messages of one conversation that a fork can start from. */
+export function getForkMessages(host: HostId, session: string): Promise<ForkMessage[]> {
+    return call<ForkMessage[]>("get_fork_messages", { host, session });
 }
 
-/** The latest editor text, with a sequence so a reader applies it once. */
-export interface ExtensionEditorText {
-    seq: number;
-    text: string;
-}
-
-/** The extension UI state of one session, as Rust replays it. */
-export interface ExtensionSnapshot {
-    /** Dialogs that wait for an answer. A listener that arrives late reads them here. */
-    requests: ExtensionUIRequest[];
-    /** The latest status line of each extension key, by key. */
-    statuses: ExtensionStatusValue[];
-    /** The title an extension asked for, or null. */
-    title: string | null;
-    /** The latest editor text, with a sequence so a reader applies it once. */
-    editorText: ExtensionEditorText | null;
-}
-
-/** An answer to one extension dialog. */
-export type ExtensionAnswer =
-    { type: "value"; value: string } | { type: "confirmed"; confirmed: boolean } | { type: "cancelled" };
-
-/** What the extension UI channel says about one session. */
-export type ExtensionEvent = { type: "changed" } | { type: "notice"; id: string; message: string; notifyType: string };
-
-/**
- * The dialogs and fire-and-forget values of one session.
- *
- * A dialog can arrive before the frontend knows the session id. The event only
- * says that the snapshot changed; this read is what makes the request arrive even
- * when the event was missed.
- */
-export function getExtensionState(session: string): Promise<ExtensionSnapshot> {
-    return call<ExtensionSnapshot>("get_extension_state", { session });
-}
-
-/** Answers one dialog. False means the request timed out, or another answer won. */
-export function answerExtension(session: string, id: string, answer: ExtensionAnswer): Promise<boolean> {
-    return call<boolean>("answer_extension", { session, id, answer });
-}
-
-/** The extension UI changes of one session: a snapshot change, or a notice. */
-export function onExtensionEvent(session: string, onEvent: (event: ExtensionEvent) => void): Promise<Unsubscribe> {
-    return listen<ExtensionEvent>(`pi://session/${session}/extension`, (event) => onEvent(event.payload));
-}
-
-/** One event of a session, on `pi://session/{id}/event`. */
-export function onSessionEvent(session: string, onEvent: (event: Event) => void): Promise<Unsubscribe> {
-    return listen<Event>(`pi://session/${session}/event`, (event) => onEvent(event.payload));
-}
-
-/** The end of a session, or a gap in its records. No record of that session follows an end. */
-export function onSessionState(session: string, onState: (state: SessionLifecycle) => void): Promise<Unsubscribe> {
-    return listen<SessionLifecycle>(`pi://session/${session}/state`, (event) => onState(event.payload));
+/** The text of the last assistant message of one conversation, when there is one. */
+export function getLastAssistantText(host: HostId, session: string): Promise<string | null> {
+    return call<string | null>("get_last_assistant_text", { host, session });
 }
 
 /**
- * Sends a message to one session.
+ * The whole conversation of one conversation, in the order pi holds it.
  *
- * `behavior` names how the message joins a run that streams: `steer` interrupts
- * the run at its next step, and `followUp` waits for the run to settle. While
- * nothing streams, pi ignores the behavior and the message starts a run.
- * Therefore a caller does not have to be right about the stream: it names the key
- * that the person pressed, and pi does the rest.
+ * This is the read that draws a conversation this side has never seen. A message
+ * that this pie does not know travels back as pi wrote it.
+ */
+export function getMessages(host: HostId, session: string): Promise<Messages> {
+    return call<Messages>("get_messages", { host, session });
+}
+
+/** The usage of one conversation: counts, tokens, cost, context. */
+export function getSessionStats(host: HostId, session: string): Promise<SessionStats> {
+    return call<SessionStats>("get_session_stats", { host, session });
+}
+
+/**
+ * The state of one conversation: its model, its run, its name, its counts.
  *
- * The answer says what happened: `started`, `queued`, or `handled` for a message
- * that a command of an extension took without a run.
+ * `sessionId` here is pi's id for the conversation. It names no session of pie: the
+ * file does.
+ */
+export function getState(host: HostId, session: string): Promise<SessionState> {
+    return call<SessionState>("get_state", { host, session });
+}
+
+/** The conversation as a tree, with the entry pi shows now. */
+export function getTree(host: HostId, session: string): Promise<SessionTree> {
+    return call<SessionTree>("get_tree", { host, session });
+}
+
+/**
+ * Sends a message to one conversation.
+ *
+ * `behavior` names how the message joins a run that streams: `steer` interrupts the
+ * run at its next step, and `followUp` waits for the run to settle. While nothing
+ * streams, pi ignores the behavior and the message starts a run. Therefore a caller
+ * does not have to be right about the stream: it names the key that the person
+ * pressed, and pi does the rest.
  *
  * `images` are the pictures of the message; pi processes them itself.
- * `attachments` are the staged file paths of non-image attachments; Rust formats them into the wire message.
+ * `attachments` are the paths of staged files; Rust formats them into the message.
  */
 export function prompt(
+    host: HostId,
     session: string,
     message: string,
     behavior?: StreamingBehavior,
     images?: ImageContent[],
     attachments?: string[],
 ): Promise<PromptData> {
-    return call<PromptData>("prompt", { session, message, behavior, images, attachments });
+    return call<PromptData>("prompt", { host, session, message, behavior, images, attachments });
 }
 
-/** Stops the run of one session, and a compaction in progress with it. */
-export function abort(session: string): Promise<void> {
-    return call<void>("abort", { session });
-}
-
-/**
- * Drops every queued message of one session.
- *
- * The protocol has no way to take back a single message: this drops the steering
- * queue and the follow-up queue together (G7 of the plan). The answer names what
- * went, so a screen can say it.
- */
-export function clearQueue(session: string): Promise<ClearQueueData> {
-    return call<ClearQueueData>("clear_queue", { session });
+/** Turns automatic compaction of one conversation on or off. */
+export function setAutoCompaction(host: HostId, session: string, enabled: boolean): Promise<void> {
+    return call<void>("set_auto_compaction", { host, session, enabled });
 }
 
 /**
- * Runs a shell command on the host of one session, in the directory of that
- * session.
+ * Lets pi retry a turn that a transient failure ended.
  *
- * The command runs through pi, so its result enters the transcript like the
- * result of a tool. While it runs, `bash_execution_update` events stream what it
- * prints. `excludeFromContext` keeps the command and its output out of the
- * context of the model — the `!!` form of the composer.
+ * pi keeps this setting out of its state, so no call reads it back: the caller that
+ * turns it on holds the value.
  */
-export function bash(session: string, command: string, excludeFromContext: boolean): Promise<BashResult> {
-    return call<BashResult>("bash", { session, command, excludeFromContext });
-}
-
-/** Stops the shell command of one session, if one runs. */
-export function abortBash(session: string): Promise<void> {
-    return call<void>("abort_bash", { session });
+export function setAutoRetry(host: HostId, session: string, enabled: boolean): Promise<void> {
+    return call<void>("set_auto_retry", { host, session, enabled });
 }
 
 /**
- * The commands that a prompt of one session can invoke.
+ * How a follow-up message of one conversation joins the queue.
  *
- * The answer holds the commands of the extensions, the prompt templates and the
- * skills of pi. The built-in commands of pi are not in it: the frontend answers
- * those itself.
+ * The current mode is readable: it is `followUpMode` of {@link getState}.
  */
-export function getCommands(session: string): Promise<CommandsData> {
-    return call<CommandsData>("get_commands", { session });
-}
-
-/** The models that one session can use. */
-export function getAvailableModels(session: string): Promise<AvailableModelsData> {
-    return call<AvailableModelsData>("get_available_models", { session });
-}
-
-/** The thinking levels that one session accepts. */
-export function getAvailableThinkingLevels(session: string): Promise<AvailableThinkingLevelsData> {
-    return call<AvailableThinkingLevelsData>("get_available_thinking_levels", { session });
+export function setFollowUpMode(host: HostId, session: string, mode: QueueMode): Promise<void> {
+    return call<void>("set_follow_up_mode", { host, session, mode });
 }
 
 /**
- * Selects the model of one session and answers the one that is now active.
+ * Selects the model of one conversation and answers the one that is now active.
  *
- * The session reports the change as a `model_change` entry and as the model of
- * its state; the caller reads those rather than this answer.
+ * The conversation reports the change as a `model_change` entry and as the model of
+ * its state, so a screen reads those rather than this answer.
  */
-export function setModel(session: string, provider: string, modelId: string): Promise<Model> {
-    return call<Model>("set_model", { session, provider, modelId });
+export function setModel(host: HostId, session: string, provider: string, modelId: string): Promise<Model> {
+    return call<Model>("set_model", { host, session, provider, modelId });
 }
 
-/** Sets the thinking level of one session. */
-export function setThinkingLevel(session: string, level: ModelThinkingLevel): Promise<void> {
-    return call<void>("set_thinking_level", { session, level });
-}
-
-/** Turns automatic compaction of one session on or off. */
-export function setAutoCompaction(session: string, enabled: boolean): Promise<void> {
-    return call<void>("set_auto_compaction", { session, enabled });
+/** Names one conversation. An empty name falls back to the first prompt. */
+export function setSessionName(host: HostId, session: string, name: string): Promise<void> {
+    return call<void>("set_session_name", { host, session, name });
 }
 
 /**
- * Compacts the conversation of one session into a summary, now.
+ * How a message sent mid-run joins the queue of one conversation.
  *
- * `customInstructions` steers the summary. Compaction reports itself on the event
- * channel of the session, so the transcript hears of it whether or not this call
- * is the one that asked.
+ * The current mode is readable: it is `steeringMode` of {@link getState}.
  */
-export function compact(session: string, customInstructions?: string): Promise<CompactionResult> {
-    return call<CompactionResult>("compact", { session, customInstructions });
+export function setSteeringMode(host: HostId, session: string, mode: QueueMode): Promise<void> {
+    return call<void>("set_steering_mode", { host, session, mode });
 }
 
-/** The text of the last assistant message of one session, when there is one. */
-export function getLastAssistantText(session: string): Promise<LastAssistantTextData> {
-    return call<LastAssistantTextData>("get_last_assistant_text", { session });
+/** Sets the thinking level of one conversation. */
+export function setThinkingLevel(host: HostId, session: string, level: ModelThinkingLevel): Promise<void> {
+    return call<void>("set_thinking_level", { host, session, level });
 }
 
-/** Names one session. */
-export function setSessionName(session: string, name: string): Promise<void> {
-    return call<void>("set_session_name", { session, name });
+/**
+ * Listens to the events of every conversation until the returned function is
+ * called.
+ *
+ * One channel carries them all, and each event names its own conversation, so a
+ * caller filters on `host` and `session` itself. The stream is not buffered: an
+ * event that this side misses is an event that is gone, and a read is the repair.
+ */
+export function onSessionEvent(onEvent: (event: SessionEvent) => void): Promise<Unsubscribe> {
+    return listen<SessionEvent>("pi://session/event", (event) => onEvent(event.payload));
+}
+
+/**
+ * Listens to the end of every conversation's pi until the returned function is
+ * called.
+ *
+ * The event says that the process ended, not why pie ended it: a caller that asked
+ * for a detach recognises its own action, and any other end is a crash or a
+ * finished run.
+ */
+export function onSessionEnded(onEnded: (event: SessionEnded) => void): Promise<Unsubscribe> {
+    return listen<SessionEnded>("pi://session/ended", (event) => onEnded(event.payload));
+}
+
+// What an extension of pi asks of a person, and what it says without asking.
+//
+// These live here because they belong to a conversation: `session/extension.rs`
+// emits each one for the pi process of one conversation file.
+
+/**
+ * One dialog of an extension, as pi asked it.
+ *
+ * `method` names the dialog, and the fields beside it belong to that method. A
+ * method this pie does not know yet is dismissed by id, so a newer pi never stalls
+ * on a dialog nobody can draw.
+ */
+export type UiRequest =
+    | { method: "select"; title: string; options: string[]; timeout?: number }
+    | { method: "confirm"; title: string; message: string; timeout?: number }
+    | { method: "input"; title: string; placeholder?: string; timeout?: number }
+    | { method: "editor"; title: string; prefill?: string }
+    | { method: "notify"; message: string; notifyType?: string }
+    | { method: "setStatus"; statusKey: string; statusText?: string }
+    | { method: "setWidget"; widgetKey: string; widgetLines?: string[]; widgetPlacement?: string }
+    | { method: "setTitle"; title: string }
+    | { method: "set_editor_text"; text: string }
+    | { method: string; [field: string]: unknown };
+
+/** One dialog that waits for the frontend, with the conversation that asked. */
+export interface ExtensionAsk {
+    host: HostId;
+    /** The conversation file of the pi that asked. */
+    session: string;
+    request: UiRequest;
+}
+
+/**
+ * The answer to one dialog. `cancelled` dismisses any of them.
+ *
+ * A select, an input and an editor answer `value`, and a confirm answers
+ * `confirmed`.
+ */
+export type ExtensionAnswer =
+    { type: "value"; value: string } | { type: "confirmed"; confirmed: boolean } | { type: "cancelled" };
+
+/** One notice that pi wants a person to see. */
+export interface ExtensionNotice {
+    host: HostId;
+    session: string;
+    message: string;
+    /** `info`, `warning`, `error`, or a name this pie does not know yet. */
+    kind: string;
+}
+
+/** One status line of the extension area. `text` of `null` clears the key. */
+export interface ExtensionStatus {
+    host: HostId;
+    session: string;
+    key: string;
+    text: string | null;
+}
+
+/** The window title that pi asked for. */
+export interface ExtensionTitle {
+    host: HostId;
+    session: string;
+    title: string;
+}
+
+/** The editor text that pi asked for. */
+export interface ExtensionEditorText {
+    host: HostId;
+    session: string;
+    text: string;
+}
+
+/**
+ * Listens to the dialogs of every extension until the returned function is called.
+ *
+ * The answer goes back through {@link answer} with the id of the envelope.
+ */
+export function onExtensionAsk(onRequest: (request: AskEnvelope<ExtensionAsk>) => void): Promise<Unsubscribe> {
+    return onAsk<ExtensionAsk>("pi://ask/extension", onRequest);
+}
+
+/** Listens to the notices of every conversation until the returned function is called. */
+export function onExtensionNotice(onNotice: (notice: ExtensionNotice) => void): Promise<Unsubscribe> {
+    return listen<ExtensionNotice>("pi://extension/notice", (event) => onNotice(event.payload));
+}
+
+/** Listens to the status lines of every conversation until the returned function is called. */
+export function onExtensionStatus(onStatus: (status: ExtensionStatus) => void): Promise<Unsubscribe> {
+    return listen<ExtensionStatus>("pi://extension/status", (event) => onStatus(event.payload));
+}
+
+/** Listens to the titles that extensions ask for until the returned function is called. */
+export function onExtensionTitle(onTitle: (title: ExtensionTitle) => void): Promise<Unsubscribe> {
+    return listen<ExtensionTitle>("pi://extension/title", (event) => onTitle(event.payload));
+}
+
+/** Listens to the editor texts that extensions ask for until the returned function is called. */
+export function onExtensionEditorText(onText: (text: ExtensionEditorText) => void): Promise<Unsubscribe> {
+    return listen<ExtensionEditorText>("pi://extension/editor", (event) => onText(event.payload));
 }

@@ -1,23 +1,27 @@
-//! Pie's Tauri application: the reach to a machine, its sessions, and the IPC
-//! bridge to the React frontend.
-//!
-//! The `pi_rpc` crate mirrors the `pi --mode rpc` protocol of Pi and stays free of
-//! app concerns. Below it, four layers of this app: [`channel`] is one started
-//! program's bytes and life, [`host`] is the machine pie reaches and what runs on
-//! it, [`session`] is the pi sessions of that machine, and [`runtime`] holds the
-//! connected machines and the active one. [`commands`] is the
-//! boundary the frontend talks to, [`error`] is what it hears when something
-//! fails, [`log`] is where every line of the app goes, and [`state`] is what
-//! the commands of one run share.
+#![expect(
+    unused,
+    reason = "helpers and fields of the lower layers have no caller yet"
+)]
 
-pub mod channel;
-pub mod commands;
-pub mod error;
-pub mod host;
-pub mod log;
-pub mod runtime;
-pub mod session;
-pub mod state;
+//! Pie's Tauri application: the reach to a machine, its sessions, and the IPC
+//! bus to the React frontend.
+//!
+
+mod bus;
+mod channel;
+mod commands;
+mod error;
+mod host;
+mod log;
+mod session;
+mod state;
+
+use commands::app::*;
+use commands::filesystem::*;
+use commands::host::*;
+use commands::log::*;
+use commands::session::*;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,53 +32,62 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(state::AppState::default())
+        .setup(|app| {
+            let bus = bus::Bus::new(app.handle().clone(), 8);
+            app.manage(state::AppState::new(bus, app.handle().clone()));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            commands::app::open_url,
-            commands::app::platform,
-            commands::app::provider_logo,
-            commands::attachment::stage_attachment,
-            commands::files::inspect_paths,
-            commands::files::read_text,
-            commands::files::select_paths,
-            commands::host::connect,
-            commands::host::disconnect,
-            commands::host::get_connection,
-            commands::host::reconnect,
-            commands::host::create_dir,
-            commands::host::dir_exists,
-            commands::host::home_dir,
-            commands::host::list_dirs,
-            commands::host::trust_host_key,
-            commands::log::log,
-            commands::log::log_levels,
-            commands::session::abort,
-            commands::session::abort_bash,
-            commands::session::answer_extension,
-            commands::session::attach_session,
-            commands::session::bash,
-            commands::session::clear_queue,
-            commands::session::clone_session,
-            commands::session::compact,
-            commands::session::delete_session,
-            commands::session::detach_session,
-            commands::session::fork_session,
-            commands::session::get_available_models,
-            commands::session::get_available_thinking_levels,
-            commands::session::get_commands,
-            commands::session::get_entries,
-            commands::session::get_extension_state,
-            commands::session::get_fork_messages,
-            commands::session::get_last_assistant_text,
-            commands::session::get_session_stats,
-            commands::session::get_state,
-            commands::session::list_sessions,
-            commands::session::prompt,
-            commands::session::set_auto_compaction,
-            commands::session::set_model,
-            commands::session::set_session_name,
-            commands::session::set_thinking_level,
-            commands::session::start_session,
+            app_answer,
+            app_open_url,
+            app_platform,
+            app_provider_logo,
+            app_ready_for_answer,
+            filesystem_create_dir_all,
+            filesystem_read,
+            filesystem_read_metadata,
+            filesystem_select_files,
+            host_attach_session,
+            host_connect,
+            host_create_dir_all,
+            host_delete_session,
+            host_detach_session,
+            host_dir_exists,
+            host_disconnect,
+            host_home_dir,
+            host_list_dirs,
+            host_list_sessions,
+            host_reconnect,
+            host_start_new_session,
+            host_upload_file,
+            log_log,
+            log_log_levels,
+            session_abort,
+            session_abort_bash,
+            session_abort_retry,
+            session_bash,
+            session_clear_queue,
+            session_clone_session,
+            session_compact,
+            session_fork_session,
+            session_get_available_models,
+            session_get_available_thinking_levels,
+            session_get_commands,
+            session_get_entries,
+            session_get_fork_messages,
+            session_get_last_assistant_text,
+            session_get_messages,
+            session_get_session_stats,
+            session_get_state,
+            session_get_tree,
+            session_prompt,
+            session_set_auto_compaction,
+            session_set_auto_retry,
+            session_set_follow_up_mode,
+            session_set_model,
+            session_set_session_name,
+            session_set_steering_mode,
+            session_set_thinking_level,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

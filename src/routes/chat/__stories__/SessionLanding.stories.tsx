@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { SessionSummary } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
+import type { SessionInfo } from "@/lib/bridge";
 import { ChatFrame } from "@/routes/chat/ChatFrame";
 import { ChatTopbar } from "@/routes/chat/ChatTopbar";
 import { SidebarToggle } from "@/routes/chat/topbar/SidebarToggle";
@@ -18,14 +18,18 @@ import { sessionSummary } from "@/preview/fixtures";
  * window that already knows its sessions.
  */
 const sessions = [
-    sessionSummary({ cwd: "/home/kui/Projects/pie", name: "Fix the parser" }),
-    sessionSummary({ cwd: "/home/kui/Projects/pie", name: null, firstMessage: "what does this flag do?" }),
+    sessionSummary({ cwd: "/home/kui/Projects/pie", title: { type: "named", name: "Fix the parser" } }),
+    sessionSummary({
+        cwd: "/home/kui/Projects/pie",
+        title: { type: "untitled" },
+        firstPrompt: "what does this flag do?",
+    }),
 ];
 
-function Seeded({ sessions, children }: { sessions: SessionSummary[]; children: ReactNode }) {
+function Seeded({ sessions, children }: { sessions: SessionInfo[]; children: ReactNode }) {
     const [client] = useState(() => {
         const client = new QueryClient(queryDefaults);
-        client.setQueryData(["sessions", "local"], sessions);
+        client.setQueryData(["sessions", "main"], sessions);
         return client;
     });
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -44,7 +48,7 @@ const meta = {
     parameters: { layout: "fullscreen", sessions },
     decorators: [
         (Story, context) => (
-            <Seeded sessions={context.parameters.sessions as SessionSummary[]}>
+            <Seeded sessions={context.parameters.sessions as SessionInfo[]}>
                 {/* The story is the window: `fixed` escapes the preview's centring and
                     keeps room around the page, and the router is what the way back to
                     the gate needs. */}
@@ -56,7 +60,7 @@ const meta = {
                             sidebar={
                                 <SessionSidebar
                                     id="session"
-                                    endpoint="local"
+                                    host="main"
                                     attached={new Map()}
                                     onPick={() => undefined}
                                     onNew={() => undefined}

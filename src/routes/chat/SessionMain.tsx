@@ -15,7 +15,7 @@ import { useSelector } from "@xstate/react";
 import { toast } from "sonner";
 import { useExtensionUi, useMotion, type SessionView } from "@/hooks";
 import * as bridge from "@/lib/bridge";
-import type { SessionRef } from "@/lib/session";
+import type { SessionKey, SessionRef } from "@/lib/session";
 import { queuedRows, transcriptRows } from "@/lib/transcript";
 import { activityRows, liveRows } from "@/lib/transcript";
 import { mergedTranscript } from "@/lib/transcript";
@@ -24,7 +24,7 @@ import { ExtensionPrompt } from "@/routes/chat/transcript/ExtensionPrompt";
 import { SessionTranscript } from "@/routes/chat/transcript/SessionTranscript";
 
 export interface SessionMainProps {
-    session: string;
+    conversation: SessionKey;
     machine: SessionRef;
     view: SessionView;
 }
@@ -33,9 +33,9 @@ export interface SessionMainProps {
  * The main page of one session: the transcript, the line under it, and the composer. The
  * screen only mounts it once the session is loaded; loading is a page of its own.
  */
-export function SessionMain({ session, machine, view }: SessionMainProps) {
+export function SessionMain({ conversation, machine, view }: SessionMainProps) {
     const { phase, working, entries } = view;
-    const extension = useExtensionUi(session);
+    const extension = useExtensionUi(conversation);
     const { stage: page, slot } = useMotion();
 
     const overlay = useSelector(machine, (snapshot) => snapshot.context.overlay);
@@ -59,7 +59,7 @@ export function SessionMain({ session, machine, view }: SessionMainProps) {
     /** Drops every queued message, and says how many went: pi cannot take back one. */
     function retractQueue() {
         void bridge
-            .clearQueue(session)
+            .clearQueue(conversation.host, conversation.session)
             .then((dropped) => {
                 const count = dropped.steering.length + dropped.followUp.length;
                 toast(count === 1 ? "The queued message was dropped." : `${count} queued messages were dropped.`);
@@ -70,7 +70,8 @@ export function SessionMain({ session, machine, view }: SessionMainProps) {
     return (
         <>
             <ExtensionPrompt
-                request={extension.request}
+                askId={extension.request?.id ?? 0}
+                request={extension.request?.request ?? null}
                 onAnswer={(answer) => {
                     if (extension.request !== null) extension.answer(extension.request.id, answer);
                 }}
@@ -110,10 +111,18 @@ export function SessionMain({ session, machine, view }: SessionMainProps) {
                             </p>
                         )}
                         <Composer
-                            session={session}
+                            conversation={conversation}
                             working={working}
                             machine={machine}
-                            editorText={extension.state?.editorText ?? null}
+                            editorText={
+                                extension.editorText === null
+                                    ? null
+                                    : {
+                                          host: conversation.host,
+                                          session: conversation.session,
+                                          text: extension.editorText,
+                                      }
+                            }
                         />
                     </div>
                 </motion.div>

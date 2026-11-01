@@ -8,7 +8,7 @@ import type { EntriesData, Event, SessionEntry, SessionState, SessionStats } fro
 import { liveRows } from "@/lib/transcript";
 import { useSession } from "@/hooks/useSession";
 import { queryDefaults, sessionKeys } from "@/lib/query";
-import { ensureSession, forgetSession, sessionOf, type SessionRef } from "@/lib/session";
+import { ensureSession, forgetSession, idOf, sessionOf, type SessionKey, type SessionRef } from "@/lib/session";
 import { mergedTranscript } from "@/lib/transcript";
 import { assistant, usage } from "@/preview/fixtures";
 
@@ -21,12 +21,11 @@ import { assistant, usage } from "@/preview/fixtures";
 const AT = "2026-10-05T00:00:00.000Z";
 
 const fake = vi.hoisted(() => ({
-    getState: vi.fn<(session: string) => Promise<SessionState>>(),
-    getEntries: vi.fn<(session: string) => Promise<EntriesData>>(),
-    getSessionStats: vi.fn<(session: string) => Promise<SessionStats>>(),
-    onSessionEvent: vi.fn<(session: string, onEvent: (event: Event) => void) => Promise<Bridge.Unsubscribe>>(),
-    onSessionState:
-        vi.fn<(session: string, onState: (state: Bridge.SessionLifecycle) => void) => Promise<Bridge.Unsubscribe>>(),
+    getState: vi.fn<(host: string, session: string) => Promise<SessionState>>(),
+    getEntries: vi.fn<(host: string, session: string) => Promise<EntriesData>>(),
+    getSessionStats: vi.fn<(host: string, session: string) => Promise<SessionStats>>(),
+    onSessionEvent: vi.fn<(onEvent: (event: Bridge.SessionEvent) => void) => Promise<Bridge.Unsubscribe>>(),
+    onSessionEnded: vi.fn<(onEnded: (event: Bridge.SessionEnded) => void) => Promise<Bridge.Unsubscribe>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -60,12 +59,15 @@ function snapshot(entries: SessionEntry[], leafId: string | null): EntriesData {
 /** The publishing end of the two subscriptions, once they are open. */
 let publish: ((event: Event) => void) | undefined;
 let ended: (() => void) | undefined;
-let lagged: (() => void) | undefined;
 let listened: string[] = [];
 let unlistened: string[] = [];
 
 /** The session every test here speaks to. */
+const HOST = "main";
 const SESSION = "main:1";
+const KEY: SessionKey = { host: HOST, session: SESSION };
+/** The same machine, holding another conversation. */
+const other = (session: string): SessionKey => ({ host: HOST, session });
 
 /** The query client the render at hand was built with. */
 let client: QueryClient;
@@ -75,13 +77,13 @@ let client: QueryClient;
  * the chart holds - and nothing before a base read answered, which is the gate the screen
  * draws its loading page behind. A test reads the same two sources the screen does.
  */
-function view(session = SESSION) {
-    const machine = sessionOf(session);
+function view(key: SessionKey = KEY) {
+    const machine = sessionOf(key);
     if (machine === null) throw new Error("the chart of the session is not running");
     const snapshot = machine.getSnapshot();
     const context = snapshot.context;
     const merged = snapshot.matches({ transcript: "ready" })
-        ? mergedTranscript(client.getQueryData<EntriesData>(sessionKeys.entries(session)) ?? null, context.overlay)
+        ? mergedTranscript(client.getQueryData<EntriesData>(sessionKeys.entries(key)) ?? null, context.overlay)
         : { entries: new Map(), order: [] as string[], leaf: null };
     return {
         entries: merged.entries,
@@ -99,29 +101,29 @@ function view(session = SESSION) {
  * and hands the hook's answer to the test. The hands are released after every test, so one
  * test cannot read the chart of the one before it.
  */
-function mount(session = SESSION, options: { strict?: boolean } = {}) {
-    ensureSession(session, client);
-    kept.push(session);
+function mount(key: SessionKey = KEY, options: { strict?: boolean } = {}) {
+    ensureSession(key, client);
+    kept.push(idOf(key));
     const latest: { current: ReturnType<typeof useSession> } = { current: null as never };
 
-    function Body({ id, machine }: { id: string; machine: SessionRef }) {
-        latest.current = useSession(id, machine);
+    function Body({ held, machine }: { held: SessionKey; machine: SessionRef }) {
+        latest.current = useSession(held, machine);
         return null;
     }
 
-    const machine = sessionOf(session);
+    const machine = sessionOf(key);
     if (machine === null) throw new Error("the chart of the session did not start");
     const wrapper = ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>
             {options.strict ? <StrictMode>{children}</StrictMode> : children}
         </QueryClientProvider>
     );
-    const rendered = render(<Body id={session} machine={machine} />, { wrapper });
+    const rendered = render(<Body held={key} machine={machine} />, { wrapper });
     return {
         result: latest,
         unmount: () => {
             rendered.unmount();
-            release(session);
+            release(idOf(key));
         },
     };
 }
@@ -146,7 +148,6 @@ describe("the session of the workspace", () => {
     beforeEach(() => {
         publish = undefined;
         ended = undefined;
-        lagged = undefined;
         listened = [];
         unlistened = [];
         subscribed = deferred();
@@ -154,18 +155,17 @@ describe("the session of the workspace", () => {
         fake.getState.mockReset().mockResolvedValue({} as SessionState);
         fake.getSessionStats.mockReset().mockResolvedValue({} as SessionStats);
         fake.getEntries.mockReset().mockResolvedValue(snapshot([userMessage("a", null)], "a"));
-        fake.onSessionEvent.mockReset().mockImplementation(async (session, onEvent) => {
+        fake.onSessionEvent.mockReset().mockImplementation(async (onEvent) => {
             await subscribed.promise;
-            listened.push(`event:${session}`);
-            publish = onEvent;
-            return () => unlistened.push(`event:${session}`);
+            listened.push("event");
+            publish = (record) => onEvent({ host: HOST, session: SESSION, event: record });
+            return () => unlistened.push("event");
         });
-        fake.onSessionState.mockReset().mockImplementation(async (session, onState) => {
+        fake.onSessionEnded.mockReset().mockImplementation(async (onEnded) => {
             await subscribed.promise;
-            listened.push(`state:${session}`);
-            ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
-            lagged = () => onState({ type: "lagged" });
-            return () => unlistened.push(`state:${session}`);
+            listened.push("state");
+            ended = () => onEnded({ host: HOST, session: SESSION, status: { type: "exited", code: 0 } });
+            return () => unlistened.push("state");
         });
 
         // No client-level retry: the reads themselves say that they do not retry,
@@ -176,7 +176,7 @@ describe("the session of the workspace", () => {
     });
 
     function render(session: string) {
-        return mount(session);
+        return mount(other(session));
     }
 
     it("reads nothing until both listeners are open", async () => {
@@ -185,14 +185,14 @@ describe("the session of the workspace", () => {
         const { result } = render("main:1");
 
         expect(result.current.listening).toBe(false);
-        expect(fake.onSessionEvent).toHaveBeenCalledWith("main:1", expect.any(Function));
+        expect(fake.onSessionEvent).toHaveBeenCalledWith(expect.any(Function));
         expect(fake.getEntries).not.toHaveBeenCalled();
 
         subscribed.resolve();
 
-        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main", "main:1"));
         expect(result.current.listening).toBe(true);
-        expect(listened).toEqual(["event:main:1", "state:main:1"]);
+        expect(listened).toEqual(["event", "state"]);
     });
 
     it("takes the snapshot as the transcript", async () => {
@@ -227,9 +227,9 @@ describe("the session of the workspace", () => {
         subscribed = deferred();
         render("main:2");
 
-        expect(view("main:2").order).toEqual([]);
+        expect(view(other("main:2")).order).toEqual([]);
         subscribed.resolve();
-        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:2"));
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main", "main:2"));
     });
 
     it("reads again when the session ends", async () => {
@@ -248,23 +248,6 @@ describe("the session of the workspace", () => {
         await waitFor(() => expect(fake.getEntries.mock.calls.length).toBeGreaterThan(entries));
         expect(fake.getState.mock.calls.length).toBeGreaterThan(states);
     });
-
-    it("reads again when the pipe reports a gap, and keeps what is on screen", async () => {
-        // Records went missing before they reached this side, so what the screen shows is
-        // what happened to arrive. The reads are the repair, and the words the reader is
-        // looking at stay until the answers replace them.
-        render("main:1");
-        subscribed.resolve();
-        await waitFor(() => expect(view().order).toEqual(["a"]));
-        const entries = fake.getEntries.mock.calls.length;
-
-        lagged?.();
-
-        await waitFor(() => expect(fake.getEntries.mock.calls.length).toBeGreaterThan(entries));
-        expect(view().order).toEqual(["a"]);
-        expect(listened).toEqual(["event:main:1", "state:main:1"]);
-    });
-
     it("forgets the failure of a session that opens on a later visit", async () => {
         // A session that could not be read once may be readable later. The
         // failure belongs to that attempt, not to the name of the session - and
@@ -283,7 +266,7 @@ describe("the session of the workspace", () => {
         const again = render("main:1");
         subscribed.resolve();
 
-        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main", "main:1"));
         expect(again.result.current.error).toBeNull();
     });
 
@@ -397,7 +380,7 @@ describe("the session of the workspace", () => {
         expect(fake.getEntries).not.toHaveBeenCalled();
 
         subscribed.resolve();
-        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main:1"));
+        await waitFor(() => expect(fake.getEntries).toHaveBeenCalledWith("main", "main:1"));
         expect(view().order).toEqual(["a"]);
         expect(mounted.result.current.listening).toBe(true);
     });
@@ -407,13 +390,13 @@ describe("the session of the workspace", () => {
         // is a transcript that keeps showing a pi that is gone. The connect
         // machine treats the same failure as a failed handshake, and this hook
         // refuses the read the same way.
-        fake.onSessionState.mockImplementation(async () => {
+        fake.onSessionEnded.mockImplementation(async () => {
             throw { kind: "failed", message: "the bus refused the listener" };
         });
         const { result } = render("main:1");
         subscribed.resolve();
 
-        await waitFor(() => expect(unlistened).toEqual(["event:main:1"]));
+        await waitFor(() => expect(unlistened).toEqual(["event"]));
         await waitFor(() => expect(result.current.error?.message).toBe("the bus refused the listener"));
         expect(fake.getEntries).not.toHaveBeenCalled();
     });
@@ -425,7 +408,7 @@ describe("the session of the workspace", () => {
 
         unmount();
 
-        await waitFor(() => expect(unlistened).toEqual(["event:main:1", "state:main:1"]));
+        await waitFor(() => expect(unlistened).toEqual(["event", "state"]));
     });
 });
 
@@ -445,18 +428,17 @@ describe("the run a session streams", () => {
         fake.getState.mockReset().mockResolvedValue({ isStreaming: true } as SessionState);
         fake.getSessionStats.mockReset().mockResolvedValue({} as SessionStats);
         fake.getEntries.mockReset().mockResolvedValue(snapshot([], null));
-        fake.onSessionEvent.mockReset().mockImplementation(async (session, onEvent) => {
+        fake.onSessionEvent.mockReset().mockImplementation(async (onEvent) => {
             await subscribed.promise;
-            listened.push(`event:${session}`);
-            publish = onEvent;
-            return () => unlistened.push(`event:${session}`);
+            listened.push("event");
+            publish = (record) => onEvent({ host: HOST, session: SESSION, event: record });
+            return () => unlistened.push("event");
         });
-        fake.onSessionState.mockReset().mockImplementation(async (session, onState) => {
+        fake.onSessionEnded.mockReset().mockImplementation(async (onEnded) => {
             await subscribed.promise;
-            listened.push(`state:${session}`);
-            ended = () => onState({ type: "ended", termination: { type: "exited", code: 0, success: true } });
-            lagged = () => onState({ type: "lagged" });
-            return () => unlistened.push(`state:${session}`);
+            listened.push("state");
+            ended = () => onEnded({ host: HOST, session: SESSION, status: { type: "exited", code: 0 } });
+            return () => unlistened.push("state");
         });
 
         client = new QueryClient(queryDefaults);
@@ -743,7 +725,7 @@ describe("the run a session streams", () => {
         // StrictMode does not leave a chart that the first stop made final (see
         // `lib/__tests__/sessions.test.tsx` for the count itself).
         subscribed.resolve();
-        const mounted = mount(SESSION, { strict: true });
+        const mounted = mount(KEY, { strict: true });
 
         await waitFor(() => expect(mounted.result.current.listening).toBe(true));
         await waitFor(() => expect(fake.getEntries).toHaveBeenCalled());

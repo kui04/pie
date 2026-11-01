@@ -1,22 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ExtensionPrompt } from "@/routes/chat/transcript/ExtensionPrompt";
-import type { ExtensionUIRequest } from "@/lib/rpc-protocol";
+import type { UiRequest } from "@/lib/bridge";
 
-function select(): ExtensionUIRequest {
+function select(): UiRequest {
     return {
-        type: "extension_ui_request",
-        id: "q-select",
         method: "select",
         title: "Allow this command?",
         options: ["Allow once", "Allow always", "Block"],
     };
 }
 
-function confirm(id = "q-confirm"): ExtensionUIRequest {
+function confirm(): UiRequest {
     return {
-        type: "extension_ui_request",
-        id,
         method: "confirm",
         title: "Clear the session?",
         message: "All messages leave the context.",
@@ -26,7 +22,7 @@ function confirm(id = "q-confirm"): ExtensionUIRequest {
 describe("ExtensionPrompt", () => {
     it("answers a select request with the chosen option", () => {
         const answer = vi.fn();
-        render(<ExtensionPrompt request={select()} onAnswer={answer} isMobile={false} />);
+        render(<ExtensionPrompt askId={1} request={select()} onAnswer={answer} isMobile={false} />);
 
         expect(screen.getByText("Allow this command?")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("option", { name: "Allow once" }));
@@ -38,7 +34,7 @@ describe("ExtensionPrompt", () => {
 
     it("moves the lit option with the arrow keys and answers with Enter", () => {
         const answer = vi.fn();
-        render(<ExtensionPrompt request={select()} onAnswer={answer} isMobile={false} />);
+        render(<ExtensionPrompt askId={1} request={select()} onAnswer={answer} isMobile={false} />);
 
         const list = screen.getByRole("listbox", { name: "Allow this command?" });
         fireEvent.keyDown(list, { key: "ArrowDown" });
@@ -47,7 +43,7 @@ describe("ExtensionPrompt", () => {
     });
 
     it("keeps the keyboard light when the pointer moves", () => {
-        render(<ExtensionPrompt request={select()} onAnswer={vi.fn()} isMobile={false} />);
+        render(<ExtensionPrompt askId={1} request={select()} onAnswer={vi.fn()} isMobile={false} />);
 
         const first = screen.getByRole("option", { name: "Allow once" });
         const second = screen.getByRole("option", { name: "Allow always" });
@@ -58,12 +54,14 @@ describe("ExtensionPrompt", () => {
 
     it("answers a confirm request with yes or no", () => {
         const answer = vi.fn();
-        const { rerender } = render(<ExtensionPrompt request={confirm()} onAnswer={answer} isMobile={false} />);
+        const { rerender } = render(
+            <ExtensionPrompt askId={1} request={confirm()} onAnswer={answer} isMobile={false} />,
+        );
         fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
         expect(answer).toHaveBeenCalledWith({ type: "cancelled" });
 
         answer.mockClear();
-        rerender(<ExtensionPrompt request={confirm("q-confirm-2")} onAnswer={answer} isMobile={false} />);
+        rerender(<ExtensionPrompt askId={2} request={confirm()} onAnswer={answer} isMobile={false} />);
         fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
         expect(answer).toHaveBeenCalledWith({ type: "confirmed", confirmed: true });
     });
@@ -72,6 +70,7 @@ describe("ExtensionPrompt", () => {
         const answer = vi.fn();
         render(
             <ExtensionPrompt
+                askId={1}
                 request={{
                     type: "extension_ui_request",
                     id: "q-input",
@@ -93,6 +92,7 @@ describe("ExtensionPrompt", () => {
         const answer = vi.fn();
         render(
             <ExtensionPrompt
+                askId={1}
                 request={{
                     type: "extension_ui_request",
                     id: "q-editor",
@@ -114,7 +114,7 @@ describe("ExtensionPrompt", () => {
 
     it("sends a cancellation when the dialog is closed", () => {
         const answer = vi.fn();
-        render(<ExtensionPrompt request={confirm()} onAnswer={answer} isMobile={false} />);
+        render(<ExtensionPrompt askId={1} request={confirm()} onAnswer={answer} isMobile={false} />);
         fireEvent.keyDown(document, { key: "Escape" });
         expect(answer).toHaveBeenCalledWith({ type: "cancelled" });
     });
@@ -122,6 +122,7 @@ describe("ExtensionPrompt", () => {
     it("draws nothing for a fire-and-forget request", () => {
         render(
             <ExtensionPrompt
+                askId={1}
                 request={{ type: "extension_ui_request", id: "n-1", method: "notify", message: "Saved" }}
                 onAnswer={vi.fn()}
                 isMobile={false}

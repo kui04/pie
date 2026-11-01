@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { SessionSummary } from "@/lib/bridge";
+import type { SessionInfo } from "@/lib/bridge";
 import { queryDefaults } from "@/lib/query";
 import { SessionSidebar } from "@/routes/chat/sidebar/SessionSidebar";
 import { sessionSummary } from "@/preview/fixtures";
@@ -13,13 +13,17 @@ import { sessionSummary } from "@/preview/fixtures";
  * leaves behind, and the panel then draws it without asking anyone.
  */
 const sessions = [
-    sessionSummary({ cwd: "/home/kui/Projects/pie", name: "Fix the parser" }),
-    sessionSummary({ cwd: "/home/kui/Projects/pie", name: "Rewrite the drawer" }),
-    sessionSummary({ cwd: "/home/kui/Projects/pie", name: null, firstMessage: "what does this flag do?" }),
-    sessionSummary({ cwd: "/home/kui/Projects/other", name: "Notes on the release" }),
+    sessionSummary({ cwd: "/home/kui/Projects/pie", title: { type: "named", name: "Fix the parser" } }),
+    sessionSummary({ cwd: "/home/kui/Projects/pie", title: { type: "named", name: "Rewrite the drawer" } }),
+    sessionSummary({
+        cwd: "/home/kui/Projects/pie",
+        title: { type: "untitled" },
+        firstPrompt: "what does this flag do?",
+    }),
+    sessionSummary({ cwd: "/home/kui/Projects/other", title: { type: "named", name: "Notes on the release" } }),
 ];
 
-function Seeded({ sessions, children }: { sessions: SessionSummary[]; children: ReactNode }) {
+function Seeded({ sessions, children }: { sessions: SessionInfo[]; children: ReactNode }) {
     const [client] = useState(() => {
         const client = new QueryClient(queryDefaults);
         // The same key the sidebar reads, for the host the story's args name.
@@ -35,7 +39,7 @@ const meta = {
     parameters: { layout: "fullscreen", sessions },
     decorators: [
         (Story, context) => (
-            <Seeded sessions={context.parameters.sessions as SessionSummary[]}>
+            <Seeded sessions={context.parameters.sessions as SessionInfo[]}>
                 {/* The frame is the window. The preview of the app centres what it
                     shows and keeps room around it, and a column that is the left
                     edge of a window is not a centred thing: `fixed` is what escapes
@@ -50,7 +54,7 @@ const meta = {
     ],
     args: {
         id: "session",
-        endpoint: "local",
+        host: "main",
         // The first row's conversation is held by a session, and that session is not running.
         attached: new Map([[sessions[0].path, { session: "main:1", working: false }]]),
         onPick: () => undefined,
@@ -91,7 +95,10 @@ export const Many: Story = {
         sessions: Array.from({ length: 30 }, (_, index) =>
             sessionSummary({
                 cwd: index % 3 === 0 ? "/home/kui/Projects/pie" : "/home/kui/Projects/other",
-                name: `A session name long enough that the row has to truncate it, number ${index + 1}`,
+                title: {
+                    type: "named",
+                    name: `A session name long enough that the row has to truncate it, number ${index + 1}`,
+                },
                 path: `/home/kui/.pi/sessions/session-${index + 1}.jsonl`,
             }),
         ),

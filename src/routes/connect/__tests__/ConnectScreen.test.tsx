@@ -11,12 +11,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui";
 import { toast } from "sonner";
 import { ConnectScreen, type ConnectScreenDeps } from "@/routes/connect/ConnectScreen";
-import type { ConnectionInfo, PieError, PresentedKey } from "@/lib/bridge";
+import type { AskEnvelope, ConnectionInfo, PieError, TrustAsk } from "@/lib/bridge";
 import { useHostStore } from "@/stores/host.store";
 
-const KEY: PresentedKey = {
-    host: "192.168.1.10",
-    port: 22,
+const KEY: TrustAsk = {
+    host: "main",
+    endpoint: "192.168.1.10:22",
     algorithm: "ssh-ed25519",
     fingerprint: "SHA256:2a:b4:c1:88:9f:0e",
 };
@@ -45,7 +45,7 @@ const never = () => new Promise<ConnectionInfo>(() => undefined);
  * reaches Tauri. The screen is under test, not the IPC.
  */
 function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
-    let publish: ((state: { type: "host_key"; key: PresentedKey }) => void) | undefined;
+    let publish: ((envelope: AskEnvelope<TrustAsk>) => void) | undefined;
     let abandonDial: ((reason: unknown) => void) | undefined;
     const deps: ConnectScreenDeps = {
         connection: "main",
@@ -57,13 +57,17 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
                     abandonDial = reject;
                 }),
         ),
-        trustHostKey: vi.fn(async () => true),
-        onConnectionState: vi.fn(async (_id, onState) => {
-            publish = onState as typeof publish;
+        answer: vi.fn(async () => true),
+        onTrustAsk: vi.fn(async (onAsk) => {
+            publish = onAsk;
             return () => undefined;
         }),
-        selectPaths: vi.fn(async () => null),
-        readText: vi.fn(async () => ""),
+        selectFiles: vi.fn(async () => null),
+        read: vi.fn(async (path: string) => ({
+            type: "text" as const,
+            mimeType: "text/plain",
+            content: path === "" ? "" : "",
+        })),
         notify: (failure: PieError) => toast.error(failure.message),
         onHostKey: () => undefined,
         ...overrides,
@@ -71,7 +75,7 @@ function stubBridge(overrides: Partial<ConnectScreenDeps> = {}) {
     return {
         deps,
         /** Puts the question on the wire, as Rust does during the handshake. */
-        askHostKey: () => publish?.({ type: "host_key", key: KEY }),
+        askHostKey: () => publish?.({ id: 1, timeoutMs: 1000, payload: KEY }),
         /** Ends the dial, as a host key without an answer does at the timeout. */
         failDial: (reason: unknown = new Error("the host never answered")) => abandonDial?.(reason),
     };
@@ -169,9 +173,8 @@ describe("ConnectScreen", () => {
             expect(connect).toHaveBeenCalledWith("main", {
                 transport: "ssh",
                 user: "pi",
-                host: "box.example",
-                port: 2222,
-                auth: { type: "password", password: "hunter2" },
+                host: { host: { domain: "box.example" }, port: 2222 },
+                auth: { Password: "hunter2" },
             }),
         );
     });
@@ -192,8 +195,8 @@ describe("ConnectScreen", () => {
             expect(connect).toHaveBeenCalledWith("main", {
                 transport: "ssh",
                 user: "pi",
-                host: "box.example",
-                auth: { type: "password", password: "hunter2" },
+                host: { host: { domain: "box.example" }, port: null },
+                auth: { Password: "hunter2" },
             }),
         );
     });
@@ -212,9 +215,8 @@ describe("ConnectScreen", () => {
             expect(connect).toHaveBeenCalledWith("main", {
                 transport: "ssh",
                 user: "pi",
-                host: "2001:db8::1",
-                port: 2222,
-                auth: { type: "password", password: "hunter2" },
+                host: { host: { ip: "2001:db8::1" }, port: 2222 },
+                auth: { Password: "hunter2" },
             }),
         );
     });
@@ -233,8 +235,8 @@ describe("ConnectScreen", () => {
             expect(connect).toHaveBeenCalledWith("main", {
                 transport: "ssh",
                 user: "pi",
-                host: "::1",
-                auth: { type: "password", password: "hunter2" },
+                host: { host: { ip: "::1" }, port: null },
+                auth: { Password: "hunter2" },
             }),
         );
     });
@@ -289,7 +291,7 @@ describe("ConnectScreen", () => {
 
         expect(deps.connect).toHaveBeenCalledWith(
             "main",
-            expect.objectContaining({ auth: { type: "key", key: KEY_TEXT } }),
+            expect.objectContaining({ auth: { Key: { private_key: KEY_TEXT, passphrase: null } } }),
         );
     });
 
@@ -305,7 +307,7 @@ describe("ConnectScreen", () => {
 
         expect(deps.connect).toHaveBeenCalledWith(
             "main",
-            expect.objectContaining({ auth: { type: "key", key: KEY_TEXT, passphrase: "letmein" } }),
+            expect.objectContaining({ auth: { Key: { private_key: KEY_TEXT, passphrase: "letmein" } } }),
         );
     });
 
@@ -323,8 +325,12 @@ describe("ConnectScreen", () => {
     it("drops a picked key into the one field the card has", async () => {
         const user = userEvent.setup();
         const { deps } = stubBridge({
-            selectPaths: vi.fn(async () => ["/home/user/id_ed25519"]),
-            readText: vi.fn(async () => KEY_TEXT),
+            selectFiles: vi.fn(async () => ["/home/user/id_ed25519"]),
+            read: vi.fn(async (path: string) => ({
+                type: "text" as const,
+                mimeType: "text/plain",
+                content: path === "" ? "" : KEY_TEXT,
+            })),
         });
         renderGate(deps);
         await openKeyAuth(user);
@@ -338,7 +344,7 @@ describe("ConnectScreen", () => {
 
     it("leaves the field alone when the picker was closed", async () => {
         const user = userEvent.setup();
-        const { deps } = stubBridge({ selectPaths: vi.fn(async () => null) });
+        const { deps } = stubBridge({ selectFiles: vi.fn(async () => null) });
         renderGate(deps);
         await openKeyAuth(user);
 
@@ -468,7 +474,12 @@ describe("ConnectScreen", () => {
 
         await user.click(screen.getByRole("button", { name: "Trust" }));
 
-        await waitFor(() => expect(stub.deps.trustHostKey).toHaveBeenCalledWith("main", true));
+        await waitFor(() =>
+            expect(stub.deps.answer).toHaveBeenCalledWith(1, {
+                status: "resolved",
+                data: { type: "trusted" },
+            }),
+        );
         await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
 
@@ -483,7 +494,12 @@ describe("ConnectScreen", () => {
 
         await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-        await waitFor(() => expect(stub.deps.trustHostKey).toHaveBeenCalledWith("main", false));
+        await waitFor(() =>
+            expect(stub.deps.answer).toHaveBeenCalledWith(1, {
+                status: "resolved",
+                data: { type: "refused" },
+            }),
+        );
     });
 
     it("takes the prompt away when the handshake is abandoned with it on screen", async () => {

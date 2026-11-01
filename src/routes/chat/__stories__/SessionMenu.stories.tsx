@@ -8,7 +8,7 @@ import type { Event as SessionRecord } from "@/lib/rpc-protocol";
 import { sessionMachine } from "@/machines/session.machine";
 import type { SessionRef } from "@/lib/session";
 import { SessionMenu } from "@/routes/chat/SessionMenu";
-import { sessionState } from "@/preview/fixtures";
+import { conversation, sessionState } from "@/preview/fixtures";
 
 /**
  * The menu of one conversation, opened as a press opens it. Its commands are the ones
@@ -59,9 +59,9 @@ const meta = {
         ),
     ],
     args: {
-        session: SESSION,
+        conversation: conversation({ session: SESSION }),
         machine: idle(),
-        endpoint: "local",
+        host: "main",
         open: true,
         onOpenChange: () => undefined,
         onClose: () => undefined,

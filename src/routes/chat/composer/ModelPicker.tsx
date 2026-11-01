@@ -26,10 +26,11 @@ import * as bridge from "@/lib/bridge";
 import { fuzzyFilter } from "@/lib/fuzzy";
 import type { Model } from "@/lib/rpc-protocol";
 import { sessionQueries } from "@/lib/query";
+import type { SessionKey } from "@/lib/session";
 
 export interface ModelPickerProps {
-    /** The session whose model this changes. */
-    session: string;
+    /** The conversation whose model this changes. */
+    conversation: SessionKey;
     /** The model that is active, from the state of the session. */
     current: Model | null;
     /** Whether the popup is open. The caller holds this, so one popup is open at a time. */
@@ -41,11 +42,11 @@ export interface ModelPickerProps {
     onBlur?: () => void;
 }
 
-export function ModelPicker({ session, current, open, onOpenChange, onFocus, onBlur }: ModelPickerProps) {
+export function ModelPicker({ conversation, current, open, onOpenChange, onFocus, onBlur }: ModelPickerProps) {
     const client = useQueryClient();
-    const models = useQuery({ ...sessionQueries.models(session), enabled: open });
+    const models = useQuery({ ...sessionQueries.models(conversation), enabled: open });
     const mark = useProviderLogo(current?.provider ?? null);
-    const catalogue = models.data?.models;
+    const catalogue = models.data;
     const value = current === null ? null : choiceOf(current);
 
     const choose = useCallback(
@@ -53,12 +54,12 @@ export function ModelPicker({ session, current, open, onOpenChange, onFocus, onB
             const model = catalogue?.find((candidate) => choiceOf(candidate) === chosen);
             if (model === undefined || chosen === value) return;
             void bridge
-                .setModel(session, model.provider, model.id)
-                .then(() => client.invalidateQueries({ queryKey: sessionQueries.state(session).queryKey }))
+                .setModel(conversation.host, conversation.session, model.provider, model.id)
+                .then(() => client.invalidateQueries({ queryKey: sessionQueries.state(conversation).queryKey }))
                 .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
         },
         // The rows hold this, and a fresh one would redraw all of them.
-        [catalogue, client, session, value],
+        [catalogue, client, conversation, value],
     );
 
     const pick = useCallback(

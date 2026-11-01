@@ -32,7 +32,7 @@ function renderSidebar(props: Partial<SessionSidebarProps> = {}) {
             <Wrapper>
                 <SessionSidebar
                     id="session"
-                    endpoint="local"
+                    host="main"
                     attached={new Map()}
                     onPick={() => undefined}
                     onNew={() => undefined}
@@ -122,8 +122,8 @@ describe("SessionSidebar", () => {
 
     it("groups the rows by the directory their sessions started in", async () => {
         bridge.listSessions.mockResolvedValue([
-            sessionSummary({ cwd: "/work/pie", name: "Pie work" }),
-            sessionSummary({ cwd: "/work/other", name: "Other work" }),
+            sessionSummary({ cwd: "/work/pie", title: { type: "named", name: "Pie work" } }),
+            sessionSummary({ cwd: "/work/other", title: { type: "named", name: "Other work" } }),
         ]);
 
         renderSidebar();
@@ -135,7 +135,9 @@ describe("SessionSidebar", () => {
 
     it("shows a directory's full path in a preview card", async () => {
         bridge.listDirs.mockResolvedValue({ directory: "/home/user", entries: [] });
-        bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/home/user/pie", name: "Pie work" })]);
+        bridge.listSessions.mockResolvedValue([
+            sessionSummary({ cwd: "/home/user/pie", title: { type: "named", name: "Pie work" } }),
+        ]);
 
         renderSidebar();
 
@@ -147,7 +149,9 @@ describe("SessionSidebar", () => {
     });
 
     it("keeps a session's title in the directory's text column", async () => {
-        bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/work/pie", name: "Pie work" })]);
+        bridge.listSessions.mockResolvedValue([
+            sessionSummary({ cwd: "/work/pie", title: { type: "named", name: "Pie work" } }),
+        ]);
 
         renderSidebar();
 
@@ -165,7 +169,9 @@ describe("SessionSidebar", () => {
 
     it("shows a session's full name and when it was written in a preview card", async () => {
         const modified = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString();
-        bridge.listSessions.mockResolvedValue([sessionSummary({ name: "Fix the parser", modified })]);
+        bridge.listSessions.mockResolvedValue([
+            sessionSummary({ title: { type: "named", name: "Fix the parser" }, modifiedAt: modified }),
+        ]);
 
         renderSidebar();
 
@@ -177,8 +183,8 @@ describe("SessionSidebar", () => {
 
     it("renders at most one preview card when moving between session rows", async () => {
         bridge.listSessions.mockResolvedValue([
-            sessionSummary({ name: "Session A" }),
-            sessionSummary({ name: "Session B" }),
+            sessionSummary({ title: { type: "named", name: "Session A" } }),
+            sessionSummary({ title: { type: "named", name: "Session B" } }),
         ]);
 
         renderSidebar();
@@ -199,8 +205,8 @@ describe("SessionSidebar", () => {
     });
 
     it("reads a row that pi holds nothing about as a time to choose by", async () => {
-        const named = sessionSummary({ name: null, firstMessage: "  make it faster  " });
-        const bare = sessionSummary({ name: null, firstMessage: null });
+        const named = sessionSummary({ title: { type: "untitled" }, firstPrompt: "  make it faster  " });
+        const bare = sessionSummary({ title: { type: "untitled" }, firstPrompt: null });
         bridge.listSessions.mockResolvedValue([named, bare]);
         const picked = vi.fn();
 
@@ -219,7 +225,7 @@ describe("SessionSidebar", () => {
 
     it("hands the path of the row that was chosen to the workspace", async () => {
         const picked = vi.fn();
-        const session = sessionSummary({ name: "Fix the parser" });
+        const session = sessionSummary({ title: { type: "named", name: "Fix the parser" } });
         bridge.listSessions.mockResolvedValue([session]);
 
         renderSidebar({ onPick: picked });
@@ -229,8 +235,8 @@ describe("SessionSidebar", () => {
     });
 
     it("marks active sessions with BreathLight and aligns timestamp", async () => {
-        const mine = sessionSummary({ name: "Mine" });
-        const other = sessionSummary({ name: "Other" });
+        const mine = sessionSummary({ title: { type: "named", name: "Mine" } });
+        const other = sessionSummary({ title: { type: "named", name: "Other" } });
         bridge.listSessions.mockResolvedValue([mine, other]);
 
         const held = new Map([[mine.path, { session: "main:1", working: false }]]);
@@ -255,7 +261,7 @@ describe("SessionSidebar", () => {
                 <Wrapper>
                     <SessionSidebar
                         id="session"
-                        endpoint="local"
+                        host="main"
                         attached={new Map([[mine.path, { session: "main:1", working: true }]])}
                         onPick={() => undefined}
                         onNew={() => undefined}
@@ -284,8 +290,8 @@ describe("SessionSidebar", () => {
 
     it("toggles between collapsing all groups and expanding all groups", async () => {
         bridge.listSessions.mockResolvedValue([
-            sessionSummary({ cwd: "/work/pie", name: "Pie work" }),
-            sessionSummary({ cwd: "/work/other", name: "Other work" }),
+            sessionSummary({ cwd: "/work/pie", title: { type: "named", name: "Pie work" } }),
+            sessionSummary({ cwd: "/work/other", title: { type: "named", name: "Other work" } }),
         ]);
 
         renderSidebar();
@@ -308,7 +314,9 @@ describe("SessionSidebar", () => {
 
     it("simplifies the home directory with ~ using pathe", async () => {
         bridge.homeDir.mockResolvedValue("/home/user");
-        bridge.listSessions.mockResolvedValue([sessionSummary({ cwd: "/home/user/pie", name: "Pie work" })]);
+        bridge.listSessions.mockResolvedValue([
+            sessionSummary({ cwd: "/home/user/pie", title: { type: "named", name: "Pie work" } }),
+        ]);
 
         renderSidebar();
 
@@ -316,7 +324,7 @@ describe("SessionSidebar", () => {
     });
 
     it("provides session actions menu on session row", async () => {
-        const session = sessionSummary({ name: "Pie work" });
+        const session = sessionSummary({ title: { type: "named", name: "Pie work" } });
         bridge.listSessions.mockResolvedValue([session]);
         const held = new Map([[session.path, { session: "main:1", working: false }]]);
 
@@ -340,7 +348,7 @@ describe("SessionSidebar", () => {
     });
 
     it("opens the actions menu on a long touch", async () => {
-        const session = sessionSummary({ name: "Pie work" });
+        const session = sessionSummary({ title: { type: "named", name: "Pie work" } });
         bridge.listSessions.mockResolvedValue([session]);
 
         renderSidebar();
@@ -359,8 +367,8 @@ describe("SessionSidebar", () => {
 
     it("folds a group away, and keeps the rows of the others", async () => {
         bridge.listSessions.mockResolvedValue([
-            sessionSummary({ cwd: "/work/pie", name: "Pie work" }),
-            sessionSummary({ cwd: "/work/other", name: "Other work" }),
+            sessionSummary({ cwd: "/work/pie", title: { type: "named", name: "Pie work" } }),
+            sessionSummary({ cwd: "/work/other", title: { type: "named", name: "Other work" } }),
         ]);
 
         renderSidebar();
@@ -404,8 +412,8 @@ describe("SessionSidebar", () => {
         // The press is a read of a list the reader already has: the rows stay where they are,
         // at the position they were read to, and the key that asked is the whole of the
         // progress. Bars are for a list that has nothing yet.
-        const before = [sessionSummary({ name: "Fix the parser" })];
-        const after = [sessionSummary({ name: "Rewrite the drawer" })];
+        const before = [sessionSummary({ title: { type: "named", name: "Fix the parser" } })];
+        const after = [sessionSummary({ title: { type: "named", name: "Rewrite the drawer" } })];
         let answer: (rows: unknown[]) => void = () => undefined;
         bridge.listSessions.mockResolvedValueOnce(before);
         bridge.listSessions.mockReturnValueOnce(

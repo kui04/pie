@@ -1,10 +1,10 @@
 import { ConfirmDialog } from "@/components";
 import { useIsMobile } from "@/hooks";
-import type { PresentedKey } from "@/lib/bridge";
+import type { TrustAsk } from "@/lib/bridge";
 
 export interface HostKeyPromptProps {
     /** The key to ask about. Null is how the machine says there is no question. */
-    presentedKey: PresentedKey | null;
+    presentedKey: TrustAsk | null;
     onAnswer: (trusted: boolean) => void;
     /** Pins which host to draw, for previews and tests. */
     isMobile?: boolean;
@@ -15,7 +15,7 @@ export interface HostKeyPromptProps {
  * decides. A first connection carries no other evidence, so the card asks for
  * the check instead of assuming the answer.
  */
-function hostKeyMessage(key: PresentedKey): string {
+function hostKeyMessage(key: TrustAsk): string {
     return `${key.fingerprint} (${key.algorithm}). This host has never been seen. Check the fingerprint on the host before you trust it.`;
 }
 

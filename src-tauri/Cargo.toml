@@ -21,10 +21,16 @@ tauri-build = { version = "2", features = [] }
 # place, and two people adding the same dependency land in the same spot.
 [dependencies]
 anyhow = "1"
-async-trait = "0.1"
 base64 = "0.23"
+bitflags = "2"
+blake3 = { version = "1.8.7", features = ["serde"] }
+bytes = { version = "1", features = ["serde"] }
 camino = { version = "1", features = ["serde1"] }
+enum_dispatch = "0.3.13"
+futures = "0.3"
+hostaddr = { version = "1.0.0", features = ["serde"] }
 infer = "0.22"
+jiff = { version = "0.2", features = ["serde"] }
 memchr = "2"
 mime_guess = "2"
 # The wire protocol, mirrored from the pinned Pi release. The crate carries that
@@ -35,7 +41,6 @@ russh = { version = "0.63.3", default-features = false, features = ["ring", "rsa
 russh-sftp = "3.0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 shlex = "2"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2.8.1"
@@ -45,10 +50,12 @@ tempfile = "3.27.0"
 thiserror = "2"
 time = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+tokio-util = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-typed-path = "0.13.0"
+typed-path = { version = "0.13.0", features = ["serde"] }
 ureq = "3"
+url = "2"
 
 # Alphabetical, like `[dependencies]` above.
 [dev-dependencies]

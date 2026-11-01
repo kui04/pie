@@ -12,6 +12,7 @@ import { join } from "pathe";
 
 import { useIsMobile } from "@/hooks";
 import * as bridge from "@/lib/bridge";
+import type { HostId } from "@/lib/bridge";
 import {
     climbFrom,
     displayParts,
@@ -56,8 +57,8 @@ interface Offer {
 }
 
 export interface DirectoryPickerProps {
-    /** The host whose directories these are (`local`, or `user@host:port`). */
-    endpoint: string;
+    /** The connection whose directories these are. */
+    host: HostId;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /** The directory that was confirmed. */
@@ -66,7 +67,7 @@ export interface DirectoryPickerProps {
     isMobile?: boolean;
 }
 
-export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile }: DirectoryPickerProps) {
+export function DirectoryPicker({ host, open, onOpenChange, onPick, isMobile }: DirectoryPickerProps) {
     // Called whatever `isMobile` says, so pinning it and then stopping is not a
     // change in how many hooks there are.
     const mobile = useIsMobile();
@@ -74,7 +75,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
     const client = useQueryClient();
 
     // The home of the host is read once: it names the level of an empty field.
-    const home = useQuery({ ...directoryQueries.home(endpoint), enabled: open });
+    const home = useQuery({ ...directoryQueries.home(host), enabled: open });
     const homePath = home.data ?? null;
 
     // The text of the field: the answer, as typed or as selected. Defaults to
@@ -136,7 +137,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
 
     const parentPath = requestedParent ?? homePath;
     const level = useQuery({
-        ...directoryQueries.list(endpoint, parentPath ?? ""),
+        ...directoryQueries.list(host, parentPath ?? ""),
         enabled: open && Boolean(parentPath),
     });
     // Host order is random, so the level reads A-Z, case flat.
@@ -147,7 +148,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
     const matched = matchDirs(folders, live.stub);
 
     // The folders pi holds sessions in, most recently written first.
-    const sessions = useQuery({ ...sessionsQueries.list(endpoint), enabled: open });
+    const sessions = useQuery({ ...sessionsQueries.list(host), enabled: open });
     const recalled = groupSessions(sessions.data ?? [])
         .map((group) => group.cwd)
         .filter((cwd) => cwd !== "")
@@ -257,7 +258,7 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
             return;
         }
         void bridge
-            .dirExists(value)
+            .dirExists(host, value)
             .then((stands) => {
                 if (stands) pick(value);
                 else setMaking(value);
@@ -270,9 +271,9 @@ export function DirectoryPicker({ endpoint, open, onOpenChange, onPick, isMobile
         setCreating(true);
         setCreateFailed(null);
         void bridge
-            .createDir(making)
+            .createDirAll(host, making)
             .then(() => {
-                void client.invalidateQueries({ queryKey: ["dirs", endpoint] });
+                void client.invalidateQueries({ queryKey: ["dirs", host] });
                 pick(making);
             })
             .catch((thrown: unknown) => setCreateFailed(bridge.asPieError(thrown).message))

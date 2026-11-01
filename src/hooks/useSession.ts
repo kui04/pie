@@ -12,9 +12,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect } from "react";
 import { sessionQueries, statsPoll } from "@/lib/query";
 import type { SessionRef } from "@/lib/session";
+import type { SessionKey } from "@/lib/session";
 import { errorOf, isListening, isReady, phaseOf } from "@/machines/session.machine";
 
-export function useSession(session: string, machine: SessionRef | null) {
+export function useSession(key: SessionKey, machine: SessionRef | null) {
     // The chart's state, as the screen reads it. A screen can ask before the registry has
     // made the chart; the reads then stay off until it arrives.
     const actor = machine ?? undefined;
@@ -25,9 +26,9 @@ export function useSession(session: string, machine: SessionRef | null) {
 
     // The listeners are open, so this session may be read: `enabled` keeps the reads off
     // until then, and the records in between cannot pass unheard.
-    const state = useQuery({ ...sessionQueries.state(session), enabled: open });
-    const entries = useQuery({ ...sessionQueries.entries(session), enabled: open });
-    const stats = useQuery({ ...sessionQueries.stats(session), enabled: open, refetchInterval: statsPoll(phase) });
+    const state = useQuery({ ...sessionQueries.state(key), enabled: open });
+    const entries = useQuery({ ...sessionQueries.entries(key), enabled: open });
+    const stats = useQuery({ ...sessionQueries.stats(key), enabled: open, refetchInterval: statsPoll(phase) });
 
     // The read of the state may set the phase only while the chart's authority is open, and
     // only if it is newer than the last applied answer: its answer was built before the

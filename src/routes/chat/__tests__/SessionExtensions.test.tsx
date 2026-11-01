@@ -1,25 +1,20 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { type ReactNode } from "react";
-import { describe, expect, it } from "vitest";
-import type { ExtensionSnapshot } from "@/lib/bridge";
-import { queryDefaults, sessionKeys } from "@/lib/query";
+import { beforeEach, describe, expect, it } from "vitest";
+import { useExtensionStore } from "@/lib/extension/store";
+import { idOf } from "@/lib/session";
+import { conversation } from "@/preview/fixtures";
 import { SessionExtensions } from "@/routes/chat/topbar/SessionExtensions";
 
-const SESSION = "main:1";
-
-function snapshot(statuses: { key: string; text: string }[]): ExtensionSnapshot {
-    return { requests: [], statuses, title: null, editorText: null };
-}
+const CONVERSATION = conversation({ session: "main:1" });
 
 function show(statuses: { key: string; text: string }[]) {
-    const client = new QueryClient(queryDefaults);
-    client.setQueryData(sessionKeys.extension(SESSION), snapshot(statuses));
-    const wrapper = ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-    return render(<SessionExtensions session={SESSION} />, { wrapper });
+    useExtensionStore.setState({ statuses: { [idOf(CONVERSATION)]: statuses }, dialogs: {}, editors: {} });
+    return render(<SessionExtensions conversation={CONVERSATION} />);
 }
+
+beforeEach(() => {
+    useExtensionStore.setState({ statuses: {}, dialogs: {}, editors: {} });
+});
 
 describe("SessionExtensions", () => {
     it("opens the status popover and marks a reported status", async () => {

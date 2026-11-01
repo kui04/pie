@@ -1,3 +1,4 @@
+import { conversation } from "@/preview/fixtures";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DeleteSession } from "@/routes/chat/SessionMenu";
 
@@ -6,7 +7,8 @@ const meta = {
     component: DeleteSession,
     parameters: { layout: "fullscreen" },
     args: {
-        session: "main:1",
+        conversation: conversation(),
+        host: conversation().host,
         file: "/home/kui/.pi/agent/sessions/pie/2026-01-01T00-00-00-000Z_0193f0c4.jsonl",
         onClose: () => undefined,
         onDeleted: () => undefined,

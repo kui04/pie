@@ -1,6 +1,6 @@
 import { createActor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
-import type { PieError, StagedAttachment as StagedAttachmentResult } from "@/lib/bridge";
+import type { PieError } from "@/lib/bridge";
 import {
     attachmentsMachine,
     itemsOf,
@@ -8,6 +8,7 @@ import {
     type AttachmentDeps,
     type StageRequest,
     type StagedAttachment,
+    type StagedAttachmentResult,
 } from "@/machines/attachments.machine";
 
 /**

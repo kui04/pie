@@ -11,17 +11,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
 import type { SessionEntry } from "@/lib/rpc-protocol";
 import { forgetSession, phases, sessionOf, subscribeSessions, syncSessions, type SessionRef } from "../registry";
-import { user } from "@/preview/fixtures";
+import { idOf } from "../key";
+import { conversation, user } from "@/preview/fixtures";
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
     ...(await importOriginal<typeof Bridge>()),
     log: { ...(await importOriginal<typeof Bridge>()).log, debug: vi.fn(), warn: vi.fn() },
     onSessionEvent: vi.fn(async () => () => undefined),
-    onSessionState: vi.fn(async () => () => undefined),
+    onSessionEnded: vi.fn(async () => () => undefined),
 }));
 
-const A = "main:1";
-const B = "main:2";
+const A = conversation({ session: "main:1" });
+const B = conversation({ session: "main:2" });
 
 let client: QueryClient;
 
@@ -80,18 +81,18 @@ describe("the charts of the sessions", () => {
         syncSessions([A, B], client);
         await live(sessionOf(A));
 
-        expect(phases().get(A)).toBe("idle");
-        expect(phases().get(B)).toBe("idle");
+        expect(phases().get(idOf(A))).toBe("idle");
+        expect(phases().get(idOf(B))).toBe("idle");
 
         sessionOf(A)?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } });
 
         // A run that continues while the session is off screen still lights its row.
-        expect(phases().get(A)).toBe("waiting");
+        expect(phases().get(idOf(A))).toBe("waiting");
         expect(heard.length).toBeGreaterThan(0);
 
-        forgetSession(A);
-        expect(phases().has(A)).toBe(false);
-        expect(phases().get(B)).toBe("idle");
+        forgetSession(idOf(A));
+        expect(phases().has(idOf(A))).toBe(false);
+        expect(phases().get(idOf(B))).toBe("idle");
         stop();
     });
 
@@ -110,7 +111,7 @@ describe("the charts of the sessions", () => {
         syncSessions([A], client);
         const actor = sessionOf(A);
 
-        forgetSession(A);
+        forgetSession(idOf(A));
 
         expect(actor?.getSnapshot().status).toBe("stopped");
         expect(() => actor?.send({ type: "RECORD", at: 0, record: { type: "agent_start" } })).not.toThrow();

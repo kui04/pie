@@ -6,7 +6,7 @@ import { createActor } from "xstate";
 import { sessionMachine } from "@/machines/session.machine";
 import { queryDefaults } from "@/lib/query";
 import { Composer } from "@/routes/chat/composer/Composer";
-import { sessionState, slashCommand } from "@/preview/fixtures";
+import { sessionState, slashCommand, conversation } from "@/preview/fixtures";
 
 /**
  * The box reads the state and the commands of its session over the bridge, which no
@@ -58,7 +58,7 @@ const meta = {
         ),
     ],
     args: {
-        session: "main:1",
+        conversation: conversation(),
         working: false,
         machine,
     },
