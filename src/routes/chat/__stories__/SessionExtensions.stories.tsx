@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { idOf } from "@/lib/session";
-import { useExtensionStore } from "@/lib/extension/store";
+import { useExtensionStore } from "@/lib/extension";
 import { conversation } from "@/preview/fixtures";
 import { SessionExtensions } from "@/routes/chat/topbar/SessionExtensions";
 

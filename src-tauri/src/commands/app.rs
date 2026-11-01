@@ -92,8 +92,10 @@ pub fn app_platform() -> Result<Platform, PieError> {
 #[tauri::command(rename = "provider_logo")]
 pub async fn app_provider_logo(
     state: State<'_, AppState>,
-    provider: ProviderId,
+    provider: String,
 ) -> Result<Option<String>, PieError> {
+    let provider = ProviderId::parse(&provider)?;
+
     // The guard is released before any await, and before the fetch.
     let (dir, path, cached) = {
         let mut cache = state.cache.lock().unwrap_or_else(PoisonError::into_inner);
@@ -109,7 +111,7 @@ pub async fn app_provider_logo(
     };
 
     if cached {
-        match std::fs::read(&path) {
+        match tokio::fs::read(path.as_std_path()).await {
             Ok(bytes) => return Ok(Some(STANDARD.encode(bytes))),
             Err(error) => {
                 tracing::warn!(%error, path = %path, "a cached provider mark could not be read")

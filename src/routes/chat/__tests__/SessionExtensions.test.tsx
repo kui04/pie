@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useExtensionStore } from "@/lib/extension/store";
+import { useExtensionStore } from "@/lib/extension";
 import { idOf } from "@/lib/session";
 import { conversation } from "@/preview/fixtures";
 import { SessionExtensions } from "@/routes/chat/topbar/SessionExtensions";

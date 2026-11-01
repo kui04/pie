@@ -25,7 +25,7 @@ import {
 import { subscribeToReachFailures } from "@/lib/query";
 import { connectionQueries } from "@/lib/query";
 import * as bridge from "@/lib/bridge";
-import { useHostStore } from "@/stores/host.store";
+import { useHostStore } from "@/stores";
 
 /** The machine pie reached, as the last dial described it. */
 function endpointOf(host: { transport: "local" | "ssh"; address: string } | null): string {

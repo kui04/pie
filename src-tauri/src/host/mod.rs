@@ -1,7 +1,7 @@
 //! One machine: the reach to it, the programs it runs, and its files.
 
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
@@ -19,8 +19,35 @@ use typed_path::{Utf8TypedPath, Utf8TypedPathBuf};
 
 use crate::bus::Bus;
 use crate::channel::{Channel, Process};
-use crate::session::{Session, SessionInfo, store};
-use crate::state::{HostId, LocalDirs};
+use crate::session::{SHUTDOWN_GRACE, Session, SessionInfo, reap_process, store};
+use crate::state::LocalDirs;
+
+/// Maximum time an RPC command (`bash`, `compact`) may run before timing out on the client.
+const RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 60);
+
+/// The name of one connection. The frontend generates it.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
+pub struct HostId(String);
+
+impl HostId {
+    #[cfg(test)]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for HostId {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
 
 pub mod executor;
 pub mod fs;
@@ -119,7 +146,7 @@ pub async fn connect(
         id,
         target,
         host,
-        sessions: RwLock::new(HostSessions::default()),
+        sessions: Arc::new(RwLock::new(HostSessions::default())),
         ending: Arc::new(AtomicBool::new(false)),
     };
 
@@ -132,10 +159,17 @@ pub async fn connect(
         Arc::clone(&connection.ending),
     ));
 
-    let version = connection
+    let version = match connection
         .pi_version()
         .await
-        .context("this machine does not answer `pi --version`")?;
+        .context("this machine does not answer `pi --version`")
+    {
+        Ok(version) => version,
+        Err(error) => {
+            let _ = connection.disconnect().await;
+            return Err(error);
+        }
+    };
     if version != PI_VERSION {
         tracing::warn!(
             found = %version,
@@ -227,7 +261,7 @@ pub struct HostConnection {
     id: HostId,
     target: HostTarget,
     host: Host,
-    sessions: RwLock<HostSessions>,
+    sessions: Arc<RwLock<HostSessions>>,
     /// Set when pie itself ends the reach, so no end is announced for it.
     ending: Arc<AtomicBool>,
 }
@@ -348,12 +382,15 @@ impl HostConnection {
         let mut info = store::scan_session_file(&self.host, &entry, family).await?;
 
         let home = self.host.home_dir().await?;
-        let (channel, process) = self.spawn_pi(home.to_path(), Some(path.clone())).await?;
-        let client = Client::new(channel);
-        let state = client
-            .get_state()
-            .await
-            .context("pi did not answer with the state of its conversation")?;
+        let (channel, mut process) = self.spawn_pi(home.to_path(), Some(path.clone())).await?;
+        let client = rpc_client(channel);
+        let state = match initial_rpc_state(&client).await {
+            Ok(state) => state,
+            Err(error) => {
+                abort_started_pi(&client, &mut process).await;
+                return Err(error);
+            }
+        };
         info.apply_rpc_state(&state);
 
         let session = Arc::new(Session::new(path.clone(), info, client, process));
@@ -381,7 +418,11 @@ impl HostConnection {
 
         match registered {
             Ok(()) => {
-                session.pump(self.id.clone(), bus);
+                let sessions = Arc::clone(&self.sessions);
+                let evicted = Arc::clone(&session);
+                session.pump(self.id.clone(), bus, move || {
+                    evict_if_same(&sessions, &path, &evicted);
+                });
                 Ok(session)
             }
             Err(existing) => {
@@ -401,24 +442,33 @@ impl HostConnection {
         cwd: Utf8TypedPath<'_>,
         bus: Bus,
     ) -> anyhow::Result<Arc<Session>> {
-        let (channel, process) = self.spawn_pi(cwd, None).await?;
-        let client = Client::new(channel);
-        let state = client
-            .get_state()
-            .await
-            .context("pi did not answer with the state of its conversation")?;
+        let (channel, mut process) = self.spawn_pi(cwd, None).await?;
+        let client = rpc_client(channel);
+        let startup = async {
+            let state = initial_rpc_state(&client).await?;
 
-        let file = state
-            .session_file
-            .clone()
-            .filter(|file| !file.is_empty())
-            .context("pi started no conversation file")?;
+            let file = state
+                .session_file
+                .clone()
+                .filter(|file| !file.is_empty())
+                .context("pi started no conversation file")?;
 
-        let family = self.host.family().await;
-        let path = typed(file, family);
-        let entry = self.host.metadata(path.to_path()).await?;
-        let mut info = store::scan_session_file(&self.host, &entry, family).await?;
-        info.apply_rpc_state(&state);
+            let family = self.host.family().await;
+            let path = typed(file, family);
+            let entry = self.host.metadata(path.to_path()).await?;
+            let mut info = store::scan_session_file(&self.host, &entry, family).await?;
+            info.apply_rpc_state(&state);
+            Ok::<(Utf8TypedPathBuf, SessionInfo), anyhow::Error>((path, info))
+        }
+        .await;
+
+        let (path, info) = match startup {
+            Ok(started) => started,
+            Err(error) => {
+                abort_started_pi(&client, &mut process).await;
+                return Err(error);
+            }
+        };
 
         let session = Arc::new(Session::new(path.clone(), info, client, process));
         session
@@ -432,12 +482,16 @@ impl HostConnection {
                 .sessions
                 .write()
                 .unwrap_or_else(PoisonError::into_inner);
-            guard.attached.insert(path, Arc::clone(&session));
+            guard.attached.insert(path.clone(), Arc::clone(&session));
         }
 
         // The pump starts once the session is the one this connection serves, so a
         // notification can never describe a conversation the map does not hold.
-        session.pump(self.id.clone(), bus);
+        let sessions = Arc::clone(&self.sessions);
+        let evicted = Arc::clone(&session);
+        session.pump(self.id.clone(), bus, move || {
+            evict_if_same(&sessions, &path, &evicted);
+        });
 
         Ok(session)
     }
@@ -520,6 +574,46 @@ impl HostConnection {
     }
 }
 
+/// Builds a [`Client`] with a long request deadline (`bash`, `compact`) and a bounded close deadline.
+fn rpc_client(channel: Channel) -> Client {
+    Client::with_config(
+        channel,
+        pi_rpc::client::Config::default()
+            .with_request_timeout(RPC_REQUEST_TIMEOUT)
+            .with_close_timeout(SHUTDOWN_GRACE),
+    )
+}
+
+/// Reads the initial conversation state from a newly started `pi` within the default 30s startup deadline.
+async fn initial_rpc_state(client: &Client) -> anyhow::Result<pi_rpc::response::SessionState> {
+    tokio::time::timeout(pi_rpc::client::DEFAULT_REQUEST_TIMEOUT, client.get_state())
+        .await
+        .context("pi did not answer with the state of its conversation in time")?
+        .context("pi did not answer with the state of its conversation")
+}
+
+/// Closes `client` and reaps `process` when startup fails before a [`Session`] is registered.
+async fn abort_started_pi(client: &Client, process: &mut Process) {
+    if let Err(error) = client.close().await {
+        tracing::debug!(%error, "the rpc client of a failed startup did not close cleanly");
+    }
+    if let Err(error) = reap_process(process).await {
+        tracing::warn!(%error, "the pi process of a failed startup did not end");
+    }
+}
+
+/// Removes `evicted` from `sessions` when it is still the registered session for `path`.
+fn evict_if_same(sessions: &RwLock<HostSessions>, path: &Utf8TypedPathBuf, evicted: &Arc<Session>) {
+    let mut guard = sessions.write().unwrap_or_else(PoisonError::into_inner);
+    if guard
+        .attached
+        .get(path)
+        .is_some_and(|current| Arc::ptr_eq(current, evicted))
+    {
+        guard.attached.remove(path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -549,7 +643,7 @@ mod tests {
             id: HostId::new("test"),
             target: HostTarget::Local,
             host: Host::Local(local::LocalHost::new(&dirs)),
-            sessions: RwLock::new(HostSessions::default()),
+            sessions: Arc::new(RwLock::new(HostSessions::default())),
             ending: Arc::new(AtomicBool::new(false)),
         }
     }

@@ -13,7 +13,7 @@ import { conversation, sessionSummary } from "@/preview/fixtures";
 import { useSessionSync } from "@/hooks/useSessionSync";
 
 const fake = vi.hoisted(() => ({
-    listSessions: vi.fn<() => Promise<Bridge.SessionInfo[]>>(),
+    getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo>>(),
     onSessionEvent: vi.fn(async () => () => undefined),
     onSessionEnded: vi.fn(async () => () => undefined),
 }));
@@ -25,8 +25,12 @@ vi.mock("@/lib/bridge", async (importOriginal) => ({
 }));
 
 /** The conversations the machine holds, as the command answers them. */
-function connected(sessions: string[]): Bridge.SessionInfo[] {
-    return sessions.map((path) => sessionSummary({ path }));
+function connected(sessions: string[]): Bridge.ConnectionInfo {
+    return {
+        id: "main",
+        sessions: sessions.map((path) => sessionSummary({ path })),
+        open: true,
+    };
 }
 
 const A = conversation({ session: "main:1" });
@@ -53,7 +57,7 @@ function Sync() {
 
 describe("the sessions of the connection", () => {
     it("starts a chart for every conversation the connection holds, and follows it", async () => {
-        fake.listSessions.mockResolvedValue(connected(["main:1", "main:2"]));
+        fake.getConnection.mockResolvedValue(connected(["main:1", "main:2"]));
         render(
             <QueryClientProvider client={client}>
                 <Sync />
@@ -64,7 +68,7 @@ describe("the sessions of the connection", () => {
         expect(sessionOf(B)).not.toBeNull();
 
         // The connection that comes after this one holds another conversation, and nothing else.
-        fake.listSessions.mockResolvedValue(connected(["main:2"]));
+        fake.getConnection.mockResolvedValue(connected(["main:2"]));
         await client.invalidateQueries({ queryKey: ["connection"] });
 
         await vi.waitFor(() => expect(sessionOf(A)).toBeNull());
@@ -79,7 +83,7 @@ describe("the sessions of the connection", () => {
     });
 
     it("forgets every chart when the connection is gone", async () => {
-        fake.listSessions.mockResolvedValue(connected(["main:1"]));
+        fake.getConnection.mockResolvedValue(connected(["main:1"]));
         render(
             <QueryClientProvider client={client}>
                 <Sync />
@@ -87,7 +91,7 @@ describe("the sessions of the connection", () => {
         );
         await vi.waitFor(() => expect(sessionOf(A)).not.toBeNull());
 
-        fake.listSessions.mockRejectedValue({ kind: "not_connected", message: "no connection" });
+        fake.getConnection.mockRejectedValue({ kind: "not_connected", message: "no connection" });
         await client.invalidateQueries({ queryKey: ["connection"] });
 
         await vi.waitFor(() => expect(sessionOf(A)).toBeNull());

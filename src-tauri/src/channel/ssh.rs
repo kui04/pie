@@ -41,22 +41,23 @@ pub enum SshProcessError {
     /// The channel ended without an exit message.
     #[error("the ssh channel ended without an exit status")]
     NoStatus,
+}
 
-    /// The channel request itself failed.
-    #[error(transparent)]
-    Channel(#[from] russh::Error),
+/// Output and exit status received from an SSH channel before `ChannelMsg::Success`.
+pub(crate) struct EarlyChannelOutput {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub exit: Option<ExitStatus>,
 }
 
 /// Takes a started exec channel: its streams become a [`Channel`], its end an
 /// [`SshProcess`].
 ///
-/// `early_stdout` and `early_stderr` hold what the machine sent before it
-/// confirmed the exec request; the pump writes them out before it reads the
-/// channel.
+/// `early` holds what the machine sent before it confirmed the exec request; the
+/// pump writes it out before reading the channel.
 pub(crate) fn spawn(
     channel: russh::Channel<russh::client::Msg>,
-    early_stdout: Vec<u8>,
-    early_stderr: Vec<u8>,
+    early: EarlyChannelOutput,
 ) -> (Channel, SshProcess) {
     let (read_half, write_half) = channel.split();
 
@@ -69,8 +70,7 @@ pub(crate) fn spawn(
         read_half,
         stdout,
         stderr,
-        early_stdout,
-        early_stderr,
+        early,
         exit,
         Arc::clone(&stop),
     ));
@@ -146,27 +146,25 @@ async fn pump(
     mut channel: russh::ChannelReadHalf,
     mut stdout: DuplexStream,
     mut stderr: DuplexStream,
-    early_stdout: Vec<u8>,
-    early_stderr: Vec<u8>,
+    early: EarlyChannelOutput,
     exit: watch::Sender<Option<ExitStatus>>,
     stop: Arc<tokio::sync::Notify>,
 ) {
     // `Unknown` means the channel closed without an exit message; `wait` reads it
     // as the absence of a status, not as one.
-    let mut ended = ExitStatus::Unknown;
+    let mut ended = early.exit.unwrap_or(ExitStatus::Unknown);
     let mut dropped = 0usize;
 
     let copy = async {
-        if !early_stdout.is_empty() && stdout.write_all(&early_stdout).await.is_err() {
-            return;
-        }
-        dropped += early_stderr.len() - write_now(&mut stderr, &early_stderr);
+        let mut stdout_open =
+            early.stdout.is_empty() || stdout.write_all(&early.stdout).await.is_ok();
+        dropped += early.stderr.len() - write_now(&mut stderr, &early.stderr);
 
         while let Some(message) = channel.wait().await {
             match message {
                 ChannelMsg::Data { data } => {
-                    if stdout.write_all(&data).await.is_err() {
-                        break;
+                    if stdout_open && stdout.write_all(&data).await.is_err() {
+                        stdout_open = false;
                     }
                 }
                 ChannelMsg::ExtendedData { data, ext: STDERR } => {

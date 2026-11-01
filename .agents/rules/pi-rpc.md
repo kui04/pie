@@ -27,10 +27,8 @@ Pi's fields, or "improve" wire shapes.
 - Unknown events or commands MUST NOT crash the client: keep the raw JSON
   (untagged fallback) so protocol additions degrade gracefully until the next
   pin bump.
-- A change to the protocol types belongs in the crate, and it MUST update the
-  recorded JSONL fixtures of this app in the same change. The corpus (a real
-  `pi --mode rpc`) and `tests/conformance.rs`, which reads it through the crate,
-  return with the rewrite's test suite; a protocol change re-records both then.
+- A change to the protocol types belongs in the `pi_rpc` crate, and `Cargo.lock`
+  in this repository MUST be updated in the same change.
 
 ## Runtime rules
 

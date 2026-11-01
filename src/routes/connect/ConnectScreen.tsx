@@ -9,7 +9,7 @@ import { connectionMachine, type ConnectionDeps, type TrustQuestion } from "@/ma
 import { SafeArea, WindowControls } from "@/components";
 import { toast } from "sonner";
 import * as bridge from "@/lib/bridge";
-import { useHostStore, type RememberedHost } from "@/stores/host.store";
+import { useHostStore, type RememberedHost } from "@/stores";
 
 /** The first contents of the card: this machine, no data typed. */
 const EMPTY_FORM: ConnectionForm = {

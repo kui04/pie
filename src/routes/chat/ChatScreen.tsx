@@ -89,9 +89,10 @@ export function ChatScreen() {
         () => null,
     );
     const cwd = sessions.find((running) => running.path === session)?.cwd ?? null;
+    const activeConversation = useMemo(() => (session === null ? null : { host, session }), [host, session]);
     // One read of the session in view, so the content can choose the loading page before
     // any part of the conversation mounts. The chart may arrive a frame after the attach.
-    const view = useSession({ host, session: session ?? "" }, chart);
+    const view = useSession(activeConversation ?? { host, session: "" }, chart);
     const sessionFailure =
         stage === "viewing" ? (view.error ?? view.entries.error ?? view.state.error ?? view.stats.error) : null;
     const sessionLoaded =
@@ -182,8 +183,8 @@ export function ChatScreen() {
         content = failurePage(detached.message, () => machine.send({ type: "RETRY" }));
     } else if (stage === "viewing" && sessionFailure !== null) {
         content = failurePage(bridge.asPieError(sessionFailure).message, retrySession);
-    } else if (stage === "viewing" && sessionLoaded && session !== null && chart !== null) {
-        content = <SessionMain conversation={{ host, session }} machine={chart} view={view} />;
+    } else if (stage === "viewing" && sessionLoaded && activeConversation !== null && chart !== null) {
+        content = <SessionMain conversation={activeConversation} machine={chart} view={view} />;
     } else if (stage === "viewing") {
         content = <SessionLoading />;
     } else {
@@ -211,24 +212,29 @@ export function ChatScreen() {
                 start={
                     <>
                         <SidebarToggle expanded={expanded} onToggleSessions={toggleSessions} />
-                        {sessionLoaded && chart !== null && session !== null && (
-                            <SessionSlots conversation={{ host, session }} machine={chart} cwd={cwd} />
+                        {sessionLoaded && chart !== null && activeConversation !== null && (
+                            <SessionSlots conversation={activeConversation} machine={chart} cwd={cwd} />
                         )}
                     </>
                 }
                 end={
-                    sessionLoaded && chart !== null && session !== null ? (
+                    sessionLoaded && chart !== null && activeConversation !== null ? (
                         <>
-                            <SessionUsage conversation={{ host, session }} machine={chart} key={session} />
-                            <SessionExtensions conversation={{ host, session }} />
+                            <SessionUsage
+                                conversation={activeConversation}
+                                machine={chart}
+                                key={activeConversation.session}
+                            />
+                            <SessionExtensions conversation={activeConversation} />
                             <SessionMenu
-                                conversation={{ host, session }}
+                                conversation={activeConversation}
                                 machine={chart}
                                 host={host}
                                 open={menu}
                                 onOpenChange={setMenu}
                                 onClose={() => machine.send({ type: "CLOSE" })}
                                 onGone={() => machine.send({ type: "GONE" })}
+                                onSwitch={(next) => machine.send({ type: "OPEN", session: next })}
                                 triggerClassName="size-6"
                                 alignOffset={2}
                             />
@@ -256,6 +262,10 @@ export function ChatScreen() {
 
     function retrySession() {
         if (session === null) return;
+        if (sessionFailure !== null && bridge.asPieError(sessionFailure).kind === "not_attached") {
+            machine.send({ type: "FOCUS", path: session });
+            return;
+        }
         view.reopen();
         void client.invalidateQueries({ queryKey: ["connection"] });
         void client.invalidateQueries({ queryKey: sessionKeys.whole({ host, session }) });

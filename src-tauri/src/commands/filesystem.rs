@@ -15,6 +15,9 @@ use crate::error::PieError;
 /// Bytes read from the head of a file to name its type.
 const SNIFF_BYTES: usize = 8 * 1024;
 
+/// Maximum bytes [`filesystem_read`] loads into memory for a single local file (50 MiB).
+const MAX_READ_BYTES: u64 = 50 * 1024 * 1024;
+
 /// The text a picker answered and the frontend kept, before pie knows what it names.
 ///
 /// A value says only "one text": a path and a URL arrive the same way. The text stays
@@ -132,11 +135,17 @@ pub async fn filesystem_read(app: AppHandle, path: PickedText) -> Result<File, P
         .open(picked, options)
         .with_context(|| format!("opening `{}`", source.as_str()))?;
 
-    let mut file = tokio::fs::File::from_std(file);
+    let file = tokio::fs::File::from_std(file);
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
+    file.take(MAX_READ_BYTES + 1)
+        .read_to_end(&mut bytes)
         .await
         .with_context(|| format!("reading `{}`", source.as_str()))?;
+    if bytes.len() as u64 > MAX_READ_BYTES {
+        return Err(PieError::BadArgument {
+            reason: format!("`{}` exceeds the 50 MiB read limit", source.as_str()),
+        });
+    }
 
     let head = &bytes[..bytes.len().min(SNIFF_BYTES)];
     let named = match &source {
@@ -196,11 +205,17 @@ pub async fn filesystem_read_metadata(path: PickedText) -> Result<FileMetadata, 
         }
     };
 
-    let target = std::fs::metadata(path.as_std_path())
+    let target = tokio::fs::metadata(path.as_std_path())
+        .await
         .with_context(|| format!("reading the metadata of `{path}`"))?;
-    let link = std::fs::symlink_metadata(path.as_std_path())
+    let link = tokio::fs::symlink_metadata(path.as_std_path())
+        .await
         .with_context(|| format!("reading the metadata of `{path}`"))?;
-    let mime_type = file_type(&head_of(&path), Some(path.as_path()));
+    let mime_type = if target.is_dir() {
+        "inode/directory".to_owned()
+    } else {
+        file_type(&head_of(&path).await, Some(path.as_path()))
+    };
 
     Ok(FileMetadata {
         path,
@@ -317,15 +332,13 @@ fn local_source(pick: FilePath) -> Result<LocalFileSource, PieError> {
 }
 
 /// The first [`SNIFF_BYTES`] of one file, or nothing when it cannot be read.
-fn head_of(path: &Utf8Path) -> Vec<u8> {
-    use std::io::Read as _;
-
-    let Ok(file) = std::fs::File::open(path.as_std_path()) else {
+async fn head_of(path: &Utf8Path) -> Vec<u8> {
+    let Ok(file) = tokio::fs::File::open(path.as_std_path()).await else {
         return Vec::new();
     };
 
     let mut head = Vec::with_capacity(SNIFF_BYTES);
-    let _ = file.take(SNIFF_BYTES as u64).read_to_end(&mut head);
+    let _ = file.take(SNIFF_BYTES as u64).read_to_end(&mut head).await;
     head
 }
 

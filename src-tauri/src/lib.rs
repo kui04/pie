@@ -1,8 +1,3 @@
-#![expect(
-    unused,
-    reason = "helpers and fields of the lower layers have no caller yet"
-)]
-
 //! Pie's Tauri application: the reach to a machine, its sessions, and the IPC
 //! bus to the React frontend.
 //!
@@ -49,6 +44,7 @@ pub fn run() {
             filesystem_select_files,
             host_attach_session,
             host_connect,
+            host_connection_info,
             host_create_dir_all,
             host_delete_session,
             host_detach_session,

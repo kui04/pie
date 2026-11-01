@@ -15,18 +15,18 @@ src-tauri/src/host/      A machine: the reach to it, the connection pie holds, i
                          files
 src-tauri/src/session/   The conversations: the scan of their files, and one
                          pi process each
-src-tauri/src/state.rs   What every command shares: the hosts, the bridge, and
+src-tauri/src/state.rs   What every command shares: the hosts, the bus, and
                          the caches
 src-tauri/src/commands/  The IPC surface: one file per area (app, filesystem,
                          host, log, session)
-src-tauri/src/bridge.rs  The event channel and the ask channel to the frontend
+src-tauri/src/bus.rs     The event channel and the ask channel to the frontend
 src-tauri/src/error.rs   The failure a command returns
 src-tauri/src/log.rs     Where pie's own log goes
 pi_rpc (git dependency)  The protocol crate: Pi's wire types, framing, client
 ```
 
 The dependency direction is `commands -> state -> host -> channel -> pi_rpc`.
-`bridge` sits beside every layer, because a session asks the frontend a question
+`bus` sits beside every layer, because a session asks the frontend a question
 while pi waits for the answer; `error` is the command layer's alone.
 `state::LocalDirs` is the one value that travels the other way: a plain record
 of pie's own directories, handed to `host::connect` and read nowhere else in
@@ -51,13 +51,14 @@ the enum carries no fields, so the state a connection owns sits there.
   the machine through permissions the capability file grants, and the frontend
   reaching one directly puts a second, unpoliced way out beside the command
   boundary. The Rust side registers the plugin it wants and exports a command
-  (`filesystem_select_files`, `filesystem_read`, `filesystem_read_metadata` in
-  `commands/filesystem.rs`, over `tauri-plugin-dialog` + `tauri-plugin-fs`, or
-  `commands::app::app_open_url` over `tauri-plugin-opener`); drop the npm
-  package with it; `src-tauri/capabilities/default.json` grants no plugin
-  permission, because the frontend reaches no plugin directly. `@tauri-apps/api`
-  is not a plugin: `invoke`, the event bus and the window live in
-  `src/lib/bridge/` and are the bridge itself.
+  (`filesystem_create_dir_all`, `filesystem_read`, `filesystem_read_metadata`,
+  `filesystem_select_files` in `commands/filesystem.rs`, over
+  `tauri-plugin-dialog` + `tauri-plugin-fs`, or `commands::app::app_open_url`
+  over `tauri-plugin-opener`); drop the npm package with it;
+  `src-tauri/capabilities/default.json` grants no plugin permission, because the
+  frontend reaches no plugin directly. `@tauri-apps/api` is not a plugin:
+  `invoke`, the event bus and the window live in `src/lib/bridge/` and are the
+  bridge itself.
 - Rust (`src-tauri`) owns ALL logic: process supervision, the reach to a
   machine, retries and backoff, host-key verification, protocol normalization,
   error mapping.
@@ -91,9 +92,8 @@ the enum carries no fields, so the state a connection owns sits there.
 ## IPC contract
 
 - Commands live in `src-tauri/src/commands/`, snake_case, and return
-  `Result<T, PieError>` — never a bare string error. The two bridge calls,
-  `answer` and `ready_for_answer`, answer the bridge directly and are not
-  fallible.
+  `Result<T, PieError>` — never a bare string error. The two bus calls, `answer`
+  and `ready_for_answer`, answer the bus directly and are not fallible.
 - A command function is named `<area>_<operation>`: `host_create_dir_all` in
   `commands/host.rs`. The wire name stays short, and the attribute carries it:
   `#[tauri::command(rename = "create_dir_all")]`. Both names must be unique in
@@ -103,12 +103,13 @@ the enum carries no fields, so the state a connection owns sits there.
   bare identifiers in dictionary order, and each file keeps its own commands in
   dictionary order.
 - Events are named `pi://<area>/<event>`: `pi://ask/{extension,host_key}`,
-  `pi://extension/{notice,status,title,editor}`, and `pi://upload/{upload_id}`.
-  A payload that names a session carries its conversation file in `session`
-  (`Utf8TypedPathBuf` in Rust, a string on the wire). An upload event reports
-  `{ bytes, total }` while the file travels, and the answer of the call is the
-  receipt; report bytes, never a percentage. Field names are camelCase, and a
-  union is tagged on a `type` field with snake_case tags (`notice`, `trusted`).
+  `pi://connection/state`, `pi://extension/{notice,status,title,editor}`,
+  `pi://session/{event,ended}`, and `pi://upload/{upload_id}`. A payload that
+  names a session carries its conversation file in `session` (`Utf8TypedPathBuf`
+  in Rust, a string on the wire). An upload event reports `{ bytes, total }`
+  while the file travels, and the answer of the call is the receipt; report
+  bytes, never a percentage. Field names are camelCase, and a union is tagged on
+  a `type` field with snake_case tags (`notice`, `trusted`).
 - The wire types (the DTOs that cross the boundary) sit next to the command that
   uses them, usually just above it. An ask payload sits in the module that asks
   it (`session/extension.rs`, `host/ssh/trust.rs`).

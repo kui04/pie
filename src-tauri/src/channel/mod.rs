@@ -21,6 +21,9 @@ pub type BoxedReader = Box<dyn AsyncRead + Unpin + Send + 'static>;
 /// conversation.
 pub const MAX_LINE: usize = 128 * 1024 * 1024;
 
+/// The largest stderr log line pie frames before dropping it (64 KiB).
+const MAX_STDERR_LINE: usize = 64 * 1024;
+
 /// Bytes read from a program per syscall. Records are assembled across chunks,
 /// so this only tunes throughput.
 const READ_BUFFER: usize = 32 * 1024;
@@ -63,11 +66,13 @@ impl ExitStatus {
         matches!(self, Self::Exited { code: 0 })
     }
 
+    #[cfg(test)]
     pub fn is_signalled(&self) -> bool {
         matches!(self, Self::Signalled { .. })
     }
 
     /// The exit code, when the program chose one.
+    #[cfg(test)]
     pub fn code(&self) -> Option<i32> {
         match self {
             Self::Exited { code } => Some(*code),
@@ -76,6 +81,7 @@ impl ExitStatus {
     }
 
     /// The signal number, when a signal ended the program.
+    #[cfg(test)]
     pub fn signal(&self) -> Option<i32> {
         match self {
             Self::Signalled { signal } => Some(*signal),
@@ -143,7 +149,7 @@ impl Transport for Channel {
 /// it. A line the cap or the encoding refuses is dropped, and a read that fails
 /// ends the drain: neither is a reason to end the program.
 async fn drain_stderr(mut stderr: BoxedReader) {
-    let mut decoder = PiRpcDecoder::with_max_line(MAX_LINE);
+    let mut decoder = PiRpcDecoder::with_max_line(MAX_STDERR_LINE);
     let mut buffer = vec![0u8; READ_BUFFER].into_boxed_slice();
 
     loop {
@@ -237,6 +243,10 @@ pub trait Handle: Sized + Send + Debug {
     /// Answers the status of the program when it already exited.
     ///
     /// This call does not block: `None` says the program still runs.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "exercised by the process handle unit tests")
+    )]
     fn try_wait(&mut self) -> anyhow::Result<Option<ExitStatus>>;
 
     /// Forces the program to exit.
@@ -262,18 +272,17 @@ impl std::fmt::Debug for Process {
 }
 
 /// The enum must satisfy the trait it lists on `#[enum_dispatch]`.
-fn assert_process_impls()
-where
-    Process: Handle,
-{
-}
+const _: fn() = || {
+    fn assert_process_impls<T: Handle>() {}
+    assert_process_impls::<Process>();
+};
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use pi_rpc::error::ErrorKind;
-    use tokio::io::{DuplexStream, ReadHalf};
+    use tokio::io::DuplexStream;
 
     use super::*;
 
@@ -288,7 +297,7 @@ mod tests {
         /// What the program reads from its standard input.
         stdin: DuplexStream,
         /// What the program writes to its standard error.
-        stderr: DuplexStream,
+        _stderr: DuplexStream,
     }
 
     impl Wire {
@@ -304,7 +313,7 @@ mod tests {
                 ),
                 stdout,
                 stdin,
-                stderr,
+                _stderr: stderr,
             }
         }
     }

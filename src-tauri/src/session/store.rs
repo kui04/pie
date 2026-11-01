@@ -19,6 +19,9 @@ const MAX_CONCURRENT_FILES: usize = 10;
 /// Bytes per backward step when the tail of a session file is read.
 const TAIL_CHUNK_SIZE: u64 = 16 * 1024;
 
+/// Largest tail window searched for a `session_info` rename once activity is known.
+const MAX_TAIL_NAME_WINDOW: u64 = 64 * 1024;
+
 /// Largest window read from the head or the tail of one session file.
 const MAX_SCAN_WINDOW: u64 = 4 * 1024 * 1024;
 
@@ -181,7 +184,7 @@ where
     }));
 }
 
-/// Concurrently scans the head and tail of a single session file.
+/// Scans the head and tail of a single session file over one handle.
 pub(crate) async fn scan_session_file<F>(
     fs: &F,
     entry: &FileMetadata,
@@ -193,29 +196,27 @@ where
     let mut options = FileOpenOptions::new();
     options.read(true);
 
-    let mut head_file = fs
+    let mut file = fs
         .open_file(entry.path.to_path(), options)
         .await
-        .with_context(|| format!("cannot open the head of `{}`", entry.path))?;
-    let mut tail_file = fs
-        .open_file(entry.path.to_path(), options)
-        .await
-        .with_context(|| format!("cannot open the tail of `{}`", entry.path))?;
+        .with_context(|| format!("cannot open `{}`", entry.path))?;
 
     // The listing is a snapshot: pi can append before this file is read.
-    let file_len = tail_file
+    let file_len = file
         .seek(SeekFrom::End(0))
         .await
         .with_context(|| format!("cannot measure `{}`", entry.path))?;
+    file.seek(SeekFrom::Start(0))
+        .await
+        .with_context(|| format!("cannot seek `{}`", entry.path))?;
 
-    let (head, tail) = tokio::try_join!(
-        scan_head(&mut head_file, family),
-        scan_tail(&mut tail_file, file_len),
-    )
-    .with_context(|| format!("cannot scan `{}`", entry.path))?;
-
-    let head =
-        head.with_context(|| format!("`{}` does not start with a session header", entry.path))?;
+    let head = scan_head(&mut file, family)
+        .await
+        .with_context(|| format!("cannot scan `{}`", entry.path))?
+        .with_context(|| format!("`{}` does not start with a session header", entry.path))?;
+    let tail = scan_tail(&mut file, file_len)
+        .await
+        .with_context(|| format!("cannot scan `{}`", entry.path))?;
 
     let file_modified = entry
         .modified
@@ -383,7 +384,9 @@ where
             read_tail_line(first, &mut summary);
         }
 
-        if summary.name != TailName::Unknown && summary.last_activity.is_some() {
+        if summary.last_activity.is_some()
+            && (summary.name != TailName::Unknown || scanned >= MAX_TAIL_NAME_WINDOW)
+        {
             break;
         }
         end = start;

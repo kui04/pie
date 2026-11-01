@@ -53,15 +53,15 @@ forked layout.
 - Barrel `index.ts` files are the only door a caller outside a shared module
   uses: a primitive from `@/components/ui`, pie's own from `@/components`
   (`layout/` holds the window's frame and `dialog/` holds the responsive prompt
-  shells), hooks from `@/hooks`, and domain utilities from `@/lib/<domain>`
-  (`bridge`, `highlight`, `query`, `session`, `transcript`). A file inside a
-  folder imports its neighbours by relative path, never from a barrel: a barrel
-  must never be imported by a file it re-exports.
+  shells), hooks from `@/hooks`, stores from `@/stores`, and domain utilities
+  from `@/lib/<domain>` (`bridge`, `extension`, `highlight`, `query`, `session`,
+  `transcript`). A file inside a folder imports its neighbours by relative path,
+  never from a barrel: a barrel must never be imported by a file it re-exports.
 - A primitive nothing in the app imports is not vendored: `scroll-area` was
   removed once `ScrollPane` took its job.
 - Transcript rendering: `react-markdown` (`remark-gfm`, `remark-math`,
   `remarkDollars`, `remark-breaks`, `rehype-katex`), virtualized through
-  `MessageScroller` (`virtua`), and `shiki` only through the lazy chunk of
+  `Virtualizer` (`virtua`), and `shiki` only through the lazy chunk of
   `src/lib/highlight/shiki.ts` with on-demand grammars in
   `src/lib/highlight/code.ts` — a highlighter never reaches the initial bundle.
 - The only way out of React is the Tauri `invoke` bridge in `src/lib/bridge/` —

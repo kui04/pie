@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use anyhow::Context as _;
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
@@ -19,6 +21,9 @@ use crate::state::LocalDirs;
 /// Bytes written to the file per syscall. A staged file reports progress once
 /// per chunk.
 const COPY_BUFFER: usize = 64 * 1024;
+
+/// Monotonic counter so concurrent local uploads stage in distinct `.part` files.
+static NEXT_PART_ID: AtomicU64 = AtomicU64::new(0);
 
 /// This machine.
 pub struct LocalHost {
@@ -84,18 +89,32 @@ impl LocalHost {
         }
 
         self.create_dir_all(directory.to_path()).await?;
-        match source {
+        let part_id = NEXT_PART_ID.fetch_add(1, Ordering::Relaxed);
+        let part_path = directory.join(format!("{}.{part_id}.part", hashed_name(file_name, &hash)));
+
+        let write_result = match source {
             UploadSource::Local { path } => {
                 let file = tokio::fs::File::open(path.as_std_path())
                     .await
                     .with_context(|| format!("cannot open local file `{path}`"))?;
-                self.write_from(remote_path.to_path(), file, progress)
-                    .await?;
+                self.write_from(part_path.to_path(), file, progress).await
             }
             UploadSource::InMemory { content, .. } => {
-                self.write_from(remote_path.to_path(), &content[..], progress)
-                    .await?;
+                self.write_from(part_path.to_path(), &content[..], progress)
+                    .await
             }
+        };
+        if let Err(error) = write_result {
+            let _ = tokio::fs::remove_file(part_path.as_str()).await;
+            return Err(error);
+        }
+
+        if let Err(error) = tokio::fs::rename(part_path.as_str(), remote_path.as_str())
+            .await
+            .with_context(|| format!("cannot promote `{part_path}` to `{remote_path}`"))
+        {
+            let _ = tokio::fs::remove_file(part_path.as_str()).await;
+            return Err(error);
         }
 
         Ok(UploadReceipt {
@@ -161,6 +180,7 @@ impl FileSystem for LocalHost {
     }
 
     async fn metadata(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<FileMetadata> {
+        let path = require_absolute(path)?;
         row_of(path, self.family().await).await
     }
 
@@ -316,7 +336,6 @@ mod tests {
 
     use super::*;
     use crate::channel::Handle;
-    use crate::host::fs::typed;
 
     fn host() -> LocalHost {
         LocalHost::new(&LocalDirs::default())

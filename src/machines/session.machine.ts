@@ -131,6 +131,7 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
     let alive = true;
     let off: bridge.Unsubscribe[] = [];
     let frame: number | null = null;
+    let fallback: ReturnType<typeof setTimeout> | null = null;
     /** The deltas of one frame, held so that the answer folds once for all of them. */
     let held: SessionRecord[] = [];
 
@@ -138,6 +139,10 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
         if (frame !== null) {
             cancelAnimationFrame(frame);
             frame = null;
+        }
+        if (fallback !== null) {
+            clearTimeout(fallback);
+            fallback = null;
         }
         const batch = held;
         held = [];
@@ -159,6 +164,10 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
             frame = null;
             flush();
         });
+        fallback ??= setTimeout(() => {
+            fallback = null;
+            flush();
+        }, 100);
     };
 
     void (async () => {
@@ -191,6 +200,10 @@ const listen = fromCallback<SessionEvent, { deps: SessionDeps }>(({ input, sendB
         if (frame !== null) {
             cancelAnimationFrame(frame);
             frame = null;
+        }
+        if (fallback !== null) {
+            clearTimeout(fallback);
+            fallback = null;
         }
         held = [];
         for (const unsubscribe of off) unsubscribe();

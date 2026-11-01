@@ -20,10 +20,10 @@ use typed_path::Utf8TypedPathBuf;
 
 use crate::commands::session_at;
 use crate::error::PieError;
-use crate::host::Executor;
 use crate::host::fs::typed;
+use crate::host::{Executor, HostId};
 use crate::session::{SessionEntryId, SessionTitle};
-use crate::state::{AppState, HostId};
+use crate::state::AppState;
 
 /// Stop the run of one session.
 #[tauri::command(rename = "abort")]
@@ -32,7 +32,7 @@ pub async fn session_abort(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -51,7 +51,7 @@ pub async fn session_abort_bash(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -70,7 +70,7 @@ pub async fn session_abort_retry(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -91,7 +91,7 @@ pub async fn session_bash(
     command: String,
     exclude_from_context: bool,
 ) -> Result<BashResult, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     // pi runs the command in the working directory of the conversation, not of pie.
     let asked = BashReq {
@@ -114,7 +114,7 @@ pub async fn session_clear_queue(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<ClearQueueData, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -147,7 +147,7 @@ pub async fn session_clone_session(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<CloneOutcome, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
     let client = attached.session.client();
 
     let switch = client
@@ -189,7 +189,7 @@ pub async fn session_compact(
     session: Utf8TypedPathBuf,
     custom_instructions: Option<String>,
 ) -> Result<CompactionResult, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -227,7 +227,7 @@ pub async fn session_fork_session(
     session: Utf8TypedPathBuf,
     entry_id: SessionEntryId,
 ) -> Result<ForkOutcome, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
     let client = attached.session.client();
 
     let fork = client
@@ -281,7 +281,7 @@ pub async fn session_get_available_models(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<Vec<Model>, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -298,7 +298,7 @@ pub async fn session_get_available_thinking_levels(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<Vec<ThinkingLevel>, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     // The list depends on the model the session holds now, so it is asked, never assumed.
     Ok(attached
@@ -316,7 +316,7 @@ pub async fn session_get_commands(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<Vec<SlashCommand>, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -333,7 +333,7 @@ pub async fn session_get_entries(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<EntryList, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -350,7 +350,7 @@ pub async fn session_get_fork_messages(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<Vec<ForkMessage>, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -367,7 +367,7 @@ pub async fn session_get_last_assistant_text(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<Option<String>, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -416,7 +416,7 @@ pub async fn session_get_messages(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<SessionMessages, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(SessionMessages::new(
         attached
@@ -435,7 +435,7 @@ pub async fn session_get_session_stats(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<SessionStats, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -452,7 +452,7 @@ pub async fn session_get_state(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<SessionState, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
     let now = attached
         .session
         .client()
@@ -516,7 +516,7 @@ pub async fn session_get_tree(
     host: HostId,
     session: Utf8TypedPathBuf,
 ) -> Result<SessionTree, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     let list = attached
         .session
@@ -542,7 +542,7 @@ pub async fn session_prompt(
     attachments: Option<Vec<String>>,
     behavior: Option<StreamingBehavior>,
 ) -> Result<PromptDisposition, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     // Attachments travel as text: pi takes no `@file` argument in rpc mode, and its
     // prompt carries images but no other file.
@@ -583,7 +583,7 @@ pub async fn session_set_auto_compaction(
     session: Utf8TypedPathBuf,
     enabled: bool,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -606,7 +606,7 @@ pub async fn session_set_auto_retry(
     session: Utf8TypedPathBuf,
     enabled: bool,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -626,7 +626,7 @@ pub async fn session_set_follow_up_mode(
     session: Utf8TypedPathBuf,
     mode: QueueMode,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -647,7 +647,7 @@ pub async fn session_set_model(
     provider: String,
     model_id: String,
 ) -> Result<Model, PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     Ok(attached
         .session
@@ -670,7 +670,7 @@ pub async fn session_set_session_name(
     session: Utf8TypedPathBuf,
     name: String,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -696,7 +696,7 @@ pub async fn session_set_steering_mode(
     session: Utf8TypedPathBuf,
     mode: QueueMode,
 ) -> Result<(), PieError> {
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session
@@ -718,7 +718,7 @@ pub async fn session_set_thinking_level(
 ) -> Result<(), PieError> {
     // A failure names the level pi could not take, so it is read before the call moves it.
     let asked = format!("{level:?}");
-    let attached = session_at(&state, &host, &session).await?;
+    let attached = session_at(&state, &host, &session)?;
 
     attached
         .session

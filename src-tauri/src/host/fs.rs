@@ -28,6 +28,10 @@ pub struct FileMetadata {
     /// Whether the entry names a directory, after following a link.
     pub is_dir: bool,
     /// Whether the entry itself is a link, whatever it names.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "exercised by the filesystem unit tests")
+    )]
     pub is_symlink: bool,
     /// The size in bytes of what the entry names, when the machine says.
     pub len: Option<u64>,
@@ -170,6 +174,10 @@ pub trait FileSystem: Send + Sync + Debug {
         options: FileOpenOptions,
     ) -> anyhow::Result<HostFile>;
     /// Reads a whole file into memory.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "exercised by the filesystem unit tests")
+    )]
     async fn read_bytes(&self, path: Utf8TypedPath<'_>) -> anyhow::Result<Bytes>;
     /// Writes `source` to `path`, reporting the bytes written as it goes.
     ///

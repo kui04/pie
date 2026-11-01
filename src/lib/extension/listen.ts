@@ -22,39 +22,68 @@ export function listenForExtensions(): Promise<void> {
     if (listeners !== null) return listeners.then(() => undefined);
 
     listeners = (async () => {
-        const asked = await bridge.onExtensionAsk((envelope) => {
-            const { host, session, request } = envelope.payload;
-            useExtensionStore.getState().asked({ host, session }, envelope.id, request);
-        });
+        const opened: bridge.Unsubscribe[] = [];
         try {
-            const noticed = await bridge.onExtensionNotice((notice) => {
-                const say = notice.kind === "error" ? toast.error : notice.kind === "warning" ? toast.warning : toast;
-                say(notice.message);
-            });
-            const typed = await bridge.onExtensionEditorText((text) => {
-                useExtensionStore.getState().edited({ host: text.host, session: text.session }, text.text);
-            });
-            const reported = await bridge.onExtensionStatus((status) => {
-                useExtensionStore
-                    .getState()
-                    .reported({ host: status.host, session: status.session }, { key: status.key, text: status.text });
-            });
+            opened.push(
+                await bridge.onExtensionAsk((envelope) => {
+                    const { host, session, request } = envelope.payload;
+                    useExtensionStore.getState().asked({ host, session }, envelope.id, request);
+                }),
+            );
+            opened.push(
+                await bridge.onExtensionNotice((notice) => {
+                    const say =
+                        notice.kind === "error" ? toast.error : notice.kind === "warning" ? toast.warning : toast;
+                    say(notice.message);
+                }),
+            );
+            opened.push(
+                await bridge.onExtensionEditorText((text) => {
+                    useExtensionStore.getState().edited({ host: text.host, session: text.session }, text.text);
+                }),
+            );
+            opened.push(
+                await bridge.onExtensionStatus((status) => {
+                    useExtensionStore
+                        .getState()
+                        .reported(
+                            { host: status.host, session: status.session },
+                            { key: status.key, text: status.text },
+                        );
+                }),
+            );
+            opened.push(
+                await bridge.onExtensionTitle((title) => {
+                    useExtensionStore.getState().titled({ host: title.host, session: title.session }, title.title);
+                }),
+            );
 
-            // Both listeners stand, so nothing that waits is lost when Rust replays.
+            // Every listener stands, so nothing that waits is lost when Rust replays.
             await bridge.readyForAnswer();
 
             return () => {
-                asked();
-                noticed();
-                reported();
-                typed();
+                for (const unsubscribe of opened) unsubscribe();
             };
         } catch (thrown) {
-            asked();
+            for (const unsubscribe of opened) unsubscribe();
             listeners = null;
             throw thrown;
         }
     })();
 
     return listeners.then(() => undefined);
+}
+
+/** Drops the open listener set so the next `listenForExtensions` call subscribes fresh. */
+export async function resetExtensionListeners(): Promise<void> {
+    const current = listeners;
+    listeners = null;
+    if (current !== null) {
+        try {
+            const unsubscribe = await current;
+            unsubscribe();
+        } catch {
+            // A failed setup already cleaned up its partial listeners.
+        }
+    }
 }

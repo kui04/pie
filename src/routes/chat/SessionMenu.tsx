@@ -45,6 +45,8 @@ export interface SessionMenuProps {
     onClose?: () => void;
     /** The conversation is gone: the screen leaves it without ending a process. */
     onGone?: () => void;
+    /** A clone or fork replaced the conversation with `session`, which is already attached in Rust. */
+    onSwitch?: (session: string) => void;
     /** The file of the session, when known by the caller (e.g. from the sidebar listing). */
     file?: string | null;
     /** The name of the session, when known by the caller. */
@@ -69,7 +71,6 @@ export function SessionMenu({ machine, working = false, ...props }: SessionMenuP
     const machineWorking = useSelector(machine, (snapshot) =>
         snapshot === undefined ? false : phaseOf(snapshot) !== "idle",
     );
-    void machine;
     return <SessionMenuBody {...props} isWorking={machine ? machineWorking : working} />;
 }
 
@@ -80,6 +81,7 @@ function SessionMenuBody({
     onOpenChange,
     onClose,
     onGone,
+    onSwitch,
     file: propsFile,
     initialName,
     isWorking,
@@ -106,13 +108,14 @@ function SessionMenuBody({
     const file = propsFile ?? state.data?.sessionFile ?? null;
     const name = initialName ?? state.data?.sessionName ?? null;
 
-    /** The process holds another conversation: everything of the old one goes, and the reads answer again. */
-    function adopted() {
+    /** A clone or fork detached the old session and attached `nextSession` in its place. */
+    async function adopted(nextSession: string) {
         if (activeSession) {
             void client.cancelQueries({ queryKey: sessionKeys.whole(conversation as SessionKey) });
-            void client.invalidateQueries({ queryKey: sessionKeys.whole(conversation as SessionKey) });
         }
+        await client.invalidateQueries({ queryKey: ["connection"] });
         void client.invalidateQueries({ queryKey: ["sessions", host] });
+        onSwitch?.(nextSession);
     }
 
     /** The name the host lists has changed. */
@@ -137,7 +140,7 @@ function SessionMenuBody({
                     toast("An extension refused the copy.");
                     return;
                 }
-                adopted();
+                return adopted(result.session);
             })
             .catch((thrown: unknown) => toast.error(bridge.asPieError(thrown).message));
     }
@@ -271,13 +274,13 @@ function SessionMenuBody({
                 <ForkSession
                     conversation={conversation as SessionKey}
                     onClose={closeView}
-                    onForked={adopted}
+                    onForked={(nextSession) => void adopted(nextSession)}
                     isMobile={isMobile}
                 />
             )}
             {view === "delete" && (
                 <DeleteSession
-                    conversation={conversation as SessionKey}
+                    conversation={conversation}
                     host={host}
                     file={file}
                     onClose={closeView}
@@ -387,7 +390,7 @@ export function RenameSession({ conversation, initial, onClose, onRenamed, isMob
 
 /** Delete the conversation of this session: a sheet on a phone, a dialog on a desktop, and one confirmation. */
 export interface DeleteSessionProps {
-    conversation: SessionKey;
+    conversation?: SessionKey | null;
     /** The connection that holds it. */
     host: HostId;
     /** The file of the conversation, from its state; `null` while the state is not read. */
@@ -403,7 +406,7 @@ export interface DeleteSessionProps {
 export function DeleteSession({ conversation, host, file, onClose, onDeleted, isMobile }: DeleteSessionProps) {
     const remove = useMutation({
         mutationFn: async (path: string) => {
-            if (conversation.session !== "") {
+            if (conversation?.session) {
                 await bridge.detachSession(host, conversation.session);
             }
             await bridge.deleteSession(host, path);
@@ -443,8 +446,8 @@ export interface ForkSessionProps {
     conversation: SessionKey;
     /** The question was let go without an answer. */
     onClose: () => void;
-    /** The process holds a new branch: the caller reads the state and the entries again. */
-    onForked: () => void;
+    /** The process holds a new branch: the caller switches to the new session file. */
+    onForked: (session: string) => void;
     /** Pins which shape to draw, for previews and tests. */
     isMobile?: boolean;
 }
@@ -459,7 +462,7 @@ export function ForkSession({ conversation, onClose, onForked, isMobile }: ForkS
                 toast("An extension refused the fork.");
                 return;
             }
-            onForked();
+            onForked(result.session);
         },
         onError: (thrown: unknown) => toast.error(bridge.asPieError(thrown).message),
     });

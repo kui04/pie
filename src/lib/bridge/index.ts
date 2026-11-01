@@ -7,7 +7,7 @@
  * (see `.agents/rules/architecture.md`).
  *
  * The files mirror `src-tauri/src/` one for one: [`app`], [`filesystem`], [`host`],
- * [`log`] and [`session`] are `commands/`, [`ask`] is `ask.rs` (the questions Rust
+ * [`log`] and [`session`] are `commands/`, [`ask`] is `bus.rs` (the questions Rust
  * puts and waits on), and [`error`] is `error.rs`. [`invoke`] is the Tauri call
  * every command goes through. Import from this file.
  *

@@ -27,6 +27,7 @@ import {
 type Call = (...args: never[]) => Promise<unknown>;
 
 const bridge = vi.hoisted(() => ({
+    getConnection: vi.fn<Call>(),
     attachSession: vi.fn<Call>(),
     startNewSession: vi.fn<Call>(),
     detachSession: vi.fn<Call>(),
@@ -177,6 +178,7 @@ beforeEach(() => {
         }
         return sessionState({ sessionFile: session });
     });
+    bridge.getConnection.mockImplementation(async () => ({ id: HOST, sessions: [...held], open: true }));
     bridge.listSessions.mockImplementation(async () => [...held]);
     bridge.attachSession.mockImplementation(async (_host: string, path: string) => {
         const row = sessionSummary({ path });
@@ -242,7 +244,7 @@ describe("ChatScreen", () => {
         // The read that will answer is still on its way: the window is its frame
         // alone, not a landing whose note the return to the gate would take away
         // again a frame later.
-        bridge.listSessions.mockReturnValue(new Promise(() => undefined));
+        bridge.getConnection.mockReturnValue(new Promise(() => undefined));
         const client = new QueryClient(queryDefaults);
         client.setQueryData(["connection", HOST], null);
 
@@ -998,7 +1000,7 @@ describe("the window the chat draws", () => {
     it("draws the bar before the page has slots to carry", () => {
         // The read of the connection has not answered: the page has no slots, and the
         // bar is the window's own keys alone.
-        bridge.listSessions.mockReturnValue(new Promise(() => undefined));
+        bridge.getConnection.mockReturnValue(new Promise(() => undefined));
 
         const { container } = renderScreen();
 

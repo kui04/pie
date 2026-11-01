@@ -37,6 +37,8 @@ interface ExtensionStore {
     statuses: Record<string, StatusLine[]>;
     /** The text an extension put in the editor of each conversation. */
     editors: Record<string, string>;
+    /** The window title an extension set for each conversation. */
+    titles: Record<string, string>;
     /** Takes one ask. A replay of an id already held replaces it. */
     asked: (key: SessionKey, id: number, request: bridge.UiRequest) => void;
     /** Forgets one dialog, once it is answered. */
@@ -45,12 +47,17 @@ interface ExtensionStore {
     reported: (key: SessionKey, line: StatusLine) => void;
     /** Takes the text an extension put in the editor. */
     edited: (key: SessionKey, text: string) => void;
+    /** Takes the title an extension set for the conversation. */
+    titled: (key: SessionKey, title: string) => void;
+    /** Drops every dialog, status line, editor value, and title held for a conversation id. */
+    forgotten: (id: string) => void;
 }
 
 export const useExtensionStore = create<ExtensionStore>()((set) => ({
     dialogs: {},
     statuses: {},
     editors: {},
+    titles: {},
 
     asked: (key, id, request) =>
         set((state) => {
@@ -76,6 +83,22 @@ export const useExtensionStore = create<ExtensionStore>()((set) => ({
             return { statuses: { ...state.statuses, [of]: next } };
         }),
     edited: (key, text) => set((state) => ({ editors: { ...state.editors, [idOf(key)]: text } })),
+    titled: (key, title) => set((state) => ({ titles: { ...state.titles, [idOf(key)]: title } })),
+    forgotten: (id) =>
+        set((state) => {
+            if (!(id in state.dialogs) && !(id in state.statuses) && !(id in state.editors) && !(id in state.titles)) {
+                return state;
+            }
+            const dialogs = { ...state.dialogs };
+            const statuses = { ...state.statuses };
+            const editors = { ...state.editors };
+            const titles = { ...state.titles };
+            delete dialogs[id];
+            delete statuses[id];
+            delete editors[id];
+            delete titles[id];
+            return { dialogs, statuses, editors, titles };
+        }),
 }));
 
 /** One value for every conversation with nothing to show, so a selector compares equal. */
@@ -111,4 +134,9 @@ export async function answerDialog(id: number, answer: bridge.ExtensionAnswer): 
 /** The text an extension put in the editor of one conversation, or `null` when it put none. */
 export function useEditorText(key: SessionKey): string | null {
     return useExtensionStore((state) => state.editors[idOf(key)] ?? null);
+}
+
+/** The title an extension set for one conversation, or `null` when it set none. */
+export function useExtensionTitle(key: SessionKey): string | null {
+    return useExtensionStore((state) => state.titles[idOf(key)] ?? null);
 }

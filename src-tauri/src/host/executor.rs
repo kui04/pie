@@ -60,6 +60,7 @@ impl Command {
     }
 
     /// Adds one environment entry for the program.
+    #[cfg(test)]
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.insert(key.into(), value.into());
         self

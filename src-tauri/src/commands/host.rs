@@ -11,9 +11,9 @@ use crate::commands::host_at;
 use crate::error::PieError;
 use crate::host::executor::OsFamily;
 use crate::host::fs::{UploadReceipt, UploadSource, check_type, require_absolute};
-use crate::host::{Executor, FileSystem, HostConnection, HostTarget, connect};
+use crate::host::{Executor, FileSystem, HostConnection, HostId, HostTarget, connect};
 use crate::session::SessionInfo;
-use crate::state::{AppState, HostId};
+use crate::state::AppState;
 
 /// How often an upload reports the bytes it has written.
 const UPLOAD_TICK: Duration = Duration::from_millis(100);
@@ -48,16 +48,7 @@ pub async fn host_connect(
     id: HostId,
     target: HostTarget,
 ) -> Result<ConnectionInfo, PieError> {
-    if state
-        .hosts
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .contains_key(&id)
-    {
-        return Err(PieError::AlreadyConnected {
-            connection: id.as_str().to_owned(),
-        });
-    }
+    let _connecting = state.begin_connect(&id)?;
 
     let connection = Arc::new(connect(id.clone(), target, state.bus(), state.dirs()).await?);
 
@@ -83,6 +74,15 @@ pub async fn host_connect(
             })
         }
     }
+}
+
+/// Read the connection held under `id` and its attached sessions.
+#[tauri::command(rename = "connection_info")]
+pub fn host_connection_info(
+    state: State<'_, AppState>,
+    id: HostId,
+) -> Result<ConnectionInfo, PieError> {
+    connection_info(&state, &id)
 }
 
 /// Make a directory on the machine, with parents as needed.
@@ -294,18 +294,13 @@ pub async fn host_upload_file(
         let mut tick = tokio::time::interval(UPLOAD_TICK);
         tick.tick().await;
         loop {
-            tokio::select! {
-                changed = reports.changed() => {
-                    if changed.is_err() {
-                        break;
-                    }
-                }
-                _ = tick.tick() => {
-                    let bytes = *reports.borrow();
-                    if let Err(error) = app.emit(&event_name, UploadProgress { bytes, total }) {
-                        tracing::warn!(%error, event = %event_name, "an upload report did not leave");
-                    }
-                }
+            tick.tick().await;
+            if reports.has_changed().is_err() {
+                break;
+            }
+            let bytes = *reports.borrow_and_update();
+            if let Err(error) = app.emit(&event_name, UploadProgress { bytes, total }) {
+                tracing::warn!(%error, event = %event_name, "an upload report did not leave");
             }
         }
     });

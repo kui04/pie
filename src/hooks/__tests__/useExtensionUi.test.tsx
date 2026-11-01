@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Bridge from "@/lib/bridge";
-import { useExtensionStore } from "@/lib/extension/store";
+import { useExtensionStore } from "@/lib/extension";
 import { idOf } from "@/lib/session";
 import { conversation } from "@/preview/fixtures";
 import { useExtensionUi } from "@/hooks/useExtensionUi";
@@ -23,7 +23,7 @@ function asked(id: number, title: string): void {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    useExtensionStore.setState({ dialogs: {}, statuses: {}, editors: {} });
+    useExtensionStore.setState({ dialogs: {}, statuses: {}, editors: {}, titles: {} });
     fake.answer.mockResolvedValue(true);
 });
 
@@ -52,14 +52,16 @@ describe("useExtensionUi", () => {
         await waitFor(() => expect(rendered.result.current.request).toBeNull());
     });
 
-    it("takes its statuses and its editor text from the same store", () => {
+    it("takes its statuses, its editor text, and its title from the same store", () => {
         useExtensionStore.getState().reported(CONVERSATION, { key: "permissions", text: "waiting" });
         useExtensionStore.getState().edited(CONVERSATION, "a draft");
+        useExtensionStore.getState().titled(CONVERSATION, "Branch 2");
 
         const rendered = renderHook(() => useExtensionUi(CONVERSATION));
 
         expect(rendered.result.current.statuses).toEqual([{ key: "permissions", text: "waiting" }]);
         expect(rendered.result.current.editorText).toBe("a draft");
+        expect(rendered.result.current.title).toBe("Branch 2");
     });
 
     it("holds nothing for a conversation that was never asked", () => {
@@ -68,6 +70,7 @@ describe("useExtensionUi", () => {
         expect(rendered.result.current.request).toBeNull();
         expect(rendered.result.current.statuses).toEqual([]);
         expect(rendered.result.current.editorText).toBeNull();
+        expect(rendered.result.current.title).toBeNull();
     });
 
     it("keys the store by the connection and the file together", () => {

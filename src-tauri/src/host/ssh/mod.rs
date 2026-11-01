@@ -19,9 +19,9 @@ use crate::channel::{Channel, ExitStatus, Process};
 use crate::host::executor::OsFamily;
 use crate::host::fs::{FileOpenOptions, check_type, require_absolute, typed, uploads_dir};
 use crate::host::{
-    Command, CommandOutput, Executor, FileMetadata, FileSystem, HostAuth, HostFile, OUTPUT_TIMEOUT,
+    Command, CommandOutput, Executor, FileMetadata, FileSystem, HostAuth, HostFile, HostId,
+    OUTPUT_TIMEOUT,
 };
-use crate::state::HostId;
 
 pub(crate) mod trust;
 pub mod upload;
@@ -47,7 +47,6 @@ const EXT_STDERR: u32 = 1;
 /// SIGKILL under POSIX numbering.
 const SIGKILL: i32 = 9;
 
-/// The russh callback surface. The host-key check belongs here.
 /// The russh callback surface: the server key of every connection is checked here.
 pub struct ClientHandler {
     /// The trust question of this connection.
@@ -168,11 +167,6 @@ impl SshHost {
         })
     }
 
-    /// The address of this machine.
-    pub fn host(&self) -> &HostAddr<String> {
-        &self.host
-    }
-
     /// Whether the underlying SSH transport is still open.
     pub fn is_open(&self) -> bool {
         !self.handle.is_closed()
@@ -208,17 +202,6 @@ impl SshHost {
         let session = Arc::new(open_sftp_session(&self.handle, &self.host).await?);
         *guard = Some(Arc::clone(&session));
         Ok(session)
-    }
-
-    /// Evicts `dead` from the cache slot if it is still the active session.
-    pub(crate) async fn evict_sftp(&self, dead: &Arc<SftpSession>) {
-        let mut guard = self.sftp.lock().await;
-        if guard
-            .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current, dead))
-        {
-            *guard = None;
-        }
     }
 
     /// Returns the resumable, deduplicating [`upload::Uploader`] rooted at `<cache dir>/pie/uploads`.
@@ -325,12 +308,15 @@ pub(crate) fn to_sftp_wire_path(path: Utf8TypedPath<'_>) -> String {
 }
 
 /// Opens an SSH session channel, sends an `exec` request, and collects any output
-/// that arrived before the server confirmed the request.
+/// or exit status that arrived before the server confirmed the request.
 async fn open_exec_channel(
     handle: &russh::client::Handle<ClientHandler>,
     line: &str,
     host: &HostAddr<String>,
-) -> anyhow::Result<(russh::Channel<russh::client::Msg>, Vec<u8>, Vec<u8>)> {
+) -> anyhow::Result<(
+    russh::Channel<russh::client::Msg>,
+    crate::channel::ssh::EarlyChannelOutput,
+)> {
     let mut channel = handle
         .channel_open_session()
         .await
@@ -341,8 +327,11 @@ async fn open_exec_channel(
         .await
         .with_context(|| format!("failed to send exec request on `{host}`"))?;
 
-    let mut early_stdout = Vec::new();
-    let mut early_stderr = Vec::new();
+    let mut early = crate::channel::ssh::EarlyChannelOutput {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        exit: None,
+    };
 
     loop {
         match channel.wait().await {
@@ -350,19 +339,25 @@ async fn open_exec_channel(
             Some(ChannelMsg::Failure) => {
                 anyhow::bail!("remote host `{host}` refused the exec request")
             }
-            Some(ChannelMsg::Data { data }) => early_stdout.extend_from_slice(&data),
+            Some(ChannelMsg::Data { data }) => early.stdout.extend_from_slice(&data),
             Some(ChannelMsg::ExtendedData {
                 data,
                 ext: EXT_STDERR,
-            }) => early_stderr.extend_from_slice(&data),
-            Some(ChannelMsg::Close | ChannelMsg::Eof) | None => {
+            }) => early.stderr.extend_from_slice(&data),
+            Some(ChannelMsg::ExitStatus { exit_status }) => {
+                early.exit = Some(ExitStatus::exited(exit_status as i32));
+            }
+            Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
+                early.exit = ExitStatus::try_from(signal_name).ok();
+            }
+            Some(ChannelMsg::Close) | None => {
                 anyhow::bail!("exec channel on `{host}` closed before confirming request")
             }
             Some(_) => {}
         }
     }
 
-    Ok((channel, early_stdout, early_stderr))
+    Ok((channel, early))
 }
 
 impl Executor for SshHost {
@@ -371,11 +366,21 @@ impl Executor for SshHost {
     }
 
     async fn spawn(&self, cmd: Command) -> anyhow::Result<(Channel, Process)> {
+        let program = cmd.program.clone();
         let line = cmd.into_shell_line(self.family)?;
-        let (ssh_channel, early_stdout, early_stderr) =
-            open_exec_channel(&self.handle, &line, &self.host).await?;
-        let (channel, process) =
-            crate::channel::ssh::spawn(ssh_channel, early_stdout, early_stderr);
+        let (ssh_channel, early) = tokio::time::timeout(
+            OUTPUT_TIMEOUT,
+            open_exec_channel(&self.handle, &line, &self.host),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "opening the channel for `{program}` on `{}` timed out after {}s",
+                self.host,
+                OUTPUT_TIMEOUT.as_secs()
+            )
+        })??;
+        let (channel, process) = crate::channel::ssh::spawn(ssh_channel, early);
         Ok((channel, Process::Ssh(process)))
     }
 
@@ -384,13 +389,12 @@ impl Executor for SshHost {
         let line = cmd.into_shell_line(self.family)?;
 
         let run = async {
-            let (mut channel, early_stdout, early_stderr) =
-                open_exec_channel(&self.handle, &line, &self.host).await?;
+            let (mut channel, early) = open_exec_channel(&self.handle, &line, &self.host).await?;
 
-            let mut stdout = BytesMut::from(&early_stdout[..]);
-            let mut stderr = BytesMut::from(&early_stderr[..]);
+            let mut stdout = BytesMut::from(&early.stdout[..]);
+            let mut stderr = BytesMut::from(&early.stderr[..]);
             let mut total_bytes = stdout.len() + stderr.len();
-            let mut exit_status: Option<ExitStatus> = None;
+            let mut exit_status = early.exit;
 
             loop {
                 if total_bytes > EXEC_OUTPUT_CAP {

@@ -16,6 +16,7 @@
 import { createActor, type ActorRefFrom } from "xstate";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useExtensionStore } from "@/lib/extension";
 import { sessionKeys } from "@/lib/query";
 import type { RunPhase } from "@/lib/transcript";
 import { phaseOf, sessionMachine, type SessionDeps } from "@/machines/session.machine";
@@ -82,6 +83,7 @@ export function ensureSession(key: SessionKey, client: QueryClient): void {
 
 /** Stops the chart of a conversation: the connection no longer holds it. */
 export function forgetSession(id: string): void {
+    useExtensionStore.getState().forgotten(id);
     const actor = slots.get(id);
     if (actor === undefined) return;
     watching.get(id)?.();

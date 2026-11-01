@@ -113,7 +113,7 @@ beforeEach(() => {
     bridge.getCommands.mockResolvedValue([]);
     bridge.getAvailableModels.mockResolvedValue([]);
     bridge.getAvailableThinkingLevels.mockResolvedValue([]);
-    bridge.prompt.mockResolvedValue({ disposition: "started" });
+    bridge.prompt.mockResolvedValue("started");
     bridge.abort.mockResolvedValue(undefined);
     bridge.clearQueue.mockResolvedValue({ steering: [], followUp: [] });
     bridge.bash.mockResolvedValue({ output: "", cancelled: false, truncated: false });

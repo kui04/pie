@@ -92,7 +92,7 @@ export interface SessionTree {
 }
 
 /** What one call to `prompt` did with the message. */
-export type PromptDisposition = "started" | "queued" | "handled";
+export type PromptDisposition = PromptData["disposition"];
 
 /** The conversation of one conversation, in the order pi holds it. */
 export type Messages = AgentMessage[];
@@ -252,8 +252,8 @@ export function prompt(
     behavior?: StreamingBehavior,
     images?: ImageContent[],
     attachments?: string[],
-): Promise<PromptData> {
-    return call<PromptData>("prompt", { host, session, message, behavior, images, attachments });
+): Promise<PromptDisposition> {
+    return call<PromptDisposition>("prompt", { host, session, message, behavior, images, attachments });
 }
 
 /** Turns automatic compaction of one conversation on or off. */

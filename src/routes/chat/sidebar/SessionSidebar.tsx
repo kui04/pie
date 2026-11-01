@@ -662,6 +662,7 @@ function SessionRow({
                         host={host}
                         open={menuOpen}
                         onOpenChange={setMenuOpen}
+                        onSwitch={onPick}
                         triggerClassName="hover:bg-accent/50 dark:hover:bg-accent/50 text-muted-foreground hover:text-foreground size-6 p-1 rounded-sm cursor-pointer"
                     />
                 </div>

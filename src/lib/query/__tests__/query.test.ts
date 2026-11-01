@@ -15,7 +15,7 @@ import { connectionQueries, queryClient, statsPoll } from "../index";
 import { sessionSummary } from "@/preview/fixtures";
 
 const fake = vi.hoisted(() => ({
-    listSessions: vi.fn<() => Promise<Bridge.SessionInfo[]>>(),
+    getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo>>(),
 }));
 
 vi.mock("@/lib/bridge", async (importOriginal) => ({
@@ -87,12 +87,16 @@ describe("the read of the connection", () => {
     it("answers what Rust holds, and `null` is an answer and not a failure", async () => {
         // What TanStack hands a query function, and this read uses none of it.
         const asked = {} as never;
-        fake.listSessions.mockRejectedValue({ kind: "not_connected", message: "no connection" });
+        fake.getConnection.mockRejectedValue({ kind: "not_connected", message: "no connection" });
         expect(await connectionQueries.current().queryFn?.(asked)).toBeNull();
 
-        const sessions = [sessionSummary({ cwd: "/home/pie" })];
-        fake.listSessions.mockResolvedValue(sessions);
-        expect(await connectionQueries.current().queryFn?.(asked)).toEqual({ id: "main", sessions });
+        const info: Bridge.ConnectionInfo = {
+            id: "main",
+            sessions: [sessionSummary({ cwd: "/home/pie" })],
+            open: true,
+        };
+        fake.getConnection.mockResolvedValue(info);
+        expect(await connectionQueries.current().queryFn?.(asked)).toEqual(info);
     });
 
     it("does not ask a second time when it fails", () => {

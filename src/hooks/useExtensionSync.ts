@@ -8,7 +8,7 @@
 
 import { useEffect } from "react";
 import * as bridge from "@/lib/bridge";
-import { listenForExtensions } from "@/lib/extension/listen";
+import { listenForExtensions } from "@/lib/extension";
 
 export function useExtensionSync(): void {
     useEffect(() => {

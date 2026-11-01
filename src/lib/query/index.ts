@@ -13,7 +13,7 @@
 
 import { queryOptions, QueryCache, QueryClient } from "@tanstack/react-query";
 import * as bridge from "@/lib/bridge";
-import type { HostId, SessionInfo } from "@/lib/bridge";
+import type { ConnectionInfo, HostId } from "@/lib/bridge";
 import type { SessionKey } from "@/lib/session/key";
 import { isReachRead, reportReachFailure } from "./health";
 import type { RunPhase } from "@/lib/transcript";
@@ -168,30 +168,21 @@ export const directoryQueries = {
  * The one connection pie holds.
  *
  * Rust owns the connection, so a reload of the webview reads the same one instead of
- * losing it. Rust has no command that answers the connection itself, so this read is
- * composed: the conversations of the one name the product uses answer whether that
- * connection exists, and `not_connected` says it does not.
+ * losing it. `connection_info` answers the connection and its attached sessions, and
+ * `not_connected` says no connection is held.
  *
  * A new connect changes the answer, and nothing announces that: time is its signal, so
  * it is read again on every mount. Whether the reach is still open travels on
  * `pi://connection/state`, not here.
  */
-
-/** A connection as the commands can describe it. */
-export interface HeldConnection {
-    id: HostId;
-    /** The conversations that have a pi process now. */
-    sessions: SessionInfo[];
-}
-
 export const connectionQueries = {
     /** The connection pie holds now, or `null` when there is none. */
     current: () =>
         queryOptions({
             queryKey: ["connection", bridge.CONNECTION_ID] as const,
-            queryFn: async (): Promise<HeldConnection | null> => {
+            queryFn: async (): Promise<ConnectionInfo | null> => {
                 try {
-                    return { id: bridge.CONNECTION_ID, sessions: await bridge.listSessions(bridge.CONNECTION_ID) };
+                    return await bridge.getConnection(bridge.CONNECTION_ID);
                 } catch (thrown) {
                     const error = bridge.asPieError(thrown);
                     if (error.kind === "not_connected") return null;

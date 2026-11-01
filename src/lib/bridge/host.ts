@@ -158,6 +158,13 @@ export function connect(id: HostId, target: HostTarget): Promise<ConnectionInfo>
 }
 
 /**
+ * Reads the connection held under `id` and the conversations that run on it.
+ */
+export function getConnection(id: HostId): Promise<ConnectionInfo> {
+    return call<ConnectionInfo>("connection_info", { id });
+}
+
+/**
  * Reaches the machine of a connection that ended, with the credential that Rust
  * already holds.
  *

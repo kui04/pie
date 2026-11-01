@@ -16,10 +16,10 @@ import { ConnectionLostOverlay } from "@/routes/connect/ConnectionLostOverlay";
 import { reportReachFailure } from "@/lib/query";
 import { useConnectionWatch } from "@/hooks/useConnectionWatch";
 import { queryDefaults } from "@/lib/query";
-import { useHostStore } from "@/stores/host.store";
+import { useHostStore } from "@/stores";
 
 const fake = vi.hoisted(() => ({
-    listSessions: vi.fn<() => Promise<Bridge.SessionInfo[]>>(),
+    getConnection: vi.fn<() => Promise<Bridge.ConnectionInfo>>(),
     reconnect: vi.fn<() => Promise<Bridge.ConnectionInfo>>(),
     onConnectionState: vi.fn<(onState: (state: Bridge.ConnectionState) => void) => Promise<Bridge.Unsubscribe>>(),
 }));
@@ -60,7 +60,7 @@ describe("the reach to the machine, watched by the app", () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        fake.listSessions.mockResolvedValue([]);
+        fake.getConnection.mockResolvedValue(INFO);
         fake.reconnect.mockResolvedValue(INFO);
         fake.onConnectionState.mockImplementation(async (onState) => {
             heard = onState;
@@ -109,10 +109,10 @@ describe("the reach to the machine, watched by the app", () => {
     it("does not bounce back to the gate when the connection arrives after the read said none", async () => {
         // The window opens at the gate with no connection, and the boundary is mounted for the
         // whole run: its answer says none, and the dial a person makes there is what changes it.
-        fake.listSessions.mockRejectedValueOnce(NO_CONNECTION);
+        fake.getConnection.mockRejectedValueOnce(NO_CONNECTION);
         show("/");
-        await waitFor(() => expect(fake.listSessions).toHaveBeenCalled());
-        fake.listSessions.mockResolvedValue([]);
+        await waitFor(() => expect(fake.getConnection).toHaveBeenCalled());
+        fake.getConnection.mockResolvedValue(INFO);
 
         await userEvent.click(await screen.findByRole("link", { name: "the workspace" }));
 
@@ -125,7 +125,7 @@ describe("the reach to the machine, watched by the app", () => {
     it("says nothing while the reach answers", async () => {
         show();
 
-        await waitFor(() => expect(fake.listSessions).toHaveBeenCalled());
+        await waitFor(() => expect(fake.getConnection).toHaveBeenCalled());
         expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
 
@@ -137,26 +137,26 @@ describe("the reach to the machine, watched by the app", () => {
 
     it("asks the connection again on a failed read, and leaves the veil to Rust", async () => {
         show();
-        await waitFor(() => expect(fake.listSessions).toHaveBeenCalled());
-        const asked = fake.listSessions.mock.calls.length;
+        await waitFor(() => expect(fake.getConnection).toHaveBeenCalled());
+        const asked = fake.getConnection.mock.calls.length;
         // A read that fails against the reach is the earliest news of a link that went. It is
         // not a verdict - a pi that exited fails a session read the same way - so the read is
         // asked again and the veil waits for `pi://connection/state`.
-        fake.listSessions.mockRejectedValueOnce(NO_CONNECTION);
+        fake.getConnection.mockRejectedValueOnce(NO_CONNECTION);
 
         act(() => reportReachFailure());
 
-        await waitFor(() => expect(fake.listSessions.mock.calls.length).toBeGreaterThan(asked));
+        await waitFor(() => expect(fake.getConnection.mock.calls.length).toBeGreaterThan(asked));
         expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
 
     it("keeps the veil over a read that still fails", async () => {
         await loseTheReach();
-        fake.listSessions.mockRejectedValue(NO_CONNECTION);
+        fake.getConnection.mockRejectedValue(NO_CONNECTION);
 
         act(() => reportReachFailure());
 
-        await waitFor(() => expect(fake.listSessions.mock.calls.length).toBeGreaterThan(1));
+        await waitFor(() => expect(fake.getConnection.mock.calls.length).toBeGreaterThan(1));
         // A read that fails is not the reach back: only an answer that reached the machine is.
         expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     });

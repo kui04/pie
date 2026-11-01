@@ -24,8 +24,6 @@
         "clippy": "cd src-tauri && cargo clippy --all-targets -- -D warnings",
         "doc": "cd src-tauri && RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps",
         "rust-test": "cd src-tauri && cargo test",
-        "ssh-fixture": "bash src-tauri/tests/scripts/ssh-fixture.sh start",
-        "ssh-test": "eval \"$(bash src-tauri/tests/scripts/ssh-fixture.sh start)\" && cd src-tauri && cargo test --test ssh --test session -- --ignored --test-threads=1",
         "ui-check": "bash scripts/ui-check.sh",
         "hooks": "prek run --all-files"
     },

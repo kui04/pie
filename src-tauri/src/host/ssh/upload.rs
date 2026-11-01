@@ -297,7 +297,12 @@ impl Uploader {
         if let Ok(meta) = sftp.metadata(&part_wire_path).await {
             let existing_len = meta.len();
             if existing_len > 0 && existing_len <= total_bytes {
-                match verify_part_tail(sftp, &part_wire_path, source, existing_len).await {
+                let verified = if existing_len == total_bytes && existing_len > PART_VERIFY_WINDOW {
+                    verify_part_full(sftp, &part_wire_path, hash).await
+                } else {
+                    verify_part_tail(sftp, &part_wire_path, source, existing_len).await
+                };
+                match verified {
                     Ok(true) if existing_len == total_bytes => {
                         self.atomic_replace(sftp, &part_wire_path, &final_wire_path)
                             .await?;
@@ -603,9 +608,27 @@ pub(crate) fn sanitize_relative_unix_path(raw: &str) -> anyhow::Result<Utf8UnixP
     Ok(normalized)
 }
 
+/// Verifies that a complete `.part` file on the remote server matches `expected` across all bytes.
+async fn verify_part_full(
+    sftp: &SftpSession,
+    part_wire_path: &str,
+    expected: blake3::Hash,
+) -> anyhow::Result<bool> {
+    let mut remote_part = sftp.open(part_wire_path).await?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; SFTP_COPY_BUFFER];
+    loop {
+        let n = remote_part.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize() == expected)
+}
+
 /// Verifies that an existing `.part` file on the remote server matches the local `source`
-/// by comparing the BLAKE3 digest of its trailing [`PART_VERIFY_WINDOW`] bytes (up to 64 KiB)
-/// and its leading 4 KiB header (when the file is larger than one window).
+/// by comparing the BLAKE3 digest of its trailing [`PART_VERIFY_WINDOW`] bytes (up to 64 KiB).
 async fn verify_part_tail(
     sftp: &SftpSession,
     part_wire_path: &str,

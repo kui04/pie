@@ -1,7 +1,7 @@
 /**
  * The ask channel: a question Rust puts to the frontend and waits on.
  *
- * The mirror of `src-tauri/src/ask.rs`. Rust keeps every ask it waits on with what
+ * The mirror of `src-tauri/src/bus.rs`. Rust keeps every ask it waits on with what
  * is left of its budget, so {@link readyForAnswer} replays a question that arrived
  * before the webview listened. An ask that is never answered fails on the waiting
  * side when its budget runs out.

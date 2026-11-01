@@ -24,12 +24,6 @@ use tokio::time::Instant;
 #[serde(transparent)]
 pub struct AskId(u64);
 
-impl AskId {
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-}
-
 impl Display for AskId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "ask-{}", self.0)
@@ -199,20 +193,28 @@ impl Bus {
         let id = AskId(self.inner.next_id.fetch_add(1, Ordering::Relaxed));
         let (responder, receiver) = oneshot::channel();
 
-        self.inner
-            .in_flight
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(
-                id,
-                PendingAsk {
-                    event: R::EVENT_NAME,
-                    payload: payload.clone(),
-                    deadline,
-                    responder,
-                    _permit: permit,
-                },
-            );
+        let should_emit = {
+            let buffer = self
+                .inner
+                .buffer
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            self.inner
+                .in_flight
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(
+                    id,
+                    PendingAsk {
+                        event: R::EVENT_NAME,
+                        payload: payload.clone(),
+                        deadline,
+                        responder,
+                        _permit: permit,
+                    },
+                );
+            buffer.ready
+        };
 
         let _guard = PendingAskGuard {
             bus: self.clone(),
@@ -221,7 +223,7 @@ impl Bus {
 
         // A frontend that is not listening yet receives this ask from
         // [`Bus::ready`] instead.
-        if self.is_ready() {
+        if should_emit {
             let envelope = AskEnvelope {
                 id,
                 timeout_ms: remaining.as_millis().try_into().unwrap_or(u64::MAX),
@@ -288,6 +290,9 @@ impl Bus {
     /// Marks the frontend as ready: flushes the kept notifications, then replays
     /// every ask that still waits with what is left of its budget.
     pub fn ready(&self) {
+        let now = Instant::now();
+        let mut envelopes = Vec::new();
+
         let notifications: Vec<BufferedNotification> = {
             let mut buffer = self
                 .inner
@@ -295,6 +300,27 @@ impl Bus {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
             buffer.ready = true;
+
+            let in_flight = self
+                .inner
+                .in_flight
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            for (&id, entry) in in_flight.iter() {
+                let remaining = entry.deadline.saturating_duration_since(now);
+                if remaining.is_zero() {
+                    continue;
+                }
+                envelopes.push((
+                    entry.event,
+                    AskEnvelope {
+                        id,
+                        timeout_ms: remaining.as_millis().try_into().unwrap_or(u64::MAX),
+                        payload: entry.payload.clone(),
+                    },
+                ));
+            }
+
             buffer.queue.drain(..).collect()
         };
 
@@ -308,33 +334,6 @@ impl Bus {
             }
         }
 
-        let now = Instant::now();
-        let mut envelopes = Vec::new();
-
-        {
-            let mut in_flight = self
-                .inner
-                .in_flight
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-
-            in_flight.retain(|&id, entry| {
-                let remaining = entry.deadline.saturating_duration_since(now);
-                if remaining.is_zero() {
-                    return false;
-                }
-                envelopes.push((
-                    entry.event,
-                    AskEnvelope {
-                        id,
-                        timeout_ms: remaining.as_millis().try_into().unwrap_or(u64::MAX),
-                        payload: entry.payload.clone(),
-                    },
-                ));
-                true
-            });
-        }
-
         for (event, envelope) in envelopes {
             let id = envelope.id;
             if let Err(error) = self.inner.app.emit(event, envelope) {
@@ -346,14 +345,6 @@ impl Bus {
                 );
             }
         }
-    }
-
-    fn is_ready(&self) -> bool {
-        self.inner
-            .buffer
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .ready
     }
 }
 

@@ -15,9 +15,9 @@ use std::sync::{Arc, PoisonError};
 use typed_path::Utf8TypedPathBuf;
 
 use crate::error::PieError;
-use crate::host::HostConnection;
+use crate::host::{HostConnection, HostId};
 use crate::session::Session;
-use crate::state::{AppState, HostId};
+use crate::state::AppState;
 
 /// The connected machine with this name.
 pub(crate) fn host_at(state: &AppState, id: &HostId) -> Result<Arc<HostConnection>, PieError> {
@@ -46,7 +46,7 @@ pub(crate) struct Attached {
 }
 
 /// The machine, and the pi that serves one conversation file on it.
-pub(crate) async fn session_at(
+pub(crate) fn session_at(
     state: &AppState,
     host: &HostId,
     path: &Utf8TypedPathBuf,

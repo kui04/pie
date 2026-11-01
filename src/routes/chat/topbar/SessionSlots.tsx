@@ -13,6 +13,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@xstate/react";
 import { isListening, isReady, phaseOf } from "@/machines/session.machine";
+import { useExtensionTitle } from "@/lib/extension";
 import { sessionQueries, sessionsQueries, statsPoll } from "@/lib/query";
 import type { SessionTitle } from "@/lib/bridge";
 import type { SessionKey, SessionRef } from "@/lib/session";
@@ -29,6 +30,7 @@ export interface SessionSlotsProps {
 export function SessionSlots({ conversation, machine, cwd }: SessionSlotsProps) {
     const open = useSelector(machine, isListening);
     const ready = useSelector(machine, isReady);
+    const extensionTitle = useExtensionTitle(conversation);
 
     const state = useQuery({ ...sessionQueries.state(conversation), enabled: open });
     const entries = useQuery({ ...sessionQueries.entries(conversation), enabled: open });
@@ -42,7 +44,7 @@ export function SessionSlots({ conversation, machine, cwd }: SessionSlotsProps) 
             name={state.data?.sessionName ?? namedTitle(summary?.title ?? null)}
             firstMessage={summary?.firstPrompt ?? null}
             cwd={cwd}
-            extensionTitle={null}
+            extensionTitle={extensionTitle}
             ready={ready && entries.data !== undefined}
         />
     );

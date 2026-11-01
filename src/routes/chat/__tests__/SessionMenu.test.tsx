@@ -51,12 +51,13 @@ function renderMenu(working = false, isMobile?: boolean) {
     if (working) machine.send({ type: "RECORD", at: 1, record: { type: "agent_start" } as SessionRecord });
     const onClose = vi.fn();
     const onGone = vi.fn();
+    const onSwitch = vi.fn();
     render(
         <QueryClientProvider client={client}>
-            <Harness machine={machine} onClose={onClose} onGone={onGone} isMobile={isMobile} />
+            <Harness machine={machine} onClose={onClose} onGone={onGone} onSwitch={onSwitch} isMobile={isMobile} />
         </QueryClientProvider>,
     );
-    return { machine, onClose, onGone };
+    return { machine, onClose, onGone, onSwitch };
 }
 
 /** The popup's open state is the caller's, as it is in `ChatScreen`: the test presses the key it draws. */
@@ -64,11 +65,13 @@ function Harness({
     machine,
     onClose,
     onGone,
+    onSwitch,
     isMobile,
 }: {
     machine: SessionRef;
     onClose: () => void;
     onGone: () => void;
+    onSwitch: (session: string) => void;
     isMobile?: boolean;
 }) {
     const [open, setOpen] = useState(false);
@@ -81,6 +84,7 @@ function Harness({
             onOpenChange={setOpen}
             onClose={onClose}
             onGone={onGone}
+            onSwitch={onSwitch}
             isMobile={isMobile}
         />
     );
@@ -141,26 +145,28 @@ describe("the session menu", () => {
     });
 
     it("copies the conversation into a new branch", async () => {
-        bridge.cloneSession.mockResolvedValue({ cancelled: false });
-        const { onGone } = renderMenu();
+        bridge.cloneSession.mockResolvedValue({ type: "cloned", session: "main:2" });
+        const { onGone, onSwitch } = renderMenu();
         openMenu();
 
         fireEvent.click(await screen.findByRole("menuitem", { name: "Clone" }));
 
         await waitFor(() => expect(bridge.cloneSession).toHaveBeenCalledWith("main", SESSION));
+        await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("main:2"));
         expect(onGone).not.toHaveBeenCalled();
     });
 
     it("forks from the message that was picked", async () => {
         bridge.getForkMessages.mockResolvedValue([{ entryId: "e1", text: "first words" }]);
-        bridge.forkSession.mockResolvedValue({ text: "first words", cancelled: false });
-        renderMenu();
+        bridge.forkSession.mockResolvedValue({ type: "forked", session: "main:2", text: "first words" });
+        const { onSwitch } = renderMenu();
         openMenu();
 
         fireEvent.click(await screen.findByRole("menuitem", { name: "Fork" }));
         fireEvent.click(await screen.findByRole("button", { name: "first words" }));
 
         await waitFor(() => expect(bridge.forkSession).toHaveBeenCalledWith("main", SESSION, "e1"));
+        await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("main:2"));
     });
 
     it("renames the conversation from the name pi holds", async () => {

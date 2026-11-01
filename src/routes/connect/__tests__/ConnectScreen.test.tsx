@@ -12,7 +12,7 @@ import { Toaster } from "@/components/ui";
 import { toast } from "sonner";
 import { ConnectScreen, type ConnectScreenDeps } from "@/routes/connect/ConnectScreen";
 import type { AskEnvelope, ConnectionInfo, PieError, TrustAsk } from "@/lib/bridge";
-import { useHostStore } from "@/stores/host.store";
+import { useHostStore } from "@/stores";
 
 const KEY: TrustAsk = {
     host: "main",

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use typed_path::Utf8TypedPathBuf;
 
 use crate::bus::{Ask, Bus, Notification};
-use crate::state::HostId;
+use crate::host::HostId;
 
 /// One extension dialog that waits for the frontend.
 #[derive(Debug, Clone, Serialize)]

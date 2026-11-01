@@ -11,7 +11,7 @@ import { Puzzle } from "lucide-react";
 import { cn } from "cn";
 import { Button, Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui";
 import { Icon } from "@/components";
-import { useStatuses } from "@/lib/extension/store";
+import { useStatuses } from "@/lib/extension";
 import type { SessionKey } from "@/lib/session";
 import { COMPOSER_PANEL } from "@/routes/chat/composer/Composer";
 
@@ -58,7 +58,7 @@ export function SessionExtensions({ conversation }: { conversation: SessionKey }
                                 <span className="text-label-md text-muted-foreground">{status.key}</span>
                                 <span className="text-body-md">{status.text}</span>
                             </li>
-                        ))}{" "}
+                        ))}
                     </ul>
                 )}
             </PopoverContent>

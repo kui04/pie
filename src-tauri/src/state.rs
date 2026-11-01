@@ -1,51 +1,60 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display, Formatter};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::bus::Bus;
-use crate::host::HostConnection;
-
-/// The name of one connection. The frontend generates it.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
-#[serde(transparent)]
-pub struct HostId(String);
-
-impl HostId {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Display for HostId {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
+use crate::error::PieError;
+use crate::host::{HostConnection, HostId};
 
 /// One provider of models.dev.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
+///
+/// A value exists only through [`ProviderId::parse`], so a path traversal or URL
+/// separator never reaches the disk cache or the models.dev URL.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[serde(transparent)]
 pub struct ProviderId(String);
 
 impl ProviderId {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
+    /// Parses `name` as a provider slug (`[A-Za-z0-9._-]+`, never `.` or `..`).
+    pub fn parse(name: &str) -> Result<Self, PieError> {
+        let valid = !name.is_empty()
+            && name != "."
+            && !name.contains("..")
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+
+        if valid {
+            Ok(Self(name.to_owned()))
+        } else {
+            Err(PieError::BadArgument {
+                reason: format!("`{name}` is no provider name"),
+            })
+        }
     }
 
-    pub fn as_str(&self) -> &str {
-        &self.0
+    #[cfg(test)]
+    pub fn new(name: impl AsRef<str>) -> Self {
+        Self::parse(name.as_ref()).expect("a valid provider id")
+    }
+}
+
+impl TryFrom<String> for ProviderId {
+    type Error = PieError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(&value)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ProviderId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text).map_err(serde::de::Error::custom)
     }
 }
 
@@ -192,11 +201,28 @@ impl LocalDirs {
     }
 }
 
+/// A reservation for a connection attempt in flight, released when dropped.
+pub struct ConnectGuard<'a> {
+    state: &'a AppState,
+    id: HostId,
+}
+
+impl Drop for ConnectGuard<'_> {
+    fn drop(&mut self) {
+        self.state
+            .connecting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.id);
+    }
+}
+
 /// What every command shares.
 pub struct AppState {
     /// The connected machines by name. Take the `Arc<HostConnection>` and drop the guard before any
     /// `.await`: a `std` guard across an await makes the command future `!Send`.
     pub hosts: Mutex<HashMap<HostId, Arc<HostConnection>>>,
+    connecting: Mutex<HashSet<HostId>>,
     bus: Bus,
     /// The caches. Drop the guard before any `.await` that answers the frontend.
     pub cache: Mutex<CacheStorage>,
@@ -217,11 +243,42 @@ impl AppState {
 
         Self {
             hosts: Mutex::new(HashMap::new()),
+            connecting: Mutex::new(HashSet::new()),
             bus,
             cache: Mutex::new(CacheStorage::new(logos)),
             dirs: OnceLock::new(),
             app,
         }
+    }
+
+    /// Reserves `id` for an in-flight connection attempt, or refuses when `id` is
+    /// already connected or connecting.
+    pub fn begin_connect(&self, id: &HostId) -> Result<ConnectGuard<'_>, PieError> {
+        let already_connected = self
+            .hosts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(id);
+        if already_connected {
+            return Err(PieError::AlreadyConnected {
+                connection: id.as_str().to_owned(),
+            });
+        }
+
+        let mut connecting = self
+            .connecting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !connecting.insert(id.clone()) {
+            return Err(PieError::AlreadyConnected {
+                connection: id.as_str().to_owned(),
+            });
+        }
+
+        Ok(ConnectGuard {
+            state: self,
+            id: id.clone(),
+        })
     }
 
     /// The directories of pie's own machine, read from the app's paths on first use.
@@ -249,6 +306,35 @@ mod tests {
 
     fn mark() -> Utf8PathBuf {
         Utf8PathBuf::from("/cache/pie/logos/openai.svg")
+    }
+
+    #[test]
+    fn a_provider_name_accepts_slugs_and_refuses_traversals() {
+        for valid in ["openai", "google-vertex", "openrouter_1", "v1.0"] {
+            assert_eq!(
+                ProviderId::parse(valid)
+                    .expect("a valid provider")
+                    .to_string(),
+                valid
+            );
+        }
+
+        for invalid in [
+            "",
+            ".",
+            "..",
+            "../secret",
+            "a/b",
+            "a\\b",
+            "openai?x=1",
+            "openai#svg",
+        ] {
+            let error = ProviderId::parse(invalid).expect_err("an invalid provider");
+            assert!(
+                matches!(error, PieError::BadArgument { .. }),
+                "`{invalid}`: {error}"
+            );
+        }
     }
 
     #[test]

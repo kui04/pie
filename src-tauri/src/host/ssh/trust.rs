@@ -10,7 +10,7 @@ use russh::keys::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use crate::bus::{Ask, Bus};
-use crate::state::HostId;
+use crate::host::HostId;
 
 /// What pie knows about the key a host offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +62,12 @@ impl KnownHosts {
 
     /// Records the key `host` offers now, so the next connect trusts the host without a question.
     pub fn remember(&self, host: &HostAddr<String>, key: &PublicKey) -> anyhow::Result<()> {
+        if let Some(parent) = self.path.parent()
+            && !parent.as_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create `{parent}` for the host keys"))?;
+        }
         let address = host.host().to_string();
         let port = host.port().unwrap_or(22);
 
@@ -139,10 +145,15 @@ impl TrustPrompt {
             Trust::Changed { line } => {
                 tracing::warn!(
                     endpoint = %self.endpoint,
+                    path = %self.known_hosts.path(),
                     line,
                     "the host key changed; the connection is refused"
                 );
-                Ok(false)
+                anyhow::bail!(
+                    "the host key for `{}` changed (conflicts with `{}` line {line})",
+                    self.endpoint,
+                    self.known_hosts.path()
+                )
             }
             Trust::Unknown => {
                 let ask = TrustAsk {

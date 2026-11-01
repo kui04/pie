@@ -5,8 +5,8 @@ pub(crate) mod store;
 
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex as StdMutex, PoisonError};
+use std::time::Duration;
 
-pub use extension::{ExtensionAnswer, ExtensionAsk};
 use pi_rpc::client::Client;
 use pi_rpc::error::ErrorKind;
 use pi_rpc::event::Event;
@@ -16,7 +16,10 @@ use typed_path::Utf8TypedPathBuf;
 
 use crate::bus::{Bus, Notification};
 use crate::channel::{ExitStatus, Handle, Process};
-use crate::state::HostId;
+use crate::host::HostId;
+
+/// How long `shutdown` waits after closing stdin before killing `pi`.
+pub(crate) const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// One conversation id. pi creates it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
@@ -28,6 +31,7 @@ impl SessionId {
         Self(raw.into())
     }
 
+    #[cfg(test)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -189,7 +193,12 @@ impl Session {
     ///
     /// Runs once per session and stops with it: [`Session::shutdown`] closes the
     /// client first, which ends the stream this task reads.
-    pub(crate) fn pump(self: &Arc<Self>, host: HostId, bus: Bus) {
+    pub(crate) fn pump(
+        self: &Arc<Self>,
+        host: HostId,
+        bus: Bus,
+        on_exit: impl FnOnce() + Send + 'static,
+    ) {
         let this = Arc::clone(self);
 
         tokio::spawn(async move {
@@ -230,6 +239,8 @@ impl Session {
                 }
             };
 
+            on_exit();
+
             let ended = SessionEnded {
                 host,
                 session: this.path(),
@@ -243,9 +254,23 @@ impl Session {
 
     /// Ends the session at the end of its standard input, and waits for pi to exit.
     pub(crate) async fn shutdown(&self) -> anyhow::Result<ExitStatus> {
-        self.client.close().await?;
-        self.process.lock().await.wait().await
+        if let Err(error) = self.client.close().await {
+            tracing::debug!(%error, "the rpc client did not close cleanly");
+        }
+        let mut process = self.process.lock().await;
+        reap_process(&mut process).await
     }
+}
+
+/// Waits for `process` to exit within [`SHUTDOWN_GRACE`], then kills and reaps it.
+pub(crate) async fn reap_process(process: &mut Process) -> anyhow::Result<ExitStatus> {
+    if let Ok(status) = tokio::time::timeout(SHUTDOWN_GRACE, process.wait()).await {
+        return status;
+    }
+    if let Err(error) = process.kill().await {
+        tracing::debug!(%error, "the pi process could not be killed");
+    }
+    process.wait().await
 }
 
 #[cfg(test)]

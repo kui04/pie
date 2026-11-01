@@ -172,7 +172,7 @@ export function Composer({
 
     useEffect(() => {
         appliedEditorText.current = null;
-    }, [conversation]);
+    }, [conversation.host, conversation.session]);
 
     useEffect(() => {
         // The record carries no sequence: the text itself is what a second read compares.
