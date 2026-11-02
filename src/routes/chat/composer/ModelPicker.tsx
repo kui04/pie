@@ -478,8 +478,8 @@ function useProviderMarks(catalogue: readonly Model[]): ReadonlyMap<string, stri
 }
 
 /**
- * The mark of a provider: the logo of models.dev, or the key of the composer
- * when the provider has none.
+ * The mark of a provider: the logo of models.dev, or the bot when the provider
+ * has none.
  *
  * Every mark of models.dev is one shape in `currentColor`. A mask keeps the shape
  * and lets the theme supply the ink, which an `<img>` cannot: inside an image,
@@ -494,9 +494,12 @@ function ProviderMark({
     mark: string | null;
     className?: string;
 }) {
+    // Rust returns the bytes as base64. A CSS mask needs a URL, so the data
+    // prefix is added here; a mark that already carries one is left alone.
+    const source = mark === null ? null : mark.startsWith("data:") ? mark : `data:image/svg+xml;base64,${mark}`;
     return (
         <Icon className={cn("shrink-0", className)}>
-            {mark === null ? (
+            {source === null ? (
                 <Bot aria-hidden />
             ) : (
                 <span
@@ -504,11 +507,11 @@ function ProviderMark({
                     aria-hidden
                     className="size-4 bg-current"
                     style={{
-                        maskImage: `url(${mark})`,
+                        maskImage: `url("${source}")`,
                         maskPosition: "center",
                         maskRepeat: "no-repeat",
                         maskSize: "contain",
-                        WebkitMaskImage: `url(${mark})`,
+                        WebkitMaskImage: `url("${source}")`,
                         WebkitMaskPosition: "center",
                         WebkitMaskRepeat: "no-repeat",
                         WebkitMaskSize: "contain",

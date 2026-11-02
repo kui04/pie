@@ -63,6 +63,8 @@ checks while iterating, and full checks before finishing.
   unmodified `shadcn` output; requires network).
 - **Rust checks**: `pnpm check`, `pnpm clippy` (`--all-targets -- -D warnings`),
   `pnpm rust-test`, `pnpm doc` (`RUSTDOCFLAGS="-D warnings"`).
+- **End-to-end**: `pnpm e2e:env`, `pnpm e2e:android`, `pnpm e2e:real` (the real
+  host needs `e2e/.testenv/real.env`, which is ignored); see `e2e/README.md`.
 - **Desktop and preview**: `pnpm app:dev`, `pnpm app:build`, `pnpm storybook`,
   `pnpm build-storybook`. Do not use `pnpm dev` alone to preview the app in a
   browser — the frontend queries Rust for the platform before rendering.

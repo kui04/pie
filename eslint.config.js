@@ -62,6 +62,15 @@ export default defineConfig(
         },
     },
     {
+        // The end-to-end driver and its mock are Node programs as well.
+        extends: [js.configs.recommended],
+        files: ["e2e/**/*.mjs"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            globals: globals.node,
+        },
+    },
+    {
         // Tailwind's own rule set, resolved against this app's stylesheet. The shadcn
         // primitives are left out: they are the registry's bytes, which `pnpm ui-check` holds.
         files: ["src/**/*.{ts,tsx}"],

@@ -1,0 +1,41 @@
+name: pie-e2e
+
+services:
+  mock:
+    build:
+      context: ./mock
+      # This machine's default bridge has no outbound NAT; the build needs
+      # the network of the host.
+      network: host
+    ports:
+      - "127.0.0.1:18080:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  host:
+    build:
+      context: ./host
+      args:
+        PI_VERSION: "1.1.0"
+      network: host
+    ports:
+      - "2222:22"
+    depends_on:
+      mock:
+        condition: service_healthy
+    volumes:
+      - ./.testenv/ssh:/run/pie-e2e:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/22'"]
+      interval: 2s
+      timeout: 2s
+      retries: 30

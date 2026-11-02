@@ -307,15 +307,27 @@ pub async fn filesystem_select_files(
         }
     }
 
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    dialog.pick_files(move |picks| {
-        let _ = sender.send(picks);
-    });
+    if options.multiple {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        dialog.pick_files(move |picks| {
+            let _ = sender.send(picks);
+        });
 
-    let picks = receiver.await.context("the file dialog answered nothing")?;
-    picks
-        .map(|picks| picks.into_iter().map(local_source).collect())
-        .transpose()
+        let picks = receiver.await.context("the file dialog answered nothing")?;
+        picks
+            .map(|picks| picks.into_iter().map(local_source).collect())
+            .transpose()
+    } else {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        dialog.pick_file(move |pick| {
+            let _ = sender.send(pick.map(|one| vec![one]));
+        });
+
+        let picks = receiver.await.context("the file dialog answered nothing")?;
+        picks
+            .map(|picks| picks.into_iter().map(local_source).collect())
+            .transpose()
+    }
 }
 
 /// The source one pick names.

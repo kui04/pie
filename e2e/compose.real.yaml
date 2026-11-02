@@ -1,0 +1,38 @@
+services:
+  host-real:
+    build:
+      context: ./host
+      args:
+        PI_VERSION: "1.1.0"
+      # The default bridge of this machine has no outbound NAT.
+      network: host
+    # The provider is reachable only from the host network on this machine:
+    # its Docker bridge has no outbound NAT.
+    network_mode: host
+    environment:
+      PIE_E2E_PROFILE: real
+      PIE_E2E_SSH_PORT: "2223"
+      PIE_E2E_PROVIDER: ${PIE_E2E_PROVIDER:?run e2e/run.sh real}
+      PIE_E2E_MODEL: ${PIE_E2E_MODEL:?run e2e/run.sh real}
+      PIE_E2E_THINKING: ${PIE_E2E_THINKING:-low}
+      PIE_E2E_BASE_URL: "${PIE_E2E_BASE_URL:-}"
+      PIE_E2E_API: ${PIE_E2E_API:-openai-completions}
+      PIE_E2E_REASONING: ${PIE_E2E_REASONING:-0}
+      PIE_E2E_VISION: ${PIE_E2E_VISION:-0}
+      PIE_E2E_MODEL_NAME: "${PIE_E2E_MODEL_NAME:-}"
+      PIE_E2E_CONTEXT_WINDOW: ${PIE_E2E_CONTEXT_WINDOW:-128000}
+      PIE_E2E_MAX_TOKENS: ${PIE_E2E_MAX_TOKENS:-16384}
+    secrets:
+      - pie_e2e_key
+    volumes:
+      - ./.testenv/ssh:/run/pie-e2e:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2223'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 240s
+
+secrets:
+  pie_e2e_key:
+    file: ./.testenv/real.key

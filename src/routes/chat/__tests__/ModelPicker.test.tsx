@@ -179,6 +179,16 @@ describe("the model of the session", () => {
         expect(document.querySelector('[data-provider="anthropic"]')).toBeNull();
     });
 
+    it("wraps the base64 mark from Rust in a data url", async () => {
+        bridge.providerLogo.mockResolvedValue("PHN2Zy8+");
+
+        const { container } = renderPicker({ current: model() });
+
+        await waitFor(() => expect(container.querySelector('[data-provider="anthropic"]')).not.toBeNull());
+        const mark = container.querySelector('[data-provider="anthropic"]') as HTMLElement;
+        expect(mark.getAttribute("style")).toContain("data:image/svg+xml;base64,PHN2Zy8+");
+    });
+
     it("asks Rust once for the mark of a provider", async () => {
         const user = userEvent.setup();
         bridge.getAvailableModels.mockResolvedValue([

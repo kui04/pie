@@ -1,0 +1,6 @@
+{
+    "defaultProvider": "pie-e2e",
+    "defaultModel": "mock-echo",
+    "defaultThinkingLevel": "low",
+    "quietStartup": true
+}

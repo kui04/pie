@@ -19,7 +19,7 @@ use typed_path::{Utf8TypedPath, Utf8TypedPathBuf};
 
 use crate::bus::Bus;
 use crate::channel::{Channel, Process};
-use crate::session::{SHUTDOWN_GRACE, Session, SessionInfo, reap_process, store};
+use crate::session::{SHUTDOWN_GRACE, Session, SessionId, SessionInfo, reap_process, store};
 use crate::state::LocalDirs;
 
 /// Maximum time an RPC command (`bash`, `compact`) may run before timing out on the client.
@@ -436,6 +436,30 @@ impl HostConnection {
         }
     }
 
+    /// The record of a conversation that pi has announced and not yet written.
+    ///
+    /// pi writes the conversation file with the first message. Until then the
+    /// file has no bytes to read, and the RPC state is the whole record.
+    fn new_session_info(
+        cwd: &Utf8TypedPath<'_>,
+        path: Utf8TypedPathBuf,
+        state: &pi_rpc::response::SessionState,
+    ) -> SessionInfo {
+        let now = jiff::Timestamp::now();
+        let mut info = SessionInfo {
+            id: SessionId::new(state.session_id.clone()),
+            cwd: Some(cwd.to_path_buf()),
+            path,
+            title: store::SessionTitle::Untitled,
+            parent_path: None,
+            created_at: now,
+            modified_at: now,
+            first_prompt: None,
+        };
+        info.apply_rpc_state(state);
+        info
+    }
+
     /// Starts `pi --mode rpc` on a brand-new conversation in `cwd` and registers it.
     pub async fn start_new_session(
         &self,
@@ -455,9 +479,7 @@ impl HostConnection {
 
             let family = self.host.family().await;
             let path = typed(file, family);
-            let entry = self.host.metadata(path.to_path()).await?;
-            let mut info = store::scan_session_file(&self.host, &entry, family).await?;
-            info.apply_rpc_state(&state);
+            let info = Self::new_session_info(&cwd, path.clone(), &state);
             Ok::<(Utf8TypedPathBuf, SessionInfo), anyhow::Error>((path, info))
         }
         .await;
@@ -664,6 +686,35 @@ mod tests {
             serde_json::json!({ "type": "ended", "host": "work" })
         );
         assert_eq!(ConnectionState::EVENT_NAME, "pi://connection/state");
+    }
+
+    #[test]
+    fn a_new_session_has_no_file_until_the_first_message() {
+        let state: pi_rpc::response::SessionState = serde_json::from_str(
+            r#"{
+                "thinkingLevel": "low",
+                "isStreaming": false,
+                "isCompacting": false,
+                "steeringMode": "all",
+                "followUpMode": "one-at-a-time",
+                "sessionFile": "/home/pi/work/.pi/agent/sessions/--home-pi-work--/x.jsonl",
+                "sessionId": "01a1",
+                "messageCount": 0,
+                "pendingMessageCount": 0,
+                "autoCompactionEnabled": true
+            }"#,
+        )
+        .expect("a session state");
+
+        let cwd = Utf8TypedPath::derive("/home/pi/work");
+        let file = path("/home/pi/work/.pi/agent/sessions/--home-pi-work--/x.jsonl");
+        let info = HostConnection::new_session_info(&cwd, file.clone(), &state);
+
+        assert_eq!(info.path, file);
+        assert_eq!(info.cwd, Some(path("/home/pi/work")));
+        assert_eq!(info.id.as_str(), "01a1");
+        assert_eq!(info.title, SessionTitle::Untitled);
+        assert_eq!(info.first_prompt, None);
     }
 
     #[test]

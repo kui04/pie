@@ -25,6 +25,10 @@
         "doc": "cd src-tauri && RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps",
         "rust-test": "cd src-tauri && cargo test",
         "ui-check": "bash scripts/ui-check.sh",
+        "e2e": "bash e2e/run.sh all",
+        "e2e:env": "bash e2e/run.sh env",
+        "e2e:android": "bash e2e/run.sh android",
+        "e2e:real": "bash e2e/run.sh real",
         "hooks": "prek run --all-files"
     },
     "dependencies": {

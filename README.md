@@ -27,3 +27,16 @@ pnpm android:build # android release build
 
 Run `pnpm run` for all scripts. Lint/format hooks run automatically on commit;
 `pnpm hooks` runs them manually.
+
+## Testing
+
+```sh
+pnpm test          # frontend suites
+pnpm rust-test     # Rust suites
+pnpm e2e:env       # Docker host for the end-to-end suite
+pnpm e2e:android   # Android suite against the mock host
+pnpm e2e:real      # the same suite against a real provider
+```
+
+The end-to-end suite needs a debug APK and a device; `e2e/README.md` holds the
+fixed flow, the cases, and the real-provider key file.

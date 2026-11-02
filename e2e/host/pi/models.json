@@ -1,0 +1,39 @@
+{
+    "providers": {
+        "pie-e2e": {
+            "baseUrl": "http://mock:8080/v1",
+            "api": "openai-completions",
+            "apiKey": "test-key",
+            "models": [
+                {
+                    "id": "mock-echo",
+                    "name": "Mock Echo",
+                    "reasoning": true,
+                    "input": ["text"],
+                    "contextWindow": 32000,
+                    "maxTokens": 4096,
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0
+                    }
+                },
+                {
+                    "id": "mock-alt",
+                    "name": "Mock Alt",
+                    "reasoning": false,
+                    "input": ["text"],
+                    "contextWindow": 32000,
+                    "maxTokens": 4096,
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0
+                    }
+                }
+            ]
+        }
+    }
+}

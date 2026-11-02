@@ -1,8 +1,6 @@
 import { LoaderCircle } from "lucide-react";
-import { motion } from "motion/react";
 import { Hourglass, Icon } from "@/components";
 import { Marker } from "@/components/ui";
-import { useMotion } from "@/hooks";
 
 /** What a run is doing while the app waits on it (`lib/transcript/stream.ts`). */
 export type ActivityState = "waiting" | "working";
@@ -37,8 +35,6 @@ export function RunLine({ state }: RunLineProps) {
 
 /** The mark of a state: the hourglass of a wait, the turning ring of work. */
 function Mark({ state }: { state: ActivityState }) {
-    const { turn } = useMotion();
-
     if (state === "waiting") {
         return (
             <span className="flex shrink-0">
@@ -46,9 +42,11 @@ function Mark({ state }: { state: ActivityState }) {
             </span>
         );
     }
+    // The ring turns with CSS: the WebView of the Android build applied the
+    // Motion transform as its end value and left the ring still.
     return (
-        <motion.span className="flex shrink-0 text-primary-text" {...turn}>
+        <span className="flex shrink-0 text-primary-text motion-safe:animate-spin">
             <LoaderCircle aria-label="Working" />
-        </motion.span>
+        </span>
     );
 }

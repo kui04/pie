@@ -88,7 +88,17 @@ pub fn app_platform() -> Result<Platform, PieError> {
     })
 }
 
-/// One provider's mark, as base64 of the SVG.
+/// The mark models.dev answers for a provider it does not know: one sparkle,
+/// the same bytes for every name. Pie draws its bot instead.
+const PLACEHOLDER_MARK: &[u8] = include_bytes!("../../assets/models-dev-placeholder.svg");
+
+/// Whether a fetched mark is the placeholder of an unknown provider.
+fn is_placeholder(body: &[u8]) -> bool {
+    body == PLACEHOLDER_MARK
+}
+
+/// One provider's mark, as base64 of the SVG, or `None` when models.dev has
+/// only its placeholder for a provider it does not know.
 #[tauri::command(rename = "provider_logo")]
 pub async fn app_provider_logo(
     state: State<'_, AppState>,
@@ -112,7 +122,17 @@ pub async fn app_provider_logo(
 
     if cached {
         match tokio::fs::read(path.as_std_path()).await {
-            Ok(bytes) => return Ok(Some(STANDARD.encode(bytes))),
+            Ok(bytes) => {
+                if is_placeholder(&bytes) {
+                    state
+                        .cache
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .record_failure(provider);
+                    return Ok(None);
+                }
+                return Ok(Some(STANDARD.encode(bytes)));
+            }
             Err(error) => {
                 tracing::warn!(%error, path = %path, "a cached provider mark could not be read")
             }
@@ -131,23 +151,36 @@ pub async fn app_provider_logo(
             .read_to_vec()
             .with_context(|| format!("reading `{url}`"))?;
 
+        if is_placeholder(&body) {
+            return Ok(None);
+        }
+
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("making the cache directory `{dir}`"))?;
         std::fs::write(&path, &body).with_context(|| format!("writing `{path}`"))?;
 
-        Ok::<Vec<u8>, anyhow::Error>(body)
+        Ok::<Option<Vec<u8>>, anyhow::Error>(Some(body))
     })
     .await
     .context("the provider mark fetch did not run")?;
 
     match fetched {
-        Ok(body) => {
+        Ok(Some(body)) => {
             state
                 .cache
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .remember(provider);
             Ok(Some(STANDARD.encode(body)))
+        }
+        Ok(None) => {
+            tracing::debug!(provider = %provider, "models.dev has no mark for this provider");
+            state
+                .cache
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .record_failure(provider);
+            Ok(None)
         }
         Err(error) => {
             tracing::warn!(%error, provider = %provider, "a provider mark could not be fetched");
@@ -170,6 +203,12 @@ pub fn app_ready_for_answer(state: State<'_, AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_mark_of_an_unknown_provider_is_no_mark() {
+        assert!(is_placeholder(PLACEHOLDER_MARK));
+        assert!(!is_placeholder(b"<svg viewBox=\"0 0 24 24\"></svg>"));
+    }
 
     #[test]
     fn a_link_pie_opens_needs_a_known_scheme_and_a_host() {
