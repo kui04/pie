@@ -35,8 +35,9 @@ pub(crate) const SFTP_COPY_BUFFER: usize = 256 * 1024;
 /// Recommended SSH channel initial window size (4 MiB).
 const CHANNEL_WINDOW_SIZE: u32 = 4 * 1024 * 1024;
 
-/// Recommended SSH maximum packet size (260 KiB).
-const MAX_PACKET_SIZE: u32 = 260 * 1024;
+/// SSH's maximum packet size (32 KiB). russh warns above a TCP packet's
+/// 65,535 bytes, and a large `get_entries` answer streams as many packets.
+const MAX_PACKET_SIZE: u32 = 32 * 1024;
 
 /// Default SFTP subsystem operation timeout in seconds.
 const SFTP_TIMEOUT_SECS: u64 = 30;
@@ -775,5 +776,14 @@ mod tests {
         assert!(!row.is_dir);
         assert_eq!(row.len, None);
         assert_eq!(row.modified, None);
+    }
+
+    #[test]
+    fn the_ssh_packet_size_fits_a_tcp_packet() {
+        let packet_size = std::hint::black_box(MAX_PACKET_SIZE);
+        assert!(
+            packet_size <= 65_535,
+            "russh warns above a TCP packet: {packet_size}"
+        );
     }
 }
