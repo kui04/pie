@@ -301,10 +301,23 @@ fn parse_remote_home(raw: &str) -> (OsFamily, Utf8TypedPathBuf) {
 }
 
 /// Converts a checked machine path into the wire string SFTP expects.
+///
+/// OpenSSH on Windows accepts `/C:/Users/u` for a drive and `//server/share` for
+/// a UNC path. The Unix encoding alone drops the drive and collapses the UNC
+/// prefix to `/`, so a Windows path keeps those bytes here.
 pub(crate) fn to_sftp_wire_path(path: Utf8TypedPath<'_>) -> String {
     match path {
         Utf8TypedPath::Unix(unix) => unix.as_str().to_owned(),
-        Utf8TypedPath::Windows(win) => win.with_unix_encoding().into_string(),
+        Utf8TypedPath::Windows(win) => {
+            let wire = win.as_str().replace('\\', "/");
+            if wire.starts_with('/') {
+                wire
+            } else if wire.as_bytes().get(1) == Some(&b':') {
+                format!("/{wire}")
+            } else {
+                wire
+            }
+        }
     }
 }
 
@@ -746,6 +759,39 @@ mod tests {
         let path = Utf8TypedPath::derive("/home/u/.cache");
 
         assert_eq!(to_sftp_wire_path(path), "/home/u/.cache");
+    }
+
+    #[test]
+    fn a_windows_drive_path_keeps_its_drive_on_the_sftp_wire() {
+        let path = Utf8TypedPath::windows(r"C:\Users\u");
+
+        assert_eq!(
+            to_sftp_wire_path(path),
+            "/C:/Users/u",
+            "OpenSSH on Windows expects a leading slash before the drive"
+        );
+    }
+
+    #[test]
+    fn a_windows_unc_path_keeps_its_leading_slashes_on_the_sftp_wire() {
+        let path = Utf8TypedPath::windows(r"\\server\share");
+
+        assert_eq!(
+            to_sftp_wire_path(path),
+            "//server/share",
+            "a UNC path keeps its two leading slashes"
+        );
+    }
+
+    #[test]
+    fn a_windows_openssh_home_round_trips_to_the_sftp_wire() {
+        let (_, home) = parse_remote_home("/C:/Users/alice");
+
+        assert_eq!(
+            to_sftp_wire_path(home.to_path()),
+            "/C:/Users/alice",
+            "the home is sent back as OpenSSH reported it"
+        );
     }
 
     #[test]
