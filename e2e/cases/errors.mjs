@@ -6,7 +6,6 @@ export const errorsCases = [
         priority: "P1",
         name: "a stopped host is named, and Reconnect brings the link back",
         platforms: ["android", "linux"],
-        behaviorIds: ["ERR-03"],
         timeoutMs: 90_000,
         fixtures: [],
         async run(app, context) {

@@ -8,26 +8,28 @@ import { join } from "node:path";
 import {
     ADDRESS,
     ARTIFACTS,
-    E2E,
     FINGERPRINT,
     PASSWORD,
     PORT,
     PROFILE,
-    ROOT,
     SERIAL,
     SSH_KEY,
     SSH_KEY_PASSPHRASE,
     coldStart,
     compose,
+    expectFixtures,
     helloFile,
     host,
     lineCount,
     options,
+    restoreFixtures,
     sessionFiles,
     sleep,
+    stopApp,
 } from "./env.mjs";
 import { createAndroidApp } from "../../apps/android.mjs";
 import { cases, realCases } from "../../cases/index.mjs";
+import { createReport, writeReport } from "../../support/report.mjs";
 import { selectCases } from "../../support/select.mjs";
 
 const KEYS = {
@@ -53,13 +55,6 @@ function contextFor(item) {
 }
 
 async function main() {
-    if (PROFILE !== "real" && options["no-reset"] === undefined) {
-        execFileSync("bash", [join(E2E, "reset-host.sh")], {
-            cwd: ROOT,
-            encoding: "utf8",
-        });
-    }
-
     const selected = selectCases(PROFILE === "real" ? realCases : cases, {
         platform: "android",
         cases: options.cases,
@@ -70,24 +65,26 @@ async function main() {
         console.error("e2e: no Android case matches the filter");
         process.exit(2);
     }
-    const report = {
-        startedAt: new Date().toISOString(),
-        serial: SERIAL,
+    const report = createReport({
+        platform: "android",
+        profile: PROFILE,
         address: ADDRESS,
-        cases: [],
-    };
+        serial: SERIAL,
+    });
     let app;
-    let failed = 0;
-    let known = 0;
 
     for (const item of selected) {
         const started = Date.now();
         const limit = item.timeoutMs ?? 90_000;
         const context = contextFor(item);
-        let status = "pass";
         let error;
         try {
             app?.close();
+            // The app of the previous case must stop before its fixtures are
+            // restored; the real host keeps its sessions across cases.
+            stopApp();
+            if (PROFILE !== "real" && options["no-reset"] === undefined) restoreFixtures();
+            expectFixtures(item.fixtures);
             const cdp = await coldStart();
             app = createAndroidApp(cdp, context, { serial: SERIAL, port: PORT });
             await Promise.race([
@@ -102,9 +99,6 @@ async function main() {
             ]);
         } catch (problem) {
             error = String(problem.message ?? problem);
-            status = item.knownBug === undefined ? "fail" : "known";
-            if (status === "fail") failed += 1;
-            else known += 1;
             try {
                 await app?.screenshot(join(ARTIFACTS, "screens", `${item.id}-failed.png`));
             } catch {
@@ -115,24 +109,16 @@ async function main() {
             id: item.id,
             priority: item.priority,
             name: item.name,
-            status,
+            status: error === undefined ? "pass" : "fail",
             error,
             ms: Date.now() - started,
         };
-        if (item.knownBug !== undefined) record.bug = item.knownBug;
         report.cases.push(record);
         const line = `${record.status.toUpperCase().padEnd(5)} ${record.id} ${record.name}`;
         console.log(error === undefined ? line : `${line}\n      ${error}`);
     }
 
-    report.finishedAt = new Date().toISOString();
-    report.summary = {
-        total: report.cases.length,
-        passed: report.cases.filter((c) => c.status === "pass").length,
-        failed,
-        known,
-    };
-    writeFileSync(join(ARTIFACTS, "report.json"), `${JSON.stringify(report, null, 4)}\n`);
+    writeReport(ARTIFACTS, report);
     try {
         writeFileSync(
             join(ARTIFACTS, "logcat.txt"),
@@ -144,10 +130,10 @@ async function main() {
         // A device that left mid-run still keeps the report.
     }
     console.log(
-        `\n${report.summary.passed}/${report.summary.total} passed, ${failed} failed, ${known} known (${ARTIFACTS})`,
+        `\n${report.summary.passed}/${report.summary.total} passed, ${report.summary.failed} failed (${ARTIFACTS})`,
     );
     app?.close();
-    process.exit(failed === 0 ? 0 : 1);
+    process.exit(report.summary.failed === 0 ? 0 : 1);
 }
 
 await main();

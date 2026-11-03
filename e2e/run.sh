@@ -11,6 +11,37 @@ shift || true
 serial="${PIE_ANDROID_SERIAL:-192.168.240.112:5555}"
 apk="${PIE_APK:-$repo/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk}"
 
+# The Linux spec reads its case filters from the environment. This maps the
+# flags of the Android runner onto those variables and keeps the rest for wdio,
+# so both platforms take one command line.
+take_filters() {
+    wdio_args=()
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --cases | --tags | --priority | --cases=* | --tags=* | --priority=*)
+                flag="${1%%=*}"
+                if [ "$flag" = "$1" ]; then
+                    if [ "$#" -lt 2 ]; then
+                        echo "e2e: $flag needs a value" >&2
+                        exit 2
+                    fi
+                    value="$2"
+                    shift 2
+                else
+                    value="${1#*=}"
+                    shift
+                fi
+                name="$(printf '%s' "${flag#--}" | tr '[:lower:]' '[:upper:]')"
+                export "PIE_E2E_${name}=${value}"
+                ;;
+            *)
+                wdio_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
 bash "$root/setup.sh"
 
 if [ "$mode" = "real" ]; then
@@ -65,6 +96,7 @@ if [ "$mode" = "env" ]; then
 fi
 
 if [ "$mode" = "linux" ]; then
+    take_filters "$@"
     for tool in tauri-driver WebKitWebDriver Xvfb; do
         if ! command -v "$tool" >/dev/null; then
             echo "e2e: $tool is missing; see e2e/README.md (Linux prerequisites)" >&2
@@ -72,12 +104,12 @@ if [ "$mode" = "linux" ]; then
         fi
     done
     (cd "$repo" && pnpm tauri build --debug --no-bundle)
-    (cd "$repo" && pnpm exec wdio run "$root/runners/linux/wdio.conf.mjs" "$@")
+    (cd "$repo" && pnpm exec wdio run "$root/runners/linux/wdio.conf.mjs" "${wdio_args[@]}")
     exit
 fi
 
 if [ "$mode" != "android" ] && [ "$mode" != "all" ]; then
-    echo "usage: e2e/run.sh [env|android|linux|all|real] [-- wdio options]" >&2
+    echo "usage: e2e/run.sh [env|android|linux|all|real] [-- options]" >&2
     exit 2
 fi
 

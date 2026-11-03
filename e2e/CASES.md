@@ -8,21 +8,25 @@ An ID names a behavior, not a file. An automatic case runs on every platform
 named by its `platforms` metadata. Android and Linux run the same automatic
 behavior cases; the real-provider profile stays Android-only.
 
+Every automatic case starts from the recorded host fixtures. The runner restores
+the snapshot and checks the fixtures the case declares before it runs;
+`fixtures: []` means the case reads none. The real host keeps its state.
+
 ## Host
 
 Checked by `e2e/verify-host.sh`.
 
-| ID     | What                                                             | Automation |
-| ------ | ---------------------------------------------------------------- | ---------- |
-| ENV-01 | mock answers `/health`, host becomes healthy                     | auto       |
-| ENV-02 | password and key SSH, `pi --version` = 1.1.0 on a non-login PATH | auto       |
-| ENV-03 | the test key is accepted, a key outside `authorized_keys` is not | auto       |
-| ENV-04 | the host key fingerprint is the same after a rebuild             | auto       |
-| ENV-05 | `pi --mode rpc` over SSH answers `get_state`                     | auto       |
-| ENV-06 | `pie-e2e`, `mock-echo`, and the thinking levels resolve          | auto       |
-| ENV-07 | both packages are installed, with no npm at run time             | auto       |
-| ENV-08 | the two fixtures are on the host, with `cwd=/home/pi/work`       | auto       |
-| ENV-09 | the mock is deterministic and scripts hello, tool, and ask       | auto       |
+| ID     | What                                                                          | Automation |
+| ------ | ----------------------------------------------------------------------------- | ---------- |
+| ENV-01 | mock answers `/health`, host becomes healthy                                  | auto       |
+| ENV-02 | password and key SSH, `pi --version` = 1.1.0 on a non-login PATH              | auto       |
+| ENV-03 | the test key is accepted, a key outside `authorized_keys` is not              | auto       |
+| ENV-04 | the host key fingerprint is the same after a rebuild                          | auto       |
+| ENV-05 | `pi --mode rpc` over SSH answers `get_state`                                  | auto       |
+| ENV-06 | `pie-e2e`, `mock-echo`, and the thinking levels resolve                       | auto       |
+| ENV-07 | both packages are installed, with no npm at run time                          | auto       |
+| ENV-08 | the two fixtures and their snapshot are on the host, with `cwd=/home/pi/work` | auto       |
+| ENV-09 | the mock is deterministic and scripts hello, tool, and ask                    | auto       |
 
 ## App cases
 
@@ -73,13 +77,14 @@ runner and the Linux WebdriverIO spec both select them from the same registry by
 
 Linux runs the same automatic behavior cases through
 `e2e/runners/linux/specs/desktop.e2e.mjs`; there are no Linux-only smoke IDs.
-The runner creates a fresh XDG sandbox for every case, like the Android runner's
-`pm clear`.
+The runner creates a fresh XDG sandbox and restores the host fixtures for every
+case, like the Android runner's `pm clear`.
 
 ## Real-provider acceptance
 
 The real suite has its own host and is structural. The model's words are not an
-oracle. See [`README.md`](README.md#real-model).
+oracle. The real host is not restored between cases; its conversations grow with
+the run. See [`README.md`](README.md#real-model).
 
 | ID        | What                                               | Automation |
 | --------- | -------------------------------------------------- | ---------- |
@@ -93,8 +98,8 @@ oracle. See [`README.md`](README.md#real-model).
 
 1. Choose the behavior ID from the table above. Add a new prefix only for a new
    behavior family.
-2. Add the executable case to `e2e/cases/` with its `platforms` metadata and
-   list it here.
+2. Add the executable case to `e2e/cases/` with its `platforms` metadata and the
+   fixtures it reads (or `[]` when it reads none), and list it here.
 3. If the behavior is truly platform-specific, name only those platforms; do not
    copy the case into a platform directory.
 4. Run both platform commands and check the reports before committing.

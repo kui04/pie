@@ -22,7 +22,8 @@ builds, and the host is a plain machine with pi on `PATH`.
   `pi-permission-system` 0.8.0. The permission system runs with `yoloMode`, so
   it does not stop every tool call; the prompt is stage 2.
 - Fixtures: two real sessions recorded against the mock (`hello`, `tool`), under
-  `/home/pi/.pi/agent/sessions/--home-pi-work--/`.
+  `/home/pi/.pi/agent/sessions/--home-pi-work--/`. The entrypoint copies them
+  once to `sessions.seed`; the runner restores that snapshot before every case.
 
 `models.dev` answers an unknown provider with one placeholder mark; pie treats
 it as no mark and draws its bot icon. A real provider keeps its own logo.
@@ -39,19 +40,25 @@ pnpm e2e:android        # install the debug APK, run the Android cases
 pnpm e2e:linux          # build and drive the Linux desktop binary
 pnpm e2e                # env + Android
 pnpm e2e:real           # bring up the real-provider host and run its smoke
-e2e/reset-host.sh       # put the host back to the two fixtures
+e2e/reset-host.sh       # restore the fixture snapshot
 docker compose -f e2e/compose.yaml down -v
 ```
 
-The Android runner resets the host unless `--no-reset` is passed. The Linux
-WebdriverIO config resets it unless `PIE_E2E_NO_RESET=1` is set. Options:
+Both runners restore the host fixtures before every case and check the ones the
+case declares in `fixtures`. `--no-reset` (Android) and `PIE_E2E_NO_RESET=1`
+(Linux) skip the restore, to inspect the state a case left. Options:
 
 ```sh
 pnpm e2e:android -- --cases P0         # only the blocking cases
 pnpm e2e:android -- --cases CONN-02,RUN-07
 pnpm e2e:android -- --serial 192.168.240.112:5555
-pnpm e2e:linux -- --grep CONN-01       # one selected case
+pnpm e2e:linux -- --cases CONN-01      # one case, on Linux
+pnpm e2e:linux -- --tags run
 ```
+
+Both platforms take the same `--cases`, `--tags`, and `--priority` filters.
+`--serial` is Android-only. The Linux spec reads the filters from
+`PIE_E2E_CASES`, `PIE_E2E_TAGS`, and `PIE_E2E_PRIORITY`, which `run.sh` sets.
 
 Prerequisites:
 
@@ -69,10 +76,10 @@ Prerequisites:
 The Android driver reads the WebView through `adb forward` and the Chrome
 DevTools Protocol. The Linux suite uses WebdriverIO; its config starts
 `tauri-driver` and `WebKitWebDriver` under Xvfb, then sets the window to 800x600
-so the narrow layout is tested. Both runners select the same case registry; the
-Linux runner starts every case on a fresh XDG sandbox, like the Android runner's
-`pm clear`. A debug build enables the Android WebView devtools bridge in wry; no
-package is added.
+so the narrow layout is tested. Both runners select the same case registry and
+start every case on a fresh app-data sandbox (the Linux XDG sandbox, the Android
+`pm clear`) and on the restored host fixtures. A debug build enables the Android
+WebView devtools bridge in wry; no package is added.
 
 ## Real model
 
@@ -87,7 +94,9 @@ acceptance, beside the mock host:
 The real host listens on `pi@192.168.240.1:2223`; the mock host stays on 2222.
 It runs with the host network, because this machine's Docker bridge has no
 outbound NAT. Its container is recreated on every real run, so its two fixture
-sessions are recorded with the real model; that costs a few calls.
+sessions are recorded with the real model; that costs a few calls. The real host
+is not restored between cases: its conversations grow with the run, and SESS-01
+does not assert their order.
 
 The key is written to `.testenv/real.key` (mode 600), mounted as a Docker
 secret, and copied to a pi-owned file inside the container. It does not enter
@@ -128,10 +137,12 @@ the driver log and the XDG sandbox instead.
 
 ## The report
 
-The Android run writes `report.json` and `logcat.txt` under
-`e2e/.artifacts/<timestamp>/`, with failure screenshots in `screens/`. The Linux
-WebdriverIO run prints the spec reporter and saves failure screenshots in the
-same artifact area. Both commands exit non-zero when a case fails.
+Both runs write `report.json` under `e2e/.artifacts/<timestamp>/`. A report
+holds one record per case (`id`, `priority`, `name`, `status`, `error`, `ms`),
+the run (`platform`, `profile`, `address`), and a `summary`. Failure screenshots
+sit in `screens/`, named by case ID. The Android run also writes `logcat.txt`;
+the Linux run also prints the spec reporter. Both commands exit non-zero when a
+case fails.
 
 ## Layout
 
@@ -144,7 +155,7 @@ e2e/
   setup.sh            test SSH keys and the host fingerprint
   verify-host.sh      ENV-01..09
   verify-real.sh      the real host checks
-  reset-host.sh       the two fixtures, back again
+  reset-host.sh       restore the fixture snapshot on the host
   run.sh              the fixed flow
   host/               Dockerfile, sshd, and both pi configurations
   mock/               the deterministic OpenAI-compatible endpoint
@@ -160,7 +171,7 @@ e2e/
     real.mjs          the real-provider profile
   pages/              platform-neutral gate, sidebar, session, and composer actions
   apps/               the app interface and the Linux and Android adapters
-  support/            host, sandbox, Xvfb, driver, artifacts, and case selection
+  support/            host, sandbox, Xvfb, driver, artifacts, report, DOM fills, and case selection
   runners/android/    run.mjs, env.mjs, cdp.mjs (transport)
   runners/linux/      wdio.conf.mjs, specs/
   .testenv/           generated keys (ignored)

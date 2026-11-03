@@ -6,7 +6,6 @@ export const sessionsCases = [
         priority: "P0",
         name: "the list shows both fixtures, newest first, under the project",
         platforms: ["android", "linux"],
-        behaviorIds: ["SESS-01"],
         timeoutMs: 90_000,
         fixtures: ["hello", "tool"],
         async run(app, context) {
@@ -17,8 +16,9 @@ export const sessionsCases = [
             const tool = rows.findIndex((row) => row.startsWith("tool"));
             const hello = rows.findIndex((row) => row.startsWith("hello"));
             if (tool < 0 || hello < 0) throw new Error(`the fixtures are missing: ${JSON.stringify(rows)}`);
-            // The mock host is reset before its run, so the seed order is known. A
-            // real host keeps its messages, and an answer moves the hello row up.
+            // The runner restores the fixtures before every case, so the seed order
+            // is known. A real host keeps its messages, and an answer moves the hello
+            // row up.
             if (context.profile !== "real" && tool > hello) {
                 throw new Error(`the list is not newest first: ${JSON.stringify(rows)}`);
             }
@@ -29,7 +29,6 @@ export const sessionsCases = [
         priority: "P0",
         name: "a session opens as its file reads",
         platforms: ["android", "linux"],
-        behaviorIds: ["SESS-02"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
         async run(app) {

@@ -11,7 +11,6 @@ export const realCases = [
         priority: "P1",
         name: "the real provider mark is drawn",
         platforms: ["android"],
-        behaviorIds: ["REAL-ICON"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
         async run(app) {
@@ -25,7 +24,6 @@ export const realCases = [
         priority: "P0",
         name: "a seeded conversation opens as it reads",
         platforms: ["android"],
-        behaviorIds: ["REAL-OPEN"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
         async run(app, context) {
@@ -49,7 +47,6 @@ export const realCases = [
         timeoutMs: 180_000,
         name: "a real model answers and the conversation file grows",
         platforms: ["android"],
-        behaviorIds: ["REAL-SEND"],
         fixtures: ["hello"],
         async run(app, context) {
             await app.gate.connect();

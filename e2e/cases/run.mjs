@@ -7,7 +7,6 @@ export const runCases = [
         priority: "P0",
         name: "a message streams an answer and lands in the session file",
         platforms: ["android", "linux"],
-        behaviorIds: ["RUN-01"],
         tags: ["run"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
@@ -30,7 +29,6 @@ export const runCases = [
         priority: "P1",
         name: "the model picker lists the provider and records the change",
         platforms: ["android", "linux"],
-        behaviorIds: ["RUN-02"],
         tags: ["run"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
@@ -64,14 +62,12 @@ export const runCases = [
         priority: "P1",
         name: "the thinking level changes and the answer records it",
         platforms: ["android", "linux"],
-        behaviorIds: ["RUN-03"],
         tags: ["run"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
         async run(app, context) {
             await app.gate.connect();
             await app.sidebar.openSession("hello");
-            if ((await app.composer.model()) !== "Mock Echo") await app.composer.chooseModel("Mock Echo");
             await app.composer.openThinkingPicker();
             const levels = await app.composer.thinkingOptions();
             for (const level of ["off", "minimal", "low", "medium", "high"]) {
@@ -92,7 +88,6 @@ export const runCases = [
         priority: "P1",
         name: "Stop ends the run and leaves no pi behind",
         platforms: ["android", "linux"],
-        behaviorIds: ["RUN-07"],
         tags: ["run"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
@@ -115,7 +110,6 @@ export const runCases = [
         priority: "P1",
         name: "the working ring turns while a run goes on",
         platforms: ["android", "linux"],
-        behaviorIds: ["UI-01"],
         tags: ["run"],
         timeoutMs: 90_000,
         fixtures: ["hello"],
@@ -140,7 +134,6 @@ export const runCases = [
         priority: "P1",
         name: "an ask_user prompt answers and the run continues",
         platforms: ["android", "linux"],
-        behaviorIds: ["RUN-08"],
         tags: ["run"],
         timeoutMs: 90_000,
         fixtures: ["hello"],

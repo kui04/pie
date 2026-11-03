@@ -64,4 +64,10 @@ if [ "${PIE_E2E_SEED:-1}" != "0" ] && [ ! -d /home/pi/.pi/agent/sessions ]; then
     fi
 fi
 
+# The runner restores this snapshot before every case. Take it once: a restart
+# with the sessions of an earlier run must not become the seed.
+if [ -d /home/pi/.pi/agent/sessions ] && [ ! -d /home/pi/.pi/agent/sessions.seed ]; then
+    cp -a /home/pi/.pi/agent/sessions /home/pi/.pi/agent/sessions.seed
+fi
+
 exec /usr/sbin/sshd -D -e -p "$port"

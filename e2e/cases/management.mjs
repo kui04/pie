@@ -6,7 +6,6 @@ export const managementCases = [
         priority: "P1",
         name: "New session opens empty, then writes its first message",
         platforms: ["android", "linux"],
-        behaviorIds: ["MGMT-01"],
         timeoutMs: 90_000,
         fixtures: [],
         async run(app, context) {
@@ -33,7 +32,6 @@ export const managementCases = [
         priority: "P1",
         name: "Delete removes the conversation from the host",
         platforms: ["android", "linux"],
-        behaviorIds: ["MGMT-03"],
         timeoutMs: 90_000,
         fixtures: [],
         async run(app, context) {

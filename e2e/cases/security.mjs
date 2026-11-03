@@ -6,7 +6,6 @@ export const securityCases = [
         priority: "P1",
         name: "no credential reaches the log",
         platforms: ["android", "linux"],
-        behaviorIds: ["SEC-01"],
         timeoutMs: 90_000,
         fixtures: [],
         async run(app, context) {
@@ -29,7 +28,6 @@ export const securityCases = [
         priority: "P1",
         name: "a trusted host key is kept across a restart",
         platforms: ["android", "linux"],
-        behaviorIds: ["SEC-02"],
         tags: ["auth"],
         timeoutMs: 90_000,
         fixtures: [],

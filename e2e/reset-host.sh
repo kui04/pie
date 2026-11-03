@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
-# Puts the host back to the two recorded fixture sessions, so a run of the suite
-# starts from the same list every time.
+# Puts the host back to the recorded fixture sessions. The entrypoint stores the
+# snapshot once, and every case starts from a copy of it.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-key="$root/.testenv/ssh/id_ed25519"
-known="$root/.testenv/ssh/known_hosts"
 compose=(docker compose -f "$root/compose.yaml")
 
-"${compose[@]}" exec -T host rm -rf /home/pi/.pi/agent/sessions
-"${compose[@]}" restart host >/dev/null
+if ! "${compose[@]}" exec -T host test -d /home/pi/.pi/agent/sessions.seed; then
+    echo "e2e: the host has no fixture snapshot; recreate it with:" >&2
+    echo "  docker compose -f e2e/compose.yaml up -d --build --force-recreate host" >&2
+    exit 1
+fi
 
-for _ in $(seq 1 40); do
-    if ssh -p 2222 -i "$key" \
-        -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=3 \
-        -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$known" \
-        pi@127.0.0.1 'true' 2>/dev/null; then
-        echo "e2e: host reset to the fixture sessions"
-        exit 0
-    fi
-    sleep 0.5
-done
+# A case that left a pi process behind must not answer the next one. The runner
+# stops the app before this runs, so no live connection loses its process.
+"${compose[@]}" exec -T host bash -c '
+    pkill -u pi -f "pi --mode rpc" || true
+    rm -rf /home/pi/.pi/agent/sessions
+    cp -a /home/pi/.pi/agent/sessions.seed /home/pi/.pi/agent/sessions
+'
 
-echo "e2e: the host did not answer after the reset" >&2
-exit 1
+echo "e2e: host restored to the fixture sessions"

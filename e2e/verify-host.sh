@@ -93,6 +93,11 @@ if ssh_run 'head -c 200 ~/.pi/agent/sessions/--home-pi-work--/*.jsonl | grep -q 
 else
     fail ENV-08 "session headers do not name /home/pi/work"
 fi
+if ssh_run 'test -d ~/.pi/agent/sessions.seed'; then
+    pass ENV-08 "the fixture snapshot is on the host"
+else
+    fail ENV-08 "the fixture snapshot is missing; recreate the host container"
+fi
 
 if node "$root/lib/mock-check.mjs" http://127.0.0.1:18080; then
     :

@@ -28,9 +28,6 @@ export function validateCases(list) {
         for (const platform of item.platforms) {
             if (!PLATFORMS.has(platform)) throw new Error(`${item.id} names unknown platform ${platform}`);
         }
-        if (!Array.isArray(item.behaviorIds) || item.behaviorIds.length === 0) {
-            throw new Error(`${item.id} covers no behavior`);
-        }
         if (!PRIORITIES.has(item.priority)) throw new Error(`${item.id} has priority ${item.priority}`);
         if (item.tags !== undefined && !Array.isArray(item.tags)) throw new Error(`${item.id} has non-array tags`);
         if (item.timeoutMs !== undefined && !(Number.isFinite(item.timeoutMs) && item.timeoutMs > 0)) {

@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fillExpression } from "../../support/dom.mjs";
 
 const APP_ID = "me.kui04.pie";
 
@@ -166,17 +167,7 @@ export class Cdp {
 
     /** Types into a React-controlled field through its own value setter. */
     async fill(selector, value) {
-        const result = await this.eval(`(() => {
-            const element = document.querySelector(${JSON.stringify(selector)});
-            if (element === null) return false;
-            const proto = element instanceof HTMLTextAreaElement
-                ? HTMLTextAreaElement.prototype
-                : HTMLInputElement.prototype;
-            Object.getOwnPropertyDescriptor(proto, "value").set.call(element, ${JSON.stringify(value)});
-            element.dispatchEvent(new Event("input", { bubbles: true }));
-            element.dispatchEvent(new Event("change", { bubbles: true }));
-            return true;
-        })()`);
+        const result = await this.eval(fillExpression(selector, value));
         if (result !== true) throw new Error(`no field ${selector}`);
     }
 
