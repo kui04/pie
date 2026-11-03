@@ -28,6 +28,7 @@
         "e2e": "bash e2e/run.sh all",
         "e2e:env": "bash e2e/run.sh env",
         "e2e:android": "bash e2e/run.sh android",
+        "e2e:linux": "bash e2e/run.sh linux",
         "e2e:real": "bash e2e/run.sh real",
         "hooks": "prek run --all-files"
     },

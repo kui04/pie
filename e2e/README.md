@@ -1,10 +1,11 @@
 # End-to-end tests
 
-The suite drives the Android debug build against a Docker host that runs pi
-1.1.0 over SSH, and writes a report under `e2e/.artifacts/`.
+The suite drives two debug builds against a Docker host that runs pi 1.1.0 over
+SSH: the Android APK and the Linux desktop binary. It writes a report under
+`e2e/.artifacts/`.
 
-No application code takes part in the test environment: the APK is the normal
-debug build, and the host is a plain machine with pi on `PATH`.
+No application code takes part in the test environment: both are normal debug
+builds, and the host is a plain machine with pi on `PATH`.
 
 ## The test host
 
@@ -34,8 +35,9 @@ outbound NAT, so a normal build cannot reach npm or Debian.
 ```sh
 e2e/setup.sh            # once, idempotent: test SSH keys and the host fingerprint
 pnpm e2e:env            # build the host, bring it up, check ENV-01..09
-pnpm e2e:android        # install the debug APK, run the app cases
-pnpm e2e                # both
+pnpm e2e:android        # install the debug APK, run the Android cases
+pnpm e2e:linux          # build and drive the Linux desktop binary
+pnpm e2e                # env + Android
 pnpm e2e:real           # bring up the real-provider host and run its smoke
 e2e/reset-host.sh       # put the host back to the two fixtures
 docker compose -f e2e/compose.yaml down -v
@@ -47,6 +49,7 @@ The runner resets the host by itself unless `--no-reset` is passed. Options:
 pnpm e2e:android -- --cases P0         # only the blocking cases
 pnpm e2e:android -- --cases CONN-02,RUN-07
 pnpm e2e:android -- --serial 192.168.240.112:5555
+pnpm e2e:linux -- --cases L-01         # one Linux smoke case
 ```
 
 Prerequisites:
@@ -58,10 +61,15 @@ Prerequisites:
 - The device serial in `PIE_ANDROID_SERIAL` (default `192.168.240.112:5555`, the
   Waydroid address), and the one-time "Allow USB debugging" tap on the device.
 - `adb`, `docker`, `ssh`, `node`.
+- Linux desktop: `tauri-driver` (`cargo install tauri-driver --locked`),
+  `WebKitWebDriver` (from webkitgtk), and `Xvfb` (from devenv). It uses the same
+  Docker host and needs no APK or adb.
 
-The driver reads the WebView through `adb forward` and the Chrome DevTools
-Protocol. A debug build enables the WebView devtools bridge in wry; no package
-is added.
+The Android driver reads the WebView through `adb forward` and the Chrome
+DevTools Protocol. The Linux driver starts `tauri-driver` and `WebKitWebDriver`
+under Xvfb, then sets the window to 800x600 so the narrow layout is tested. A
+debug build enables the Android WebView devtools bridge in wry; no package is
+added.
 
 ## Real model
 
@@ -97,7 +105,8 @@ not change. The provider id is yours to choose for a custom endpoint.
 
 ## Cases
 
-`auto` cases run in `e2e/android/run.mjs`. The rest are stage 2.
+`auto` cases run in `e2e/android/run.mjs` and `e2e/linux/run.mjs`. The rest are
+stage 2.
 
 ### Host, checked by `e2e/verify-host.sh`
 
@@ -154,19 +163,29 @@ not change. The provider id is yours to choose for a custom endpoint.
 | NF-01   | cold start to the gate, and connect to the list, stay within budget   | manual |
 | NF-02   | 360px stays usable, and every control has a name                      | manual |
 
+### App, on the Linux desktop
+
+| ID   | What                                                                      | Stage |
+| ---- | ------------------------------------------------------------------------- | ----- |
+| L-01 | a cold desktop app connects, trusts the host key, and lists both fixtures | auto  |
+| L-02 | a message streams an answer and lands in the session file                 | auto  |
+| L-03 | a restart remembers the host but keeps no credential                      | auto  |
+| L-04 | a rejected password says so and leaves the gate usable                    | auto  |
+
 ## Last run
 
-2026-11-02: the mock suite passed 19/19. The real smoke passed 5/5 against
-Ollama Cloud `beam` through a custom `models.json` provider: four answers,
-13,611 tokens. Waydroid's adb refuses `run-as`, so the SEC-01 app-data half runs
-only where adb can enter the package; the logcat half runs everywhere.
+2026-11-03: the Linux desktop suite passed 4/4 against the mock host. The
+2026-11-02 Android run passed 19/19. The real smoke passed 5/5 against Ollama
+Cloud `beam` through a custom `models.json` provider: four answers, 13,611
+tokens. Waydroid's adb refuses `run-as`, so the SEC-01 app-data half runs only
+where adb can enter the package; the logcat half runs everywhere.
 
 ## The report
 
 `e2e/.artifacts/<timestamp>/report.json` holds one record per case (status,
-error, duration), `screens/` holds the screenshot of each failure, and
-`logcat.txt` holds the device log of the run. The command exits non-zero when a
-case fails.
+error, duration), and `screens/` holds the screenshot of each failure. The
+Android run also writes `logcat.txt`; the Linux run writes the app's stderr to
+the terminal. The command exits non-zero when a case fails.
 
 ## Layout
 
@@ -184,6 +203,7 @@ e2e/
   mock/               the deterministic OpenAI-compatible endpoint
   lib/                the RPC and mock checks the shell scripts call
   android/            cdp.mjs (the driver), run.mjs (the cases)
+  linux/              webdriver.mjs (the driver), run.mjs (the cases)
   .testenv/           generated keys (ignored)
   .artifacts/         reports (ignored)
 ```

@@ -64,8 +64,20 @@ if [ "$mode" = "env" ]; then
     exit 0
 fi
 
+if [ "$mode" = "linux" ]; then
+    for tool in tauri-driver WebKitWebDriver Xvfb; do
+        if ! command -v "$tool" >/dev/null; then
+            echo "e2e: $tool is missing; see e2e/README.md (Linux prerequisites)" >&2
+            exit 2
+        fi
+    done
+    (cd "$repo" && pnpm tauri build --debug --no-bundle)
+    node "$root/linux/run.mjs" "$@"
+    exit
+fi
+
 if [ "$mode" != "android" ] && [ "$mode" != "all" ]; then
-    echo "usage: e2e/run.sh [env|android|all|real] [-- android/run.mjs options]" >&2
+    echo "usage: e2e/run.sh [env|android|linux|all|real] [-- linux/run.mjs options]" >&2
     exit 2
 fi
 

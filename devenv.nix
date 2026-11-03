@@ -38,6 +38,7 @@ in
     pkgs.pango
     pkgs.pkg-config
     pkgs.webkitgtk_4_1
+    pkgs.xvfb
     nightlyRustfmt
   ];
 
