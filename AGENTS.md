@@ -65,7 +65,8 @@ checks while iterating, and full checks before finishing.
   `pnpm rust-test`, `pnpm doc` (`RUSTDOCFLAGS="-D warnings"`).
 - **End-to-end**: `pnpm e2e:env`, `pnpm e2e:android`, `pnpm e2e:linux`,
   `pnpm e2e:real` (the real host needs `e2e/.testenv/real.env`, which is
-  ignored; the Linux target needs `tauri-driver` and Xvfb); see `e2e/README.md`.
+  ignored; the Linux target uses WebdriverIO with `tauri-driver` and Xvfb); see
+  `e2e/README.md`.
 - **Test map**: `TESTING.md` says which layer owns a behavior; `e2e/CASES.md`
   lists the end-to-end cases and platform coverage.
 - **Desktop and preview**: `pnpm app:dev`, `pnpm app:build`, `pnpm storybook`,

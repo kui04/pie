@@ -71,6 +71,20 @@ export default defineConfig(
         },
     },
     {
+        // WebdriverIO injects the Mocha and browser globals.
+        files: ["e2e/runners/linux/specs/**/*.mjs", "e2e/runners/linux/wdio.conf.mjs"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            globals: {
+                ...globals.node,
+                browser: "readonly",
+                beforeEach: "readonly",
+                describe: "readonly",
+                it: "readonly",
+            },
+        },
+    },
+    {
         // Tailwind's own rule set, resolved against this app's stylesheet. The shadcn
         // primitives are left out: they are the registry's bytes, which `pnpm ui-check` holds.
         files: ["src/**/*.{ts,tsx}"],

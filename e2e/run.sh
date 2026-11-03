@@ -52,7 +52,7 @@ if [ "$mode" = "real" ]; then
         exit 2
     fi
     adb -s "$serial" install -r -t "$apk" >/dev/null
-    node "$root/android/run.mjs" --profile real --serial "$serial" \
+    node "$root/runners/android/run.mjs" --profile real --serial "$serial" \
         --address "pi@192.168.240.1:2223" "$@"
     exit
 fi
@@ -72,12 +72,12 @@ if [ "$mode" = "linux" ]; then
         fi
     done
     (cd "$repo" && pnpm tauri build --debug --no-bundle)
-    node "$root/linux/run.mjs" "$@"
+    (cd "$repo" && pnpm exec wdio run "$root/runners/linux/wdio.conf.mjs" "$@")
     exit
 fi
 
 if [ "$mode" != "android" ] && [ "$mode" != "all" ]; then
-    echo "usage: e2e/run.sh [env|android|linux|all|real] [-- linux/run.mjs options]" >&2
+    echo "usage: e2e/run.sh [env|android|linux|all|real] [-- wdio options]" >&2
     exit 2
 fi
 
@@ -94,4 +94,4 @@ fi
 adb -s "$serial" install -r -t "$apk" >/dev/null
 
 # The runner resets the host itself unless --no-reset is passed through.
-node "$root/android/run.mjs" --serial "$serial" "$@"
+node "$root/runners/android/run.mjs" --serial "$serial" "$@"

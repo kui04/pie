@@ -81,7 +81,7 @@ in
 
     prettier = {
       enable = true;
-      files = "\\.(css|html|json|md|ts|tsx|js|jsx)$";
+      files = "\\.(cjs|css|html|json|md|mjs|ts|tsx|js|jsx)$";
       settings.binPath = "./node_modules/.bin/prettier";
     };
 
@@ -89,7 +89,7 @@ in
       enable = true;
       settings = {
         binPath = "./node_modules/.bin/eslint";
-        extensions = "\\.(js|jsx|ts|tsx)$";
+        extensions = "\\.(cjs|js|jsx|mjs|ts|tsx)$";
       };
     };
 

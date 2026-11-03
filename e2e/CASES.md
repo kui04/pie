@@ -4,9 +4,9 @@ This is the list of E2E cases and their platform coverage. The setup, commands,
 and reporting format are in [`README.md`](README.md); the layer rules are in
 [`../TESTING.md`](../TESTING.md).
 
-An ID names a behavior, not a file. A platform column names the executable case
-that proves it on that platform. A composed smoke case lists the behavior IDs it
-covers under **Covers**; it does not create a new behavior ID.
+An ID names a behavior, not a file. An automatic case runs on every platform
+named by its `platforms` metadata. Android and Linux run the same automatic
+behavior cases; the real-provider profile stays Android-only.
 
 ## Host
 
@@ -26,8 +26,9 @@ Checked by `e2e/verify-host.sh`.
 
 ## App cases
 
-The Android cases run in `e2e/android/run.mjs`. Rows with **Stage** `manual` are
-the manual checklist. Linux coverage is listed in the smoke table below.
+The automatic cases are the behavior modules under `e2e/cases/`. The Android
+runner and the Linux WebdriverIO spec both select them from the same registry by
+`platforms`. Rows with **Stage** `manual` are the manual checklist.
 
 | ID      | What                                                                  | Stage  |
 | ------- | --------------------------------------------------------------------- | ------ |
@@ -62,23 +63,18 @@ the manual checklist. Linux coverage is listed in the smoke table below.
 | ERR-03  | a stopped host is named, and Reconnect brings the link back           | auto   |
 | ERR-04  | a malformed JSONL fixture degrades                                    | manual |
 | ERR-05  | a restart during a connection leaves no duplicate row                 | manual |
-| SEC-01  | no password reaches logcat (app data where adb can read it)           | auto   |
+| SEC-01  | no password reaches the app log or app data                           | auto   |
 | SEC-02  | a trusted host key is kept across a restart                           | auto   |
 | SEC-03  | pie writes no file on the host                                        | manual |
 | NF-01   | cold start to the gate, and connect to the list, stay within budget   | manual |
 | NF-02   | 360px stays usable, and every control has a name                      | manual |
 
-## Linux desktop smoke
+## Linux desktop
 
-The Linux cases run in `e2e/linux/run.mjs` against the mock host. The executable
-smoke case is `L-*`; **Covers** names the behavior IDs from the table above.
-
-| ID   | What                                                                      | Covers           | Priority |
-| ---- | ------------------------------------------------------------------------- | ---------------- | -------- |
-| L-01 | a cold desktop app connects, trusts the host key, and lists both fixtures | CONN-03, SESS-01 | P0       |
-| L-02 | a message streams an answer and lands in the session file                 | SESS-02, RUN-01  | P0       |
-| L-03 | a restart remembers the host but keeps no credential                      | CONN-04          | P1       |
-| L-04 | a rejected password says so and leaves the gate usable                    | CONN-02          | P0       |
+Linux runs the same automatic behavior cases through
+`e2e/runners/linux/specs/desktop.e2e.mjs`; there are no Linux-only smoke IDs.
+The runner creates a fresh XDG sandbox for every case, like the Android runner's
+`pm clear`.
 
 ## Real-provider acceptance
 
@@ -97,7 +93,8 @@ oracle. See [`README.md`](README.md#real-model).
 
 1. Choose the behavior ID from the table above. Add a new prefix only for a new
    behavior family.
-2. Add the executable case to the platform runner and list it here.
-3. For a composed smoke case, fill **Covers**; do not duplicate the names of the
-   behaviors it already references.
-4. Run the platform command and check the report before committing.
+2. Add the executable case to `e2e/cases/` with its `platforms` metadata and
+   list it here.
+3. If the behavior is truly platform-specific, name only those platforms; do not
+   copy the case into a platform directory.
+4. Run both platform commands and check the reports before committing.

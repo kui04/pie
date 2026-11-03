@@ -7,15 +7,15 @@ catalog is [`e2e/CASES.md`](e2e/CASES.md); the host setup and commands are in
 
 ## Layers
 
-| Layer                 | Command            | Location                                 | Owns                                                                      | Does not own                                       |
-| --------------------- | ------------------ | ---------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
-| Frontend unit/UI      | `pnpm test`        | `src/**/__tests__`                       | React components, hooks, machines, transcript logic, local UI state       | Rust processes, SSH, real files, the desktop shell |
-| Rust unit/integration | `pnpm rust-test`   | inline `#[cfg(test)]`, `src-tauri/tests` | Parsing, state, framing, session stores, host and channel logic           | The WebView and its rendered behavior              |
-| Host environment      | `pnpm e2e:env`     | `e2e/verify-host.sh`, `e2e/lib`          | Docker host, SSH, pi version, packages, fixtures, mock determinism        | The app UI                                         |
-| Android E2E           | `pnpm e2e:android` | `e2e/android`                            | The full Android debug app over adb and the WebView DevTools protocol     | Desktop-only windows and native pickers            |
-| Linux desktop E2E     | `pnpm e2e:linux`   | `e2e/linux`                              | The full desktop debug binary through tauri-driver, WebKitWebDriver, Xvfb | Native file dialogs and real-model acceptance      |
-| Real acceptance       | `pnpm e2e:real`    | `e2e/android/run.mjs`                    | Structural checks against a real provider                                 | Model wording as an oracle                         |
-| Manual                | see `CASES.md`     | `e2e/CASES.md`                           | Native dialogs, visual quality, performance, destructive recovery         | Anything already covered below                     |
+| Layer                 | Command            | Location                                 | Owns                                                                                   | Does not own                                       |
+| --------------------- | ------------------ | ---------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Frontend unit/UI      | `pnpm test`        | `src/**/__tests__`                       | React components, hooks, machines, transcript logic, local UI state                    | Rust processes, SSH, real files, the desktop shell |
+| Rust unit/integration | `pnpm rust-test`   | inline `#[cfg(test)]`, `src-tauri/tests` | Parsing, state, framing, session stores, host and channel logic                        | The WebView and its rendered behavior              |
+| Host environment      | `pnpm e2e:env`     | `e2e/verify-host.sh`, `e2e/lib`          | Docker host, SSH, pi version, packages, fixtures, mock determinism                     | The app UI                                         |
+| Android E2E           | `pnpm e2e:android` | `e2e/runners/android`                    | The full Android debug app over adb and the WebView DevTools protocol                  | Desktop-only windows and native pickers            |
+| Linux desktop E2E     | `pnpm e2e:linux`   | `e2e/runners/linux`                      | The full desktop debug binary through WebdriverIO, tauri-driver, WebKitWebDriver, Xvfb | Native file dialogs and real-model acceptance      |
+| Real acceptance       | `pnpm e2e:real`    | `e2e/cases/real.mjs`                     | Structural checks against a real provider                                              | Model wording as an oracle                         |
+| Manual                | see `CASES.md`     | `e2e/CASES.md`                           | Native dialogs, visual quality, performance, destructive recovery                      | Anything already covered below                     |
 
 ## Where a new test belongs
 
@@ -41,14 +41,14 @@ As of 2026-11-03:
 
 - Vitest: 72 files, 674 tests.
 - Rust: 209 tests, 2 ignored live tests.
-- E2E: 19 Android automatic cases, 4 Linux automatic smoke cases, 9 host checks.
+- E2E: 19 automatic cases on Android and Linux, 9 host checks.
 - Fixtures: 14 session files under `mock`, `edge`, and `real`.
 - Largest frontend test files: `ChatScreen.test.tsx` (37 tests),
   `DirectoryPicker.test.tsx` (30), `Composer.test.tsx` (28),
   `useSession.test.tsx` (27), `ConnectScreen.test.tsx` (24),
   `SessionSidebar.test.tsx` (24).
-- Largest E2E files: `e2e/android/run.mjs` (19 cases) and `e2e/linux/run.mjs` (4
-  cases).
+- E2E case definitions: `e2e/cases/` (19 automatic cases, one registry); both
+  runners filter it by `platforms`.
 
 The large files are candidates for splitting by behavior. File size alone is not
 a reason to split; navigation and shared setup are.
@@ -62,9 +62,9 @@ a reason to split; navigation and shared setup are.
   `NF`.
 - A platform column says where the behavior runs. Do not create a new behavior
   ID for a platform-specific copy.
-- A composed smoke case lists the behavior IDs it covers. For example, the Linux
-  `L-01` covers `CONN-03` and `SESS-01`. `L-01` is an executable smoke case, not
-  a new requirement.
+- An automatic case runs on every platform named by its `platforms` metadata.
+  Android and Linux run the same 19 behavior cases; a truly platform-specific
+  case names only its platforms.
 - Fixtures are named by scenario. The fixture README is the manifest.
 
 ## Test and story layout
@@ -101,12 +101,13 @@ navigate.
 2. Move tests and stories to mirror the component layout, whole files, with no
    content split. **Done for the chat and dialog trees.**
 3. Split the largest frontend test files by behavior, when navigation needs it.
-4. Split the Android runner into case modules and extract platform-neutral UI
-   actions.
-5. Replace the Linux smoke IDs' duplicate names with `covers` metadata and add
-   priority tags.
-6. Move manual cases to a checklist with steps and a last-verified date.
-7. Add slow/manual tags to commands and CI stages.
+4. Split the E2E runners into case modules, shared page actions, and support;
+   Linux now uses WebdriverIO. **Done.**
+5. Migrate Android from the CDP adapter to Appium under the same WebdriverIO
+   runner.
+6. Run the same behavior cases on Android and Linux from one registry. **Done.**
+7. Move manual cases to a checklist with steps and a last-verified date.
+8. Add slow/manual tags to commands and CI stages.
 
 Do not move all Rust tests to `src-tauri/tests/`; inline unit tests are the Rust
 convention for private code. Use `src-tauri/tests/` only for public integration
@@ -117,4 +118,5 @@ boundaries.
 Manual coverage stays for native file dialogs, window-manager behavior, visual
 quality, and performance. The Linux suite does not drive the native file
 chooser. The real-model suite checks structure, not the model's words. The
-Android suite cannot prove Linux WebKitGTK rendering or desktop window behavior.
+Android suite cannot prove Linux WebKitGTK rendering or desktop window behavior;
+the Linux suite cannot prove Android WebView or native picker behavior.

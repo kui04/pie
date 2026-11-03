@@ -43,13 +43,14 @@ e2e/reset-host.sh       # put the host back to the two fixtures
 docker compose -f e2e/compose.yaml down -v
 ```
 
-The runner resets the host by itself unless `--no-reset` is passed. Options:
+The Android runner resets the host unless `--no-reset` is passed. The Linux
+WebdriverIO config resets it unless `PIE_E2E_NO_RESET=1` is set. Options:
 
 ```sh
 pnpm e2e:android -- --cases P0         # only the blocking cases
 pnpm e2e:android -- --cases CONN-02,RUN-07
 pnpm e2e:android -- --serial 192.168.240.112:5555
-pnpm e2e:linux -- --cases L-01         # one Linux smoke case
+pnpm e2e:linux -- --grep CONN-01       # one selected case
 ```
 
 Prerequisites:
@@ -66,10 +67,12 @@ Prerequisites:
   Docker host and needs no APK or adb.
 
 The Android driver reads the WebView through `adb forward` and the Chrome
-DevTools Protocol. The Linux driver starts `tauri-driver` and `WebKitWebDriver`
-under Xvfb, then sets the window to 800x600 so the narrow layout is tested. A
-debug build enables the Android WebView devtools bridge in wry; no package is
-added.
+DevTools Protocol. The Linux suite uses WebdriverIO; its config starts
+`tauri-driver` and `WebKitWebDriver` under Xvfb, then sets the window to 800x600
+so the narrow layout is tested. Both runners select the same case registry; the
+Linux runner starts every case on a fresh XDG sandbox, like the Android runner's
+`pm clear`. A debug build enables the Android WebView devtools bridge in wry; no
+package is added.
 
 ## Real model
 
@@ -105,28 +108,30 @@ not change. The provider id is yours to choose for a custom endpoint.
 
 ## Cases
 
-The catalog is [CASES.md](CASES.md). It lists the host checks, the Android and
-Linux cases, the manual cases, and the behavior IDs each Linux smoke covers. Add
+The catalog is [CASES.md](CASES.md). It lists the host checks, the automatic
+behavior cases, and the manual cases. Android and Linux run the same 19
+automatic cases from one registry; `platforms` decides where each case runs. Add
 a case to the catalog first; this file explains how to run it.
 
-The Android suite has 19 automatic cases and 17 manual cases. The Linux suite
-has 4 automatic smoke cases. `pnpm e2e:real` has five structural checks; see
-above.
+The mock suite has 19 automatic cases and 17 manual cases on both platforms.
+`pnpm e2e:real` has five structural checks against a separate real-provider
+host; see above.
 
 ## Last run
 
-2026-11-03: the Linux desktop suite passed 4/4 against the mock host. The
-2026-11-02 Android run passed 19/19. The real smoke passed 5/5 against Ollama
-Cloud `beam` through a custom `models.json` provider: four answers, 13,611
-tokens. Waydroid's adb refuses `run-as`, so the SEC-01 app-data half runs only
-where adb can enter the package; the logcat half runs everywhere.
+2026-11-03: the Android suite passed 19/19 and the Linux desktop suite passed
+19/19 against the mock host. The real smoke passed 5/5 against Ollama Cloud
+`beam` through a custom `models.json` provider: four answers, 13,611 tokens.
+Waydroid's adb refuses `run-as`, so the SEC-01 app-data half runs only where adb
+can enter the package; the logcat half runs everywhere. On Linux, SEC-01 reads
+the driver log and the XDG sandbox instead.
 
 ## The report
 
-`e2e/.artifacts/<timestamp>/report.json` holds one record per case (status,
-error, duration), and `screens/` holds the screenshot of each failure. The
-Android run also writes `logcat.txt`; the Linux run writes the app's stderr to
-the terminal. The command exits non-zero when a case fails.
+The Android run writes `report.json` and `logcat.txt` under
+`e2e/.artifacts/<timestamp>/`, with failure screenshots in `screens/`. The Linux
+WebdriverIO run prints the spec reporter and saves failure screenshots in the
+same artifact area. Both commands exit non-zero when a case fails.
 
 ## Layout
 
@@ -144,8 +149,20 @@ e2e/
   host/               Dockerfile, sshd, and both pi configurations
   mock/               the deterministic OpenAI-compatible endpoint
   lib/                the RPC and mock checks the shell scripts call
-  android/            cdp.mjs (the driver), run.mjs (the cases)
-  linux/              webdriver.mjs (the driver), run.mjs (the cases)
+  cases/              all case definitions and metadata
+    index.mjs         the single registry
+    connection.mjs    CONN
+    sessions.mjs      SESS
+    run.mjs           RUN and UI
+    management.mjs    MGMT
+    errors.mjs        ERR
+    security.mjs      SEC
+    real.mjs          the real-provider profile
+  pages/              platform-neutral gate, sidebar, session, and composer actions
+  apps/               the app interface and the Linux and Android adapters
+  support/            host, sandbox, Xvfb, driver, artifacts, and case selection
+  runners/android/    run.mjs, env.mjs, cdp.mjs (transport)
+  runners/linux/      wdio.conf.mjs, specs/
   .testenv/           generated keys (ignored)
   .artifacts/         reports (ignored)
 ```
