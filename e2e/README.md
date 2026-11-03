@@ -105,72 +105,13 @@ not change. The provider id is yours to choose for a custom endpoint.
 
 ## Cases
 
-`auto` cases run in `e2e/android/run.mjs` and `e2e/linux/run.mjs`. The rest are
-stage 2.
+The catalog is [CASES.md](CASES.md). It lists the host checks, the Android and
+Linux cases, the manual cases, and the behavior IDs each Linux smoke covers. Add
+a case to the catalog first; this file explains how to run it.
 
-### Host, checked by `e2e/verify-host.sh`
-
-| ID     | What                                                             | Stage |
-| ------ | ---------------------------------------------------------------- | ----- |
-| ENV-01 | mock answers `/health`, host becomes healthy                     | auto  |
-| ENV-02 | password and key SSH, `pi --version` = 1.1.0 on a non-login PATH | auto  |
-| ENV-03 | the test key is accepted, a key outside `authorized_keys` is not | auto  |
-| ENV-04 | the host key fingerprint is the same after a rebuild             | auto  |
-| ENV-05 | `pi --mode rpc` over SSH answers `get_state`                     | auto  |
-| ENV-06 | `pie-e2e`, `mock-echo`, and the thinking levels resolve          | auto  |
-| ENV-07 | both packages are installed, with no npm at run time             | auto  |
-| ENV-08 | the two fixtures are on the host, with `cwd=/home/pi/work`       | auto  |
-| ENV-09 | the mock is deterministic and scripts hello, tool, and ask       | auto  |
-
-### App, on the Android device
-
-| ID      | What                                                                  | Stage  |
-| ------- | --------------------------------------------------------------------- | ------ |
-| CONN-01 | a cold app opens the gate at local, and names the missing address     | auto   |
-| CONN-02 | a rejected password says so and leaves the gate usable                | auto   |
-| CONN-03 | the host key is shown with its fingerprint, refused, then trusted     | auto   |
-| CONN-04 | a restart remembers the host, not the credential                      | auto   |
-| CONN-05 | a private key opens the host                                          | auto   |
-| CONN-06 | an encrypted key refuses a wrong passphrase and accepts the right one | auto   |
-| CONN-07 | a changed host key is not accepted silently                           | manual |
-| SESS-01 | the list shows both fixtures, newest first, under `~/work`            | auto   |
-| SESS-02 | a session opens as its file reads                                     | auto   |
-| SESS-03 | an unknown record degrades to a general shape                         | manual |
-| SESS-04 | a header-only session opens empty                                     | manual |
-| SESS-05 | a 500-entry transcript opens and scrolls                              | manual |
-| RUN-01  | a message streams an answer and lands in the session file             | auto   |
-| RUN-02  | the picker lists both models, draws the mark, and records the change  | auto   |
-| RUN-03  | the thinking level changes and the answer records it                  | auto   |
-| RUN-04  | a tool call round-trips through the transcript                        | manual |
-| RUN-05  | `!echo hi` runs on the host                                           | manual |
-| RUN-06  | a slash command reaches pi and an unknown one does not crash          | manual |
-| RUN-07  | Stop ends the run and leaves no pi behind                             | auto   |
-| RUN-08  | an `ask_user` prompt answers and the run continues                    | auto   |
-| UI-01   | the working ring turns while a run goes on                            | auto   |
-| RUN-09  | a permission prompt allows and denies                                 | manual |
-| RUN-10  | an image attachment uploads over SFTP                                 | manual |
-| MGMT-01 | New session opens empty, then writes its first message                | auto   |
-| MGMT-02 | Rename updates the menu and the file                                  | manual |
-| MGMT-03 | Delete removes the conversation from the host                         | auto   |
-| ERR-01  | a host without pi fails, and recovers when pi returns                 | manual |
-| ERR-02  | another pi version still connects, with a warning in the log          | manual |
-| ERR-03  | a stopped host is named, and Reconnect brings the link back           | auto   |
-| ERR-04  | a malformed JSONL fixture degrades                                    | manual |
-| ERR-05  | a restart during a connection leaves no duplicate row                 | manual |
-| SEC-01  | no password reaches logcat (app data where adb can read it)           | auto   |
-| SEC-02  | a trusted host key is kept across a restart                           | auto   |
-| SEC-03  | pie writes no file on the host                                        | manual |
-| NF-01   | cold start to the gate, and connect to the list, stay within budget   | manual |
-| NF-02   | 360px stays usable, and every control has a name                      | manual |
-
-### App, on the Linux desktop
-
-| ID   | What                                                                      | Stage |
-| ---- | ------------------------------------------------------------------------- | ----- |
-| L-01 | a cold desktop app connects, trusts the host key, and lists both fixtures | auto  |
-| L-02 | a message streams an answer and lands in the session file                 | auto  |
-| L-03 | a restart remembers the host but keeps no credential                      | auto  |
-| L-04 | a rejected password says so and leaves the gate usable                    | auto  |
+The Android suite has 19 automatic cases and 17 manual cases. The Linux suite
+has 4 automatic smoke cases. `pnpm e2e:real` has five structural checks; see
+above.
 
 ## Last run
 
@@ -191,6 +132,7 @@ the terminal. The command exits non-zero when a case fails.
 
 ```
 e2e/
+  CASES.md           the case catalog and platform coverage
   compose.yaml        host and mock
   compose.real.yaml   the real-provider host on 2223
   real.env.example    the values to fill; the key stays in .testenv

@@ -35,8 +35,11 @@ pnpm test          # frontend suites
 pnpm rust-test     # Rust suites
 pnpm e2e:env       # Docker host for the end-to-end suite
 pnpm e2e:android   # Android suite against the mock host
+pnpm e2e:linux     # Linux desktop suite against the mock host
 pnpm e2e:real      # the same suite against a real provider
 ```
 
-The end-to-end suite needs a debug APK and a device; `e2e/README.md` holds the
-fixed flow, the cases, and the real-provider key file.
+The end-to-end suite has Android and Linux desktop targets. `TESTING.md` is the
+test map; `e2e/README.md` holds the flow; `e2e/CASES.md` lists the cases. The
+Android target needs a debug APK and a device; the Linux target needs
+`tauri-driver` and Xvfb.
