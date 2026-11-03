@@ -1,9 +1,9 @@
-# Testing map
+# Testing rules — apply to every test and story
 
 This file is the one place to decide where a test belongs. The end-to-end
-catalog is [`e2e/CASES.md`](e2e/CASES.md); the host setup and commands are in
-[`e2e/README.md`](e2e/README.md); the session fixtures are described in
-[`src-tauri/tests/fixtures/README.md`](src-tauri/tests/fixtures/README.md).
+catalog is [`e2e/CASES.md`](../../e2e/CASES.md); the host setup and commands are
+in [`e2e/AGENTS.md`](../../e2e/AGENTS.md); the session fixtures are described in
+[`src-tauri/tests/fixtures/AGENTS.md`](../../src-tauri/tests/fixtures/AGENTS.md).
 
 ## Layers
 
@@ -35,24 +35,6 @@ different failure. A component test that already proves the menu opens does not
 need an E2E duplicate; an E2E case should prove the boundary that the component
 test cannot reach.
 
-## Current inventory
-
-As of 2026-11-03:
-
-- Vitest: 72 files, 674 tests.
-- Rust: 209 tests, 2 ignored live tests.
-- E2E: 19 automatic cases on Android and Linux, 9 host checks.
-- Fixtures: 14 session files under `mock`, `edge`, and `real`.
-- Largest frontend test files: `ChatScreen.test.tsx` (37 tests),
-  `DirectoryPicker.test.tsx` (30), `Composer.test.tsx` (28),
-  `useSession.test.tsx` (27), `ConnectScreen.test.tsx` (24),
-  `SessionSidebar.test.tsx` (24).
-- E2E case definitions: `e2e/cases/` (19 automatic cases, one registry); both
-  runners filter it by `platforms`.
-
-The large files are candidates for splitting by behavior. File size alone is not
-a reason to split; navigation and shared setup are.
-
 ## Case IDs and names
 
 - A test name states the behavior: "a rejected password leaves the gate usable".
@@ -63,9 +45,9 @@ a reason to split; navigation and shared setup are.
 - A platform column says where the behavior runs. Do not create a new behavior
   ID for a platform-specific copy.
 - An automatic case runs on every platform named by its `platforms` metadata.
-  Android and Linux run the same 19 behavior cases; a truly platform-specific
-  case names only its platforms.
-- Fixtures are named by scenario. The fixture README is the manifest.
+  Android and Linux run the same behavior cases; a truly platform-specific case
+  names only its platforms.
+- Fixtures are named by scenario. The fixtures' `AGENTS.md` is the manifest.
 
 ## Test and story layout
 
@@ -83,6 +65,10 @@ route-level test directory. Move a file whole; do not split a test only to make
 the layout look mirrored. Split by behavior later, when the file is hard to
 navigate.
 
+Do not move all Rust tests to `src-tauri/tests/`; inline unit tests are the Rust
+convention for private code. Use `src-tauri/tests/` only for public integration
+boundaries.
+
 ## Adding or changing a test
 
 1. Name the behavior and the layer that can prove it.
@@ -95,28 +81,20 @@ navigate.
 7. Mark slow, flaky, or manual tests explicitly; do not hide a failure behind a
    retry.
 
-## Cleanup order
-
-1. Keep this map and the E2E catalog current. **Done.**
-2. Move tests and stories to mirror the component layout, whole files, with no
-   content split. **Done for the chat and dialog trees.**
-3. Split the largest frontend test files by behavior, when navigation needs it.
-4. Split the E2E runners into case modules, shared page actions, and support;
-   Linux now uses WebdriverIO. **Done.**
-5. Migrate Android from the CDP adapter to Appium under the same WebdriverIO
-   runner.
-6. Run the same behavior cases on Android and Linux from one registry. **Done.**
-7. Move manual cases to a checklist with steps and a last-verified date.
-8. Add slow/manual tags to commands and CI stages.
-
-Do not move all Rust tests to `src-tauri/tests/`; inline unit tests are the Rust
-convention for private code. Use `src-tauri/tests/` only for public integration
-boundaries.
-
-## Manual and known gaps
+## Coverage limits
 
 Manual coverage stays for native file dialogs, window-manager behavior, visual
 quality, and performance. The Linux suite does not drive the native file
 chooser. The real-model suite checks structure, not the model's words. The
 Android suite cannot prove Linux WebKitGTK rendering or desktop window behavior;
 the Linux suite cannot prove Android WebView or native picker behavior.
+
+## Open work
+
+The plan, not a request: do not start one unasked.
+
+- Split the largest frontend suites by behavior, when navigation needs it.
+- Migrate Android from the CDP adapter to Appium under the same WebdriverIO
+  runner.
+- Move the manual cases to a checklist with steps and a last-verified date.
+- Add slow and manual tags to the commands and the stages that run them.

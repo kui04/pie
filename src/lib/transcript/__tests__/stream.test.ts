@@ -15,8 +15,7 @@ import {
 } from "../stream";
 
 /**
- * The sequences below are the ones a recorded run writes
- * (`src-tauri/tests/fixtures/tour-1.1.0.jsonl`, `transcript-1.1.0.jsonl`): a
+ * The sequences below are the ones a recorded run of pi 1.1.0 writes: a
  * `message_start` with the parts the provider sent, deltas for one part at a time, a
  * tool call whose arguments stream before it runs, and a result that arrives twice.
  */

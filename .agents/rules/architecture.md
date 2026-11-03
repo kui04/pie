@@ -145,7 +145,9 @@ the enum carries no fields, so the state a connection owns sits there.
   of this crate == the Pi release the protocol mirrors. The `pi_rpc` crate names
   the Pi commit the protocol was recorded from in its
   `[package.metadata.pi_rpc] pi_rev`, and `Cargo.lock` holds the revision the
-  app resolved.
-- The frontend mirrors this surface in `src/lib/bridge/`, one file per area. The
-  frontend in the tree predates this rewrite: change it to match Rust, not the
-  other way around.
+  app resolved. A bump changes all three manifests, moves
+  `.codegraph/.references/pi` to the release commit and re-runs
+  `codegraph index`, makes `pi_rpc`'s `pi_rev` name that commit, then runs
+  `cargo update -p pi_rpc` and `pnpm check`.
+- The frontend mirrors this surface in `src/lib/bridge/`, one file per area.
+  Where the two disagree, Rust is right: change the frontend to match it.

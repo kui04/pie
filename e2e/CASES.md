@@ -1,8 +1,8 @@
 # End-to-end case catalog
 
 This is the list of E2E cases and their platform coverage. The setup, commands,
-and reporting format are in [`README.md`](README.md); the layer rules are in
-[`../TESTING.md`](../TESTING.md).
+and reporting format are in [`AGENTS.md`](AGENTS.md); the layer rules are in
+[`../.agents/rules/testing.md`](../.agents/rules/testing.md).
 
 An ID names a behavior, not a file. An automatic case runs on every platform
 named by its `platforms` metadata. Android and Linux run the same automatic
@@ -84,7 +84,7 @@ case, like the Android runner's `pm clear`.
 
 The real suite has its own host and is structural. The model's words are not an
 oracle. The real host is not restored between cases; its conversations grow with
-the run. See [`README.md`](README.md#real-model).
+the run. See [`AGENTS.md`](AGENTS.md#the-real-model).
 
 | ID        | What                                               | Automation |
 | --------- | -------------------------------------------------- | ---------- |

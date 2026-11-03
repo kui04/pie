@@ -41,8 +41,8 @@ Pi's fields, or "improve" wire shapes.
 - Lifecycle: closing stdin is the graceful shutdown path; handle SIGTERM and
   channel EOF; the SSH case follows the same rules over the russh channel.
 - Check `pi --version` against the pin (`HostConnection::pi_version` and
-  `host::PI_VERSION`); a mismatch is a warning the connect logs and goes on from
-  - never a silent continue - and a pi that does not answer fails the connect.
+  `host::PI_VERSION`): a mismatch is a warning the connect logs and goes on
+  from, and a pi that does not answer fails the connect.
 - SSH specifics: `russh` with the `ring` crypto backend (Android cross-compile);
   host-key verification is `host::ssh::trust`: trust on first use over an
   OpenSSH known_hosts file, an unknown key put to the person, a changed key

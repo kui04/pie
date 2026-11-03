@@ -1,6 +1,7 @@
 # Session fixtures
 
-Real `pi` session files for the `session::store` and catalog unit tests. The
+Real `pi` session files under `sessions/`, for the `session::store` and catalog
+unit tests. Every path in the tables below is relative to that directory. The
 model's words are not an oracle: the tests assert the structure pi writes and
 the prompt the test sent, never the answer text.
 

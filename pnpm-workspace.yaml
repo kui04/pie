@@ -1,14 +1,14 @@
-# pnpm 11 settings live here. esbuild's install script is deliberately blocked:
+# pnpm settings live here. esbuild's install script is deliberately blocked:
 # its platform binary ships as an optional dependency, and `pnpm app:build`,
 # `pnpm test` and `pnpm build-storybook` all pass with the script never run.
 # Set to true only if a future dependency genuinely needs it.
 #
-# @google/genai and protobufjs arrive with pi's type packages (see AGENTS.md):
-# pie imports types from them and never runs their code, so their install scripts
-# stay off. edgedriver and geckodriver arrive with WebdriverIO; the Linux Tauri
-# suite uses WebKitWebDriver, not either browser driver. They are answered rather
-# than left out because pnpm refuses to run any script while a package it wants
-# to build has no answer here.
+# @google/genai and protobufjs arrive with pi's type packages (see
+# `src/lib/rpc-protocol.ts`): pie imports types from them and never runs their
+# code, so their install scripts stay off. edgedriver and geckodriver arrive with
+# WebdriverIO; the Linux Tauri suite uses WebKitWebDriver, not either browser
+# driver. They are answered rather than left out because pnpm refuses to run any
+# script while a package it wants to build has no answer here.
 allowBuilds:
   "@google/genai": false
   edgedriver: false

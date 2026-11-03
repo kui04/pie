@@ -39,7 +39,7 @@ pnpm e2e:linux     # Linux desktop suite against the mock host
 pnpm e2e:real      # the same suite against a real provider
 ```
 
-The end-to-end suite has Android and Linux desktop targets. `TESTING.md` is the
-test map; `e2e/README.md` holds the flow; `e2e/CASES.md` lists the cases. The
-Android target needs a debug APK and a device; the Linux target needs
-`tauri-driver` and Xvfb.
+The end-to-end suite has Android and Linux desktop targets.
+`.agents/rules/testing.md` is the test map; `e2e/AGENTS.md` holds the host setup
+and the flow; `e2e/CASES.md` lists the cases. The Android target needs a debug
+APK and a device; the Linux target needs `tauri-driver` and Xvfb.

@@ -99,7 +99,7 @@ if [ "$mode" = "linux" ]; then
     take_filters "$@"
     for tool in tauri-driver WebKitWebDriver Xvfb; do
         if ! command -v "$tool" >/dev/null; then
-            echo "e2e: $tool is missing; see e2e/README.md (Linux prerequisites)" >&2
+            echo "e2e: $tool is missing; see e2e/AGENTS.md (Linux prerequisites)" >&2
             exit 2
         fi
     done

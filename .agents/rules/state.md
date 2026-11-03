@@ -119,15 +119,15 @@ Zustand stores ──▶ nothing (no imports of Query or XState)
 Query queryFn ──▶ plain API functions only (no imports of Zustand or XState)
 ```
 
-| From → To                     | Allowed?    | How                                                                                                                                               |
-| ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| XState → Query                | Yes         | Pass `queryClient` as machine `input`. Use `invalidateQueries` / `setQueryData` on completion. Never call hooks inside machines.                  |
-| XState → Zustand              | Yes (write) | Action calls `useXStore.getState().setX(...)`. Prefer passing read values in via `input` or event payload instead of reading the store in guards. |
-| Zustand → XState              | No          | Never. Components send events to machines.                                                                                                        |
-| Zustand → Query               | No          | Stores don't fetch or hold query data.                                                                                                            |
-| Query → Zustand / XState      | No          | `queryFn` is a pure API call. Use `onSuccess`-style side effects in a machine or component, not the store.                                        |
-| Component → any               | Yes         | Components wire tools together.                                                                                                                   |
-| Zustand ↔ XState two-way sync | No          | One source of truth per fact.                                                                                                                     |
+| From → To                     | Allowed?    | How                                                                                                                                                                                              |
+| ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| XState → Query                | Yes         | Pass a small I/O interface as machine `input` (`SessionDeps`, built in `src/lib/session/registry.ts`). Use `invalidateQueries` / `setQueryData` on completion. Never call hooks inside machines. |
+| XState → Zustand              | Yes (write) | Action calls `useXStore.getState().setX(...)`. Prefer passing read values in via `input` or event payload instead of reading the store in guards.                                                |
+| Zustand → XState              | No          | Never. Components send events to machines.                                                                                                                                                       |
+| Zustand → Query               | No          | Stores don't fetch or hold query data.                                                                                                                                                           |
+| Query → Zustand / XState      | No          | `queryFn` is a pure API call. Use `onSuccess`-style side effects in a machine or component, not the store.                                                                                       |
+| Component → any               | Yes         | Components wire tools together.                                                                                                                                                                  |
+| Zustand ↔ XState two-way sync | No          | One source of truth per fact.                                                                                                                                                                    |
 
 ### 4.2 Recipes
 
@@ -136,6 +136,11 @@ _flow_, Query owns the _data_. The machine holds drafts and IDs, never fetched
 entities. On success it invalidates queries.
 
 ```ts
+// The I/O of one machine, built from the singletons and handed in as `input`.
+interface Deps {
+  reRead: (key: readonly unknown[]) => void;
+}
+
 // features/orders/queries.ts: key factory, shared by hooks and machines
 export const orderKeys = {
   all: ["orders"] as const,
@@ -145,8 +150,8 @@ export const orderKeys = {
 // features/orders/checkout.machine.ts
 export const checkoutMachine = setup({
   types: {
-    context: {} as { draft: Draft; queryClient: QueryClient },
-    input: {} as { queryClient: QueryClient },
+    context: {} as { draft: Draft; deps: Deps },
+    input: {} as Deps,
   },
   actors: {
     submitOrder: fromPromise(({ input }: { input: Draft }) =>
@@ -154,13 +159,12 @@ export const checkoutMachine = setup({
     ),
   },
   actions: {
-    refreshOrders: ({ context }) =>
-      context.queryClient.invalidateQueries({ queryKey: orderKeys.all }),
+    refreshOrders: ({ context }) => context.deps.reRead(orderKeys.all),
   },
 }).createMachine({
   context: ({ input }) => ({
     draft: emptyDraft,
-    queryClient: input.queryClient,
+    deps: input,
   }),
   initial: "editing",
   states: {
@@ -179,22 +183,26 @@ export const checkoutMachine = setup({
 });
 
 // component
-const queryClient = useQueryClient();
+const client = useQueryClient();
 const [snapshot, send] = useMachine(checkoutMachine, {
-  input: { queryClient },
+  input: { reRead: (key) => void client.invalidateQueries({ queryKey: key }) },
 });
 const { data: orders } = useQuery(ordersQueryOptions()); // reads still go through Query
 ```
 
-**Recipe B: Preferences + server data (Zustand + Query).** Zustand holds the
-preference value. The component reads it with a selector and passes it into the
-query key or `select`. Do NOT store the query result in Zustand.
+`SessionDeps` in `src/machines/session.machine.ts`, built in
+`src/lib/session/registry.ts`, is the real one: the machine calls `deps.reRead`,
+and only the registry holds the query client.
+
+**Recipe B: A remembered value + server data (Zustand + Query).** Zustand holds
+the value the app remembers. The component reads it with a selector and passes
+it into the query key or `select`. Do NOT store the query result in Zustand.
 
 ```ts
-const density = useUiStore((s) => s.density); // value from Zustand
+const address = useHostStore((s) => s.lastHost?.address); // remembered value
 const { data } = useQuery({
   ...ordersQueryOptions(),
-  select: (d) => format(d, density),
+  select: (d) => format(d, address),
 });
 ```
 
@@ -207,7 +215,7 @@ plain value to the store. The store never calls back.
 
 ```ts
 actions: {
-  publishSession: ({ event }) => useSessionStore.getState().setUser(event.output.user),
+  rememberHost: ({ event }) => useHostStore.getState().remember(event.output.host),
 }
 ```
 
@@ -217,8 +225,8 @@ queries. Do not move them into a machine or store.
 
 **Recipe E: Forms.**
 
-- Field values and validation → the repo's form library if one exists; otherwise
-  `useState` for a single field.
+- There is no form library: field values are `useState`, and a form that is a
+  flow keeps them in a machine's context.
 - Submit lifecycle (submitting / failed / retry / success) → XState if
   multi-step or retriable; `useMutation` if it is a single request.
 - Never mirror form values into Zustand.
@@ -236,18 +244,20 @@ of a snapshot.
 
 ### 4.4 Zustand discipline
 
-- One store per domain slice (`useUiStore`, `useSessionStore`), not one giant
-  store.
+- One store per domain slice (`useHostStore` in `src/stores/host.store.ts`,
+  `useExtensionStore` in `src/lib/extension/store.ts`), not one giant store.
 - Actions live **inside** the store.
-- Components MUST use selectors: `useUiStore((s) => s.sidebarOpen)`. NEVER
-  `useUiStore()` without a selector. Use `useShallow` when selecting multiple
+- Components MUST use selectors: `useHostStore((s) => s.lastHost)`. NEVER
+  `useHostStore()` without a selector. Use `useShallow` when selecting multiple
   fields.
 - No `fetch`, no `async` actions, no `status` fields in stores.
 
 ### 4.5 Query discipline
 
-- Define query keys in a **key factory** per feature (`orderKeys`).
-- Wrap queries in custom hooks or `queryOptions()` helpers; `queryFn` calls
+- Define query keys in a **key factory** per domain (`sessionKeys` in
+  `src/lib/query/`), not as a literal in a component.
+- Wrap queries in `queryOptions()` entries beside the factory (`sessionQueries`,
+  `sessionsQueries`, `directoryQueries`, `connectionQueries`); `queryFn` calls
   plain API functions.
 - Derive with `select`; do not copy data into `useState`.
 - Mutations that are a single request use `useMutation` and invalidate in
