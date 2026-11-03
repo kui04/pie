@@ -469,4 +469,32 @@ mod tests {
         assert!(windows.is_windows());
         assert_eq!(windows.to_path().as_str(), "C:\\Users\\u");
     }
+
+    #[test]
+    fn the_sftp_flags_follow_the_open_options() {
+        assert_eq!(
+            OpenFlags::from(FileOpenOptions::new()).bits(),
+            OpenFlags::READ.bits()
+        );
+        assert_eq!(
+            OpenFlags::from(FileOpenOptions::READ).bits(),
+            OpenFlags::READ.bits()
+        );
+        assert_eq!(
+            OpenFlags::from(FileOpenOptions::WRITE).bits(),
+            OpenFlags::WRITE.bits()
+        );
+        assert_eq!(
+            OpenFlags::from(FileOpenOptions::APPEND).bits(),
+            (OpenFlags::APPEND | OpenFlags::WRITE).bits()
+        );
+        assert_eq!(
+            OpenFlags::from(FileOpenOptions::CREATE_NEW).bits(),
+            (OpenFlags::CREATE | OpenFlags::EXCLUDE).bits()
+        );
+        assert_eq!(
+            OpenFlags::from(FileOpenOptions::TRUNCATE | FileOpenOptions::WRITE).bits(),
+            (OpenFlags::TRUNCATE | OpenFlags::WRITE).bits()
+        );
+    }
 }

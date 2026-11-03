@@ -672,6 +672,8 @@ async fn verify_part_tail(
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8PathBuf;
+
     use super::*;
 
     #[test]
@@ -690,5 +692,93 @@ mod tests {
     fn an_absolute_path_is_refused() {
         assert!(sanitize_relative_unix_path("/etc/passwd").is_err());
         assert!(sanitize_relative_unix_path("C:\\Windows\\System32").is_err());
+    }
+
+    #[test]
+    fn a_nested_relative_name_is_accepted_and_normalized() {
+        assert_eq!(
+            sanitize_relative_unix_path("dir/report.pdf")
+                .expect("a nested name")
+                .as_str(),
+            "dir/report.pdf"
+        );
+        assert_eq!(
+            sanitize_relative_unix_path("a//b.png")
+                .expect("repeated separators")
+                .as_str(),
+            "a/b.png"
+        );
+        assert_eq!(
+            sanitize_relative_unix_path("./x.png")
+                .expect("a current component")
+                .as_str(),
+            "x.png"
+        );
+    }
+
+    #[test]
+    fn a_name_that_could_leave_the_upload_directory_is_refused() {
+        for raw in [
+            "../secret.txt",
+            "a/../../secret.txt",
+            "/etc/passwd",
+            r"C:\Windows\System32",
+            "C:/Windows",
+            r"\\server\share",
+        ] {
+            assert!(
+                sanitize_relative_unix_path(raw).is_err(),
+                "`{raw}` names no file inside the upload directory"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_or_corrupt_name_is_refused() {
+        for raw in ["", "   ", ".", "a\0b"] {
+            assert!(
+                sanitize_relative_unix_path(raw).is_err(),
+                "`{raw}` names no file pie can stage"
+            );
+        }
+    }
+
+    #[test]
+    fn a_local_source_stages_under_its_file_name() {
+        let source = UploadSource::Local {
+            path: Utf8PathBuf::from("/tmp/dir/report.pdf"),
+        };
+        assert_eq!(
+            extract_safe_relative_path(&source)
+                .expect("a file name")
+                .as_str(),
+            "report.pdf"
+        );
+
+        let source = UploadSource::Local {
+            path: Utf8PathBuf::from("/tmp/dir/.."),
+        };
+        let error = extract_safe_relative_path(&source).expect_err("no file name");
+        assert!(error.to_string().contains("has no file name"), "{error}");
+    }
+
+    #[test]
+    fn an_in_memory_source_keeps_the_name_it_carries() {
+        let source = UploadSource::InMemory {
+            name: "note.txt".to_owned(),
+            content: bytes::Bytes::from_static(b"hi"),
+        };
+        assert_eq!(
+            extract_safe_relative_path(&source)
+                .expect("a file name")
+                .as_str(),
+            "note.txt"
+        );
+
+        let source = UploadSource::InMemory {
+            name: "../note.txt".to_owned(),
+            content: bytes::Bytes::from_static(b"hi"),
+        };
+        assert!(extract_safe_relative_path(&source).is_err());
     }
 }

@@ -715,4 +715,65 @@ mod tests {
         assert!(path.is_windows());
         assert_eq!(path.as_str(), "D:\\Users\\alice");
     }
+
+    #[test]
+    fn each_shape_of_a_remote_home_names_its_family_and_keeps_its_text() {
+        for (raw, family, text) in [
+            ("/home/alice", OsFamily::Unix, "/home/alice"),
+            ("/C:/Users/alice", OsFamily::Windows, "C:/Users/alice"),
+            ("C:/Users/alice", OsFamily::Windows, "C:/Users/alice"),
+            (r"D:\Users\alice", OsFamily::Windows, r"D:\Users\alice"),
+            (r"\\server\share", OsFamily::Windows, r"\\server\share"),
+        ] {
+            let (parsed, path) = parse_remote_home(raw);
+
+            assert_eq!(parsed, family, "{raw}");
+            assert_eq!(path.as_str(), text, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_remote_home_is_trimmed() {
+        let (family, path) = parse_remote_home("  /home/alice\n");
+
+        assert_eq!(family, OsFamily::Unix);
+        assert_eq!(path.as_str(), "/home/alice");
+    }
+
+    #[test]
+    fn a_unix_path_goes_to_the_sftp_wire_unchanged() {
+        let path = Utf8TypedPath::derive("/home/u/.cache");
+
+        assert_eq!(to_sftp_wire_path(path), "/home/u/.cache");
+    }
+
+    #[test]
+    fn the_metadata_of_one_entry_keeps_its_size_kind_and_time() {
+        let path = typed("/home/u/note.txt", OsFamily::Unix);
+        let attrs = russh_sftp::protocol::FileAttributes {
+            size: Some(5),
+            permissions: Some(0o100644),
+            mtime: Some(1_700_000_000),
+            ..Default::default()
+        };
+
+        let row = file_metadata_from_attrs(path.clone(), &attrs, false);
+        assert!(row.is_file);
+        assert!(!row.is_dir);
+        assert!(!row.is_symlink);
+        assert_eq!(row.len, Some(5));
+        assert_eq!(row.path, path);
+        assert_eq!(
+            row.modified,
+            Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+        );
+        assert_eq!(row.created, None);
+
+        let row = file_metadata_from_attrs(path, &Default::default(), true);
+        assert!(row.is_symlink);
+        assert!(!row.is_file);
+        assert!(!row.is_dir);
+        assert_eq!(row.len, None);
+        assert_eq!(row.modified, None);
+    }
 }

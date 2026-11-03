@@ -51,6 +51,8 @@ impl Display for HostId {
 
 pub mod executor;
 pub mod fs;
+#[cfg(test)]
+mod live;
 mod local;
 mod ssh;
 
@@ -873,6 +875,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_connected_host_is_refused_a_second_connect() {
+        use crate::state::{AppState, LocalDirs};
+
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let id = HostId::new("work");
+        let (bus, _events) = crate::bus::Bus::recording(8);
+        let state = AppState::new(bus, LocalDirs::default());
+        state
+            .hosts
+            .lock()
+            .expect("the hosts")
+            .insert(id.clone(), Arc::new(connection(&home, &cache)));
+
+        let error = match state.begin_connect(&id) {
+            Ok(_) => panic!("a connected host is refused"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            crate::error::PieError::AlreadyConnected { ref connection } if connection == "work"
+        ));
+    }
+
+    #[tokio::test]
     async fn a_session_starts_only_in_an_absolute_directory_of_this_machine() {
         let home = tempfile::tempdir().expect("a temporary home");
         let cache = tempfile::tempdir().expect("a temporary cache");
@@ -887,5 +915,274 @@ mod tests {
         };
 
         assert!(error.to_string().contains("is not absolute"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn the_catalog_lists_sessions_newest_first_and_skips_files_that_are_not_sessions() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let sessions = home.path().join(".pi/agent/sessions/--work--");
+        fs::create_dir_all(&sessions).expect("the session directory");
+
+        fs::write(
+            sessions.join("2025-09-01T10-00-00-000Z_0193.jsonl"),
+            concat!(
+                r#"{"type":"session","id":"0193","cwd":"/work","timestamp":"2025-09-01T10:00:00.000Z"}"#,
+                "\n",
+                r#"{"type":"message","timestamp":"2025-09-01T10:00:01.000Z","message":{"role":"user","content":"first"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the older session");
+        fs::write(
+            sessions.join("2025-09-02T10-00-00-000Z_0194.jsonl"),
+            concat!(
+                r#"{"type":"session","id":"0194","cwd":"/work","timestamp":"2025-09-02T10:00:00.000Z"}"#,
+                "\n",
+                r#"{"type":"message","timestamp":"2025-09-02T10:00:01.000Z","message":{"role":"user","content":"second"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the newer session");
+        fs::write(sessions.join("notes.txt"), "not a session").expect("a file of another kind");
+        fs::write(
+            sessions.join("2025-09-03T10-00-00-000Z_0195.jsonl"),
+            r#"{"type":"session_info","name":"no header"}"#,
+        )
+        .expect("a file without a session header");
+
+        let rows = connection(&home, &cache)
+            .list_sessions()
+            .await
+            .expect("the catalog");
+
+        let ids: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, ["0194", "0193"]);
+        assert_eq!(rows[0].first_prompt.as_deref(), Some("second"));
+    }
+
+    #[tokio::test]
+    async fn a_conversation_in_a_project_directory_is_found() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let project = home.path().join(".pi/agent/sessions/--home-pi-work--");
+        fs::create_dir_all(&project).expect("the project directory");
+        fs::write(
+            project.join("2025-09-01T10-00-00-000Z_0193.jsonl"),
+            concat!(
+                r#"{"type":"session","id":"0193","cwd":"/home/pi/work","timestamp":"2025-09-01T10:00:00.000Z"}"#,
+                "\n",
+                r#"{"type":"session_info","name":"titled"}"#,
+                "\n",
+            ),
+        )
+        .expect("the session file");
+
+        let rows = connection(&home, &cache)
+            .list_sessions()
+            .await
+            .expect("the catalog");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id.as_str(), "0193");
+        assert_eq!(
+            rows[0].title,
+            SessionTitle::Named {
+                name: "titled".to_owned(),
+            }
+        );
+    }
+
+    fn recorded_session(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/sessions")
+            .join(name);
+
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("cannot read `{}`: {error}", path.display()))
+    }
+
+    #[tokio::test]
+    async fn the_catalog_reads_the_recorded_sessions() {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let cache = tempfile::tempdir().expect("a temporary cache");
+        let sessions = home.path().join(".pi/agent/sessions/--home-pi-work--");
+        fs::create_dir_all(&sessions).expect("the session directory");
+
+        for (name, body) in [
+            ("mock-hello.jsonl", recorded_session("mock/hello.jsonl")),
+            ("mock-tool.jsonl", recorded_session("mock/tool.jsonl")),
+            ("mock-renamed.jsonl", recorded_session("mock/renamed.jsonl")),
+            ("mock-forked.jsonl", recorded_session("mock/forked.jsonl")),
+            ("mock-ask.jsonl", recorded_session("mock/ask.jsonl")),
+            (
+                "edge-cleared-name.jsonl",
+                recorded_session("edge/cleared-name.jsonl"),
+            ),
+            (
+                "edge-header-only.jsonl",
+                recorded_session("edge/header-only.jsonl"),
+            ),
+            (
+                "edge-truncated.jsonl",
+                recorded_session("edge/truncated.jsonl"),
+            ),
+            (
+                "real-axios-formdata.jsonl",
+                recorded_session("real/axios-formdata.jsonl"),
+            ),
+            (
+                "real-vue-vpre.jsonl",
+                recorded_session("real/vue-vpre.jsonl"),
+            ),
+            (
+                "real-vue-watch.jsonl",
+                recorded_session("real/vue-watch.jsonl"),
+            ),
+            ("real-vue-ssr.jsonl", recorded_session("real/vue-ssr.jsonl")),
+            (
+                "real-regex-chess.jsonl",
+                recorded_session("real/regex-chess.jsonl"),
+            ),
+            (
+                "real-kanban-frontend.jsonl",
+                recorded_session("real/kanban-frontend.jsonl"),
+            ),
+        ] {
+            fs::write(sessions.join(name), body).expect("the recorded session");
+        }
+
+        let rows = connection(&home, &cache)
+            .list_sessions()
+            .await
+            .expect("the catalog");
+
+        assert_eq!(rows.len(), 14);
+        assert!(
+            rows.windows(2)
+                .all(|pair| pair[0].modified_at >= pair[1].modified_at),
+            "the catalog is newest first"
+        );
+
+        fn row<'a>(rows: &'a [SessionInfo], name: &str) -> &'a SessionInfo {
+            rows.iter()
+                .find(|row| row.path.to_path().file_name() == Some(name))
+                .unwrap_or_else(|| panic!("`{name}` is in the catalog"))
+        }
+
+        assert_eq!(
+            row(&rows, "mock-hello.jsonl").title,
+            SessionTitle::Named {
+                name: "hello".to_owned(),
+            }
+        );
+        assert_eq!(
+            row(&rows, "mock-tool.jsonl").title,
+            SessionTitle::Named {
+                name: "tool".to_owned(),
+            }
+        );
+        assert_eq!(
+            row(&rows, "mock-renamed.jsonl").title,
+            SessionTitle::Named {
+                name: "renamed".to_owned(),
+            }
+        );
+        assert_eq!(
+            row(&rows, "mock-forked.jsonl").title,
+            SessionTitle::Named {
+                name: "forked".to_owned(),
+            }
+        );
+        assert!(row(&rows, "mock-forked.jsonl").parent_path.is_some());
+        assert_eq!(
+            row(&rows, "mock-ask.jsonl").title,
+            SessionTitle::Named {
+                name: "ask".to_owned(),
+            }
+        );
+        assert_eq!(
+            row(&rows, "edge-cleared-name.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert_eq!(
+            row(&rows, "edge-header-only.jsonl").title,
+            SessionTitle::Untitled
+        );
+        assert_eq!(row(&rows, "edge-header-only.jsonl").first_prompt, None);
+        assert_eq!(
+            row(&rows, "edge-truncated.jsonl").title,
+            SessionTitle::Named {
+                name: "hello".to_owned(),
+            }
+        );
+        assert_eq!(
+            row(&rows, "real-axios-formdata.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert!(
+            row(&rows, "real-axios-formdata.jsonl")
+                .first_prompt
+                .as_deref()
+                .is_some_and(
+                    |prompt| prompt.starts_with("The repository has a failing regression test")
+                ),
+            "the real prompt is in the catalog"
+        );
+        assert_eq!(
+            row(&rows, "real-vue-vpre.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert!(
+            row(&rows, "real-vue-vpre.jsonl")
+                .first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read ISSUE.md")),
+            "the Vue v-pre prompt is in the catalog"
+        );
+        assert_eq!(
+            row(&rows, "real-vue-watch.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert!(
+            row(&rows, "real-vue-watch.jsonl")
+                .first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read ISSUE.md")),
+            "the Vue watch prompt is in the catalog"
+        );
+        assert_eq!(
+            row(&rows, "real-vue-ssr.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert!(
+            row(&rows, "real-vue-ssr.jsonl")
+                .first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read ISSUE.md")),
+            "the Vue SSR prompt is in the catalog"
+        );
+        assert_eq!(
+            row(&rows, "real-regex-chess.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert!(
+            row(&rows, "real-regex-chess.jsonl")
+                .first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read /app/TASK.md")),
+            "the Terminal-Bench prompt is in the catalog"
+        );
+        assert_eq!(
+            row(&rows, "real-kanban-frontend.jsonl").title,
+            SessionTitle::FromFirstPrompt
+        );
+        assert!(
+            row(&rows, "real-kanban-frontend.jsonl")
+                .first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("The Vite React + TypeScript scaffold")),
+            "the multi-turn project prompt is in the catalog"
+        );
     }
 }

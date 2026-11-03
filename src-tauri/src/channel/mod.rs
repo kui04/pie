@@ -519,4 +519,27 @@ mod tests {
         assert_send::<PiRpcReceiver>();
         assert_send::<Process>();
     }
+
+    #[test]
+    fn an_exit_status_names_how_the_program_ended() {
+        assert_eq!(ExitStatus::exited(0).to_string(), "exited with code 0");
+        assert_eq!(ExitStatus::signalled(9).to_string(), "ended by signal 9");
+        assert_eq!(ExitStatus::unknown().to_string(), "ended without a status");
+    }
+
+    #[test]
+    fn an_exit_status_is_tagged_on_the_wire() {
+        assert_eq!(
+            serde_json::to_value(ExitStatus::exited(3)).expect("a status serializes"),
+            serde_json::json!({ "type": "exited", "code": 3 })
+        );
+        assert_eq!(
+            serde_json::to_value(ExitStatus::signalled(9)).expect("a status serializes"),
+            serde_json::json!({ "type": "signalled", "signal": 9 })
+        );
+        assert_eq!(
+            serde_json::to_value(ExitStatus::unknown()).expect("a status serializes"),
+            serde_json::json!({ "type": "unknown" })
+        );
+    }
 }

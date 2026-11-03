@@ -62,3 +62,22 @@ pub(crate) fn session_at(
         session,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::LocalDirs;
+
+    #[test]
+    fn a_name_that_is_not_connected_is_not_connected() {
+        let (bus, _events) = crate::bus::Bus::recording(8);
+        let state = AppState::new(bus, LocalDirs::default());
+
+        let error = host_at(&state, &HostId::new("work")).expect_err("no connection");
+
+        assert!(matches!(
+            error,
+            PieError::NotConnected { ref doing } if doing == "reaching host `work`"
+        ));
+    }
+}

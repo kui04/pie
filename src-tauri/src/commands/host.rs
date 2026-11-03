@@ -350,6 +350,8 @@ fn connection_info(state: &AppState, id: &HostId) -> Result<ConnectionInfo, PieE
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -363,5 +365,43 @@ mod tests {
                 "`{text}`: {error}"
             );
         }
+    }
+
+    #[test]
+    fn the_connection_and_upload_payloads_keep_the_field_names_the_frontend_reads() {
+        assert_eq!(
+            serde_json::to_value(ConnectionInfo {
+                id: HostId::new("work"),
+                sessions: Vec::new(),
+                open: true,
+            })
+            .expect("a connection serializes"),
+            json!({ "id": "work", "sessions": [], "open": true })
+        );
+        assert_eq!(
+            serde_json::to_value(DirEntry {
+                name: "work".to_owned(),
+                path: Utf8TypedPathBuf::from_unix("/home/u/work"),
+                is_dir: true,
+            })
+            .expect("a directory serializes"),
+            json!({ "name": "work", "path": "/home/u/work", "isDir": true })
+        );
+        assert_eq!(
+            serde_json::to_value(Listing {
+                directory: Utf8TypedPathBuf::from_unix("/home/u"),
+                entries: Vec::new(),
+            })
+            .expect("a listing serializes"),
+            json!({ "directory": "/home/u", "entries": [] })
+        );
+        assert_eq!(
+            serde_json::to_value(UploadProgress {
+                bytes: 7,
+                total: 10
+            })
+            .expect("a progress serializes"),
+            json!({ "bytes": 7, "total": 10 })
+        );
     }
 }

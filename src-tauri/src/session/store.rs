@@ -481,6 +481,7 @@ fn user_prompt(entry: &Value) -> Option<String> {
 mod tests {
     use std::io::SeekFrom;
 
+    use serde_json::json;
     use tempfile::TempDir;
     use tokio::fs::File;
 
@@ -738,5 +739,679 @@ mod tests {
                 Some(parent)
             );
         }
+    }
+
+    fn live_state(session_name: Option<&str>) -> SessionState {
+        let mut state = json!({
+            "thinkingLevel": "low",
+            "isStreaming": false,
+            "isCompacting": false,
+            "steeringMode": "all",
+            "followUpMode": "one-at-a-time",
+            "sessionId": "new",
+            "messageCount": 0,
+            "pendingMessageCount": 0,
+            "autoCompactionEnabled": true,
+        });
+        if let Some(name) = session_name {
+            state["sessionName"] = json!(name);
+        }
+        serde_json::from_value(state).expect("a session state")
+    }
+
+    fn session_info() -> SessionInfo {
+        SessionInfo {
+            id: SessionId::new("old"),
+            cwd: None,
+            path: typed("/home/u/.pi/agent/sessions/a.jsonl", OsFamily::Unix),
+            title: SessionTitle::FromFirstPrompt,
+            parent_path: None,
+            created_at: jiff::Timestamp::UNIX_EPOCH,
+            modified_at: jiff::Timestamp::UNIX_EPOCH,
+            first_prompt: Some("fix the bug".to_owned()),
+        }
+    }
+
+    #[test]
+    fn live_state_names_the_session_and_leaves_an_empty_name_alone() {
+        let mut info = session_info();
+
+        info.apply_rpc_state(&live_state(Some("")));
+        assert_eq!(info.id.as_str(), "new");
+        assert_eq!(info.title, SessionTitle::FromFirstPrompt);
+
+        info.apply_rpc_state(&live_state(Some("chosen")));
+        assert_eq!(
+            info.title,
+            SessionTitle::Named {
+                name: "chosen".to_owned(),
+            }
+        );
+
+        info.apply_rpc_state(&live_state(None));
+        assert_eq!(
+            info.title,
+            SessionTitle::Named {
+                name: "chosen".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_rename_falls_back_to_the_prompt_only_when_the_name_is_cleared() {
+        assert_eq!(
+            SessionTitle::renamed("", Some("fix")),
+            SessionTitle::FromFirstPrompt
+        );
+        assert_eq!(SessionTitle::renamed("", None), SessionTitle::Untitled);
+        assert_eq!(
+            SessionTitle::renamed("chosen", Some("fix")),
+            SessionTitle::Named {
+                name: "chosen".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn only_a_message_from_a_person_or_the_model_moves_the_conversation() {
+        let when = "2025-09-01T10:00:00.000Z";
+        for role in ["user", "assistant"] {
+            let entry = json!({
+                "type": "message",
+                "timestamp": when,
+                "message": { "role": role, "content": "hi" },
+            });
+
+            assert!(message_activity(&entry).is_some(), "{role}");
+        }
+
+        for entry in [
+            json!({ "type": "message", "timestamp": when, "message": { "role": "system", "content": "x" } }),
+            json!({ "type": "message", "timestamp": when, "message": { "role": "toolResult", "content": "x" } }),
+            json!({ "type": "message", "timestamp": when, "message": { "role": "user" } }),
+            json!({ "type": "session_info", "timestamp": when }),
+        ] {
+            assert_eq!(message_activity(&entry), None, "{entry}");
+        }
+    }
+
+    #[test]
+    fn a_message_time_comes_from_milliseconds_or_from_text() {
+        let millis = 1_757_000_000_000_i64;
+        let entry = json!({
+            "type": "message",
+            "message": { "role": "user", "content": "hi", "timestamp": millis },
+        });
+        assert_eq!(
+            message_activity(&entry),
+            jiff::Timestamp::from_millisecond(millis).ok()
+        );
+
+        let entry = json!({
+            "type": "message",
+            "timestamp": "2025-09-01T10:00:00.000Z",
+            "message": { "role": "user", "content": "hi" },
+        });
+        assert_eq!(
+            message_activity(&entry),
+            Some("2025-09-01T10:00:00Z".parse().expect("a timestamp"))
+        );
+
+        let entry = json!({
+            "type": "message",
+            "message": { "role": "user", "content": "hi", "timestamp": i64::MAX },
+        });
+        assert_eq!(message_activity(&entry), None);
+    }
+
+    #[test]
+    fn a_prompt_reads_text_and_text_parts_and_ignores_the_rest() {
+        let text = json!({
+            "type": "message",
+            "message": { "role": "user", "content": "  fix the bug  " },
+        });
+        assert_eq!(user_prompt(&text).as_deref(), Some("fix the bug"));
+
+        let parts = json!({
+            "type": "message",
+            "message": {
+                "role": "user",
+                "content": [
+                    { "type": "image" },
+                    { "type": "text", "text": "  from a part  " },
+                ],
+            },
+        });
+        assert_eq!(user_prompt(&parts).as_deref(), Some("from a part"));
+
+        for entry in [
+            json!({ "type": "message", "message": { "role": "user", "content": "   " } }),
+            json!({ "type": "message", "message": { "role": "user", "content": [{ "type": "image" }] } }),
+            json!({ "type": "message", "message": { "role": "assistant", "content": "hello" } }),
+            json!({ "type": "session_info", "message": { "role": "user", "content": "hello" } }),
+        ] {
+            assert_eq!(user_prompt(&entry), None, "{entry}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_name_beyond_the_tail_window_is_not_found() {
+        let long = "x".repeat(70 * 1024);
+        let long_message =
+            format!(r#"{{"type":"message","message":{{"role":"assistant","content":"{long}"}}}}"#);
+        let (_dir, mut file, len) = file_of_lines(&[
+            r#"{"type":"session_info","name":"old"}"#,
+            long_message.as_str(),
+            r#"{"type":"message","timestamp":"2025-09-01T10:00:00.000Z","message":{"role":"assistant","content":"done"}}"#,
+        ])
+        .await;
+
+        let tail = scan_tail_in_chunks(&mut file, len, 16 * 1024)
+            .await
+            .expect("a readable file");
+
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(
+            tail.last_activity.is_some(),
+            "the last message is still read"
+        );
+    }
+
+    #[test]
+    fn a_header_without_an_id_is_no_session() {
+        for entry in [
+            json!({ "type": "session" }),
+            json!({ "type": "session", "id": "" }),
+            json!({ "type": "session", "id": 7 }),
+        ] {
+            assert!(session_header(&entry, OsFamily::Unix).is_none(), "{entry}");
+        }
+    }
+
+    fn recorded(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/sessions")
+            .join(name);
+
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("cannot read `{}`: {error}", path.display()))
+    }
+
+    #[tokio::test]
+    async fn a_recorded_mock_session_reads_its_header_and_name() {
+        let content = recorded("mock/hello.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.id.as_str(), "01a19fc3-dfe6-7702-ad80-d5d9ca4d049b");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work")
+        );
+        assert_eq!(head.first_prompt.as_deref(), Some("hello"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Named("hello".to_owned()));
+        assert!(tail.last_activity.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_recorded_tool_session_keeps_the_result_out_of_the_prompt() {
+        let content = recorded("mock/tool.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.first_prompt.as_deref(), Some("tool"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Named("tool".to_owned()));
+        assert!(tail.last_activity.is_some());
+        assert!(
+            content.contains(r#""role":"toolResult""#),
+            "the fixture holds a tool result"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_recorded_swe_bench_session_reads_as_a_long_run() {
+        let content = recorded("real/axios-formdata.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.id.as_str(), "01a1a009-7c26-7230-ad6d-1c6ccf0e64ed");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work/axios-5316")
+        );
+        assert!(
+            head.first_prompt.as_deref().is_some_and(
+                |prompt| prompt.starts_with("The repository has a failing regression test")
+            ),
+            "{:?}",
+            head.first_prompt
+        );
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        // The session's only `session_info` sits at the head, beyond the 64 KiB
+        // tail window, so the catalog falls back to the first prompt.
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(tail.last_activity.is_some());
+
+        let mut user_turns = 0;
+        let mut tools = Vec::new();
+        let mut thinking = None;
+        for line in content.lines() {
+            let entry: Value = serde_json::from_str(line).expect("a record");
+            if entry.get("type").and_then(Value::as_str) == Some("thinking_level_change") {
+                thinking = entry
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
+            if entry.pointer("/message/role").and_then(Value::as_str) == Some("user") {
+                user_turns += 1;
+            }
+            let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                continue;
+            };
+            for item in items {
+                if item.get("type").and_then(Value::as_str) == Some("toolCall")
+                    && let Some(name) = item.get("name").and_then(Value::as_str)
+                {
+                    tools.push(name.to_owned());
+                }
+            }
+        }
+
+        assert_eq!(user_turns, 1);
+        assert!(tools.len() >= 40, "{} tool calls", tools.len());
+        assert!(tools.iter().any(|tool| tool == "bash"), "{tools:?}");
+        assert_eq!(thinking.as_deref(), Some("xhigh"));
+        assert!(content.contains("SpecCompliant FormData"));
+        assert!(content.contains("1 passing"));
+    }
+
+    #[tokio::test]
+    async fn a_late_rename_wins_over_the_first_prompt() {
+        let content = recorded("mock/renamed.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.first_prompt.as_deref(), Some("hello"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Named("renamed".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_cleared_name_falls_back_to_the_first_prompt() {
+        let content = recorded("edge/cleared-name.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.first_prompt.as_deref(), Some("hello"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Cleared);
+    }
+
+    #[tokio::test]
+    async fn a_forked_session_keeps_its_parent() {
+        let content = recorded("mock/forked.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert!(
+            head.parent_path
+                .as_ref()
+                .is_some_and(|parent| parent.as_str().ends_with(".jsonl")),
+            "{:?}",
+            head.parent_path
+        );
+        assert_eq!(head.first_prompt.as_deref(), Some("hello"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Named("forked".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_header_only_session_has_no_prompt() {
+        let content = recorded("edge/header-only.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work")
+        );
+        assert_eq!(head.first_prompt, None);
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Unknown);
+        assert_eq!(tail.last_activity, None);
+    }
+
+    #[tokio::test]
+    async fn a_truncated_tail_line_is_dropped() {
+        let content = recorded("edge/truncated.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.first_prompt.as_deref(), Some("hello"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Named("hello".to_owned()));
+        assert!(tail.last_activity.is_some());
+
+        let last = content.lines().last().expect("a last line");
+        assert!(
+            serde_json::from_str::<Value>(last).is_err(),
+            "the fixture ends mid-line"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_recorded_ask_session_keeps_the_tool_result_out_of_the_prompt() {
+        let content = recorded("mock/ask.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.first_prompt.as_deref(), Some("ask"));
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Named("ask".to_owned()));
+        assert!(content.contains(r#""name":"ask_user""#));
+        assert!(content.contains(r#""role":"toolResult""#));
+    }
+
+    #[tokio::test]
+    async fn a_recorded_vue_vpre_session_reads_as_a_long_run() {
+        let content = recorded("real/vue-vpre.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work/vue-11915")
+        );
+        assert!(
+            head.first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read ISSUE.md")),
+            "{:?}",
+            head.first_prompt
+        );
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(tail.last_activity.is_some());
+
+        let mut tools = 0;
+        let mut thinking = None;
+        for line in content.lines() {
+            let entry: Value = serde_json::from_str(line).expect("a record");
+            if entry.get("type").and_then(Value::as_str) == Some("thinking_level_change") {
+                thinking = entry
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
+            let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                continue;
+            };
+            for item in items {
+                if item.get("type").and_then(Value::as_str) == Some("toolCall") {
+                    tools += 1;
+                }
+            }
+        }
+
+        assert!(tools >= 30, "{tools} tool calls");
+        assert_eq!(thinking.as_deref(), Some("xhigh"));
+        assert!(content.contains("3 passed"));
+        assert!(content.contains("636"));
+    }
+
+    #[tokio::test]
+    async fn a_recorded_vue_watch_session_reads_as_a_long_run() {
+        let content = recorded("real/vue-watch.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work/vue-11589")
+        );
+        assert!(
+            head.first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read ISSUE.md")),
+            "{:?}",
+            head.first_prompt
+        );
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(tail.last_activity.is_some());
+
+        let mut tools = 0;
+        let mut thinking = None;
+        for line in content.lines() {
+            let entry: Value = serde_json::from_str(line).expect("a record");
+            if entry.get("type").and_then(Value::as_str) == Some("thinking_level_change") {
+                thinking = entry
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
+            let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                continue;
+            };
+            for item in items {
+                if item.get("type").and_then(Value::as_str) == Some("toolCall") {
+                    tools += 1;
+                }
+            }
+        }
+
+        assert!(tools >= 20, "{tools} tool calls");
+        assert_eq!(thinking.as_deref(), Some("xhigh"));
+        assert!(content.contains("should be executed correctly"));
+        assert!(content.contains("1 passed"));
+    }
+
+    #[tokio::test]
+    async fn a_recorded_vue_ssr_session_reads_as_a_long_run() {
+        let content = recorded("real/vue-ssr.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work/vue-ssr")
+        );
+        assert!(
+            head.first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read ISSUE.md")),
+            "{:?}",
+            head.first_prompt
+        );
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(tail.last_activity.is_some());
+
+        let mut tools = 0;
+        let mut thinking = None;
+        for line in content.lines() {
+            let entry: Value = serde_json::from_str(line).expect("a record");
+            if entry.get("type").and_then(Value::as_str) == Some("thinking_level_change") {
+                thinking = entry
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
+            let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                continue;
+            };
+            for item in items {
+                if item.get("type").and_then(Value::as_str) == Some("toolCall") {
+                    tools += 1;
+                }
+            }
+        }
+
+        assert!(tools >= 30, "{tools} tool calls");
+        assert_eq!(thinking.as_deref(), Some("xhigh"));
+        assert!(content.contains("escape css var name"));
+        assert!(content.contains("90 passed"));
+    }
+
+    #[tokio::test]
+    async fn a_recorded_regex_chess_session_reads_as_a_long_run() {
+        let content = recorded("real/regex-chess.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(head.cwd.as_ref().map(|cwd| cwd.as_str()), Some("/app"));
+        assert!(
+            head.first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("Read /app/TASK.md")),
+            "{:?}",
+            head.first_prompt
+        );
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(tail.last_activity.is_some());
+
+        let mut tools = 0;
+        let mut users = 0;
+        let mut thinking = None;
+        for line in content.lines() {
+            let entry: Value = serde_json::from_str(line).expect("a record");
+            if entry.get("type").and_then(Value::as_str) == Some("thinking_level_change") {
+                thinking = entry
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
+            if entry.pointer("/message/role").and_then(Value::as_str) == Some("user") {
+                users += 1;
+            }
+            let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                continue;
+            };
+            for item in items {
+                if item.get("type").and_then(Value::as_str) == Some("toolCall") {
+                    tools += 1;
+                }
+            }
+        }
+
+        assert_eq!(users, 2, "the official-test follow-up is the second turn");
+        assert!(tools >= 40, "{tools} tool calls");
+        assert_eq!(thinking.as_deref(), Some("xhigh"));
+        assert!(content.contains("official_test.py"));
+        assert!(content.contains("4 passed"));
+        assert!(content.contains("6,191"));
+    }
+
+    #[tokio::test]
+    async fn a_recorded_multiturn_frontend_session_reads_as_a_long_run() {
+        let content = recorded("real/kanban-frontend.jsonl");
+        let (_dir, mut file, len) = file_of_bytes(content.as_bytes()).await;
+
+        let head = scan_head(&mut file, OsFamily::Unix)
+            .await
+            .expect("a readable file")
+            .expect("a session");
+        assert_eq!(
+            head.cwd.as_ref().map(|cwd| cwd.as_str()),
+            Some("/home/pi/work/kanban")
+        );
+        assert!(
+            head.first_prompt
+                .as_deref()
+                .is_some_and(|prompt| prompt.starts_with("The Vite React + TypeScript scaffold")),
+            "{:?}",
+            head.first_prompt
+        );
+
+        let tail = scan_tail(&mut file, len).await.expect("a readable file");
+        assert_eq!(tail.name, TailName::Unknown);
+        assert!(tail.last_activity.is_some());
+
+        let mut tools = 0;
+        let mut users = 0;
+        let mut thinking = None;
+        for line in content.lines() {
+            let entry: Value = serde_json::from_str(line).expect("a record");
+            if entry.get("type").and_then(Value::as_str) == Some("thinking_level_change") {
+                thinking = entry
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
+            if entry.pointer("/message/role").and_then(Value::as_str) == Some("user") {
+                users += 1;
+            }
+            let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+                continue;
+            };
+            for item in items {
+                if item.get("type").and_then(Value::as_str) == Some("toolCall") {
+                    tools += 1;
+                }
+            }
+        }
+
+        assert_eq!(users, 5, "the project ran for five turns");
+        assert!(tools >= 70, "{tools} tool calls");
+        assert_eq!(thinking.as_deref(), Some("xhigh"));
+        assert!(content.contains("27 passed"));
+        assert!(content.contains("README.md"));
+        assert!(content.contains("aria-live"));
     }
 }

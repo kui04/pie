@@ -29,7 +29,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let bus = bus::Bus::new(app.handle().clone(), 8);
-            app.manage(state::AppState::new(bus, app.handle().clone()));
+            let dirs = state::LocalDirs::from_app(app.handle());
+            app.manage(state::AppState::new(bus, dirs));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

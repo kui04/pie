@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display, Formatter};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -169,7 +169,7 @@ pub struct LocalDirs {
 
 impl LocalDirs {
     /// The directories this app runs with, from the paths the platform resolved.
-    fn from_app(app: &AppHandle) -> Self {
+    pub(crate) fn from_app(app: &AppHandle) -> Self {
         let utf8 = |path: Result<std::path::PathBuf, tauri::Error>| {
             path.ok()
                 .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
@@ -226,18 +226,16 @@ pub struct AppState {
     bus: Bus,
     /// The caches. Drop the guard before any `.await` that answers the frontend.
     pub cache: Mutex<CacheStorage>,
-    dirs: OnceLock<LocalDirs>,
-    app: AppHandle,
+    /// The directories of pie's own machine, resolved at startup.
+    dirs: LocalDirs,
 }
 
 impl AppState {
-    pub fn new(bus: Bus, app: AppHandle) -> Self {
+    pub fn new(bus: Bus, dirs: LocalDirs) -> Self {
         // The marks live in pie's own corner of the cache this app was given.
-        let logos = app
-            .path()
-            .app_cache_dir()
-            .ok()
-            .and_then(|dir| Utf8PathBuf::from_path_buf(dir).ok())
+        let logos = dirs
+            .cache
+            .as_ref()
             .map(|cache| cache.join("pie").join("logos"))
             .unwrap_or_default();
 
@@ -246,8 +244,7 @@ impl AppState {
             connecting: Mutex::new(HashSet::new()),
             bus,
             cache: Mutex::new(CacheStorage::new(logos)),
-            dirs: OnceLock::new(),
-            app,
+            dirs,
         }
     }
 
@@ -281,9 +278,9 @@ impl AppState {
         })
     }
 
-    /// The directories of pie's own machine, read from the app's paths on first use.
+    /// The directories of pie's own machine, read from the app's paths at startup.
     pub fn dirs(&self) -> &LocalDirs {
-        self.dirs.get_or_init(|| LocalDirs::from_app(&self.app))
+        &self.dirs
     }
 
     /// The one bus to the frontend. A clone shares it, so it costs an `Arc`.
@@ -375,5 +372,49 @@ mod tests {
 
         assert!(!cache.failed(&provider()));
         assert_eq!(cache.logo(&provider()), Some(mark()));
+    }
+
+    fn state() -> AppState {
+        let (bus, _events) = crate::bus::Bus::recording(8);
+        AppState::new(bus, LocalDirs::default())
+    }
+
+    #[test]
+    fn a_second_connect_of_one_name_is_refused_while_the_first_is_in_flight() {
+        let state = state();
+        let id = HostId::new("work");
+
+        let _first = state.begin_connect(&id).expect("the first connect");
+        let error = match state.begin_connect(&id) {
+            Ok(_) => panic!("the second connect is refused"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            PieError::AlreadyConnected { ref connection } if connection == "work"
+        ));
+    }
+
+    #[test]
+    fn another_name_connects_while_one_is_in_flight() {
+        let state = state();
+
+        let _first = state
+            .begin_connect(&HostId::new("one"))
+            .expect("the first connect");
+
+        assert!(state.begin_connect(&HostId::new("two")).is_ok());
+    }
+
+    #[test]
+    fn dropping_a_reservation_lets_the_same_name_connect_again() {
+        let state = state();
+        let id = HostId::new("work");
+
+        let guard = state.begin_connect(&id).expect("the first connect");
+        drop(guard);
+
+        assert!(state.begin_connect(&id).is_ok());
     }
 }

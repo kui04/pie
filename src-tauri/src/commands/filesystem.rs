@@ -368,6 +368,8 @@ fn file_type(head: &[u8], path: Option<&Utf8Path>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn picked(text: &str) -> PickedText {
@@ -426,5 +428,51 @@ mod tests {
             "text/plain"
         );
         assert_eq!(file_type(b"", None), "application/octet-stream");
+    }
+
+    #[test]
+    fn a_file_crosses_the_boundary_as_an_image_or_text() {
+        assert_eq!(
+            serde_json::to_value(File::Image {
+                mime_type: "image/png".to_owned(),
+                base64: "aGk=".to_owned(),
+            })
+            .expect("an image serializes"),
+            json!({ "type": "image", "mimeType": "image/png", "base64": "aGk=" })
+        );
+        assert_eq!(
+            serde_json::to_value(File::Text {
+                mime_type: "text/plain".to_owned(),
+                content: "hi".to_owned(),
+            })
+            .expect("text serializes"),
+            json!({ "type": "text", "mimeType": "text/plain", "content": "hi" })
+        );
+    }
+
+    #[test]
+    fn the_metadata_names_every_field_in_camel_case() {
+        let metadata = FileMetadata {
+            path: Utf8PathBuf::from("/work/note.txt"),
+            mime_type: "text/plain".to_owned(),
+            size: 2,
+            is_file: true,
+            is_dir: false,
+            is_symlink: false,
+            readonly: false,
+            created: None,
+            modified: None,
+        };
+
+        let wire = serde_json::to_value(&metadata).expect("metadata serializes");
+
+        assert_eq!(wire["path"], "/work/note.txt");
+        assert_eq!(wire["mimeType"], "text/plain");
+        assert_eq!(wire["isFile"], true);
+        assert_eq!(wire["isDir"], false);
+        assert_eq!(wire["isSymlink"], false);
+        assert_eq!(wire["readonly"], false);
+        assert_eq!(wire["created"], serde_json::Value::Null);
+        assert_eq!(wire["modified"], serde_json::Value::Null);
     }
 }

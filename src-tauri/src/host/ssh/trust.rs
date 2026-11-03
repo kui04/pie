@@ -192,7 +192,13 @@ impl TrustPrompt {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+    use tokio::sync::mpsc;
+
     use super::*;
+    use crate::bus::{Answer, AskId};
 
     #[test]
     fn a_new_key_asks_one_question_with_what_a_person_must_compare() {
@@ -301,6 +307,170 @@ mod tests {
         assert_eq!(
             store.verdict(&other, &key(KEY_A)).expect("a verdict"),
             Trust::Unknown
+        );
+    }
+
+    const PATIENCE: Duration = Duration::from_secs(2);
+
+    fn frontend() -> (Bus, mpsc::UnboundedReceiver<(String, Value)>) {
+        let (bus, events) = Bus::recording(8);
+        bus.ready();
+        (bus, events)
+    }
+
+    async fn next(events: &mut mpsc::UnboundedReceiver<(String, Value)>) -> (String, Value) {
+        tokio::time::timeout(PATIENCE, events.recv())
+            .await
+            .expect("the event arrives in time")
+            .expect("the event channel stays open")
+    }
+
+    async fn next_ask(events: &mut mpsc::UnboundedReceiver<(String, Value)>) -> (AskId, Value) {
+        let (event, payload) = next(events).await;
+        assert_eq!(event, TrustAsk::EVENT_NAME);
+
+        let id = serde_json::from_value(payload["id"].clone()).expect("an ask id");
+        (id, payload["payload"].clone())
+    }
+
+    fn prompt(bus: Bus, store: KnownHosts) -> TrustPrompt {
+        TrustPrompt::new(bus, HostId::new("work"), host(), store)
+    }
+
+    #[tokio::test]
+    async fn an_unknown_key_is_trusted_only_after_the_person_says_yes() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let store = store(&directory);
+        let (bus, mut events) = frontend();
+
+        let deciding = tokio::spawn({
+            let prompt = prompt(bus.clone(), store.clone());
+            let key = key(KEY_A);
+            async move { prompt.decide(&key).await }
+        });
+
+        let (id, payload) = next_ask(&mut events).await;
+        assert_eq!(payload["endpoint"], "example.test:2222");
+        assert_eq!(payload["algorithm"], "ssh-ed25519");
+        assert!(
+            payload["fingerprint"]
+                .as_str()
+                .expect("a fingerprint")
+                .starts_with("SHA256:"),
+            "{payload}"
+        );
+
+        assert!(bus.answer(id, Answer::Resolved(json!({ "type": "trusted" }))));
+        assert!(
+            deciding
+                .await
+                .expect("the decision task lives")
+                .expect("the key is trusted")
+        );
+        assert_eq!(
+            store.verdict(&host(), &key(KEY_A)).expect("a verdict"),
+            Trust::Trusted
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_key_is_not_recorded_and_the_connection_is_refused() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let store = store(&directory);
+        let (bus, mut events) = frontend();
+
+        let deciding = tokio::spawn({
+            let prompt = prompt(bus.clone(), store.clone());
+            let key = key(KEY_A);
+            async move { prompt.decide(&key).await }
+        });
+
+        let (id, _) = next_ask(&mut events).await;
+        assert!(bus.answer(id, Answer::Resolved(json!({ "type": "refused" }))));
+        assert!(
+            !deciding
+                .await
+                .expect("the decision task lives")
+                .expect("the refusal is not a failure")
+        );
+        assert_eq!(
+            store.verdict(&host(), &key(KEY_A)).expect("a verdict"),
+            Trust::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn a_changed_key_is_refused_without_a_question() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let store = store(&directory);
+        store
+            .remember(&host(), &key(KEY_A))
+            .expect("the key is recorded");
+        let (bus, mut events) = frontend();
+
+        let prompt = prompt(bus, store.clone());
+        let error = prompt
+            .decide(&key(KEY_B))
+            .await
+            .expect_err("the changed key is refused");
+
+        assert!(error.to_string().contains("changed"), "{error}");
+        assert!(error.to_string().contains("line 2"), "{error}");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), events.recv())
+                .await
+                .is_err(),
+            "no question is asked for a changed key"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ask_the_frontend_rejects_refuses_the_connection() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let store = store(&directory);
+        let (bus, mut events) = frontend();
+
+        let deciding = tokio::spawn({
+            let prompt = prompt(bus.clone(), store.clone());
+            let key = key(KEY_A);
+            async move { prompt.decide(&key).await }
+        });
+
+        let (id, _) = next_ask(&mut events).await;
+        assert!(bus.answer(id, Answer::Rejected("no".to_owned())));
+        assert!(
+            !deciding
+                .await
+                .expect("the decision task lives")
+                .expect("the rejection is not a failure")
+        );
+        assert_eq!(
+            store.verdict(&host(), &key(KEY_A)).expect("a verdict"),
+            Trust::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn a_recorded_key_is_trusted_without_a_question() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let store = store(&directory);
+        store
+            .remember(&host(), &key(KEY_A))
+            .expect("the key is recorded");
+        let (bus, mut events) = frontend();
+
+        let prompt = prompt(bus, store);
+        assert!(
+            prompt
+                .decide(&key(KEY_A))
+                .await
+                .expect("the key is trusted")
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), events.recv())
+                .await
+                .is_err(),
+            "no question is asked for a recorded key"
         );
     }
 }

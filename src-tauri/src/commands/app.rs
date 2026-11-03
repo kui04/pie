@@ -202,6 +202,8 @@ pub fn app_ready_for_answer(state: State<'_, AppState>) {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -240,5 +242,25 @@ mod tests {
     fn a_link_with_a_control_character_is_refused() {
         let error = OpenableUrl::parse("https://example.com/a\nb").expect_err("no link pie opens");
         assert!(matches!(error, PieError::UnopenableUrl { .. }), "{error}");
+    }
+
+    #[test]
+    fn the_platform_names_itself_on_the_wire() {
+        assert_eq!(
+            serde_json::to_value(Platform::Mobile).expect("a platform serializes"),
+            json!("mobile")
+        );
+        assert_eq!(
+            serde_json::to_value(Platform::Desktop).expect("a platform serializes"),
+            json!("desktop")
+        );
+        assert_eq!(
+            app_platform().expect("a platform"),
+            if cfg!(mobile) {
+                Platform::Mobile
+            } else {
+                Platform::Desktop
+            }
+        );
     }
 }

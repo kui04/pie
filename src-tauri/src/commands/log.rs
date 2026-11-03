@@ -108,6 +108,8 @@ pub fn log_log_levels() -> Result<LogLevels, PieError> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -139,5 +141,21 @@ mod tests {
     fn a_cut_field_keeps_its_kind() {
         assert_eq!(cut_value(Value::from(7)), Value::from(7));
         assert_eq!(cut_value(Value::from("short")), Value::from("short"));
+    }
+
+    #[test]
+    fn the_level_report_names_every_level() {
+        let levels = LogLevels {
+            error: true,
+            warn: false,
+            info: true,
+            debug: false,
+            trace: true,
+        };
+
+        assert_eq!(
+            serde_json::to_value(&levels).expect("levels serialize"),
+            json!({ "error": true, "warn": false, "info": true, "debug": false, "trace": true })
+        );
     }
 }

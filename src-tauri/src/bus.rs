@@ -15,7 +15,7 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter as _};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
@@ -94,6 +94,19 @@ impl From<tauri::Error> for BusError {
     }
 }
 
+/// Where the events of a [`Bus`] leave.
+trait Emitter: Send + Sync {
+    fn emit(&self, event: &str, payload: &Value) -> Result<(), tauri::Error>;
+}
+
+struct AppEmitter(AppHandle);
+
+impl Emitter for AppEmitter {
+    fn emit(&self, event: &str, payload: &Value) -> Result<(), tauri::Error> {
+        self.0.emit(event, payload)
+    }
+}
+
 /// One notification kept until the frontend is ready.
 #[derive(Debug)]
 struct BufferedNotification {
@@ -120,7 +133,7 @@ struct PendingAsk {
 }
 
 struct Inner {
-    app: AppHandle,
+    emitter: Arc<dyn Emitter>,
     buffer: Mutex<NotificationBuffer>,
     next_id: AtomicU64,
     in_flight: Mutex<BTreeMap<AskId, PendingAsk>>,
@@ -158,9 +171,14 @@ impl fmt::Debug for Bus {
 impl Bus {
     /// An bus that waits on at most `max_in_flight` asks at once.
     pub fn new(app: AppHandle, max_in_flight: usize) -> Self {
+        Self::with_emitter(Arc::new(AppEmitter(app)), max_in_flight)
+    }
+
+    /// A bus whose events leave through `emitter`.
+    fn with_emitter(emitter: Arc<dyn Emitter>, max_in_flight: usize) -> Self {
         Self {
             inner: Arc::new(Inner {
-                app,
+                emitter,
                 buffer: Mutex::new(NotificationBuffer::default()),
                 next_id: AtomicU64::new(1),
                 in_flight: Mutex::new(BTreeMap::new()),
@@ -229,7 +247,9 @@ impl Bus {
                 timeout_ms: remaining.as_millis().try_into().unwrap_or(u64::MAX),
                 payload,
             };
-            self.inner.app.emit(R::EVENT_NAME, &envelope)?;
+            self.inner
+                .emitter
+                .emit(R::EVENT_NAME, &serde_json::to_value(&envelope)?)?;
         }
 
         match tokio::time::timeout_at(deadline, receiver).await {
@@ -283,7 +303,7 @@ impl Bus {
             }
         }
 
-        self.inner.app.emit(N::EVENT_NAME, payload)?;
+        self.inner.emitter.emit(N::EVENT_NAME, &payload)?;
         Ok(())
     }
 
@@ -325,7 +345,7 @@ impl Bus {
         };
 
         for item in notifications {
-            if let Err(error) = self.inner.app.emit(item.event, item.payload) {
+            if let Err(error) = self.inner.emitter.emit(item.event, &item.payload) {
                 tracing::warn!(
                     event = item.event,
                     %error,
@@ -336,7 +356,14 @@ impl Bus {
 
         for (event, envelope) in envelopes {
             let id = envelope.id;
-            if let Err(error) = self.inner.app.emit(event, envelope) {
+            let payload = match serde_json::to_value(&envelope) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    tracing::warn!(event, id = %id, %error, "failed to replay an in-flight ask");
+                    continue;
+                }
+            };
+            if let Err(error) = self.inner.emitter.emit(event, &payload) {
                 tracing::warn!(
                     event,
                     id = %id,
@@ -362,5 +389,468 @@ impl Drop for PendingAskGuard {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&self.id);
+    }
+}
+
+#[cfg(test)]
+mod test_support {
+    use std::sync::Arc;
+
+    use tokio::sync::mpsc;
+
+    use super::{Bus, Emitter, Value};
+
+    impl Bus {
+        /// A bus whose events go to a channel instead of a webview.
+        pub(crate) fn recording(
+            max_in_flight: usize,
+        ) -> (Self, mpsc::UnboundedReceiver<(String, Value)>) {
+            let (sender, receiver) = mpsc::unbounded_channel();
+            let bus = Self::with_emitter(Arc::new(ChannelEmitter { sender }), max_in_flight);
+            (bus, receiver)
+        }
+    }
+
+    struct ChannelEmitter {
+        sender: mpsc::UnboundedSender<(String, Value)>,
+    }
+
+    impl Emitter for ChannelEmitter {
+        fn emit(&self, event: &str, payload: &Value) -> Result<(), tauri::Error> {
+            let _ = self.sender.send((event.to_owned(), payload.clone()));
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use serde::{Deserialize, Serialize};
+    use serde_json::{Value, json};
+    use tokio::sync::mpsc;
+    use tokio::task::JoinHandle;
+
+    use super::*;
+
+    /// How long a test waits for an event before it calls the bus stuck.
+    const PATIENCE: Duration = Duration::from_secs(2);
+
+    /// How long a test watches for an event that must not come.
+    const SILENCE: Duration = Duration::from_millis(50);
+
+    #[derive(Serialize)]
+    struct Ping {
+        value: u32,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Pong {
+        ok: bool,
+    }
+
+    impl Ask for Ping {
+        type Answer = Pong;
+        const EVENT_NAME: &'static str = "test/ask";
+    }
+
+    #[derive(Serialize)]
+    struct Note {
+        n: u32,
+    }
+
+    impl Notification for Note {
+        const EVENT_NAME: &'static str = "test/note";
+    }
+
+    #[derive(Serialize)]
+    struct Stream {
+        n: u32,
+    }
+
+    impl Notification for Stream {
+        const EVENT_NAME: &'static str = "test/stream";
+        const BUFFER_UNTIL_READY: bool = false;
+    }
+
+    /// A bus and the events its frontend receives.
+    struct Frontend {
+        bus: Bus,
+        events: mpsc::UnboundedReceiver<(String, Value)>,
+    }
+
+    impl Frontend {
+        fn new(max_in_flight: usize) -> Self {
+            let (bus, events) = Bus::recording(max_in_flight);
+            Self { bus, events }
+        }
+
+        async fn next(&mut self, event: &str) -> Value {
+            let (name, payload) = tokio::time::timeout(PATIENCE, self.events.recv())
+                .await
+                .expect("the event arrives in time")
+                .expect("the event channel stays open");
+            assert_eq!(name, event, "the event has the expected name");
+            payload
+        }
+
+        async fn next_ask(&mut self) -> (AskId, u64, Value) {
+            let payload = self.next(Ping::EVENT_NAME).await;
+            let id = serde_json::from_value(payload["id"].clone()).expect("an ask id");
+            let timeout_ms = payload["timeoutMs"]
+                .as_u64()
+                .expect("the remaining time is a number");
+            (id, timeout_ms, payload["payload"].clone())
+        }
+
+        async fn silent(&mut self) {
+            assert!(
+                tokio::time::timeout(SILENCE, self.events.recv())
+                    .await
+                    .is_err(),
+                "no event arrives"
+            );
+        }
+
+        async fn wait_for_one_in_flight(&self) -> AskId {
+            let deadline = tokio::time::Instant::now() + PATIENCE;
+            loop {
+                let id = self
+                    .bus
+                    .inner
+                    .in_flight
+                    .lock()
+                    .expect("the in-flight map")
+                    .keys()
+                    .next()
+                    .copied();
+                if let Some(id) = id {
+                    return id;
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the ask is in flight"
+                );
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
+    }
+
+    fn ask(bus: &Bus, value: u32, timeout: Duration) -> JoinHandle<Result<Pong, BusError>> {
+        let bus = bus.clone();
+        tokio::spawn(async move { bus.ask(Ping { value }, timeout).await })
+    }
+
+    #[tokio::test]
+    async fn a_ready_ask_reaches_the_frontend_and_its_answer_comes_back() {
+        let mut frontend = Frontend::new(8);
+        frontend.bus.ready();
+
+        let asking = ask(&frontend.bus, 7, Duration::from_secs(5));
+        let (id, timeout_ms, payload) = frontend.next_ask().await;
+
+        assert!(timeout_ms > 0 && timeout_ms <= 5_000, "{timeout_ms}");
+        assert_eq!(payload, json!({ "value": 7 }));
+
+        assert!(
+            frontend
+                .bus
+                .answer(id, Answer::Resolved(json!({ "ok": true })))
+        );
+
+        assert_eq!(
+            asking
+                .await
+                .expect("the ask task lives")
+                .expect("the ask is answered"),
+            Pong { ok: true }
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ask_before_ready_is_replayed_with_the_time_it_has_left() {
+        let mut frontend = Frontend::new(8);
+        let asking = ask(&frontend.bus, 1, Duration::from_secs(5));
+
+        frontend.silent().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        frontend.bus.ready();
+
+        let (id, timeout_ms, _) = frontend.next_ask().await;
+        assert!(timeout_ms <= 4_900, "{timeout_ms}");
+
+        assert!(
+            frontend
+                .bus
+                .answer(id, Answer::Resolved(json!({ "ok": true })))
+        );
+        assert!(asking.await.expect("the ask task lives").is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_ask_answered_before_ready_is_not_replayed() {
+        let mut frontend = Frontend::new(8);
+        let asking = ask(&frontend.bus, 1, Duration::from_secs(5));
+
+        let id = frontend.wait_for_one_in_flight().await;
+        assert!(
+            frontend
+                .bus
+                .answer(id, Answer::Resolved(json!({ "ok": true })))
+        );
+
+        frontend.bus.ready();
+        frontend.silent().await;
+        assert!(asking.await.expect("the ask task lives").is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_rejected_ask_carries_the_reason() {
+        let mut frontend = Frontend::new(8);
+        frontend.bus.ready();
+
+        let asking = ask(&frontend.bus, 1, Duration::from_secs(5));
+        let (id, _, _) = frontend.next_ask().await;
+        assert!(
+            frontend
+                .bus
+                .answer(id, Answer::Rejected("not now".to_owned()))
+        );
+
+        let error = asking
+            .await
+            .expect("the ask task lives")
+            .expect_err("the ask is rejected");
+        assert!(matches!(error, BusError::Rejected(ref reason) if reason == "not now"));
+        assert!(error.to_string().contains("not now"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn an_answer_that_does_not_fit_the_ask_is_a_serialization_failure() {
+        let mut frontend = Frontend::new(8);
+        frontend.bus.ready();
+
+        let asking = ask(&frontend.bus, 1, Duration::from_secs(5));
+        let (id, _, _) = frontend.next_ask().await;
+        assert!(
+            frontend
+                .bus
+                .answer(id, Answer::Resolved(json!({ "ok": "yes" })))
+        );
+
+        let error = asking
+            .await
+            .expect("the ask task lives")
+            .expect_err("the answer does not fit");
+        assert!(matches!(error, BusError::Serialization(_)), "{error}");
+    }
+
+    #[tokio::test]
+    async fn an_unanswered_ask_times_out_and_its_id_is_forgotten() {
+        let mut frontend = Frontend::new(8);
+        frontend.bus.ready();
+
+        let asking = ask(&frontend.bus, 1, Duration::from_millis(50));
+        let (id, _, _) = frontend.next_ask().await;
+
+        let error = asking
+            .await
+            .expect("the ask task lives")
+            .expect_err("the ask times out");
+        assert!(
+            matches!(error, BusError::Timeout(at) if at == Duration::from_millis(50)),
+            "{error}"
+        );
+        assert!(
+            !frontend
+                .bus
+                .answer(id, Answer::Resolved(json!({ "ok": true })))
+        );
+    }
+
+    #[test]
+    fn an_answer_for_an_unknown_id_is_refused() {
+        let frontend = Frontend::new(8);
+
+        assert!(
+            !frontend
+                .bus
+                .answer(AskId(9_999), Answer::Resolved(json!({ "ok": true })))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_second_ask_waits_for_a_slot_and_runs_when_the_first_is_answered() {
+        let mut frontend = Frontend::new(1);
+        frontend.bus.ready();
+
+        let first = ask(&frontend.bus, 1, Duration::from_secs(5));
+        let (first_id, _, _) = frontend.next_ask().await;
+
+        let second = ask(&frontend.bus, 2, Duration::from_secs(5));
+        frontend.silent().await;
+
+        assert!(
+            frontend
+                .bus
+                .answer(first_id, Answer::Resolved(json!({ "ok": true })))
+        );
+        let (second_id, _, payload) = frontend.next_ask().await;
+        assert_eq!(payload, json!({ "value": 2 }));
+        assert!(
+            frontend
+                .bus
+                .answer(second_id, Answer::Resolved(json!({ "ok": false })))
+        );
+
+        assert_eq!(
+            first
+                .await
+                .expect("the first task lives")
+                .expect("the first is answered"),
+            Pong { ok: true }
+        );
+        assert_eq!(
+            second
+                .await
+                .expect("the second task lives")
+                .expect("the second is answered"),
+            Pong { ok: false }
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ask_that_times_out_waiting_for_a_slot_never_reaches_the_frontend() {
+        let mut frontend = Frontend::new(1);
+        frontend.bus.ready();
+
+        let first = ask(&frontend.bus, 1, Duration::from_secs(5));
+        let (first_id, _, _) = frontend.next_ask().await;
+
+        let second = ask(&frontend.bus, 2, Duration::from_millis(50));
+        let error = second
+            .await
+            .expect("the second task lives")
+            .expect_err("the second ask times out");
+        assert!(
+            matches!(error, BusError::Timeout(at) if at == Duration::from_millis(50)),
+            "{error}"
+        );
+
+        frontend.silent().await;
+        assert!(
+            frontend
+                .bus
+                .answer(first_id, Answer::Resolved(json!({ "ok": true })))
+        );
+        assert!(first.await.expect("the first task lives").is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_zero_limit_still_runs_one_ask() {
+        let mut frontend = Frontend::new(0);
+        frontend.bus.ready();
+
+        let asking = ask(&frontend.bus, 1, Duration::from_secs(5));
+        let (id, _, _) = frontend.next_ask().await;
+        assert!(
+            frontend
+                .bus
+                .answer(id, Answer::Resolved(json!({ "ok": true })))
+        );
+        assert!(asking.await.expect("the ask task lives").is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_dropped_ask_frees_its_slot() {
+        let mut frontend = Frontend::new(1);
+        frontend.bus.ready();
+
+        let first = ask(&frontend.bus, 1, Duration::from_secs(5));
+        let (first_id, _, _) = frontend.next_ask().await;
+
+        let second = ask(&frontend.bus, 2, Duration::from_secs(5));
+        frontend.silent().await;
+
+        first.abort();
+        assert!(first.await.is_err(), "the first task is cancelled");
+
+        let (second_id, _, _) = frontend.next_ask().await;
+        assert!(
+            !frontend
+                .bus
+                .answer(first_id, Answer::Resolved(json!({ "ok": true })))
+        );
+        assert!(
+            frontend
+                .bus
+                .answer(second_id, Answer::Resolved(json!({ "ok": true })))
+        );
+        assert!(second.await.expect("the second task lives").is_ok());
+    }
+
+    #[tokio::test]
+    async fn notifications_before_ready_are_kept_in_order_and_flushed_once() {
+        let mut frontend = Frontend::new(8);
+        frontend.bus.notify(Note { n: 1 }).expect("a note is kept");
+        frontend.bus.notify(Note { n: 2 }).expect("a note is kept");
+        frontend.silent().await;
+
+        frontend.bus.ready();
+
+        assert_eq!(frontend.next(Note::EVENT_NAME).await, json!({ "n": 1 }));
+        assert_eq!(frontend.next(Note::EVENT_NAME).await, json!({ "n": 2 }));
+        frontend.silent().await;
+    }
+
+    #[tokio::test]
+    async fn a_streaming_notification_is_dropped_before_ready_and_emitted_after() {
+        let mut frontend = Frontend::new(8);
+        frontend
+            .bus
+            .notify(Stream { n: 1 })
+            .expect("a stream note is dropped");
+        frontend.silent().await;
+
+        frontend.bus.ready();
+        frontend
+            .bus
+            .notify(Stream { n: 2 })
+            .expect("a stream note leaves");
+
+        assert_eq!(frontend.next(Stream::EVENT_NAME).await, json!({ "n": 2 }));
+        frontend.silent().await;
+    }
+
+    #[test]
+    fn an_ask_id_and_its_envelope_keep_the_wire_shape() {
+        assert_eq!(serde_json::to_value(AskId(7)).expect("an id"), json!(7));
+        assert_eq!(AskId(7).to_string(), "ask-7");
+        assert_eq!(
+            serde_json::from_value::<AskId>(json!(7)).expect("an id"),
+            AskId(7)
+        );
+
+        let envelope = AskEnvelope {
+            id: AskId(3),
+            timeout_ms: 1_500,
+            payload: json!({ "a": 1 }),
+        };
+        assert_eq!(
+            serde_json::to_value(&envelope).expect("an envelope"),
+            json!({ "id": 3, "timeoutMs": 1_500, "payload": { "a": 1 } })
+        );
+
+        assert!(matches!(
+            serde_json::from_value::<Answer>(json!({ "status": "resolved", "data": { "ok": true } }))
+                .expect("an answer"),
+            Answer::Resolved(ref value) if value == &json!({ "ok": true })
+        ));
+        assert!(matches!(
+            serde_json::from_value::<Answer>(json!({ "status": "rejected", "data": "why" }))
+                .expect("an answer"),
+            Answer::Rejected(ref reason) if reason == "why"
+        ));
     }
 }
