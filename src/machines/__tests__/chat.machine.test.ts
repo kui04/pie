@@ -161,4 +161,47 @@ describe("the chat's stages", () => {
         await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
         expect(attached).toEqual(["/sessions/one.jsonl", "/sessions/one.jsonl"]);
     });
+
+    it("lets another conversation be picked after one could not start", async () => {
+        const { actor, attached } = started({
+            attach: async (path) => {
+                attached.push(path);
+                if (path === "/sessions/bamboo.jsonl") {
+                    throw new Error("Stored session working directory does not exist");
+                }
+                return sessionSummary({ path: "made:other" });
+            },
+        });
+
+        actor.send({ type: "FOCUS", path: "/sessions/bamboo.jsonl" });
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("unattached"));
+
+        actor.send({ type: "FOCUS", path: "/sessions/other.jsonl" });
+
+        expect(stageOf(actor.getSnapshot())).toBe("attaching");
+        expect(pathOf(actor.getSnapshot())).toBe("/sessions/other.jsonl");
+        expect(errorOf(actor.getSnapshot())).toBeNull();
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("viewing"));
+        expect(attached).toEqual(["/sessions/bamboo.jsonl", "/sessions/other.jsonl"]);
+        expect(sessionOf(actor.getSnapshot())).toBe("made:other");
+    });
+
+    it("views a held session after one could not start", async () => {
+        const { actor, attached } = started({
+            attach: async (path) => {
+                attached.push(path);
+                throw new Error("no pi on PATH");
+            },
+        });
+
+        actor.send({ type: "FOCUS", path: "/sessions/broken.jsonl" });
+        await vi.waitFor(() => expect(stageOf(actor.getSnapshot())).toBe("unattached"));
+
+        actor.send({ type: "OPEN", session: "main:9" });
+
+        expect(stageOf(actor.getSnapshot())).toBe("viewing");
+        expect(sessionOf(actor.getSnapshot())).toBe("main:9");
+        expect(errorOf(actor.getSnapshot())).toBeNull();
+        expect(attached).toEqual(["/sessions/broken.jsonl"]);
+    });
 });

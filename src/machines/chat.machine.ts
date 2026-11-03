@@ -80,7 +80,12 @@ export const chatMachine = setup({
             if (context.session !== null) void context.deps.detach(context.session);
         },
         /** Writes down the session that was chosen. */
-        view: assign({ session: ({ event }) => (event.type === "OPEN" ? event.session : null) }),
+        view: assign({
+            session: ({ event }) => (event.type === "OPEN" ? event.session : null),
+            path: null,
+            cwd: null,
+            error: null,
+        }),
     },
 }).createMachine({
     id: "chat",
@@ -116,10 +121,13 @@ export const chatMachine = setup({
             },
         },
         // The machine is reached and pi did not start. The page says so and offers the
-        // attempt again, on the same conversation.
+        // attempt again; a different pick leaves the failure behind.
         unattached: {
             on: {
                 RETRY: { target: "attaching", actions: assign({ error: null }) },
+                ATTACH: { target: "attaching", actions: "pending" },
+                FOCUS: { target: "attaching", actions: "pending" },
+                OPEN: { target: "viewing", actions: "view" },
             },
         },
         // A conversation is in view. A pick attaches another session on the file that is
